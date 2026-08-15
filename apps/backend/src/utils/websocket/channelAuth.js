@@ -128,7 +128,10 @@ export const CHANNEL_CATALOG = Object.freeze({
   'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },
   'admin:teleconsult-ops':     { description: 'Teleconsult operations snapshot — join failures, TURN usage, modality mix, consent, active/waiting counts', roles: 'admin' },
   'staff:ed-board':           { description: 'ED tracking board — visit arrivals, transitions, triage priority', roles: 'staff' },
-  'admin:audit':              { description: 'Security-audit events (logins, lockouts, role changes)', roles: 'admin' },
+  // NB: 'admin:audit' was removed from this catalog — no emitter ever
+  // existed for it and no client subscribed; advertising it invited
+  // subscriptions to a channel that never fires (2026-08-14 findings,
+  // services P3 #5). Re-add only together with a real emitter.
   'patient:<patientUid>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'governed-patient-access' },
   'patient:<patientUid>:appointments': { description: 'Status changes on the patient\'s own appointments', roles: 'governed-patient-access' },
 });

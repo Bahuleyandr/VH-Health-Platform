@@ -13,7 +13,9 @@ param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [int]$BackendPort = 5206,
   [int]$WaitSeconds = 60,
-  [string]$StaffExe = (Join-Path $env:LOCALAPPDATA "Programs\VH Health Staff\vhhealth_staff.exe"),
+  # Default matches the install directory update-local-staff-windows-app.ps1
+  # writes to (see apps/staff/docs/WINDOWS_UPDATE_PACKAGES.md).
+  [string]$StaffExe = "D:\Dev\Tools\VH Health Staff\vhhealth_staff.exe",
   [switch]$NoLaunch,
   [switch]$ForceRestartBackend
 )

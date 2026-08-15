@@ -10,34 +10,59 @@ import type { ApiData } from "@/lib/openapi-data";
 // analytics/conflicts/capacity/no-shows/search/export results have a typed
 // envelope (LOOSE aggregate cells per the backend overlay, but the array +
 // envelope structure is real). Mutator responses adopt their typed `data`.
-export type AppointmentAnalytics =
-  ApiData<"/api/v1/appointments/admin/analytics", "get">;
-export type AppointmentConflicts =
-  ApiData<"/api/v1/appointments/admin/conflicts", "get">;
+export type AppointmentAnalytics = ApiData<
+  "/api/v1/appointments/admin/analytics",
+  "get"
+>;
+export type AppointmentConflicts = ApiData<
+  "/api/v1/appointments/admin/conflicts",
+  "get"
+>;
 export type AppointmentConflict = AppointmentConflicts["conflicts"][number];
-export type CapacityAnalysis =
-  ApiData<"/api/v1/appointments/admin/capacity", "get">;
-export type NoShowReport = ApiData<"/api/v1/appointments/admin/no-shows", "get">;
+export type CapacityAnalysis = ApiData<
+  "/api/v1/appointments/admin/capacity",
+  "get"
+>;
+export type NoShowReport = ApiData<
+  "/api/v1/appointments/admin/no-shows",
+  "get"
+>;
 export type NoShowPatient = NoShowReport["noShowPatients"][number];
-export type AppointmentSearch =
-  ApiData<"/api/v1/appointments/admin/search", "get">;
-export type AppointmentExport =
-  ApiData<"/api/v1/appointments/admin/export", "get">;
+export type AppointmentSearch = ApiData<
+  "/api/v1/appointments/admin/search",
+  "get"
+>;
+export type AppointmentExport = ApiData<
+  "/api/v1/appointments/admin/export",
+  "get"
+>;
 export type AppointmentExportRow = AppointmentExport["appointments"][number];
 
 // Mutator response payloads (spec-derived).
-export type BookAppointmentResult =
-  ApiData<"/api/v1/appointments/book", "post">;
-export type BulkUpdateStatusResult =
-  ApiData<"/api/v1/appointments/admin/bulk-update-status", "post">;
-export type OverrideBookResult =
-  ApiData<"/api/v1/appointments/admin/override-book", "post">;
-export type ResolveConflictResult =
-  ApiData<"/api/v1/appointments/admin/resolve-conflict", "post">;
-export type SendRemindersResult =
-  ApiData<"/api/v1/appointments/admin/send-reminders", "post">;
-export type BulkDeleteResult =
-  ApiData<"/api/v1/appointments/admin/bulk-delete", "delete">;
+export type BookAppointmentResult = ApiData<
+  "/api/v1/appointments/book",
+  "post"
+>;
+export type BulkUpdateStatusResult = ApiData<
+  "/api/v1/appointments/admin/bulk-update-status",
+  "post"
+>;
+export type OverrideBookResult = ApiData<
+  "/api/v1/appointments/admin/override-book",
+  "post"
+>;
+export type ResolveConflictResult = ApiData<
+  "/api/v1/appointments/admin/resolve-conflict",
+  "post"
+>;
+export type SendRemindersResult = ApiData<
+  "/api/v1/appointments/admin/send-reminders",
+  "post"
+>;
+export type BulkDeleteResult = ApiData<
+  "/api/v1/appointments/admin/bulk-delete",
+  "delete"
+>;
 
 export function getAppointments<T = unknown>(params?: QueryParams) {
   return getJSON<T>(API_ENDPOINTS.appointments.list, params);
@@ -52,7 +77,8 @@ export function bookAppointmentAdmin(data: {
   appointment_time: string;
   reason: string;
   notes?: string;
-  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
+  visit_type?:
+    "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<BookAppointmentResult>(API_ENDPOINTS.appointments.book, data);
 }
@@ -97,7 +123,8 @@ export function overrideBookAppointment(data: {
   reason?: string;
   override_reason?: string;
   ignore_conflicts?: boolean;
-  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
+  visit_type?:
+    "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<OverrideBookResult>(
     API_ENDPOINTS.appointments.admin.overrideBook,
@@ -108,10 +135,7 @@ export function overrideBookAppointment(data: {
 export function resolveAppointmentConflict(data: {
   conflict_appointments: [number, number];
   resolution_action:
-    | "cancel_first"
-    | "cancel_second"
-    | "reschedule_first"
-    | "reschedule_second";
+    "cancel_first" | "cancel_second" | "reschedule_first" | "reschedule_second";
   new_time?: string;
 }) {
   return postJSON<ResolveConflictResult>(
@@ -261,8 +285,10 @@ export interface AuditEntry {
 // a `& { [k: string]: unknown }` index signature; `Omit` over that collapses
 // every kept key back to `unknown` (keyof includes `string`). Indexed access
 // preserves the declared field types.
-type SlaDashboardBase =
-  ApiData<"/api/v1/appointments/admin/sla-dashboard", "get">;
+type SlaDashboardBase = ApiData<
+  "/api/v1/appointments/admin/sla-dashboard",
+  "get"
+>;
 export type SlaDashboardResponse = {
   summary: SlaDashboardBase["summary"];
   by_status: SlaDashboardBase["by_status"];
@@ -281,23 +307,6 @@ export type SlaDashboardResponse = {
 export function getAppointmentSlaDashboard(params?: QueryParams) {
   return getJSON<SlaDashboardResponse>(
     API_ENDPOINTS.appointments.slaDashboard,
-    params,
-  );
-}
-
-// LOOSE backend (TodayQueueItem / PendingAppointment are additionalProperties:
-// true) — return the richer hand-typed AppointmentWorkflow[] the admin queue/
-// pending UIs consume (see the AppointmentWorkflow note above).
-export function getTodayQueue(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(
-    API_ENDPOINTS.appointments.queue,
-    params,
-  );
-}
-
-export function getPendingAppointments(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(
-    API_ENDPOINTS.appointments.pending,
     params,
   );
 }
@@ -329,12 +338,6 @@ export function cancelAppointmentAdmin<T = unknown>(
   data?: { cancellation_reason?: string },
 ) {
   return postJSON<T>(`/api/v1/appointments/${id}/cancel`, data ?? {});
-}
-
-export function getAppointmentDocumentsAdmin(appointmentId: number) {
-  return getJSON<AppointmentDocument[]>(
-    `/api/v1/appointments/${appointmentId}/documents`,
-  );
 }
 
 export function getAllAppointmentDocuments(params?: QueryParams) {
@@ -386,7 +389,8 @@ export interface WalkInPayload {
   reason?: string;
   notes?: string;
   appointment_time?: string;
-  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
+  visit_type?:
+    "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
   // Guardian fields — required when DOB indicates the patient is a minor.
   // Closes findings 2026-05-08-pediatric-opd-receptionist-no-guardian-model,
   // 2026-05-10-pediatric-opd-receptionist-minor-guardian-id-not-structured,

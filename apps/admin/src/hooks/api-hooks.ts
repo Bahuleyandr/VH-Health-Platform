@@ -38,23 +38,3 @@ export const useDashboardData = () => {
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 };
-
-// Doctors Hooks
-export const useDoctors = () => {
-  return useQuery({
-    queryKey: ["doctors"],
-    queryFn: api.getDoctors,
-  });
-};
-
-export const useDeleteDoctor = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id: number) => api.deleteDoctor(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["doctors"] });
-      toast.success("Doctor deleted successfully");
-    },
-  });
-};

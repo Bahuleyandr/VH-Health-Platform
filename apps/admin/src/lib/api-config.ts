@@ -515,45 +515,6 @@ export const API_ENDPOINTS = {
   },
 };
 
-// Protected routes - Updated to match backend services
-export const PROTECTED_ROUTES: string[] = [
-  // All admin routes
-  "/api/v1/admin/*",
-  "/api/v1/admin/stats/*",
-  "/api/v1/admin/attendance/*",
-  "/api/v1/admin/sos/*",
-  "/api/v1/admin/uploads/*",
-  "/api/v1/admin/health/*",
-  "/api/v1/admin/alerts/*",
-  "/api/v1/admin/activity/*",
-  "/api/v1/admin/reports/*",
-
-  // Staff admin routes
-  "/api/v1/staff/admin/*",
-  "/api/v1/staff/medical/*",
-
-  // Other protected routes
-  "/api/v1/auth/adminManagement",
-  "/api/v1/pharmacy-orders/orders/*",
-  "/api/v1/pharmacy-orders/medications/*",
-  "/api/v1/pharmacy-orders/inventory*",
-  "/api/v1/pharmacy-orders/catalog*",
-  "/api/v1/pharmacy-orders/sla*",
-  "/api/v1/investigations/admin/*",
-  "/api/v1/debug/routes",
-  "/api/v1/rbac/*",
-  "/api/v1/appointments/admin/*",
-  "/api/v1/notifications/admin/*",
-  "/api/v1/records/admin/*",
-  "/api/v1/admin/analytics/*",
-  "/api/v1/abdm/*",
-  "/api/v1/devices",
-  "/api/v1/feedback",
-  "/api/v1/billing/*",
-  "/api/v1/emr/*",
-  "/api/v1/clinical/*",
-];
-
 // Standard JSON headers for client-side requests.
 // NOTE: x-api-key is intentionally omitted here — client-side fetch calls route
 // through /api/proxy which injects the API key server-side from process.env.API_KEY.
@@ -584,10 +545,3 @@ export const ensureApiV1Path = (path: string) => {
 };
 
 export const buildProxyUrl = (path: string) => buildUrl(ensureApiV1Path(path));
-
-// Check if endpoint requires authentication
-export const requiresAuth = (endpoint: string): boolean =>
-  PROTECTED_ROUTES.some((route) => {
-    if (route.endsWith("*")) return endpoint.startsWith(route.slice(0, -1));
-    return endpoint === route;
-  });

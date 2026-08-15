@@ -369,9 +369,6 @@ export const dataExportRateLimiter = getRateLimiter('dataExport');
 /** ✅ Dashboard rate limiter — 10/min per IP to limit phone enumeration */
 export const dashboardRateLimiter = getRateLimiter('dashboard');
 
-/** ✅ No Limiter (pass-through) */
-export const noRateLimiter = (req, res, next) => next();
-
 /**
  * ✅ Dynamically apply a limiter based on authenticated role.
  * SUPER_ADMIN & ADMIN use the admin profile (less strict).

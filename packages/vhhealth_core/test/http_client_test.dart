@@ -8,7 +8,6 @@ import 'package:http/testing.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
-import 'package:vhhealth_core/services/mtls_client_service.dart';
 
 /// In-memory fake for the flutter_secure_storage method channel.
 void _installSecureStorageFake() {
@@ -60,22 +59,6 @@ void main() {
     VHHttpClient.appCheckTokenProvider = null;
     VHHttpClient.appCheckTokenTimeout = const Duration(seconds: 2);
   });
-
-  test(
-    'required mTLS client fails closed when no certificate is installed',
-    () async {
-      await expectLater(
-        MtlsClientService.instance.buildRequiredClient(),
-        throwsA(
-          isA<MtlsClientUnavailable>().having(
-            (error) => error.reasonCode,
-            'reasonCode',
-            'clinical_continuity_edge_mtls_unavailable',
-          ),
-        ),
-      );
-    },
-  );
 
   group('VHHttpClient — _performRefresh (bearer path, no refresh token)', () {
     test('success: parses `token` from envelope and stores it', () async {

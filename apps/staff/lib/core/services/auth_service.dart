@@ -104,6 +104,7 @@ class AuthService {
     required Map<String, dynamic> data,
     required String loginMethod,
     String? trustedDeviceToken,
+    bool rememberEmployeeId = true,
   }) async {
     final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
     if (token == null) return;
@@ -130,7 +131,12 @@ class AuthService {
         refreshToken: refreshToken?.toString(),
       );
       await ApiConfig.saveJwt(token.toString());
-      if (employeeId.trim().isNotEmpty) {
+      // "Remember my Employee ID" honors the shared-ward-device concern:
+      // when the user opts out, the ID is never persisted, so the next
+      // launch's login screen starts blank. clearSessionIdentity() above
+      // already wiped any previously remembered ID, so opting out also
+      // clears an older remembered value.
+      if (rememberEmployeeId && employeeId.trim().isNotEmpty) {
         await ApiConfig.saveEmployeeId(employeeId);
       }
 
@@ -261,8 +267,9 @@ class AuthService {
   }
 
   static Future<Map<String, dynamic>> loginWithStaffSso(
-    StaffSsoProvider provider,
-  ) async {
+    StaffSsoProvider provider, {
+    bool rememberEmployeeId = true,
+  }) async {
     final redirectUri = _ssoRedirectUriFor(provider);
     final installationId =
         await core_auth.AuthService.getOrCreateInstallationId();
@@ -317,6 +324,7 @@ class AuthService {
       employeeId: _staffEmployeeIdFromData(data),
       data: data,
       loginMethod: 'sso_oidc',
+      rememberEmployeeId: rememberEmployeeId,
     );
     return data;
   }
@@ -325,6 +333,7 @@ class AuthService {
   static Future<Map<String, dynamic>> login({
     required String employeeId,
     required String password,
+    bool rememberEmployeeId = true,
   }) async {
     final installationId =
         await core_auth.AuthService.getOrCreateInstallationId();
@@ -364,6 +373,7 @@ class AuthService {
           data: data,
           loginMethod: 'password',
           trustedDeviceToken: deviceToken,
+          rememberEmployeeId: rememberEmployeeId,
         );
         return data.isNotEmpty ? data : raw;
       }
@@ -380,6 +390,7 @@ class AuthService {
   static Future<Map<String, dynamic>> pinLogin({
     required String employeeId,
     required String pin,
+    bool rememberEmployeeId = true,
   }) async {
     final deviceToken = await getDeviceToken();
     if (deviceToken == null || deviceToken.trim().isEmpty) {
@@ -409,6 +420,7 @@ class AuthService {
           employeeId: employeeId,
           data: data,
           loginMethod: 'pin',
+          rememberEmployeeId: rememberEmployeeId,
         );
         return data.isNotEmpty ? data : raw;
       }
@@ -540,6 +552,7 @@ class AuthService {
     required String employeeId,
     String? pin,
     bool biometric = false,
+    bool rememberEmployeeId = true,
   }) async {
     final deviceToken = await getDeviceToken();
     if (deviceToken == null || deviceToken.trim().isEmpty) {
@@ -570,6 +583,7 @@ class AuthService {
           employeeId: employeeId,
           data: data,
           loginMethod: 'quick',
+          rememberEmployeeId: rememberEmployeeId,
         );
         return data.isNotEmpty ? data : raw;
       }

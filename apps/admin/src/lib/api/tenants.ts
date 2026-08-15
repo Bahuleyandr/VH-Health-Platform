@@ -1,9 +1,9 @@
-import { fetchAdminAPI, getJSON, postJSON } from './core';
-import type { BrandKitAsset } from './tenantContext';
+import { fetchAdminAPI, getJSON, postJSON } from "./core";
+import type { BrandKitAsset } from "./tenantContext";
 
-export type TenantRegion = 'IN' | 'EU' | 'US' | 'AP' | 'OTHER';
-export type TenantComplianceProfile = 'DPDP' | 'HIPAA' | 'GDPR' | 'NONE';
-export type TenantStatus = 'active' | 'suspended' | 'offboarding';
+export type TenantRegion = "IN" | "EU" | "US" | "AP" | "OTHER";
+export type TenantComplianceProfile = "DPDP" | "HIPAA" | "GDPR" | "NONE";
+export type TenantStatus = "active" | "suspended" | "offboarding";
 
 export interface Tenant {
   id: string;
@@ -20,7 +20,7 @@ export interface Tenant {
 export interface TenantInteropSecret {
   id: number;
   tenant_id: string;
-  kind: 'abdm_callback' | 'hl7_inbound';
+  kind: "abdm_callback" | "hl7_inbound";
   sender_identifier: string;
   status: string;
   has_secret: boolean;
@@ -32,7 +32,7 @@ export interface TenantInteropSecret {
 export interface TenantKekRewrapJob {
   job_id: string;
   tenant_id: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: "queued" | "running" | "succeeded" | "failed";
   requested_by: string | null;
   created_at: string;
   started_at: string | null;
@@ -80,8 +80,8 @@ export interface TenantBrandKit {
     documentLetterhead: BrandKitAsset | null;
   };
   mobile: {
-    identityMode: 'stamped_build';
-    tokenColorSource: 'VH_TENANT_PRIMARY';
+    identityMode: "stamped_build";
+    tokenColorSource: "VH_TENANT_PRIMARY";
   };
   fallbacks?: {
     name: boolean;
@@ -113,11 +113,13 @@ export type TenantBrandKitPatch = Partial<{
   }>;
 }>;
 
-export async function listTenants(params: { status?: string; region?: string } = {}) {
+export async function listTenants(
+  params: { status?: string; region?: string } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.status) query.status = params.status;
   if (params.region) query.region = params.region;
-  return getJSON<{ tenants: Tenant[]; count: number }>('/admin/tenants', query);
+  return getJSON<{ tenants: Tenant[]; count: number }>("/admin/tenants", query);
 }
 
 export async function listTenantInteropSecrets(tenantId: string) {
@@ -126,31 +128,44 @@ export async function listTenantInteropSecrets(tenantId: string) {
   );
 }
 
-export async function getTenantBrandKit(tenantId: string) {
-  return getJSON<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`);
+export async function updateTenantBrandKit(
+  tenantId: string,
+  payload: TenantBrandKitPatch,
+) {
+  return fetchAdminAPI<{ brandKit: TenantBrandKit }>(
+    `/admin/tenants/${tenantId}/brand-kit`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
-export async function updateTenantBrandKit(tenantId: string, payload: TenantBrandKitPatch) {
-  return fetchAdminAPI<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`, {
-    method: 'PATCH',
-    body: payload,
-  });
-}
-
-export async function upsertTenantInteropSecret(tenantId: string, payload: {
-  kind: TenantInteropSecret['kind'];
-  senderIdentifier: string;
-  secret: string;
-}) {
-  return postJSON<TenantInteropSecret>(`/admin/tenants/${tenantId}/interop-secrets`, payload);
+export async function upsertTenantInteropSecret(
+  tenantId: string,
+  payload: {
+    kind: TenantInteropSecret["kind"];
+    senderIdentifier: string;
+    secret: string;
+  },
+) {
+  return postJSON<TenantInteropSecret>(
+    `/admin/tenants/${tenantId}/interop-secrets`,
+    payload,
+  );
 }
 
 export async function startTenantKekRewrapJob(tenantId: string) {
-  return postJSON<TenantKekRewrapJob>(`/admin/tenants/${tenantId}/kek-rotation-jobs`, {});
+  return postJSON<TenantKekRewrapJob>(
+    `/admin/tenants/${tenantId}/kek-rotation-jobs`,
+    {},
+  );
 }
 
 export async function getTenantKekRewrapJob(tenantId: string, jobId: string) {
-  return getJSON<TenantKekRewrapJob>(`/admin/tenants/${tenantId}/kek-rotation-jobs/${jobId}`);
+  return getJSON<TenantKekRewrapJob>(
+    `/admin/tenants/${tenantId}/kek-rotation-jobs/${jobId}`,
+  );
 }
 
 export async function createTenant(payload: {
@@ -160,18 +175,21 @@ export async function createTenant(payload: {
   compliance_profile?: TenantComplianceProfile;
   settings?: Record<string, unknown>;
 }) {
-  return postJSON<Tenant>('/admin/tenants', payload);
+  return postJSON<Tenant>("/admin/tenants", payload);
 }
 
-export async function updateTenant(tenantId: string, patch: Partial<{
-  name: string;
-  region: TenantRegion;
-  compliance_profile: TenantComplianceProfile;
-  status: TenantStatus;
-  settings: Record<string, unknown>;
-}>) {
+export async function updateTenant(
+  tenantId: string,
+  patch: Partial<{
+    name: string;
+    region: TenantRegion;
+    compliance_profile: TenantComplianceProfile;
+    status: TenantStatus;
+    settings: Record<string, unknown>;
+  }>,
+) {
   return fetchAdminAPI<Tenant>(`/admin/tenants/${tenantId}`, {
-    method: 'PATCH',
+    method: "PATCH",
     body: patch,
   });
 }

@@ -34,6 +34,7 @@ class LoginService {
   static Future<Map<String, dynamic>> loginWithPassword({
     required String employeeId,
     required String password,
+    bool rememberEmployeeId = true,
   }) async {
     final idError = validateEmployeeId(employeeId);
     if (idError != null) throw Exception(idError);
@@ -44,6 +45,7 @@ class LoginService {
     return AuthService.login(
       employeeId: employeeId.trim().toUpperCase(),
       password: password,
+      rememberEmployeeId: rememberEmployeeId,
     );
   }
 
@@ -51,6 +53,7 @@ class LoginService {
   static Future<Map<String, dynamic>> loginWithPin({
     required String employeeId,
     required String pin,
+    bool rememberEmployeeId = true,
   }) async {
     final idError = validateEmployeeId(employeeId);
     if (idError != null) throw Exception(idError);
@@ -62,6 +65,7 @@ class LoginService {
     return AuthService.pinLogin(
       employeeId: employeeId.trim().toUpperCase(),
       pin: pin,
+      rememberEmployeeId: rememberEmployeeId,
     );
   }
 
@@ -70,9 +74,13 @@ class LoginService {
   }
 
   static Future<Map<String, dynamic>> loginWithStaffSso(
-    StaffSsoProvider provider,
-  ) {
-    return AuthService.loginWithStaffSso(provider);
+    StaffSsoProvider provider, {
+    bool rememberEmployeeId = true,
+  }) {
+    return AuthService.loginWithStaffSso(
+      provider,
+      rememberEmployeeId: rememberEmployeeId,
+    );
   }
 
   static Future<StaffLogoutResult> logout() => AuthService.logout();

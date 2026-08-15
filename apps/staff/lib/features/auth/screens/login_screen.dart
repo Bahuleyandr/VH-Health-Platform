@@ -22,6 +22,23 @@ import '../services/login_service.dart';
 // letter prefix so the rest of the stack doesn't care.
 const String _empIdPrefix = 'EMP-';
 
+/// Matches the actual staff lockout responses from the backend's
+/// `staffAuthService` (`_checkStaffLockout` / `_checkStaffPinLockout`):
+///   * 'Account temporarily locked due to multiple failed attempts'
+///     (password / quick-login / PIN backstop, STAFF_LOGIN_RATE_LIMITED)
+///   * 'Too many failed PIN attempts from this device. ...'
+///     (per-vantage PIN lockout, STAFF_PIN_RATE_LIMITED)
+/// The transport may append a ` · ref requestId` suffix, so this matches on
+/// substrings — but deliberately narrow ones: a generic outage ("service
+/// temporarily unavailable") or a plain rate-limit 429 ("Too many requests")
+/// must render the ordinary error surface, not the amber account-locked panel.
+@visibleForTesting
+bool looksLikeStaffLockoutMessage(String msg) {
+  final lower = msg.toLowerCase();
+  return lower.contains('account temporarily locked') ||
+      lower.contains('too many failed');
+}
+
 enum _LoginMode { password, pin, quickLogin }
 
 class LoginScreen extends StatefulWidget {
@@ -46,17 +63,6 @@ class _LoginScreenState extends State<LoginScreen> {
   List<StaffSsoProvider> _ssoProviders = const [];
   String? _error;
   bool _isLockedOut = false;
-
-  /// Matches the backend lockout message so we can render a distinct UI.
-  /// Backend currently throws
-  /// `Error('Account temporarily locked due to multiple failed attempts')`
-  /// — match generously in case the wording evolves.
-  static bool _looksLikeLockout(String msg) {
-    final lower = msg.toLowerCase();
-    return lower.contains('locked') ||
-        lower.contains('too many') ||
-        lower.contains('temporarily');
-  }
 
   @override
   void initState() {
@@ -116,16 +122,19 @@ class _LoginScreenState extends State<LoginScreen> {
         await AuthService.quickLogin(
           employeeId: employeeId,
           pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          rememberEmployeeId: _rememberMe,
         );
       } else if (_mode == _LoginMode.password) {
         await LoginService.loginWithPassword(
           employeeId: employeeId,
           password: _passwordController.text,
+          rememberEmployeeId: _rememberMe,
         );
       } else {
         await LoginService.loginWithPin(
           employeeId: employeeId,
           pin: _pinController.text,
+          rememberEmployeeId: _rememberMe,
         );
       }
       _finishLogin();
@@ -133,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
         _error = msg;
-        _isLockedOut = _looksLikeLockout(msg);
+        _isLockedOut = looksLikeStaffLockoutMessage(msg);
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -147,14 +156,17 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLockedOut = false;
     });
     try {
-      await LoginService.loginWithStaffSso(provider);
+      await LoginService.loginWithStaffSso(
+        provider,
+        rememberEmployeeId: _rememberMe,
+      );
       _finishLogin();
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       if (mounted) {
         setState(() {
           _error = msg;
-          _isLockedOut = _looksLikeLockout(msg);
+          _isLockedOut = looksLikeStaffLockoutMessage(msg);
         });
       }
     } finally {
@@ -179,14 +191,18 @@ class _LoginScreenState extends State<LoginScreen> {
         if (result == BiometricAuthResult.cancelled) return;
         throw Exception('Biometric authentication is not available.');
       }
-      await AuthService.quickLogin(employeeId: employeeId, biometric: true);
+      await AuthService.quickLogin(
+        employeeId: employeeId,
+        biometric: true,
+        rememberEmployeeId: _rememberMe,
+      );
       _finishLogin();
     } catch (e) {
       if (mounted) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         setState(() {
           _error = msg;
-          _isLockedOut = _looksLikeLockout(msg);
+          _isLockedOut = looksLikeStaffLockoutMessage(msg);
         });
       }
     } finally {

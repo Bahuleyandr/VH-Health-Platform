@@ -150,34 +150,6 @@ export const DashboardDataSchema = z.object({
 });
 
 /* =========================
- * Form Schemas
- * ========================= */
-
-export const LoginFormSchema = z.object({
-  username: z.string().min(1, "Username is required"),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number")
-    .regex(
-      /[^A-Za-z0-9]/,
-      "Password must contain at least one special character",
-    ),
-});
-
-export const CreateDoctorFormSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  phone: z.string().regex(/^[0-9]{10}$/, "Phone must be 10 digits"),
-  department: z.string().min(1, "Department is required"),
-  specialization: z.string().min(1, "Specialization is required"),
-  consultation_fee: z.number().min(0, "Fee must be positive"),
-});
-
-/* =========================
  * Type Exports (from schemas)
  * ========================= */
 
@@ -189,5 +161,3 @@ export type Patient = z.infer<typeof PatientSchema>;
 export type Appointment = z.infer<typeof AppointmentSchema>;
 export type DashboardDataBackend = z.infer<typeof DashboardDataBackendSchema>;
 export type DashboardData = z.infer<typeof DashboardDataSchema>;
-export type LoginForm = z.infer<typeof LoginFormSchema>;
-export type CreateDoctorForm = z.infer<typeof CreateDoctorFormSchema>;

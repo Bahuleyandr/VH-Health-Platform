@@ -14,15 +14,20 @@ export const gatewayAckLatency = new Histogram(
   'gateway_ack_latency_seconds',
   'MLLP acknowledgement latency after frame receipt',
 );
+// Depth/age carry an optional `scope` label so legacy NDJSON spools export on
+// the SAME metric names the I09 partitions use (scope="legacy") — the
+// DeviceGatewaySpoolDepthHigh / ...OldestAgeHigh alerts match on the bare
+// metric name and therefore see both. I09 partition series omit the label
+// (empty labels are not serialized), keeping their exposition unchanged.
 export const gatewaySpoolDepth = new Gauge(
   'gateway_spool_depth',
   'Queued durable entries by opaque partition reference',
-  ['partition_ref'],
+  ['scope', 'partition_ref'],
 );
 export const gatewaySpoolOldestAge = new Gauge(
   'gateway_spool_oldest_age_seconds',
   'Age of the oldest queued entry by opaque partition reference',
-  ['partition_ref'],
+  ['scope', 'partition_ref'],
 );
 export const gatewaySpoolCapacity = new Gauge(
   'gateway_spool_capacity_bytes',

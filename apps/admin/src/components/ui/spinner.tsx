@@ -26,11 +26,3 @@ export function LoadingSpinner({
     </div>
   );
 }
-
-export function FullPageSpinner() {
-  return (
-    <div className="fixed inset-0 bg-card/80 backdrop-blur-sm flex items-center justify-center z-50">
-      <LoadingSpinner />
-    </div>
-  );
-}

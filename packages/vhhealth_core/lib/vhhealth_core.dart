@@ -8,7 +8,6 @@ export 'clinical/vital_plausibility.dart';
 // imports it directly. Kept on disk for that test, but dropped from the
 // public barrel per the "keep shared APIs small" rule. Re-export it here if
 // an app actually adopts entitlement gating.
-export 'exceptions/app_exception.dart';
 export 'models/api_models.dart';
 export 'models/api_response.dart';
 export 'models/client_readiness.dart';
@@ -50,10 +49,8 @@ export 'services/idempotency_key.dart';
 // plaintext over TLS). If product later wants true E2E messaging, recover
 // the module from git history and wire it in with a real key-distribution
 // design — do not re-export it unwired.
-export 'services/mtls_client_service.dart';
 export 'services/realtime_client.dart';
 export 'services/realtime_provider.dart';
-export 'services/version_gate.dart';
 // OpenAPI-generated API (models + chopper client). Re-exported from
 // lib/api/vhhealth_api.dart once `dart run build_runner build` has
 // generated the artefacts. The auth interceptor (api/vh_auth_interceptor.dart)
@@ -67,7 +64,6 @@ export 'utils/input_sanitizer.dart';
 export 'utils/log_sanitizer.dart';
 export 'utils/request_reference.dart';
 export 'utils/safe_url_launcher.dart';
-export 'utils/validators.dart';
 export 'widgets/data_state_builder.dart';
 export 'widgets/offline_sync_badge.dart';
 export 'widgets/signature_pad_field.dart';

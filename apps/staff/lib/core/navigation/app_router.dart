@@ -128,7 +128,6 @@ import '../../features/radiation_oncology/screens/radiation_oncology_screen.dart
 import '../../features/oncology/screens/oncology_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
-import '../../features/productivity/screens/order_sets_screen.dart';
 import '../../features/maternity/screens/maternity_screen.dart';
 import '../../features/maternity/screens/partograph_entry_screen.dart';
 import '../../features/maternity/screens/partograph_view_screen.dart';
@@ -442,22 +441,6 @@ final GoRouter appRouter = GoRouter(
           name: 'phone-patient-lookup',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: PhonePatientLookupScreen()),
-        ),
-        GoRoute(
-          path: '/reception-counter',
-          name: 'reception-counter',
-          pageBuilder: (context, state) {
-            final q = state.uri.queryParameters;
-            return NoTransitionPage(
-              child: FrontOfficeWorkbenchScreen(
-                initialPatientUid: q['patient_uid'],
-                initialPatientId: q['patient_id'],
-                initialPatientName: q['name'],
-                initialPatientPhone: q['phone'],
-                initialHospitalNumber: q['hospital_number'],
-              ),
-            );
-          },
         ),
         GoRoute(
           path: '/front-office',
@@ -1117,20 +1100,6 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: CalculatorsScreen()),
         ),
-        GoRoute(
-          path: '/order-sets',
-          name: 'order-sets',
-          pageBuilder: (context, state) {
-            final extra = state.extra as Map<String, dynamic>?;
-            return NoTransitionPage(
-              child: OrderSetsScreen(
-                encounterId: extra?['encounter_id'] as int?,
-                patientUid: extra?['patient_uid'] as String?,
-              ),
-            );
-          },
-        ),
-
         // Maternity (Sprint 7)
         GoRoute(
           path: '/maternity',

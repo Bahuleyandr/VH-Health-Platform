@@ -28,6 +28,37 @@ void main() {
         AppointmentStatus.cancelled,
       );
       expect(AppointmentStatus.fromString('NO_SHOW'), AppointmentStatus.noShow);
+      expect(
+        AppointmentStatus.fromString('RESCHEDULED'),
+        AppointmentStatus.rescheduled,
+      );
+    });
+
+    test('covers exactly the backend canonical status list', () {
+      // Mirror of APPOINTMENT_STATUS in apps/backend/src/config/userConfig.js
+      // (same list as APPOINTMENT_CONFIG.STATUSES in appointmentConfig.js).
+      // If the backend adds a status, add it to AppointmentStatus and here.
+      const backendStatuses = {
+        'SCHEDULED',
+        'CONFIRMED',
+        'IN_PROGRESS',
+        'COMPLETED',
+        'CANCELLED',
+        'NO_SHOW',
+        'RESCHEDULED',
+      };
+      expect(
+        AppointmentStatus.values.map((e) => e.value).toSet(),
+        backendStatuses,
+      );
+    });
+
+    test('non-canonical flow states stay fail-closed', () {
+      // CHECKED_IN / WAITING can appear in stored rows but are not part of
+      // the backend's canonical appointment status list — callers that care
+      // (e.g. the ANC timeline) handle them locally.
+      expect(AppointmentStatus.fromString('CHECKED_IN'), isNull);
+      expect(AppointmentStatus.fromString('WAITING'), isNull);
     });
 
     test('accepts lowercase + mixed case', () {
@@ -57,9 +88,12 @@ void main() {
       expect(AppointmentStatus.completed.isActive, isFalse);
       expect(AppointmentStatus.cancelled.isActive, isFalse);
 
+      expect(AppointmentStatus.rescheduled.isActive, isFalse);
+
       expect(AppointmentStatus.completed.isTerminal, isTrue);
       expect(AppointmentStatus.cancelled.isTerminal, isTrue);
       expect(AppointmentStatus.noShow.isTerminal, isTrue);
+      expect(AppointmentStatus.rescheduled.isTerminal, isTrue);
       expect(AppointmentStatus.scheduled.isTerminal, isFalse);
     });
   });

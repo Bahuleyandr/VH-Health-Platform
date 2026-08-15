@@ -96,7 +96,7 @@ prisma/schema.prisma  # canonical schema source, 863 models (regenerated after e
 | Profile | Window | Max | Applied To |
 |---------|--------|-----|------------|
 | patient | 15min | 100 | /users, /appointments, /records, /feedback |
-| staff | 15min | 500 | /staff/* |
+| staff | 15min | 500 | **No mount applies this.** Neither `/api/v1/staff` mount carries a limiter; staff reads are unlimited. The profile is reached only via `dynamicRoleRateLimiter`, which `wrapAutoRBAC` attaches to write methods (POST/PUT/PATCH/DELETE) on wrapped routers — a staff-role JWT then buckets under this profile. The `/api/v1/*` 404 fallback limiter only meters unmatched paths. |
 | admin | 15min | 100 | /admin/*, /system/*, /logs/* |
 | auth | 15min | 5 per IP+account | /auth/admin/login, /auth/staff/login, /auth/staff/quick-login |
 | otp | 10min | 3 per phone | /auth/firebase-login, /auth/request-otp |

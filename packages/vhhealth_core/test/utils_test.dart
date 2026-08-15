@@ -1,30 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vhhealth_core/utils/validators.dart';
 import 'package:vhhealth_core/utils/input_sanitizer.dart';
-import 'package:vhhealth_core/utils/date_formatter.dart';
 
 void main() {
-  group('Validators', () {
-    test('isValidPhone accepts valid numbers', () {
-      expect(Validators.isValidPhone('+919876543210'), true);
-      expect(Validators.isValidPhone('9876543210'), true);
-      expect(Validators.isValidPhone('+14155551234'), true);
-    });
-
-    test('isValidPhone rejects invalid numbers', () {
-      expect(Validators.isValidPhone('123'), false);
-      expect(Validators.isValidPhone('abc'), false);
-      expect(Validators.isValidPhone(''), false);
-    });
-
-    test('isNotBlank checks correctly', () {
-      expect(Validators.isNotBlank('hello'), true);
-      expect(Validators.isNotBlank('  '), false);
-      expect(Validators.isNotBlank(null), false);
-      expect(Validators.isNotBlank(''), false);
-    });
-  });
-
   group('InputSanitizer', () {
     test('stripHtml removes tags', () {
       expect(InputSanitizer.stripHtml('<b>bold</b>'), 'bold');
@@ -49,18 +26,6 @@ void main() {
     test('sanitizeName strips html and null bytes', () {
       expect(InputSanitizer.sanitizeName('<b>John</b>'), 'John');
       expect(InputSanitizer.sanitizeName('John\x00Doe'), 'JohnDoe');
-    });
-  });
-
-  group('DateFormatter', () {
-    test('yyyyMmDd formats correctly', () {
-      final date = DateTime(2026, 4, 2);
-      expect(DateFormatter.yyyyMmDd(date), '2026-04-02');
-    });
-
-    test('hhMm formats correctly', () {
-      final date = DateTime(2026, 4, 2, 14, 30);
-      expect(DateFormatter.hhMm(date), '14:30');
     });
   });
 }

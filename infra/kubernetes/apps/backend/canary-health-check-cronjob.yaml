@@ -80,7 +80,10 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  BACKEND_URL="http://vhhealth-backend.vhhealth.svc.cluster.local:5000"
+                  # Portless: the vhhealth-backend Service exposes port 80 →
+                  # targetPort http (5000); pods are only reachable through the
+                  # Service port, same as every other in-cluster caller.
+                  BACKEND_URL="http://vhhealth-backend.vhhealth.svc.cluster.local"
                   FAILURES=0
 
                   check() {

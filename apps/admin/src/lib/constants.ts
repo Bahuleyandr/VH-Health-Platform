@@ -3,28 +3,11 @@
 
 // ---- Timing (milliseconds) ----
 
-/** How long TanStack Query considers data "fresh" before refetching. */
-export const QUERY_STALE_TIME_MS = 60 * 1000; // 1 minute
-
 /** Dashboard auto-refresh interval. */
 export const DASHBOARD_REFRESH_INTERVAL_MS = 30_000; // 30 seconds
 
 /** Live "seconds ago" ticker interval. */
 export const SECONDS_AGO_TICK_MS = 1_000; // 1 second
-
-/** Toast notification display duration. */
-export const TOAST_DURATION_MS = 3_500;
-
-/** Animated counter total animation duration. */
-export const ANIMATED_COUNTER_DURATION_MS = 1_000;
-
-/** Animated counter step count. */
-export const ANIMATED_COUNTER_STEPS = 20;
-
-// ---- Auth / cookies ----
-
-/** Cookie max-age for the admin auth token (days). */
-export const AUTH_COOKIE_EXPIRY_DAYS = 7;
 
 // ---- Dashboard thresholds ----
 

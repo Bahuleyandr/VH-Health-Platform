@@ -100,15 +100,31 @@ export async function resolveTenantIdForOutboxRow(row) {
   }
 
   if (row?.recipient_phone) {
+    // Last-resort fallback, effectively unreachable for real outbox rows:
+    // notification_outbox.tenant_id is NOT NULL with a default (migration
+    // 609), so the row-level branch above always resolves first. Kept for
+    // synthetic/legacy callers that pass a bare {recipient_phone}. A phone
+    // is NOT unique across tenants, so an unordered LIMIT 1 was
+    // nondeterministic when the same number exists in two tenants — order by
+    // earliest registration, then id, so repeated calls always resolve to
+    // the same user (and log when the phone was ambiguous).
     try {
       const rows = await prisma.$queryRawUnsafe(
-        `SELECT tenant_id FROM users
+        `SELECT tenant_id, COUNT(*) OVER () AS phone_match_count FROM users
           WHERE phone = $1
+          ORDER BY registered_at ASC NULLS LAST, id ASC
           LIMIT 1`,
         String(row.recipient_phone),
       );
       const tenantId = normalizeTenantId(rows?.[0]?.tenant_id);
-      if (tenantId) return tenantId;
+      if (tenantId) {
+        if (Number(rows?.[0]?.phone_match_count || 0) > 1) {
+          logger.warn(
+            'outbox-drain: recipient phone matches multiple users; resolved deterministically to the earliest-registered account\'s tenant',
+          );
+        }
+        return tenantId;
+      }
     } catch (err) {
       logger.warn('outbox-drain: recipient tenant lookup by phone failed:', err.message);
     }

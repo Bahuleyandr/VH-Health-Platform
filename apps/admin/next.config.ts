@@ -34,10 +34,6 @@ const nextConfig: NextConfig = {
     // this file intentionally no longer sets one.
     return [
       {
-        source: "/api/proxy/:path*",
-        headers: [{ key: "Origin", value: allowedOrigin }],
-      },
-      {
         source: "/:path*",
         headers: [
           // CORS: use specific origin, NOT wildcard (especially with credentials)

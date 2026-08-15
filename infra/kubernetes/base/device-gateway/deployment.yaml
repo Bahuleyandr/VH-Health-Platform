@@ -25,6 +25,18 @@ spec:
           type: RuntimeDefault
       containers:
         - name: device-gateway
+          # PROVENANCE GAP, HELD BY DESIGN: no CI pipeline builds, signs, or
+          # digest-pins this image — `:held` is a mutable tag that exists in
+          # no registry, and neither .github/ nor .forgejo/ release workflows
+          # cover the device gateway (release-images.yml builds backend/admin/
+          # staff-web only). This tree is deliberately outside the production
+          # composition, so the unpullable ref is fail-closed as committed.
+          # ACTIVATION REQUIREMENT: before composing this manifest, add a
+          # signed image build (cosign, matching the backend/admin release
+          # pipeline) and replace this ref with an immutable @sha256 digest —
+          # the Kyverno verify-images policy (base/image-policy/) flags a
+          # hand-built unsigned image. See apps/backend/docs/RUNBOOKS/
+          # device-gateway-activation.md.
           image: ghcr.io/bahuleyandr/vh-health-device-gateway:held
           imagePullPolicy: IfNotPresent
           ports:

@@ -78,7 +78,7 @@ jobs:
 
       # Semgrep stays advisory here; WS3 B3.4 flips it to blocking after
       # the initial finding backlog is triaged (target: 2026-06-24).
-      # See docs/SECURITY_CONTROLS_SELFASSESSMENT.md §8 for the gate criteria.
+      # See docs/archive/audits/SECURITY_CONTROLS_SELFASSESSMENT.md §8 for the gate criteria.
       # Two passes are run:
       #   1. Focused VH Health ruleset (.semgrep.yml) — tightly scoped,
       #      high signal-to-noise, covers injection/secrets/SSRF/path-traversal/

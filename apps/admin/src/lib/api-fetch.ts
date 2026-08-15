@@ -94,12 +94,3 @@ export async function apiFetch(
     headers: composed,
   });
 }
-
-/** Convenience GET that still returns the raw Response (callers decide how to parse) */
-export function apiGet(
-  endpoint: string,
-  token?: string,
-  init?: RequestInit,
-): Promise<Response> {
-  return apiFetch(endpoint, { ...(init ?? {}), method: "GET", token });
-}

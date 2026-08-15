@@ -1,13 +1,18 @@
 // src/routes/auth/devAuthRoutes.js
 // Development-only auth shortcuts. Mounted in routes/auth/index.js ONLY
-// when ENABLE_DEV_AUTH=true. Lets the patient app obtain a real JWT
-// without a working Firebase OTP flow - needed because emulators / CI
-// environments cannot complete a real phone-OTP round-trip.
+// when isDevAuthEnabled() is true — which hard-requires NODE_ENV to not be
+// production AND ENABLE_DEV_AUTH=true (utils/authCompatibilityGates.js).
+// Lets the patient app obtain a real JWT without a working Firebase OTP
+// flow - needed because emulators / CI environments cannot complete a real
+// phone-OTP round-trip.
 //
 // SECURITY: must never be reachable unless explicitly enabled. The mount-time
-// guard in routes/auth/index.js controls exposure; this file also requires a
-// temporary shared secret in production so the route fails closed if someone
-// enables it without configuring the companion desktop build.
+// guard in routes/auth/index.js is the fail-closed control: in production this
+// file is never even imported. A former in-file requireProductionSecret()
+// branch (a shared-secret check that only ran when NODE_ENV=production) was
+// removed as unreachable dead code — production can never execute this router,
+// and the branch's non-timing-safe compare would have been a defect had it
+// ever run. Guard hard-fails below in case the mount contract is ever broken.
 
 import express from 'express';
 
@@ -19,31 +24,19 @@ import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ensureHospitalNumber } from '../../services/patient/patientIdentifierService.js';
+import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
 
 const router = express.Router();
 
 const DEFAULT_DEV_PHONE = '+919999999999';
-const DEV_LOGIN_SECRET_HEADER = 'x-dev-login-secret';
 
-function requireProductionSecret(req, res) {
-  const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-  if (!isProd) return true;
-
-  const expected = process.env.PATIENT_DEV_LOGIN_SECRET;
-  if (!expected) {
-    return error(
-      res,
-      'Dev login secret is not configured',
-      HTTP_STATUS.FORBIDDEN,
-    );
-  }
-
-  const supplied = req.get(DEV_LOGIN_SECRET_HEADER) || req.body?.devLoginSecret;
-  if (supplied !== expected) {
-    return error(res, 'Dev login secret is invalid', HTTP_STATUS.FORBIDDEN);
-  }
-
-  return true;
+// Belt-and-braces re-assertion of the mount-time contract: if this router is
+// ever mounted outside the isDevAuthEnabled() gate (refactor accident), every
+// request fails closed instead of minting JWTs.
+function assertDevAuthEnabled(req, res) {
+  if (isDevAuthEnabled()) return true;
+  error(res, 'Dev auth is disabled', HTTP_STATUS.FORBIDDEN);
+  return false;
 }
 
 /**
@@ -58,7 +51,7 @@ function requireProductionSecret(req, res) {
  */
 router.post('/patient-login', async (req, res) => {
   try {
-    if (!requireProductionSecret(req, res)) return;
+    if (!assertDevAuthEnabled(req, res)) return;
 
     const rawPhone = req.body?.phone || DEFAULT_DEV_PHONE;
     const name = req.body?.name || 'Dev Patient';

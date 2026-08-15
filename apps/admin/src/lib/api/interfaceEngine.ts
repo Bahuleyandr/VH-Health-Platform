@@ -1,13 +1,29 @@
-import { fetchAdminAPI, getJSON, postJSON } from './core';
+import { fetchAdminAPI, getJSON, postJSON } from "./core";
 
-export type InteropDirection = 'inbound' | 'outbound' | 'bidirectional';
-export type InteropConnectorKind = 'http_inbound' | 'mllp_listener' | 'http_outbound' | 'file_sftp_poll' | 'manual_upload' | 'internal_backend';
-export type InteropProtocol = 'hl7v2' | 'csv' | 'json' | 'fhir_json' | 'other';
-export type InteropChannelStatus = 'draft' | 'active' | 'paused' | 'archived';
+export type InteropDirection = "inbound" | "outbound" | "bidirectional";
+export type InteropConnectorKind =
+  | "http_inbound"
+  | "mllp_listener"
+  | "http_outbound"
+  | "file_sftp_poll"
+  | "manual_upload"
+  | "internal_backend";
+export type InteropProtocol = "hl7v2" | "csv" | "json" | "fhir_json" | "other";
+export type InteropChannelStatus = "draft" | "active" | "paused" | "archived";
 export type InteropMessageStatus =
-  | 'received' | 'parsed' | 'validated' | 'transformed' | 'queued' | 'delivering'
-  | 'delivered' | 'failed' | 'dead' | 'quarantined' | 'replay_requested'
-  | 'replayed' | 'ignored_duplicate';
+  | "received"
+  | "parsed"
+  | "validated"
+  | "transformed"
+  | "queued"
+  | "delivering"
+  | "delivered"
+  | "failed"
+  | "dead"
+  | "quarantined"
+  | "replay_requested"
+  | "replayed"
+  | "ignored_duplicate";
 
 export interface InteropChannel {
   id: number;
@@ -22,7 +38,7 @@ export interface InteropChannel {
   message_types: string[];
   status: InteropChannelStatus;
   active_version_id: number | null;
-  auth_kind: 'tenant_interop_secret' | 'internal' | 'none';
+  auth_kind: "tenant_interop_secret" | "internal" | "none";
   auth_sender_identifier: string | null;
   retention_days: number;
   max_attempts: number;
@@ -38,7 +54,7 @@ export interface InteropChannelVersion {
   tenant_id: string;
   channel_id: number;
   version_number: number;
-  status: 'draft' | 'candidate' | 'active' | 'retired';
+  status: "draft" | "candidate" | "active" | "retired";
   connector_config: Record<string, unknown>;
   validation_profile: Record<string, unknown>;
   transform_dsl: Record<string, unknown>;
@@ -58,7 +74,7 @@ export interface InteropTransformTest {
   input_payload_is_synthetic: boolean;
   expected_output: Record<string, unknown>;
   expected_findings: Array<Record<string, unknown>>;
-  last_run_status: 'passed' | 'failed' | 'error' | null;
+  last_run_status: "passed" | "failed" | "error" | null;
   last_run_at: string | null;
   last_run_summary: Record<string, unknown>;
   created_at: string;
@@ -70,7 +86,7 @@ export interface InteropMessageAttempt {
   message_id: number;
   attempt_number: number;
   phase: string;
-  status: 'ok' | 'failed' | 'dead' | 'skipped';
+  status: "ok" | "failed" | "dead" | "skipped";
   response_status: number | null;
   safe_error: string | null;
   metrics: Record<string, unknown>;
@@ -119,17 +135,19 @@ export interface InteropReplayBatch {
   completed_at: string | null;
 }
 
-export async function listInterfaceChannels(params: {
-  status?: InteropChannelStatus;
-  connector_kind?: InteropConnectorKind;
-  limit?: number;
-} = {}) {
+export async function listInterfaceChannels(
+  params: {
+    status?: InteropChannelStatus;
+    connector_kind?: InteropConnectorKind;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.status) query.status = params.status;
   if (params.connector_kind) query.connector_kind = params.connector_kind;
   if (params.limit) query.limit = params.limit;
   return getJSON<{ channels: InteropChannel[]; count: number }>(
-    '/admin/interface-engine/channels',
+    "/admin/interface-engine/channels",
     query,
   );
 }
@@ -141,22 +159,25 @@ export async function createInterfaceChannel(payload: {
   connector_kind: InteropConnectorKind;
   protocol: InteropProtocol;
   message_types: string[];
-  auth_kind?: 'tenant_interop_secret' | 'internal' | 'none';
+  auth_kind?: "tenant_interop_secret" | "internal" | "none";
   auth_sender_identifier?: string | null;
   retention_days?: number;
   max_attempts?: number;
   metadata?: Record<string, unknown>;
 }) {
-  return postJSON<InteropChannel>('/admin/interface-engine/channels', payload);
+  return postJSON<InteropChannel>("/admin/interface-engine/channels", payload);
 }
 
-export async function createInterfaceVersion(channelId: number, payload: {
-  connector_config?: Record<string, unknown>;
-  validation_profile?: Record<string, unknown>;
-  transform_dsl?: Record<string, unknown>;
-  routing_policy?: Record<string, unknown>;
-  redaction_profile?: Record<string, unknown>;
-}) {
+export async function createInterfaceVersion(
+  channelId: number,
+  payload: {
+    connector_config?: Record<string, unknown>;
+    validation_profile?: Record<string, unknown>;
+    transform_dsl?: Record<string, unknown>;
+    routing_policy?: Record<string, unknown>;
+    redaction_profile?: Record<string, unknown>;
+  },
+) {
   return postJSON<InteropChannelVersion>(
     `/admin/interface-engine/channels/${channelId}/versions`,
     payload,
@@ -170,14 +191,17 @@ export async function activateInterfaceVersion(versionId: number) {
   );
 }
 
-export async function createInterfaceTransformTest(versionId: number, payload: {
-  name: string;
-  message_type?: string | null;
-  input_payload: string;
-  input_payload_is_synthetic?: boolean;
-  expected_output?: Record<string, unknown>;
-  expected_findings?: Array<Record<string, unknown>>;
-}) {
+export async function createInterfaceTransformTest(
+  versionId: number,
+  payload: {
+    name: string;
+    message_type?: string | null;
+    input_payload: string;
+    input_payload_is_synthetic?: boolean;
+    expected_output?: Record<string, unknown>;
+    expected_findings?: Array<Record<string, unknown>>;
+  },
+) {
   return postJSON<InteropTransformTest>(
     `/admin/interface-engine/versions/${versionId}/transform-tests`,
     payload,
@@ -191,17 +215,19 @@ export async function runInterfaceTransformTest(testId: number) {
   );
 }
 
-export async function listInterfaceMessages(params: {
-  channel_id?: number;
-  status?: InteropMessageStatus;
-  limit?: number;
-} = {}) {
+export async function listInterfaceMessages(
+  params: {
+    channel_id?: number;
+    status?: InteropMessageStatus;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.channel_id) query.channel_id = params.channel_id;
   if (params.status) query.status = params.status;
   if (params.limit) query.limit = params.limit;
   return getJSON<{ messages: InteropMessage[]; count: number }>(
-    '/admin/interface-engine/messages',
+    "/admin/interface-engine/messages",
     query,
   );
 }
@@ -210,45 +236,54 @@ export async function getInterfaceMessage(id: number) {
   return getJSON<InteropMessage>(`/admin/interface-engine/messages/${id}`);
 }
 
-export async function markInterfaceMessageDead(id: number, payload: { reason?: string | null }) {
-  return fetchAdminAPI<InteropMessage>(`/admin/interface-engine/messages/${id}/mark-dead`, {
-    method: 'PATCH',
-    body: payload,
-  });
-}
-
-export async function enqueueInterfaceOutbound(payload: {
-  channel_id: number;
-  payload: string;
-  message_type?: string | null;
-  source_table?: string | null;
-  source_id?: string | null;
-}) {
-  return postJSON<InteropMessage>('/admin/interface-engine/messages/enqueue-outbound', payload);
-}
-
-export async function dispatchInterfaceOutbound(payload: { batch_size?: number } = {}) {
-  return postJSON<{ picked: number; delivered: number; failed: number; dead: number }>(
-    '/admin/interface-engine/messages/dispatch-now',
-    payload,
+export async function markInterfaceMessageDead(
+  id: number,
+  payload: { reason?: string | null },
+) {
+  return fetchAdminAPI<InteropMessage>(
+    `/admin/interface-engine/messages/${id}/mark-dead`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
   );
+}
+
+export async function dispatchInterfaceOutbound(
+  payload: { batch_size?: number } = {},
+) {
+  return postJSON<{
+    picked: number;
+    delivered: number;
+    failed: number;
+    dead: number;
+  }>("/admin/interface-engine/messages/dispatch-now", payload);
 }
 
 export async function createInterfaceReplayBatch(payload: {
   channel_id: number;
   reason: string;
-  mode?: 'retry_delivery' | 'reprocess_original_version' | 'reprocess_current_version' | 'redeliver_external';
+  mode?:
+    | "retry_delivery"
+    | "reprocess_original_version"
+    | "reprocess_current_version"
+    | "redeliver_external";
   selection_filter?: Record<string, unknown>;
 }) {
-  return postJSON<InteropReplayBatch>('/admin/interface-engine/replay-batches', payload);
+  return postJSON<InteropReplayBatch>(
+    "/admin/interface-engine/replay-batches",
+    payload,
+  );
 }
 
-export async function listInterfaceReplayBatches(params: { channel_id?: number; limit?: number } = {}) {
+export async function listInterfaceReplayBatches(
+  params: { channel_id?: number; limit?: number } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.channel_id) query.channel_id = params.channel_id;
   if (params.limit) query.limit = params.limit;
   return getJSON<{ batches: InteropReplayBatch[]; count: number }>(
-    '/admin/interface-engine/replay-batches',
+    "/admin/interface-engine/replay-batches",
     query,
   );
 }

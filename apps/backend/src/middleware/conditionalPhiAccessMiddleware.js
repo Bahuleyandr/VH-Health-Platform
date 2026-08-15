@@ -1,6 +1,6 @@
 import { patientAccessGuard, phiAccessLogger } from './phiAccessMiddleware.js';
 
-export function pathMatchesPrefix(path, prefix) {
+function pathMatchesPrefix(path, prefix) {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 

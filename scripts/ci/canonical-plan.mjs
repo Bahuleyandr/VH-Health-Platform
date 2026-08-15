@@ -30,7 +30,6 @@ export function buildCanonicalPlan({
   const explicitQuick = eventName === 'workflow_dispatch' && requestedTier === 'quick';
   const explicitFull = requestedTier === 'full';
   const forceFull =
-    eventName === 'merge_group' ||
     explicitFull ||
     normalizedFiles.length === 0 ||
     (!explicitQuick && normalizedFiles.some((file) =>
@@ -64,7 +63,7 @@ function writeGitHubOutputs(plan) {
 function main() {
   const eventName = process.env.GITHUB_EVENT_NAME || 'workflow_dispatch';
   const requestedTier = process.env.CANONICAL_TIER || 'auto';
-  const files = eventName === 'merge_group' ? [] : changedFilesForBranchPush();
+  const files = changedFilesForBranchPush();
   const plan = buildCanonicalPlan({ eventName, files, requestedTier });
 
   console.log(`Canonical CI tier: ${plan.tier}`);

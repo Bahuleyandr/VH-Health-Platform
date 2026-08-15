@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface ConfirmDialogProps {
@@ -44,7 +44,7 @@ export function ConfirmDialog({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const handleConfirm = async () => {
@@ -105,7 +105,7 @@ export function ConfirmDialog({
               "hover:bg-accent hover:text-accent-foreground",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              "transition-colors"
+              "transition-colors",
             )}
           >
             {cancelLabel}
@@ -121,7 +121,7 @@ export function ConfirmDialog({
               "transition-colors",
               variant === "destructive"
                 ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "bg-primary text-primary-foreground hover:bg-primary/90",
             )}
           >
             {loading ? (
@@ -137,45 +137,4 @@ export function ConfirmDialog({
       </div>
     </div>
   );
-}
-
-// ─── useConfirm hook ─────────────────────────────────────────────────────────
-// Provides a promise-based imperative confirm() call.
-// Usage:
-//   const { confirm, isOpen, handleConfirm, handleCancel } = useConfirm();
-//   const ok = await confirm();
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ConfirmState {
-  open: boolean;
-  resolve?: (v: boolean) => void;
-}
-
-export function useConfirm() {
-  const [state, setState] = useState<ConfirmState>({ open: false });
-
-  const confirm = useCallback(
-    () =>
-      new Promise<boolean>((resolve) => {
-        setState({ open: true, resolve });
-      }),
-    []
-  );
-
-  const handleConfirm = useCallback(() => {
-    state.resolve?.(true);
-    setState({ open: false });
-  }, [state]);
-
-  const handleCancel = useCallback(() => {
-    state.resolve?.(false);
-    setState({ open: false });
-  }, [state]);
-
-  return {
-    confirm,
-    isOpen: state.open,
-    handleConfirm,
-    handleCancel,
-  };
 }

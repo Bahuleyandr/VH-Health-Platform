@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import { CloseIcon } from "@/components/icons";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 interface EditDepartmentModalProps {
   department: Department;

@@ -1,5 +1,12 @@
-import { apiFetch } from '../api-fetch';
-import { APIError, deleteJSON, fetchAdminAPI, getJSON, postJSON, type QueryParams } from './core';
+import { apiFetch } from "../api-fetch";
+import {
+  APIError,
+  deleteJSON,
+  fetchAdminAPI,
+  getJSON,
+  postJSON,
+  type QueryParams,
+} from "./core";
 
 export interface ClinicalAiConfig {
   moduleKey?: string | null;
@@ -28,7 +35,7 @@ export interface ClinicalAiModule {
   updated_at?: string | null;
   tenant_id?: string | null;
   tenant_override_id?: number | null;
-  tenant_override_source?: 'global' | 'tenant' | string | null;
+  tenant_override_source?: "global" | "tenant" | string | null;
   global_enabled?: boolean;
   global_provider_override?: string | null;
   global_model_override?: string | null;
@@ -46,7 +53,9 @@ export interface ClinicalAiModule {
   } | null;
 }
 
-export type ClinicalAiModulePatch = Partial<Omit<ClinicalAiModule, 'enabled' | 'external_allowed'>> & {
+export type ClinicalAiModulePatch = Partial<
+  Omit<ClinicalAiModule, "enabled" | "external_allowed">
+> & {
   enabled?: boolean | null;
   external_allowed?: boolean | null;
 };
@@ -190,7 +199,13 @@ export interface ClinicalAiGeneration {
   model?: string;
   status: string;
   used_ai: boolean;
-  generation_mode?: 'ai' | 'template_fallback' | 'blocked' | 'schema_unavailable' | string | null;
+  generation_mode?:
+    | "ai"
+    | "template_fallback"
+    | "blocked"
+    | "schema_unavailable"
+    | string
+    | null;
   fallback_reason?: string | null;
   readiness_reason?: string | null;
   provider_status?: string | null;
@@ -280,13 +295,13 @@ export interface ClinicalAiAuditLog {
 }
 
 export type AdmissionAiDraftModuleKey =
-  | 'patient_record_summary'
-  | 'patient_aftercare_instructions'
-  | 'medication_reconciliation'
-  | 'discharge_readiness'
-  | 'referral_letter'
-  | 'clinical_coding_assist'
-  | 'quality_case_review';
+  | "patient_record_summary"
+  | "patient_aftercare_instructions"
+  | "medication_reconciliation"
+  | "discharge_readiness"
+  | "referral_letter"
+  | "clinical_coding_assist"
+  | "quality_case_review";
 
 export interface ClinicalAiSourceCitation {
   source_type: string;
@@ -325,60 +340,78 @@ export interface ClinicalAiDraftResponse<Draft = Record<string, unknown>> {
   requires_signoff: boolean;
 }
 
-export async function getClinicalAiConfig() { return getJSON<ClinicalAiConfig>('/emr/clinical-ai/config'); }
+export async function getClinicalAiConfig() {
+  return getJSON<ClinicalAiConfig>("/emr/clinical-ai/config");
+}
 export async function getClinicalAiStatus(days = 7) {
-  return getJSON<ClinicalAiStatus>('/admin/clinical-ai/status', { days });
+  return getJSON<ClinicalAiStatus>("/admin/clinical-ai/status", { days });
 }
-export async function getClinicalAiModules() {
-  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/modules');
-}
-export async function getClinicalAiTenantModules() {
-  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/tenant-modules');
-}
-export async function updateClinicalAiModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
-    method: 'PATCH',
-    body: payload,
-  });
-}
-export async function updateClinicalAiTenantModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
-    method: 'PATCH',
-    body: payload,
-  });
-}
-export async function resetClinicalAiTenantModule(moduleKey: string) {
-  return deleteJSON<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`);
-}
-export async function updateClinicalAiGuardrails(payload: Partial<ClinicalAiGuardrails>) {
-  return fetchAdminAPI<{ guardrails: ClinicalAiGuardrails; budget: ClinicalAiBudgetStatus }>(
-    '/admin/clinical-ai/guardrails',
+export async function updateClinicalAiTenantModule(
+  moduleKey: string,
+  payload: ClinicalAiModulePatch,
+) {
+  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(
+    `/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`,
     {
-      method: 'PATCH',
+      method: "PATCH",
       body: payload,
-    }
+    },
   );
 }
-export async function generateHandoverDraft(patientUid: string) {
-  return postJSON('/clinical/handover/generate', { patient_uid: patientUid });
+export async function resetClinicalAiTenantModule(moduleKey: string) {
+  return deleteJSON<ClinicalAiModule>(
+    `/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`,
+  );
 }
-export async function createDowntimeSnapshot(patientUid: string, hoursToLive = 12) {
-  return postJSON(`/emr/downtime-snapshot/${patientUid}`, { hours_to_live: hoursToLive });
+export async function updateClinicalAiGuardrails(
+  payload: Partial<ClinicalAiGuardrails>,
+) {
+  return fetchAdminAPI<{
+    guardrails: ClinicalAiGuardrails;
+    budget: ClinicalAiBudgetStatus;
+  }>("/admin/clinical-ai/guardrails", {
+    method: "PATCH",
+    body: payload,
+  });
+}
+export async function generateHandoverDraft(patientUid: string) {
+  return postJSON("/clinical/handover/generate", { patient_uid: patientUid });
+}
+export async function createDowntimeSnapshot(
+  patientUid: string,
+  hoursToLive = 12,
+) {
+  return postJSON(`/emr/downtime-snapshot/${patientUid}`, {
+    hours_to_live: hoursToLive,
+  });
 }
 export async function getClinicalAiGenerations() {
-  return getJSON<{ generations: ClinicalAiGeneration[]; count: number }>('/admin/clinical-ai/generations');
+  return getJSON<{ generations: ClinicalAiGeneration[]; count: number }>(
+    "/admin/clinical-ai/generations",
+  );
 }
 export async function getClinicalAiSafetyFlags() {
-  return getJSON<{ flags: ClinicalAiSafetyFlag[]; count: number }>('/admin/clinical-ai/safety-flags');
+  return getJSON<{ flags: ClinicalAiSafetyFlag[]; count: number }>(
+    "/admin/clinical-ai/safety-flags",
+  );
 }
 export async function getClinicalAiSafetyReviewSummary(days = 7) {
-  return getJSON<ClinicalAiSafetyReviewSummary>('/admin/clinical-ai/safety-reviews/summary', { days });
+  return getJSON<ClinicalAiSafetyReviewSummary>(
+    "/admin/clinical-ai/safety-reviews/summary",
+    { days },
+  );
 }
 export async function getClinicalAiAuditLogs(limit = 50) {
-  return getJSON<{ logs: ClinicalAiAuditLog[]; count: number }>('/admin/clinical-ai/audit', { limit });
+  return getJSON<{ logs: ClinicalAiAuditLog[]; count: number }>(
+    "/admin/clinical-ai/audit",
+    { limit },
+  );
 }
 
-export async function generateAdmissionAiDraft(admissionId: number, moduleKey: AdmissionAiDraftModuleKey) {
+export async function generateAdmissionAiDraft(
+  admissionId: number,
+  moduleKey: AdmissionAiDraftModuleKey,
+) {
   const pathByModule: Record<AdmissionAiDraftModuleKey, string> = {
     patient_record_summary: `/emr/${admissionId}/ai/patient-record-summary`,
     patient_aftercare_instructions: `/emr/${admissionId}/aftercare-instructions`,
@@ -389,7 +422,7 @@ export async function generateAdmissionAiDraft(admissionId: number, moduleKey: A
     quality_case_review: `/emr/${admissionId}/quality-case-review`,
   };
   const endpoint = pathByModule[moduleKey];
-  return moduleKey === 'discharge_readiness'
+  return moduleKey === "discharge_readiness"
     ? getJSON<ClinicalAiDraftResponse>(endpoint)
     : postJSON<ClinicalAiDraftResponse>(endpoint, {});
 }
@@ -440,7 +473,7 @@ export interface ClinicalAiApproval {
   id: number;
   approval_type: string;
   module_key: string | null;
-  status: 'pending' | 'approved' | 'rejected';
+  status: "pending" | "approved" | "rejected";
   requested_by: string | null;
   approved_by: string | null;
   rejected_by: string | null;
@@ -452,17 +485,19 @@ export interface ClinicalAiApproval {
   updated_at?: string;
 }
 
-export type ClinicalAiModuleUpdateResult = ClinicalAiModule | {
-  approval_required: true;
-  approval?: ClinicalAiApproval;
-  requested_change?: Record<string, unknown>;
-};
+export type ClinicalAiModuleUpdateResult =
+  | ClinicalAiModule
+  | {
+      approval_required: true;
+      approval?: ClinicalAiApproval;
+      requested_change?: Record<string, unknown>;
+    };
 
 export interface ClinicalAiBreakGlassSession {
   id: number;
   scope: string;
   reason: string;
-  status: 'active' | 'ended';
+  status: "active" | "ended";
   started_by: string | null;
   approved_by: string | null;
   expires_at: string;
@@ -498,7 +533,7 @@ export interface ClinicalAiGovernanceReport {
     audit_event_count: number;
   };
   runtime: {
-    provider_health: ClinicalAiStatus['providerHealth'];
+    provider_health: ClinicalAiStatus["providerHealth"];
     adapters: ClinicalAiAdapterStatus[];
     guardrails: ClinicalAiGuardrails;
     budget: ClinicalAiBudgetStatus;
@@ -546,11 +581,16 @@ export interface ClinicalAiGovernanceReport {
   };
 }
 
-export async function getClinicalAiPrompts(params: { moduleKey?: string; status?: string } = {}) {
+export async function getClinicalAiPrompts(
+  params: { moduleKey?: string; status?: string } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.moduleKey) query.module_key = params.moduleKey;
   if (params.status) query.status = params.status;
-  return getJSON<{ prompts: ClinicalAiPrompt[]; count: number }>('/admin/clinical-ai/prompts', query);
+  return getJSON<{ prompts: ClinicalAiPrompt[]; count: number }>(
+    "/admin/clinical-ai/prompts",
+    query,
+  );
 }
 
 export async function createClinicalAiPrompt(payload: {
@@ -561,25 +601,34 @@ export async function createClinicalAiPrompt(payload: {
   user_prompt_template: string;
   output_schema?: Record<string, unknown>;
 }) {
-  return postJSON<ClinicalAiPrompt>('/admin/clinical-ai/prompts', payload);
+  return postJSON<ClinicalAiPrompt>("/admin/clinical-ai/prompts", payload);
 }
 
-export async function activateClinicalAiPrompt(promptId: number, approvalId?: number) {
-  return fetchAdminAPI<{ approval_required: boolean; approval?: ClinicalAiApproval; prompt: ClinicalAiPrompt }>(
-    `/admin/clinical-ai/prompts/${promptId}/activate`,
-    {
-      method: 'PATCH',
-      body: approvalId ? { approval_id: approvalId } : {},
-    }
-  );
+export async function activateClinicalAiPrompt(
+  promptId: number,
+  approvalId?: number,
+) {
+  return fetchAdminAPI<{
+    approval_required: boolean;
+    approval?: ClinicalAiApproval;
+    prompt: ClinicalAiPrompt;
+  }>(`/admin/clinical-ai/prompts/${promptId}/activate`, {
+    method: "PATCH",
+    body: approvalId ? { approval_id: approvalId } : {},
+  });
 }
 
-export async function getClinicalAiReviews(params: { decision?: string; moduleKey?: string; reviewerRole?: string } = {}) {
+export async function getClinicalAiReviews(
+  params: { decision?: string; moduleKey?: string; reviewerRole?: string } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.decision) query.decision = params.decision;
   if (params.moduleKey) query.module_key = params.moduleKey;
   if (params.reviewerRole) query.reviewer_role = params.reviewerRole;
-  return getJSON<{ reviews: ClinicalAiReview[]; count: number }>('/admin/clinical-ai/reviews', query);
+  return getJSON<{ reviews: ClinicalAiReview[]; count: number }>(
+    "/admin/clinical-ai/reviews",
+    query,
+  );
 }
 
 export async function updateClinicalAiReview(
@@ -589,53 +638,79 @@ export async function updateClinicalAiReview(
     edited_draft?: Record<string, unknown>;
     rejection_reason?: string;
     reviewer_note?: string;
-  }
+  },
 ) {
-  return fetchAdminAPI<ClinicalAiReview>(`/admin/clinical-ai/reviews/${reviewId}`, {
-    method: 'PATCH',
-    body: payload,
-  });
+  return fetchAdminAPI<ClinicalAiReview>(
+    `/admin/clinical-ai/reviews/${reviewId}`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
-export async function getClinicalAiApprovals(params: { status?: string; moduleKey?: string } = {}) {
+export async function getClinicalAiApprovals(
+  params: { status?: string; moduleKey?: string } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.status) query.status = params.status;
   if (params.moduleKey) query.module_key = params.moduleKey;
-  return getJSON<{ approvals: ClinicalAiApproval[]; count: number }>('/admin/clinical-ai/approvals', query);
+  return getJSON<{ approvals: ClinicalAiApproval[]; count: number }>(
+    "/admin/clinical-ai/approvals",
+    query,
+  );
 }
 
 export async function decideClinicalAiApproval(
   approvalId: number,
-  decision: 'approved' | 'rejected',
-  reason?: string
+  decision: "approved" | "rejected",
+  reason?: string,
 ) {
-  return fetchAdminAPI<ClinicalAiApproval>(`/admin/clinical-ai/approvals/${approvalId}`, {
-    method: 'PATCH',
-    body: { decision, reason },
-  });
+  return fetchAdminAPI<ClinicalAiApproval>(
+    `/admin/clinical-ai/approvals/${approvalId}`,
+    {
+      method: "PATCH",
+      body: { decision, reason },
+    },
+  );
 }
 
 export async function getActiveBreakGlassSessions() {
-  return getJSON<{ sessions: ClinicalAiBreakGlassSession[]; count: number }>('/admin/clinical-ai/break-glass');
+  return getJSON<{ sessions: ClinicalAiBreakGlassSession[]; count: number }>(
+    "/admin/clinical-ai/break-glass",
+  );
 }
 
 export async function getClinicalAiGovernanceReport(days = 30) {
-  return getJSON<ClinicalAiGovernanceReport>('/admin/clinical-ai/governance-report', { days });
+  return getJSON<ClinicalAiGovernanceReport>(
+    "/admin/clinical-ai/governance-report",
+    { days },
+  );
 }
 
-export async function startBreakGlassSession(payload: { scope?: string; reason: string; expires_in_hours?: number }) {
-  return postJSON<ClinicalAiBreakGlassSession>('/admin/clinical-ai/break-glass', payload);
+export async function startBreakGlassSession(payload: {
+  scope?: string;
+  reason: string;
+  expires_in_hours?: number;
+}) {
+  return postJSON<ClinicalAiBreakGlassSession>(
+    "/admin/clinical-ai/break-glass",
+    payload,
+  );
 }
 
 export async function endBreakGlassSession(sessionId: number) {
-  return fetchAdminAPI<ClinicalAiBreakGlassSession>(`/admin/clinical-ai/break-glass/${sessionId}/end`, {
-    method: 'PATCH',
-    body: {},
-  });
+  return fetchAdminAPI<ClinicalAiBreakGlassSession>(
+    `/admin/clinical-ai/break-glass/${sessionId}/end`,
+    {
+      method: "PATCH",
+      body: {},
+    },
+  );
 }
 
 export interface SelfHealingFinding {
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  severity: "low" | "medium" | "high" | "critical";
   code: string;
   message: string;
   suggested_action?: string;
@@ -648,25 +723,27 @@ export interface SelfHealingRun {
   started_by: string | null;
   started_at: string;
   finished_at: string | null;
-  status: 'running' | 'completed' | 'failed';
+  status: "running" | "completed" | "failed";
   scope: string;
   findings: SelfHealingFinding[];
   suggested_actions: Array<{ action: string }>;
   metadata: Record<string, unknown>;
 }
 
-export async function runSelfHealingScan(scope: string = 'routine') {
+export async function runSelfHealingScan(scope: string = "routine") {
   return postJSON<{
     run_id: number | null;
     tenant_id: string;
     findings: SelfHealingFinding[];
     suggested_actions: Array<{ action: string }>;
     read_only: boolean;
-  }>('/admin/clinical-ai/self-healing/runs', { scope });
+  }>("/admin/clinical-ai/self-healing/runs", { scope });
 }
 
 export async function listSelfHealingRuns() {
-  return getJSON<{ runs: SelfHealingRun[]; count: number }>('/admin/clinical-ai/self-healing/runs');
+  return getJSON<{ runs: SelfHealingRun[]; count: number }>(
+    "/admin/clinical-ai/self-healing/runs",
+  );
 }
 
 export interface CorpusBySource {
@@ -696,14 +773,16 @@ export interface CorpusRetrievalRow {
 }
 
 export async function getCorpusHealth() {
-  return getJSON<CorpusHealth>('/admin/clinical-ai/corpus');
+  return getJSON<CorpusHealth>("/admin/clinical-ai/corpus");
 }
 
 export async function reindexCorpus(limit = 200) {
-  return postJSON<{ indexed: number; skipped: number; halted: boolean; reason?: string }>(
-    '/admin/clinical-ai/corpus/reindex',
-    { limit }
-  );
+  return postJSON<{
+    indexed: number;
+    skipped: number;
+    halted: boolean;
+    reason?: string;
+  }>("/admin/clinical-ai/corpus/reindex", { limit });
 }
 
 export async function testCorpusQuery(payload: {
@@ -713,8 +792,8 @@ export async function testCorpusQuery(payload: {
   min_score?: number;
 }) {
   return postJSON<{ results: CorpusRetrievalRow[]; source: string }>(
-    '/admin/clinical-ai/corpus/test-query',
-    payload
+    "/admin/clinical-ai/corpus/test-query",
+    payload,
   );
 }
 
@@ -734,7 +813,9 @@ export interface DeadLetterRow {
 }
 
 export async function getDeadLetterQueue() {
-  return getJSON<{ generations: DeadLetterRow[]; count: number }>('/admin/clinical-ai/dead-letter');
+  return getJSON<{ generations: DeadLetterRow[]; count: number }>(
+    "/admin/clinical-ai/dead-letter",
+  );
 }
 
 export interface TranslationFidelityFlag {
@@ -751,7 +832,7 @@ export interface TranslationRow {
   target_language: string;
   provider: string;
   model: string | null;
-  status: 'completed' | 'failed' | 'needs_review';
+  status: "completed" | "failed" | "needs_review";
   fidelity_flags: TranslationFidelityFlag[];
   module_key: string | null;
   patient_uid: string | null;
@@ -762,12 +843,12 @@ export async function getClinicalAiTranslations(language?: string) {
   const query: Record<string, string> = {};
   if (language) query.language = language;
   return getJSON<{ translations: TranslationRow[]; count: number }>(
-    '/admin/clinical-ai/translations',
-    query
+    "/admin/clinical-ai/translations",
+    query,
   );
 }
 
-export type RiskBand = 'low' | 'medium' | 'high' | 'critical';
+export type RiskBand = "low" | "medium" | "high" | "critical";
 
 export interface LongitudinalRiskSnapshot {
   id: number;
@@ -781,7 +862,11 @@ export interface LongitudinalRiskSnapshot {
   readmission_score: number | null;
   comorbidity_score: number | null;
   abdm_enrichment: Record<string, unknown>;
-  recommendations: Array<{ severity: string; category: string; message: string }>;
+  recommendations: Array<{
+    severity: string;
+    category: string;
+    message: string;
+  }>;
   created_at: string;
 }
 
@@ -789,8 +874,8 @@ export async function getLongitudinalRiskOverview(band?: RiskBand) {
   const query: Record<string, string> = {};
   if (band) query.band = band;
   return getJSON<{ snapshots: LongitudinalRiskSnapshot[]; count: number }>(
-    '/admin/clinical-ai/longitudinal-risk',
-    query
+    "/admin/clinical-ai/longitudinal-risk",
+    query,
   );
 }
 
@@ -804,10 +889,10 @@ export interface PromptExperiment {
   variant_a_prompt_id: number;
   variant_b_prompt_id: number;
   traffic_split_a: number;
-  status: 'draft' | 'running' | 'paused' | 'concluded';
+  status: "draft" | "running" | "paused" | "concluded";
   started_at: string | null;
   concluded_at: string | null;
-  winning_variant: 'A' | 'B' | null;
+  winning_variant: "A" | "B" | null;
   created_at: string;
 }
 
@@ -825,37 +910,29 @@ export interface PromptExperimentVariantStats {
 export interface PromptExperimentStats {
   variant_a: PromptExperimentVariantStats;
   variant_b: PromptExperimentVariantStats;
-  winner_hint: 'A' | 'B' | null;
+  winner_hint: "A" | "B" | null;
 }
 
 export async function listPromptExperiments(status?: string) {
   const query: Record<string, string> = {};
   if (status) query.status = status;
   return getJSON<{ experiments: PromptExperiment[]; count: number }>(
-    '/admin/clinical-ai/experiments',
-    query
+    "/admin/clinical-ai/experiments",
+    query,
   );
 }
 
-export async function createPromptExperiment(payload: {
-  module_key: string;
-  name?: string;
-  variant_a_prompt_id: number;
-  variant_b_prompt_id: number;
-  traffic_split_a?: number;
-}) {
-  return postJSON<PromptExperiment>('/admin/clinical-ai/experiments', payload);
-}
-
-export async function getPromptExperimentStats(id: number) {
-  return getJSON<PromptExperimentStats>(`/admin/clinical-ai/experiments/${id}/stats`);
-}
-
-export async function concludePromptExperiment(id: number, winningVariant?: 'A' | 'B') {
-  return fetchAdminAPI<PromptExperiment>(`/admin/clinical-ai/experiments/${id}/conclude`, {
-    method: 'PATCH',
-    body: winningVariant ? { winning_variant: winningVariant } : {},
-  });
+export async function concludePromptExperiment(
+  id: number,
+  winningVariant?: "A" | "B",
+) {
+  return fetchAdminAPI<PromptExperiment>(
+    `/admin/clinical-ai/experiments/${id}/conclude`,
+    {
+      method: "PATCH",
+      body: winningVariant ? { winning_variant: winningVariant } : {},
+    },
+  );
 }
 
 export interface CanarySliceAttributes {
@@ -924,16 +1001,23 @@ export interface CanaryCasePayload {
   slice_attributes?: CanarySliceAttributes;
 }
 
-export async function listCanaryCases(params: { moduleKey?: string; active?: boolean; limit?: number } = {}) {
+export async function listCanaryCases(
+  params: { moduleKey?: string; active?: boolean; limit?: number } = {},
+) {
   const query: Record<string, string | number | boolean> = {};
   if (params.moduleKey) query.module_key = params.moduleKey;
   if (params.active != null) query.active = params.active;
   if (params.limit) query.limit = params.limit;
-  return getJSON<{ cases: CanaryCase[]; count: number }>('/admin/clinical-ai/canary/cases', query);
+  return getJSON<{ cases: CanaryCase[]; count: number }>(
+    "/admin/clinical-ai/canary/cases",
+    query,
+  );
 }
 
 export async function listCanaryRuns() {
-  return getJSON<{ runs: CanaryRunSummary[]; count: number }>('/admin/clinical-ai/canary/runs');
+  return getJSON<{ runs: CanaryRunSummary[]; count: number }>(
+    "/admin/clinical-ai/canary/runs",
+  );
 }
 
 export async function runCanary() {
@@ -944,21 +1028,29 @@ export async function runCanary() {
     pass_rate_pct?: number;
     baseline_pct?: number | null;
     drift_detected: boolean;
-    findings: Array<{ case_id?: number; label: string; module_key: string; passed: boolean }>;
+    findings: Array<{
+      case_id?: number;
+      label: string;
+      module_key: string;
+      passed: boolean;
+    }>;
     slice_metrics?: CanarySliceMetric[];
     bias_signals?: CanaryBiasSignal[];
-  }>('/admin/clinical-ai/canary/runs', { scope: 'manual' });
+  }>("/admin/clinical-ai/canary/runs", { scope: "manual" });
 }
 
 export async function upsertCanaryCase(payload: CanaryCasePayload) {
-  return postJSON<CanaryCase>('/admin/clinical-ai/canary/cases', payload);
+  return postJSON<CanaryCase>("/admin/clinical-ai/canary/cases", payload);
 }
 
 export async function deactivateCanaryCase(id: number) {
-  return fetchAdminAPI<CanaryCase>(`/admin/clinical-ai/canary/cases/${id}/deactivate`, {
-    method: 'PATCH',
-    body: {},
-  });
+  return fetchAdminAPI<CanaryCase>(
+    `/admin/clinical-ai/canary/cases/${id}/deactivate`,
+    {
+      method: "PATCH",
+      body: {},
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -993,7 +1085,7 @@ export async function exportReadinessPack(payload: {
   from_version?: string | null;
   to_version?: string | null;
 }) {
-  return postJSON<ReadinessPack>('/admin/clinical-ai/readiness-pack', payload);
+  return postJSON<ReadinessPack>("/admin/clinical-ai/readiness-pack", payload);
 }
 
 export interface PilotEvidenceModuleSummary {
@@ -1057,7 +1149,12 @@ export interface PilotEvidencePack {
     safety_counts: {
       total: number;
       by_status: Record<string, number>;
-      generation_flag_counts: { critical: number; high: number; medium: number; low: number };
+      generation_flag_counts: {
+        critical: number;
+        high: number;
+        medium: number;
+        low: number;
+      };
     };
     eval_counts: { total: number; accepted: number };
     approval_counts: { total: number; by_status: Record<string, number> };
@@ -1075,11 +1172,17 @@ export interface PilotEvidencePackRequest {
   min_reviewed_per_module?: number | null;
 }
 
-export async function exportPilotEvidencePack(payload: PilotEvidencePackRequest) {
-  return postJSON<PilotEvidencePack>('/admin/clinical-ai/pilot-evidence-pack', payload);
+export async function exportPilotEvidencePack(
+  payload: PilotEvidencePackRequest,
+) {
+  return postJSON<PilotEvidencePack>(
+    "/admin/clinical-ai/pilot-evidence-pack",
+    payload,
+  );
 }
 
-export type PilotSignoffStatus = 'pending' | 'approved' | 'hold' | 'rejected' | string;
+export type PilotSignoffStatus =
+  "pending" | "approved" | "hold" | "rejected" | string;
 
 export interface PilotSignoffSummary {
   id: number;
@@ -1133,33 +1236,43 @@ export interface PilotStageGate {
   recent_signoffs: PilotSignoffSummary[];
 }
 
-export async function createPilotSignoff(payload: PilotEvidencePackRequest & {
-  reason?: string | null;
-  expires_at?: string | null;
-}) {
-  return postJSON<PilotSignoffCreateResponse>('/admin/clinical-ai/pilot-signoffs', payload);
+export async function createPilotSignoff(
+  payload: PilotEvidencePackRequest & {
+    reason?: string | null;
+    expires_at?: string | null;
+  },
+) {
+  return postJSON<PilotSignoffCreateResponse>(
+    "/admin/clinical-ai/pilot-signoffs",
+    payload,
+  );
 }
 
 export async function decidePilotSignoff(
   id: number,
-  payload: { decision: 'approved' | 'hold' | 'rejected'; reason: string },
+  payload: { decision: "approved" | "hold" | "rejected"; reason: string },
 ) {
-  return fetchAdminAPI<PilotSignoffSummary>(`/admin/clinical-ai/pilot-signoffs/${id}`, {
-    method: 'PATCH',
-    body: payload,
-  });
+  return fetchAdminAPI<PilotSignoffSummary>(
+    `/admin/clinical-ai/pilot-signoffs/${id}`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
-export async function listPilotSignoffs(params: {
-  pilot_stage?: string | null;
-  module_keys?: string[] | string | null;
-  limit?: number | null;
-} = {}) {
+export async function listPilotSignoffs(
+  params: {
+    pilot_stage?: string | null;
+    module_keys?: string[] | string | null;
+    limit?: number | null;
+  } = {},
+) {
   const moduleKeys = Array.isArray(params.module_keys)
-    ? params.module_keys.join(',')
+    ? params.module_keys.join(",")
     : params.module_keys;
   return getJSON<{ signoffs: PilotSignoffSummary[]; count: number }>(
-    '/admin/clinical-ai/pilot-signoffs',
+    "/admin/clinical-ai/pilot-signoffs",
     {
       pilot_stage: params.pilot_stage || undefined,
       module_keys: moduleKeys || undefined,
@@ -1168,14 +1281,16 @@ export async function listPilotSignoffs(params: {
   );
 }
 
-export async function getPilotStageGate(params: {
-  pilot_stage?: string | null;
-  module_keys?: string[] | string | null;
-} = {}) {
+export async function getPilotStageGate(
+  params: {
+    pilot_stage?: string | null;
+    module_keys?: string[] | string | null;
+  } = {},
+) {
   const moduleKeys = Array.isArray(params.module_keys)
-    ? params.module_keys.join(',')
+    ? params.module_keys.join(",")
     : params.module_keys;
-  return getJSON<PilotStageGate>('/admin/clinical-ai/pilot-signoffs/gate', {
+  return getJSON<PilotStageGate>("/admin/clinical-ai/pilot-signoffs/gate", {
     pilot_stage: params.pilot_stage || undefined,
     module_keys: moduleKeys || undefined,
   });
@@ -1185,16 +1300,16 @@ export async function getPilotStageGate(params: {
 // Knowledge Base CRUD (Phase A1)
 // ---------------------------------------------------------------------------
 export type KnowledgeBaseType =
-  | 'general'
-  | 'sop'
-  | 'antibiotic_policy'
-  | 'patient_education'
-  | 'clinical_guideline'
-  | 'formulary'
-  | 'safety_alert'
-  | 'training';
+  | "general"
+  | "sop"
+  | "antibiotic_policy"
+  | "patient_education"
+  | "clinical_guideline"
+  | "formulary"
+  | "safety_alert"
+  | "training";
 
-export type KnowledgeBaseStatus = 'active' | 'archived';
+export type KnowledgeBaseStatus = "active" | "archived";
 
 export interface KnowledgeBase {
   id: number;
@@ -1211,7 +1326,7 @@ export interface KnowledgeBase {
   chunk_count?: number;
 }
 
-export type KnowledgeBasePermission = 'read' | 'write' | 'manage';
+export type KnowledgeBasePermission = "read" | "write" | "manage";
 
 export interface KnowledgeAccessPolicy {
   id: number;
@@ -1225,15 +1340,16 @@ export interface KnowledgeAccessPolicy {
 }
 
 export type KnowledgeDocumentStatus =
-  | 'pending'
-  | 'extracting'
-  | 'chunking'
-  | 'embedding'
-  | 'indexed'
-  | 'failed'
-  | 'blocked';
+  | "pending"
+  | "extracting"
+  | "chunking"
+  | "embedding"
+  | "indexed"
+  | "failed"
+  | "blocked";
 
-export type KnowledgeDocumentSourceType = 'upload' | 'url' | 'inline_text' | 'imported';
+export type KnowledgeDocumentSourceType =
+  "upload" | "url" | "inline_text" | "imported";
 
 export interface KnowledgeDocument {
   id: number;
@@ -1249,7 +1365,7 @@ export interface KnowledgeDocument {
   processing_status: KnowledgeDocumentStatus;
   processing_error: string | null;
   chunk_count: number;
-  prompt_injection_verdict: 'pass' | 'flag' | 'block' | null;
+  prompt_injection_verdict: "pass" | "flag" | "block" | null;
   prompt_injection_metadata: Record<string, unknown>;
   uploaded_by: string | null;
   metadata: Record<string, unknown>;
@@ -1280,7 +1396,14 @@ export interface KnowledgeRetrievalChunk {
 
 export interface KnowledgeRetrievalResult {
   results: KnowledgeRetrievalChunk[];
-  source: 'pgvector' | 'embed_unavailable' | 'corpus_unavailable' | 'no_access' | 'empty_query' | 'below_threshold' | 'query_failed';
+  source:
+    | "pgvector"
+    | "embed_unavailable"
+    | "corpus_unavailable"
+    | "no_access"
+    | "empty_query"
+    | "below_threshold"
+    | "query_failed";
   query_hash: string | null;
 }
 
@@ -1298,13 +1421,19 @@ export interface KnowledgeRetrievalLog {
   retrieved_at: string;
 }
 
-export async function listKnowledgeBases(params: { kb_type?: KnowledgeBaseType; status?: KnowledgeBaseStatus; limit?: number } = {}) {
+export async function listKnowledgeBases(
+  params: {
+    kb_type?: KnowledgeBaseType;
+    status?: KnowledgeBaseStatus;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.kb_type) query.kb_type = params.kb_type;
   if (params.status) query.status = params.status;
   if (params.limit) query.limit = params.limit;
   return getJSON<{ knowledge_bases: KnowledgeBase[]; count: number }>(
-    '/admin/clinical-ai/knowledge-bases',
+    "/admin/clinical-ai/knowledge-bases",
     query,
   );
 }
@@ -1315,37 +1444,49 @@ export async function createKnowledgeBase(payload: {
   kb_type?: KnowledgeBaseType;
   metadata?: Record<string, unknown>;
 }) {
-  return postJSON<KnowledgeBase>('/admin/clinical-ai/knowledge-bases', payload);
+  return postJSON<KnowledgeBase>("/admin/clinical-ai/knowledge-bases", payload);
 }
 
 export async function getKnowledgeBase(id: number) {
   return getJSON<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}`);
 }
 
-export async function updateKnowledgeBase(id: number, payload: {
-  name?: string;
-  description?: string | null;
-  kb_type?: KnowledgeBaseType;
-  metadata?: Record<string, unknown>;
-}) {
-  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}`, {
-    method: 'PATCH',
-    body: payload,
-  });
+export async function updateKnowledgeBase(
+  id: number,
+  payload: {
+    name?: string;
+    description?: string | null;
+    kb_type?: KnowledgeBaseType;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  return fetchAdminAPI<KnowledgeBase>(
+    `/admin/clinical-ai/knowledge-bases/${id}`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
 export async function archiveKnowledgeBase(id: number) {
-  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}/archive`, {
-    method: 'PATCH',
-    body: {},
-  });
+  return fetchAdminAPI<KnowledgeBase>(
+    `/admin/clinical-ai/knowledge-bases/${id}/archive`,
+    {
+      method: "PATCH",
+      body: {},
+    },
+  );
 }
 
 export async function unarchiveKnowledgeBase(id: number) {
-  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}/unarchive`, {
-    method: 'PATCH',
-    body: {},
-  });
+  return fetchAdminAPI<KnowledgeBase>(
+    `/admin/clinical-ai/knowledge-bases/${id}/unarchive`,
+    {
+      method: "PATCH",
+      body: {},
+    },
+  );
 }
 
 export async function listKnowledgeAccessPolicies(knowledgeBaseId: number) {
@@ -1354,11 +1495,14 @@ export async function listKnowledgeAccessPolicies(knowledgeBaseId: number) {
   );
 }
 
-export async function grantKnowledgeAccess(knowledgeBaseId: number, payload: {
-  role: string;
-  permission?: KnowledgeBasePermission;
-  metadata?: Record<string, unknown>;
-}) {
+export async function grantKnowledgeAccess(
+  knowledgeBaseId: number,
+  payload: {
+    role: string;
+    permission?: KnowledgeBasePermission;
+    metadata?: Record<string, unknown>;
+  },
+) {
   return postJSON<KnowledgeAccessPolicy>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/access-policies`,
     payload,
@@ -1368,15 +1512,18 @@ export async function grantKnowledgeAccess(knowledgeBaseId: number, payload: {
 export async function revokeKnowledgeAccess(
   knowledgeBaseId: number,
   role: string,
-  permission: KnowledgeBasePermission = 'read',
+  permission: KnowledgeBasePermission = "read",
 ) {
   return fetchAdminAPI<KnowledgeAccessPolicy>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/access-policies/${encodeURIComponent(role)}/${encodeURIComponent(permission)}`,
-    { method: 'DELETE', body: undefined },
+    { method: "DELETE", body: undefined },
   );
 }
 
-export async function listKnowledgeDocuments(knowledgeBaseId: number, params: { status?: KnowledgeDocumentStatus; limit?: number } = {}) {
+export async function listKnowledgeDocuments(
+  knowledgeBaseId: number,
+  params: { status?: KnowledgeDocumentStatus; limit?: number } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.status) query.status = params.status;
   if (params.limit) query.limit = params.limit;
@@ -1386,19 +1533,25 @@ export async function listKnowledgeDocuments(knowledgeBaseId: number, params: { 
   );
 }
 
-export async function createInlineKnowledgeDocument(knowledgeBaseId: number, payload: {
-  title: string;
-  raw_text: string;
-  source_type?: KnowledgeDocumentSourceType;
-  metadata?: Record<string, unknown>;
-}) {
+export async function createInlineKnowledgeDocument(
+  knowledgeBaseId: number,
+  payload: {
+    title: string;
+    raw_text: string;
+    source_type?: KnowledgeDocumentSourceType;
+    metadata?: Record<string, unknown>;
+  },
+) {
   return postJSON<KnowledgeDocumentIngestResult>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/inline`,
     payload,
   );
 }
 
-export async function reindexKnowledgeDocument(knowledgeBaseId: number, documentId: number) {
+export async function reindexKnowledgeDocument(
+  knowledgeBaseId: number,
+  documentId: number,
+) {
   return postJSON<KnowledgeDocumentIngestResult>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/reindex`,
     {},
@@ -1415,13 +1568,14 @@ export async function reindexKnowledgeDocument(knowledgeBaseId: number, document
 // Tier A patient explainers
 // ---------------------------------------------------------------------------
 export type PatientExplainerModuleKey =
-  | 'lab_patient_explanation'
-  | 'radiology_patient_explanation'
-  | 'patient_report_explainer'
-  | 'prescription_patient_explainer'
-  | 'invoice_patient_explainer';
+  | "lab_patient_explanation"
+  | "radiology_patient_explanation"
+  | "patient_report_explainer"
+  | "prescription_patient_explainer"
+  | "invoice_patient_explainer";
 
-export type PatientExplainerLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+export type PatientExplainerLanguage =
+  "en" | "hi" | "ta" | "te" | "ml" | "mr" | "bn" | "kn";
 
 export interface PatientExplainerKeyPoint {
   label: string;
@@ -1437,7 +1591,7 @@ export interface PatientExplainerCitation {
 }
 
 export interface PatientExplainerSafetyFlag {
-  severity: 'critical' | 'high' | 'medium' | 'low' | string;
+  severity: "critical" | "high" | "medium" | "low" | string;
   code?: string;
   message?: string;
   metadata?: Record<string, unknown>;
@@ -1461,8 +1615,8 @@ export interface PatientExplainerResult {
   source_citations: PatientExplainerCitation[];
   used_ai: boolean;
   provider: string;
-  status: 'draft' | 'failed' | string;
-  review_status: 'pending' | 'failed' | string;
+  status: "draft" | "failed" | string;
+  review_status: "pending" | "failed" | string;
   requires_signoff: boolean;
   decision_support_only: true;
 }
@@ -1472,7 +1626,7 @@ export async function generateLabPatientExplanation(payload: {
   language?: PatientExplainerLanguage;
 }) {
   return postJSON<PatientExplainerResult>(
-    '/admin/clinical-ai/lab-patient-explanations',
+    "/admin/clinical-ai/lab-patient-explanations",
     payload,
   );
 }
@@ -1483,7 +1637,7 @@ export async function generateRadiologyPatientExplanation(payload: {
   language?: PatientExplainerLanguage;
 }) {
   return postJSON<PatientExplainerResult>(
-    '/admin/clinical-ai/radiology-patient-explanations',
+    "/admin/clinical-ai/radiology-patient-explanations",
     payload,
   );
 }
@@ -1496,7 +1650,7 @@ export async function generatePatientReportExplanation(payload: {
   language?: PatientExplainerLanguage;
 }) {
   return postJSON<PatientExplainerResult>(
-    '/admin/clinical-ai/patient-report-explanations',
+    "/admin/clinical-ai/patient-report-explanations",
     payload,
   );
 }
@@ -1506,7 +1660,7 @@ export async function generatePrescriptionPatientExplanation(payload: {
   language?: PatientExplainerLanguage;
 }) {
   return postJSON<PatientExplainerResult>(
-    '/admin/clinical-ai/prescription-patient-explanations',
+    "/admin/clinical-ai/prescription-patient-explanations",
     payload,
   );
 }
@@ -1516,7 +1670,7 @@ export async function generateInvoicePatientExplanation(payload: {
   language?: PatientExplainerLanguage;
 }) {
   return postJSON<PatientExplainerResult>(
-    '/admin/clinical-ai/invoice-patient-explanations',
+    "/admin/clinical-ai/invoice-patient-explanations",
     payload,
   );
 }
@@ -1526,14 +1680,14 @@ export async function generateInvoicePatientExplanation(payload: {
 // ---------------------------------------------------------------------------
 
 export type SurgicalAiModuleKey =
-  | 'preop_checklist_review'
-  | 'surgical_consent_draft'
-  | 'ot_note_draft'
-  | 'post_op_instruction_draft'
-  | 'surgical_risk_summary'
-  | 'anesthesia_precheck_assistant'
-  | 'implant_consumable_tracker'
-  | 'post_op_complication_alert';
+  | "preop_checklist_review"
+  | "surgical_consent_draft"
+  | "ot_note_draft"
+  | "post_op_instruction_draft"
+  | "surgical_risk_summary"
+  | "anesthesia_precheck_assistant"
+  | "implant_consumable_tracker"
+  | "post_op_complication_alert";
 
 export interface SurgicalAiResult {
   module_key: SurgicalAiModuleKey;
@@ -1544,14 +1698,19 @@ export interface SurgicalAiResult {
   source_citations: PatientExplainerCitation[];
   used_ai: boolean;
   provider: string;
-  status: 'draft' | 'failed' | string;
-  review_status: 'pending' | 'failed' | string;
+  status: "draft" | "failed" | string;
+  review_status: "pending" | "failed" | string;
   requires_signoff: boolean;
   decision_support_only: true;
 }
 
-export async function reviewPreopChecklist(payload: { ot_schedule_id: number }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/preop-checklist-reviews', payload);
+export async function reviewPreopChecklist(payload: {
+  ot_schedule_id: number;
+}) {
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/preop-checklist-reviews",
+    payload,
+  );
 }
 
 export async function draftSurgicalConsent(payload: {
@@ -1559,37 +1718,66 @@ export async function draftSurgicalConsent(payload: {
   language?: PatientExplainerLanguage;
   patient_comorbidities?: string[] | null;
 }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/surgical-consent-drafts', payload);
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/surgical-consent-drafts",
+    payload,
+  );
 }
 
 export async function draftOperativeNote(payload: {
   ot_schedule_id: number;
   surgeon_notes?: string | null;
 }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/ot-note-drafts', payload);
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/ot-note-drafts",
+    payload,
+  );
 }
 
 export async function draftPostOpInstructions(payload: {
   ot_schedule_id: number;
   language?: PatientExplainerLanguage;
 }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/post-op-instruction-drafts', payload);
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/post-op-instruction-drafts",
+    payload,
+  );
 }
 
-export async function summarizeSurgicalRisk(payload: { ot_schedule_id: number }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/surgical-risk-summaries', payload);
+export async function summarizeSurgicalRisk(payload: {
+  ot_schedule_id: number;
+}) {
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/surgical-risk-summaries",
+    payload,
+  );
 }
 
-export async function runAnesthesiaPrecheck(payload: { ot_schedule_id: number }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/anesthesia-prechecks', payload);
+export async function runAnesthesiaPrecheck(payload: {
+  ot_schedule_id: number;
+}) {
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/anesthesia-prechecks",
+    payload,
+  );
 }
 
-export async function trackImplantsAndConsumables(payload: { ot_schedule_id: number }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/implant-consumable-tracking', payload);
+export async function trackImplantsAndConsumables(payload: {
+  ot_schedule_id: number;
+}) {
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/implant-consumable-tracking",
+    payload,
+  );
 }
 
-export async function detectPostOpComplications(payload: { ot_schedule_id: number }) {
-  return postJSON<SurgicalAiResult>('/admin/clinical-ai/post-op-complication-alerts', payload);
+export async function detectPostOpComplications(payload: {
+  ot_schedule_id: number;
+}) {
+  return postJSON<SurgicalAiResult>(
+    "/admin/clinical-ai/post-op-complication-alerts",
+    payload,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1597,11 +1785,18 @@ export async function detectPostOpComplications(payload: { ot_schedule_id: numbe
 // ---------------------------------------------------------------------------
 
 export type TeleconsultStatus =
-  | 'scheduled' | 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'no_show' | 'failed';
+  | "scheduled"
+  | "waiting"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "no_show"
+  | "failed";
 
-export type TeleconsultType = 'video' | 'chat' | 'audio' | 'hybrid';
+export type TeleconsultType = "video" | "chat" | "audio" | "hybrid";
 
-export type VideoProvider = 'zoom' | 'daily' | 'jitsi' | 'twilio' | 'agora' | 'webrtc_native' | 'other';
+export type VideoProvider =
+  "zoom" | "daily" | "jitsi" | "twilio" | "agora" | "webrtc_native" | "other";
 
 export interface Teleconsultation {
   id: number;
@@ -1629,7 +1824,8 @@ export interface Teleconsultation {
   updated_at?: string;
 }
 
-export type TeleconsultAiModuleKey = 'teleconsult_pre_visit_summary' | 'teleconsult_note_draft';
+export type TeleconsultAiModuleKey =
+  "teleconsult_pre_visit_summary" | "teleconsult_note_draft";
 
 export interface TeleconsultAiResult {
   module_key: TeleconsultAiModuleKey;
@@ -1640,8 +1836,8 @@ export interface TeleconsultAiResult {
   source_citations: PatientExplainerCitation[];
   used_ai: boolean;
   provider: string;
-  status: 'draft' | 'failed' | string;
-  review_status: 'pending' | 'failed' | string;
+  status: "draft" | "failed" | string;
+  review_status: "pending" | "failed" | string;
   requires_signoff: boolean;
   decision_support_only: true;
 }
@@ -1657,25 +1853,31 @@ export async function createTeleconsultation(payload: {
   pre_consult_form?: Record<string, unknown>;
   recording_consent?: boolean;
 }) {
-  return postJSON<Teleconsultation>('/admin/telemedicine/teleconsultations', payload);
+  return postJSON<Teleconsultation>(
+    "/admin/telemedicine/teleconsultations",
+    payload,
+  );
 }
 
-export async function listTeleconsultations(query: {
-  status?: TeleconsultStatus;
-  patient_uid?: string;
-  doctor_uid?: string;
-  window_start?: string;
-  window_end?: string;
-  limit?: number;
-} = {}) {
+export async function listTeleconsultations(
+  query: {
+    status?: TeleconsultStatus;
+    patient_uid?: string;
+    doctor_uid?: string;
+    window_start?: string;
+    window_end?: string;
+    limit?: number;
+  } = {},
+) {
   const qs = new URLSearchParams();
   Object.entries(query).forEach(([k, v]) => {
-    if (v !== null && v !== undefined && v !== '') qs.append(k, String(v));
+    if (v !== null && v !== undefined && v !== "") qs.append(k, String(v));
   });
-  const suffix = qs.toString() ? `?${qs.toString()}` : '';
-  return fetchAdminAPI<{ teleconsultations: Teleconsultation[]; count: number }>(
-    `/admin/telemedicine/teleconsultations${suffix}`,
-  );
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return fetchAdminAPI<{
+    teleconsultations: Teleconsultation[];
+    count: number;
+  }>(`/admin/telemedicine/teleconsultations${suffix}`);
 }
 
 export async function transitionTeleconsultation(
@@ -1688,16 +1890,26 @@ export async function transitionTeleconsultation(
 ) {
   return fetchAdminAPI<Teleconsultation>(
     `/admin/telemedicine/teleconsultations/${id}/transition`,
-    { method: 'PATCH', body: payload },
+    { method: "PATCH", body: payload },
   );
 }
 
-export async function generateTeleconsultPreVisitSummary(payload: { teleconsultation_id: number }) {
-  return postJSON<TeleconsultAiResult>('/admin/clinical-ai/teleconsult-pre-visit-summaries', payload);
+export async function generateTeleconsultPreVisitSummary(payload: {
+  teleconsultation_id: number;
+}) {
+  return postJSON<TeleconsultAiResult>(
+    "/admin/clinical-ai/teleconsult-pre-visit-summaries",
+    payload,
+  );
 }
 
-export async function generateTeleconsultNoteDraft(payload: { teleconsultation_id: number }) {
-  return postJSON<TeleconsultAiResult>('/admin/clinical-ai/teleconsult-note-drafts', payload);
+export async function generateTeleconsultNoteDraft(payload: {
+  teleconsultation_id: number;
+}) {
+  return postJSON<TeleconsultAiResult>(
+    "/admin/clinical-ai/teleconsult-note-drafts",
+    payload,
+  );
 }
 
 export async function uploadKnowledgeBaseDocument(
@@ -1706,20 +1918,24 @@ export async function uploadKnowledgeBaseDocument(
   opts: { title?: string | null; metadata?: Record<string, unknown> } = {},
 ) {
   const form = new FormData();
-  form.append('file', file);
-  if (opts.title) form.append('title', opts.title);
-  if (opts.metadata) form.append('metadata', JSON.stringify(opts.metadata));
+  form.append("file", file);
+  if (opts.title) form.append("title", opts.title);
+  if (opts.metadata) form.append("metadata", JSON.stringify(opts.metadata));
 
   const response = await apiFetch(
     `/api/v1/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents`,
-    { method: 'POST', body: form },
+    { method: "POST", body: form },
   );
-  const body = (await response.json().catch(() => null)) as
-    | { data?: KnowledgeDocumentIngestResult; message?: string; error?: string }
-    | null;
+  const body = (await response.json().catch(() => null)) as {
+    data?: KnowledgeDocumentIngestResult;
+    message?: string;
+    error?: string;
+  } | null;
   if (!response.ok) {
     throw new APIError(
-      body?.message || body?.error || `HTTP ${response.status} uploading knowledge document`,
+      body?.message ||
+        body?.error ||
+        `HTTP ${response.status} uploading knowledge document`,
       response.status,
       body,
     );
@@ -1727,10 +1943,17 @@ export async function uploadKnowledgeBaseDocument(
   return body?.data ?? (body as KnowledgeDocumentIngestResult);
 }
 
-export async function deleteKnowledgeDocument(knowledgeBaseId: number, documentId: number) {
-  return fetchAdminAPI<{ id: number; knowledge_base_id: number; title: string }>(
+export async function deleteKnowledgeDocument(
+  knowledgeBaseId: number,
+  documentId: number,
+) {
+  return fetchAdminAPI<{
+    id: number;
+    knowledge_base_id: number;
+    title: string;
+  }>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`,
-    { method: 'DELETE', body: undefined },
+    { method: "DELETE", body: undefined },
   );
 }
 
@@ -1743,20 +1966,26 @@ export async function retrieveFromKnowledgeBases(payload: {
   top_k?: number;
   min_score?: number;
 }) {
-  return postJSON<KnowledgeRetrievalResult>('/admin/clinical-ai/knowledge-bases/retrieve', payload);
+  return postJSON<KnowledgeRetrievalResult>(
+    "/admin/clinical-ai/knowledge-bases/retrieve",
+    payload,
+  );
 }
 
-export async function listKnowledgeRetrievalLogs(params: {
-  knowledge_base_id?: number | null;
-  module_key?: string | null;
-  limit?: number;
-} = {}) {
+export async function listKnowledgeRetrievalLogs(
+  params: {
+    knowledge_base_id?: number | null;
+    module_key?: string | null;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string | number> = {};
-  if (params.knowledge_base_id) query.knowledge_base_id = params.knowledge_base_id;
+  if (params.knowledge_base_id)
+    query.knowledge_base_id = params.knowledge_base_id;
   if (params.module_key) query.module_key = params.module_key;
   if (params.limit) query.limit = params.limit;
   return getJSON<{ logs: KnowledgeRetrievalLog[]; count: number }>(
-    '/admin/clinical-ai/knowledge-bases/retrieval-logs',
+    "/admin/clinical-ai/knowledge-bases/retrieval-logs",
     query,
   );
 }
@@ -1764,7 +1993,7 @@ export async function listKnowledgeRetrievalLogs(params: {
 // ---------------------------------------------------------------------------
 // Operational AI: capacity forecasting, no-show, OT duration, and charge capture
 // ---------------------------------------------------------------------------
-export type OperationalRiskBand = 'low' | 'medium' | 'high';
+export type OperationalRiskBand = "low" | "medium" | "high";
 
 export interface BedForecastPatient {
   admission_id: number;
@@ -1815,7 +2044,7 @@ export interface CommandCenterCensusLosBridge {
   review_required: boolean;
   visible: boolean;
   hidden: boolean;
-  hidden_reason: 'stale_forecast' | 'missing_forecast' | null;
+  hidden_reason: "stale_forecast" | "missing_forecast" | null;
   latest_forecast_id: number | null;
   generated_at: string | null;
   stored_at: string | null;
@@ -1846,31 +2075,41 @@ export interface PharmacyStockoutForecast {
   generated_at: string;
 }
 
-export async function getBedDischargeForecast(params: { ward?: string; windowHours?: number } = {}) {
+export async function getBedDischargeForecast(
+  params: { ward?: string; windowHours?: number } = {},
+) {
   const query: Record<string, string | number> = {};
   if (params.ward) query.ward = params.ward;
   if (params.windowHours) query.window_hours = params.windowHours;
-  return getJSON<BedDischargeForecast>('/admin/forecast/beds', query);
+  return getJSON<BedDischargeForecast>("/admin/forecast/beds", query);
 }
 
-export async function getCommandCenterSnapshots(params: Record<string, unknown> = {}) {
+export async function getCommandCenterSnapshots(
+  params: Record<string, unknown> = {},
+) {
   const query: QueryParams = {};
   for (const [key, value] of Object.entries(params)) {
     if (
-      typeof value === 'string'
-      || typeof value === 'number'
-      || typeof value === 'boolean'
-      || value === null
-      || value === undefined
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null ||
+      value === undefined
     ) {
       query[key] = value;
     }
   }
-  return getJSON<CommandCenterSnapshotsResult>('/admin/clinical-ai/command-center/snapshots', query);
+  return getJSON<CommandCenterSnapshotsResult>(
+    "/admin/clinical-ai/command-center/snapshots",
+    query,
+  );
 }
 
 export async function getPharmacyStockoutForecast(days = 7) {
-  return getJSON<PharmacyStockoutForecast>('/admin/forecast/pharmacy-stockouts', { days });
+  return getJSON<PharmacyStockoutForecast>(
+    "/admin/forecast/pharmacy-stockouts",
+    { days },
+  );
 }
 
 export interface NoShowRiskPrediction {
@@ -1895,11 +2134,17 @@ export interface OtCaseTimePrediction {
 }
 
 export async function scoreNoShowRisk(appointmentId: number) {
-  return postJSON<NoShowRiskPrediction>(`/admin/clinical-ai/operational/no-show/${appointmentId}`, {});
+  return postJSON<NoShowRiskPrediction>(
+    `/admin/clinical-ai/operational/no-show/${appointmentId}`,
+    {},
+  );
 }
 
 export async function predictOtCaseTime(scheduleId: number) {
-  return postJSON<OtCaseTimePrediction>(`/admin/clinical-ai/operational/ot/${scheduleId}`, {});
+  return postJSON<OtCaseTimePrediction>(
+    `/admin/clinical-ai/operational/ot/${scheduleId}`,
+    {},
+  );
 }
 
 export interface ChargeCaptureAudit {
@@ -1907,9 +2152,13 @@ export interface ChargeCaptureAudit {
   admission_id: number;
   patient_uid: string | null;
   mentioned_codes: Array<{ code: string; description: string }>;
-  missed_codes: Array<{ code: string; description: string; est_revenue_minor: number }>;
+  missed_codes: Array<{
+    code: string;
+    description: string;
+    est_revenue_minor: number;
+  }>;
   estimated_revenue_minor: number;
-  reviewer_decision: 'pending' | 'captured' | 'rejected';
+  reviewer_decision: "pending" | "captured" | "rejected";
   reviewed_by: string | null;
   reviewed_at: string | null;
   scanned_at: string;
@@ -1919,22 +2168,28 @@ export async function listChargeCaptureAudits(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
   return getJSON<{ audits: ChargeCaptureAudit[]; count: number }>(
-    '/admin/clinical-ai/operational/charge-capture',
-    query
+    "/admin/clinical-ai/operational/charge-capture",
+    query,
   );
 }
 
-export async function decideChargeCaptureAudit(id: number, decision: 'captured' | 'rejected') {
-  return fetchAdminAPI<ChargeCaptureAudit>(`/admin/clinical-ai/operational/charge-capture/${id}`, {
-    method: 'PATCH',
-    body: { decision },
-  });
+export async function decideChargeCaptureAudit(
+  id: number,
+  decision: "captured" | "rejected",
+) {
+  return fetchAdminAPI<ChargeCaptureAudit>(
+    `/admin/clinical-ai/operational/charge-capture/${id}`,
+    {
+      method: "PATCH",
+      body: { decision },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Clinical safety: deterioration snapshots + polypharmacy reviews
 // ---------------------------------------------------------------------------
-export type DeteriorationBand = 'stable' | 'watch' | 'concerning' | 'critical';
+export type DeteriorationBand = "stable" | "watch" | "concerning" | "critical";
 
 export interface DeteriorationSnapshot {
   id: number;
@@ -1955,8 +2210,8 @@ export async function listDeteriorationSnapshots(band?: DeteriorationBand) {
   const query: Record<string, string> = {};
   if (band) query.band = band;
   return getJSON<{ snapshots: DeteriorationSnapshot[]; count: number }>(
-    '/admin/clinical-ai/safety/deterioration',
-    query
+    "/admin/clinical-ai/safety/deterioration",
+    query,
   );
 }
 
@@ -1964,12 +2219,28 @@ export interface PolypharmacyReview {
   id: number;
   patient_uid: string;
   admission_id: number | null;
-  medications: Array<{ name?: string; medication_name?: string; dose?: string; frequency?: string }>;
-  rule_findings: Array<{ severity: string; code: string; message: string; source: string }>;
-  ai_findings: Array<{ severity: string; code: string; message: string; source: string }>;
-  combined_severity: 'low' | 'medium' | 'high' | 'critical';
+  medications: Array<{
+    name?: string;
+    medication_name?: string;
+    dose?: string;
+    frequency?: string;
+  }>;
+  rule_findings: Array<{
+    severity: string;
+    code: string;
+    message: string;
+    source: string;
+  }>;
+  ai_findings: Array<{
+    severity: string;
+    code: string;
+    message: string;
+    source: string;
+  }>;
+  combined_severity: "low" | "medium" | "high" | "critical";
   provider: string;
-  reviewer_decision: 'pending' | 'acknowledged' | 'overridden' | 'prescription_changed';
+  reviewer_decision:
+    "pending" | "acknowledged" | "overridden" | "prescription_changed";
   reviewer_note: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -1980,16 +2251,23 @@ export async function listPolypharmacyReviews(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
   return getJSON<{ reviews: PolypharmacyReview[]; count: number }>(
-    '/admin/clinical-ai/safety/polypharmacy',
-    query
+    "/admin/clinical-ai/safety/polypharmacy",
+    query,
   );
 }
 
-export async function decidePolypharmacyReview(id: number, decision: 'acknowledged' | 'overridden' | 'prescription_changed', note?: string) {
-  return fetchAdminAPI<PolypharmacyReview>(`/admin/clinical-ai/safety/polypharmacy/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+export async function decidePolypharmacyReview(
+  id: number,
+  decision: "acknowledged" | "overridden" | "prescription_changed",
+  note?: string,
+) {
+  return fetchAdminAPI<PolypharmacyReview>(
+    `/admin/clinical-ai/safety/polypharmacy/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2006,7 +2284,8 @@ export interface TrialMatch {
   phase: string | null;
   match_score: number;
   match_reasons: Array<{ kind: string; [key: string]: unknown }>;
-  coordinator_decision: 'pending' | 'offered' | 'enrolled' | 'declined' | 'ineligible';
+  coordinator_decision:
+    "pending" | "offered" | "enrolled" | "declined" | "ineligible";
   decided_by: string | null;
   decided_at: string | null;
   scored_at: string;
@@ -2015,7 +2294,11 @@ export interface TrialMatch {
 export interface TrialMatchRunResponse {
   patient_uid: string;
   admission_id: number | string | null;
-  patient_profile?: { age?: number | null; gender?: string | null; diagnosis_count?: number };
+  patient_profile?: {
+    age?: number | null;
+    gender?: string | null;
+    diagnosis_count?: number;
+  };
   matches: Array<{
     trial_id: number;
     nct_id: string;
@@ -2035,18 +2318,31 @@ export async function listTrialMatches(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
   return getJSON<{ matches: TrialMatch[]; count: number }>(
-    '/admin/clinical-ai/trials/matches',
-    query
+    "/admin/clinical-ai/trials/matches",
+    query,
   );
 }
 
-export async function matchPatientAgainstTrials(patientUid: string, payload: { admission_id?: string | number; min_score?: number; limit?: number } = {}) {
-  return postJSON<TrialMatchRunResponse>(`/admin/clinical-ai/trials/match/${patientUid}`, payload);
+export async function matchPatientAgainstTrials(
+  patientUid: string,
+  payload: {
+    admission_id?: string | number;
+    min_score?: number;
+    limit?: number;
+  } = {},
+) {
+  return postJSON<TrialMatchRunResponse>(
+    `/admin/clinical-ai/trials/match/${patientUid}`,
+    payload,
+  );
 }
 
-export async function decideTrialMatch(id: number, decision: 'offered' | 'enrolled' | 'declined' | 'ineligible') {
+export async function decideTrialMatch(
+  id: number,
+  decision: "offered" | "enrolled" | "declined" | "ineligible",
+) {
   return fetchAdminAPI<TrialMatch>(`/admin/clinical-ai/trials/matches/${id}`, {
-    method: 'PATCH',
+    method: "PATCH",
     body: { decision },
   });
 }
@@ -2056,7 +2352,7 @@ export interface TrialSyncRun {
   source: string;
   query_conditions: string[];
   query_location: string | null;
-  status: 'running' | 'completed' | 'failed';
+  status: "running" | "completed" | "failed";
   fetched_count: number;
   upserted_count: number;
   started_at: string;
@@ -2065,7 +2361,13 @@ export interface TrialSyncRun {
   metadata: Record<string, unknown>;
 }
 
-export async function triggerTrialCatalogSync(payload: { conditions?: string[]; location?: string; max_results?: number } = {}) {
+export async function triggerTrialCatalogSync(
+  payload: {
+    conditions?: string[];
+    location?: string;
+    max_results?: number;
+  } = {},
+) {
   return postJSON<{
     run_id: number | null;
     status: string;
@@ -2075,14 +2377,17 @@ export async function triggerTrialCatalogSync(payload: { conditions?: string[]; 
     fetched_count: number;
     upserted_count: number;
     error_message: string | null;
-  }>('/admin/clinical-ai/trials/sync', payload);
+  }>("/admin/clinical-ai/trials/sync", payload);
 }
 
 export async function listTrialSyncRuns() {
-  return getJSON<{ runs: TrialSyncRun[]; count: number }>('/admin/clinical-ai/trials/sync');
+  return getJSON<{ runs: TrialSyncRun[]; count: number }>(
+    "/admin/clinical-ai/trials/sync",
+  );
 }
 
-export type ImagingSeverity = 'normal' | 'incidental' | 'actionable' | 'critical' | 'unreadable';
+export type ImagingSeverity =
+  "normal" | "incidental" | "actionable" | "critical" | "unreadable";
 
 export interface ImagingStudy {
   id: number;
@@ -2103,10 +2408,16 @@ export interface ImagingFinding {
   model: string | null;
   overall_severity: ImagingSeverity;
   confidence_pct: number | null;
-  findings: Array<{ label: string; confidence: number; severity: string; actionable: boolean }>;
+  findings: Array<{
+    label: string;
+    confidence: number;
+    severity: string;
+    actionable: boolean;
+  }>;
   narrative_draft: string | null;
   heatmap_url: string | null;
-  radiologist_decision: 'pending' | 'confirmed' | 'revised' | 'rejected' | 'escalated';
+  radiologist_decision:
+    "pending" | "confirmed" | "revised" | "rejected" | "escalated";
   reviewed_at: string | null;
   created_at: string;
   patient_uid: string | null;
@@ -2155,19 +2466,24 @@ export interface ImagingInferenceResponse {
   study_id: number;
   study_instance_uid: string;
   generation_id: number | null;
-  findings: Array<{ label: string; confidence: number; severity: string; actionable: boolean }>;
+  findings: Array<{
+    label: string;
+    confidence: number;
+    severity: string;
+    actionable: boolean;
+  }>;
   overall_severity: ImagingSeverity;
   confidence_pct: number | null;
   narrative_draft: string | null;
   heatmap_url: string | null;
   safety_flags: Array<Record<string, unknown>>;
-  radiologist_decision: 'pending';
+  radiologist_decision: "pending";
   module_key: string;
   decision_support_only: boolean;
 }
 
 export async function getImagingPacsStatus() {
-  return getJSON<ImagingPacsStatus>('/admin/clinical-ai/imaging/pacs/status');
+  return getJSON<ImagingPacsStatus>("/admin/clinical-ai/imaging/pacs/status");
 }
 
 export async function registerImagingStudy(payload: {
@@ -2184,7 +2500,7 @@ export async function registerImagingStudy(payload: {
   source_system?: string;
   metadata?: Record<string, unknown>;
 }) {
-  return postJSON<ImagingStudy>('/admin/clinical-ai/imaging/studies', payload);
+  return postJSON<ImagingStudy>("/admin/clinical-ai/imaging/studies", payload);
 }
 
 export async function importImagingStudyFromPacs(payload: {
@@ -2195,7 +2511,10 @@ export async function importImagingStudyFromPacs(payload: {
   provider?: string;
   metadata?: Record<string, unknown>;
 }) {
-  return postJSON<ImagingPacsImportResponse>('/admin/clinical-ai/imaging/studies/import-pacs', payload);
+  return postJSON<ImagingPacsImportResponse>(
+    "/admin/clinical-ai/imaging/studies/import-pacs",
+    payload,
+  );
 }
 
 export async function ingestImagingInference(payload: {
@@ -2207,27 +2526,39 @@ export async function ingestImagingInference(payload: {
   heatmap_url?: string;
   raw_provider_payload?: Record<string, unknown> | null;
 }) {
-  return postJSON<ImagingInferenceResponse>('/admin/clinical-ai/imaging/inference', payload);
+  return postJSON<ImagingInferenceResponse>(
+    "/admin/clinical-ai/imaging/inference",
+    payload,
+  );
 }
 
-export async function listImagingFindings(params: { decision?: string; severity?: ImagingSeverity } = {}) {
+export async function listImagingFindings(
+  params: { decision?: string; severity?: ImagingSeverity } = {},
+) {
   const query: Record<string, string> = {};
   if (params.decision) query.decision = params.decision;
   if (params.severity) query.severity = params.severity;
   return getJSON<{ findings: ImagingFinding[]; count: number }>(
-    '/admin/clinical-ai/imaging/findings',
-    query
+    "/admin/clinical-ai/imaging/findings",
+    query,
   );
 }
 
-export async function decideImagingFinding(id: number, decision: 'confirmed' | 'revised' | 'rejected' | 'escalated', note?: string) {
-  return fetchAdminAPI<ImagingFinding>(`/admin/clinical-ai/imaging/findings/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+export async function decideImagingFinding(
+  id: number,
+  decision: "confirmed" | "revised" | "rejected" | "escalated",
+  note?: string,
+) {
+  return fetchAdminAPI<ImagingFinding>(
+    `/admin/clinical-ai/imaging/findings/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
-export type VirtualWardSeverity = 'amber' | 'red';
+export type VirtualWardSeverity = "amber" | "red";
 
 export interface VirtualWardEscalation {
   id: number;
@@ -2254,54 +2585,68 @@ export interface VirtualWardEnrollment {
   admission_id: number | null;
   pathway: string;
   start_date: string;
-  status: 'active' | 'graduated' | 'escalated' | 'dropped';
+  status: "active" | "graduated" | "escalated" | "dropped";
   expected_check_in_cadence_hours: number;
   last_check_in_at: string | null;
   open_escalations: number;
 }
 
-export async function listVirtualWardEscalations(severity?: VirtualWardSeverity) {
+export async function listVirtualWardEscalations(
+  severity?: VirtualWardSeverity,
+) {
   const query: Record<string, string> = {};
   if (severity) query.severity = severity;
   return getJSON<{ escalations: VirtualWardEscalation[]; count: number }>(
-    '/admin/clinical-ai/virtual-ward/escalations',
-    query
+    "/admin/clinical-ai/virtual-ward/escalations",
+    query,
   );
 }
 
 export async function listVirtualWardEnrollments() {
   return getJSON<{ enrollments: VirtualWardEnrollment[]; count: number }>(
-    '/admin/clinical-ai/virtual-ward/enrollments'
+    "/admin/clinical-ai/virtual-ward/enrollments",
   );
 }
 
 export async function acknowledgeVirtualWardEscalation(id: number) {
-  return fetchAdminAPI<VirtualWardEscalation>(`/admin/clinical-ai/virtual-ward/escalations/${id}/acknowledge`, {
-    method: 'PATCH',
-    body: {},
-  });
+  return fetchAdminAPI<VirtualWardEscalation>(
+    `/admin/clinical-ai/virtual-ward/escalations/${id}/acknowledge`,
+    {
+      method: "PATCH",
+      body: {},
+    },
+  );
 }
 
-export async function resolveVirtualWardEscalation(id: number, resolution: string, note?: string) {
-  return fetchAdminAPI<VirtualWardEscalation>(`/admin/clinical-ai/virtual-ward/escalations/${id}/resolve`, {
-    method: 'PATCH',
-    body: { resolution, note },
-  });
+export async function resolveVirtualWardEscalation(
+  id: number,
+  resolution: string,
+  note?: string,
+) {
+  return fetchAdminAPI<VirtualWardEscalation>(
+    `/admin/clinical-ai/virtual-ward/escalations/${id}/resolve`,
+    {
+      method: "PATCH",
+      body: { resolution, note },
+    },
+  );
 }
 
 export interface RcaDraftSummary {
   id: number;
   admission_id: number;
   patient_uid: string | null;
-  case_type: 'mortality' | 'readmission' | 'infection' | 'never_event' | 'complaint';
-  reviewer_decision: 'pending' | 'accepted' | 'revised' | 'rejected';
+  case_type:
+    "mortality" | "readmission" | "infection" | "never_event" | "complaint";
+  reviewer_decision: "pending" | "accepted" | "revised" | "rejected";
   reviewer_note: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;
 }
 
-export type RcaCaseType = 'mortality' | 'readmission' | 'infection' | 'never_event' | 'complaint';
+export type RcaCaseType =
+  "mortality" | "readmission" | "infection" | "never_event" | "complaint";
 
 export interface RcaGenerationResponse {
   rca_id: number | null;
@@ -2312,7 +2657,7 @@ export interface RcaGenerationResponse {
   safety_flags: ClinicalAiSafetyFlagSummary[];
   used_ai: boolean;
   provider: string;
-  reviewer_decision: 'pending';
+  reviewer_decision: "pending";
   module_key: string;
   decision_support_only: boolean;
 }
@@ -2321,18 +2666,28 @@ export async function listRcaDrafts(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
   return getJSON<{ drafts: RcaDraftSummary[]; count: number }>(
-    '/admin/clinical-ai/rca',
-    query
+    "/admin/clinical-ai/rca",
+    query,
   );
 }
 
-export async function generateRcaDraft(admissionId: string | number, caseType: RcaCaseType = 'mortality') {
-  return postJSON<RcaGenerationResponse>(`/admin/clinical-ai/rca/${admissionId}`, { case_type: caseType });
+export async function generateRcaDraft(
+  admissionId: string | number,
+  caseType: RcaCaseType = "mortality",
+) {
+  return postJSON<RcaGenerationResponse>(
+    `/admin/clinical-ai/rca/${admissionId}`,
+    { case_type: caseType },
+  );
 }
 
-export async function decideRcaDraft(id: number, decision: 'accepted' | 'revised' | 'rejected', note?: string) {
+export async function decideRcaDraft(
+  id: number,
+  decision: "accepted" | "revised" | "rejected",
+  note?: string,
+) {
   return fetchAdminAPI<RcaDraftSummary>(`/admin/clinical-ai/rca/${id}`, {
-    method: 'PATCH',
+    method: "PATCH",
     body: { decision, note },
   });
 }
@@ -2349,8 +2704,8 @@ export interface PriorAuthRequest {
   procedure_code: string;
   procedure_description: string | null;
   requested_service_type: string | null;
-  status: 'draft' | 'submitted' | 'approved' | 'denied' | 'withdrawn';
-  reviewer_decision: 'pending' | 'submitted' | 'rejected' | 'edited';
+  status: "draft" | "submitted" | "approved" | "denied" | "withdrawn";
+  reviewer_decision: "pending" | "submitted" | "rejected" | "edited";
   payer_reference_id: string | null;
   submitted_at: string | null;
   payer_decided_at: string | null;
@@ -2392,8 +2747,8 @@ export interface PriorAuthGenerationResponse {
   safety_flags: ClinicalAiSafetyFlagSummary[];
   used_ai: boolean;
   provider: string;
-  status: 'draft';
-  reviewer_decision: 'pending';
+  status: "draft";
+  reviewer_decision: "pending";
   module_key: string;
   decision_support_only: boolean;
 }
@@ -2402,33 +2757,52 @@ export async function listPriorAuthorizations(status?: string) {
   const query: Record<string, string> = {};
   if (status) query.status = status;
   return getJSON<{ prior_auths: PriorAuthRequest[]; count: number }>(
-    '/admin/clinical-ai/prior-auth',
-    query
+    "/admin/clinical-ai/prior-auth",
+    query,
   );
 }
 
-export async function generatePriorAuthorization(payload: PriorAuthGeneratePayload) {
-  return postJSON<PriorAuthGenerationResponse>('/admin/clinical-ai/prior-auth', payload);
+export async function generatePriorAuthorization(
+  payload: PriorAuthGeneratePayload,
+) {
+  return postJSON<PriorAuthGenerationResponse>(
+    "/admin/clinical-ai/prior-auth",
+    payload,
+  );
 }
 
-export async function submitPriorAuthorization(id: number, payerReferenceId?: string) {
-  return fetchAdminAPI<PriorAuthRequest>(`/admin/clinical-ai/prior-auth/${id}/submit`, {
-    method: 'PATCH',
-    body: { payer_reference_id: payerReferenceId },
-  });
+export async function submitPriorAuthorization(
+  id: number,
+  payerReferenceId?: string,
+) {
+  return fetchAdminAPI<PriorAuthRequest>(
+    `/admin/clinical-ai/prior-auth/${id}/submit`,
+    {
+      method: "PATCH",
+      body: { payer_reference_id: payerReferenceId },
+    },
+  );
 }
 
-export async function recordPriorAuthPayerDecision(id: number, decision: 'approved' | 'denied' | 'withdrawn', reason?: string) {
-  return fetchAdminAPI<PriorAuthRequest>(`/admin/clinical-ai/prior-auth/${id}/payer-decision`, {
-    method: 'PATCH',
-    body: { decision, reason },
-  });
+export async function recordPriorAuthPayerDecision(
+  id: number,
+  decision: "approved" | "denied" | "withdrawn",
+  reason?: string,
+) {
+  return fetchAdminAPI<PriorAuthRequest>(
+    `/admin/clinical-ai/prior-auth/${id}/payer-decision`,
+    {
+      method: "PATCH",
+      body: { decision, reason },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Document intelligence / OCR intake
 // ---------------------------------------------------------------------------
-export type DocumentIntakeDecision = 'pending' | 'accepted' | 'rejected' | 'needs_revision';
+export type DocumentIntakeDecision =
+  "pending" | "accepted" | "rejected" | "needs_revision";
 
 export interface DocumentIntake {
   id: number;
@@ -2441,7 +2815,8 @@ export interface DocumentIntake {
   file_name: string | null;
   mime_type: string | null;
   storage_key: string | null;
-  extraction_status: 'pending' | 'completed' | 'failed' | 'needs_review' | string;
+  extraction_status:
+    "pending" | "completed" | "failed" | "needs_review" | string;
   document_type: string;
   extracted_fields: {
     medications?: Array<{ text: string; action?: string }>;
@@ -2454,7 +2829,12 @@ export interface DocumentIntake {
     [key: string]: unknown;
   };
   normalized_sections: Record<string, unknown>;
-  source_citations: Array<{ source_type: string; source_id: string; label: string; timestamp?: string | null }>;
+  source_citations: Array<{
+    source_type: string;
+    source_id: string;
+    label: string;
+    timestamp?: string | null;
+  }>;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
   generation_id: number | null;
   reviewer_decision: DocumentIntakeDecision;
@@ -2484,7 +2864,12 @@ export interface DocumentIntakeResult {
   intake?: DocumentIntake | null;
   extraction_status: string;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
-  source_citations?: Array<{ source_type: string; source_id: string; label: string; timestamp?: string | null }>;
+  source_citations?: Array<{
+    source_type: string;
+    source_id: string;
+    label: string;
+    timestamp?: string | null;
+  }>;
   used_ai: boolean;
   provider: string;
   module_key: string;
@@ -2492,13 +2877,15 @@ export interface DocumentIntakeResult {
   ocr?: DocumentOcrResult;
 }
 
-export async function listDocumentIntakes(params: {
-  sourceType?: string;
-  status?: string;
-  patientUid?: string;
-  decision?: string;
-  limit?: number;
-} = {}) {
+export async function listDocumentIntakes(
+  params: {
+    sourceType?: string;
+    status?: string;
+    patientUid?: string;
+    decision?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.sourceType) query.source_type = params.sourceType;
   if (params.status) query.status = params.status;
@@ -2506,8 +2893,8 @@ export async function listDocumentIntakes(params: {
   if (params.decision) query.decision = params.decision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ documents: DocumentIntake[]; count: number }>(
-    '/admin/clinical-ai/documents/intake',
-    query
+    "/admin/clinical-ai/documents/intake",
+    query,
   );
 }
 
@@ -2521,51 +2908,74 @@ export async function ingestDocumentIntake(payload: {
   storage_key?: string | null;
   raw_text: string;
 }) {
-  return postJSON<DocumentIntakeResult>('/admin/clinical-ai/documents/intake', payload);
+  return postJSON<DocumentIntakeResult>(
+    "/admin/clinical-ai/documents/intake",
+    payload,
+  );
 }
 
-export async function uploadDocumentIntake(file: File, payload: {
-  patient_uid?: string | null;
-  admission_id?: number | null;
-  source_type?: string;
-  title?: string | null;
-  storage_key?: string | null;
-  raw_text?: string | null;
-}) {
+export async function uploadDocumentIntake(
+  file: File,
+  payload: {
+    patient_uid?: string | null;
+    admission_id?: number | null;
+    source_type?: string;
+    title?: string | null;
+    storage_key?: string | null;
+    raw_text?: string | null;
+  },
+) {
   const form = new FormData();
-  form.append('file', file);
+  form.append("file", file);
   for (const [key, value] of Object.entries(payload)) {
-    if (value !== undefined && value !== null && value !== '') {
+    if (value !== undefined && value !== null && value !== "") {
       form.append(key, String(value));
     }
   }
-  const response = await apiFetch('/api/v1/admin/clinical-ai/documents/intake/upload', {
-    method: 'POST',
-    body: form,
-  });
-  const body = await response.json().catch(() => null) as { data?: DocumentIntakeResult; message?: string; error?: string } | null;
+  const response = await apiFetch(
+    "/api/v1/admin/clinical-ai/documents/intake/upload",
+    {
+      method: "POST",
+      body: form,
+    },
+  );
+  const body = (await response.json().catch(() => null)) as {
+    data?: DocumentIntakeResult;
+    message?: string;
+    error?: string;
+  } | null;
   if (!response.ok) {
-    throw new APIError(body?.message || body?.error || `HTTP ${response.status} uploading document`, response.status, body);
+    throw new APIError(
+      body?.message ||
+        body?.error ||
+        `HTTP ${response.status} uploading document`,
+      response.status,
+      body,
+    );
   }
   return body?.data ?? (body as DocumentIntakeResult);
 }
 
 export async function decideDocumentIntake(
   id: number,
-  decision: 'accepted' | 'rejected' | 'needs_revision',
-  note?: string
+  decision: "accepted" | "rejected" | "needs_revision",
+  note?: string,
 ) {
-  return fetchAdminAPI<DocumentIntake>(`/admin/clinical-ai/documents/intake/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<DocumentIntake>(
+    `/admin/clinical-ai/documents/intake/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Chart completion auditor
 // ---------------------------------------------------------------------------
-export type ChartGapDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
-export type ChartGapRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type ChartGapDecision = "pending" | "accepted" | "deferred" | "rejected";
+export type ChartGapRiskBand =
+  "low" | "medium" | "high" | "critical" | "unknown";
 
 export interface ChartGapItem {
   severity: string;
@@ -2592,8 +3002,18 @@ export interface ChartCompletionAudit {
     [key: string]: unknown;
   };
   blockers: ChartGapItem[];
-  recommendations: Array<{ code?: string; owner_role?: string; action?: string; priority?: string }>;
-  source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  recommendations: Array<{
+    code?: string;
+    owner_role?: string;
+    action?: string;
+    priority?: string;
+  }>;
+  source_citations: Array<{
+    source_type: string;
+    source_id: string | null;
+    label: string;
+    timestamp?: string | null;
+  }>;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
   reviewer_decision: ChartGapDecision;
   reviewed_by: string | null;
@@ -2604,13 +3024,15 @@ export interface ChartCompletionAudit {
   updated_at: string;
 }
 
-export async function listChartCompletionAudits(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  decision?: string;
-  riskBand?: string;
-  limit?: number;
-} = {}) {
+export async function listChartCompletionAudits(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    decision?: string;
+    riskBand?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -2618,8 +3040,8 @@ export async function listChartCompletionAudits(params: {
   if (params.riskBand) query.risk_band = params.riskBand;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ audits: ChartCompletionAudit[]; count: number }>(
-    '/admin/clinical-ai/chart-completion/audits',
-    query
+    "/admin/clinical-ai/chart-completion/audits",
+    query,
   );
 }
 
@@ -2632,33 +3054,50 @@ export async function generateChartCompletionAudit(admissionId: number) {
       completion_score: number;
       risk_band: ChartGapRiskBand;
       gaps: ChartGapItem[];
-      recommendations: Array<{ code?: string; owner_role?: string; action?: string; priority?: string }>;
+      recommendations: Array<{
+        code?: string;
+        owner_role?: string;
+        action?: string;
+        priority?: string;
+      }>;
       checklist?: Record<string, boolean>;
       gap_counts?: Record<string, number>;
     };
-    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    source_citations: Array<{
+      source_type: string;
+      source_id: string | null;
+      label: string;
+      timestamp?: string | null;
+    }>;
     safety_flags: Array<{ severity: string; code: string; message: string }>;
     module_key: string;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/chart-completion/audits', { admission_id: admissionId });
+  }>("/admin/clinical-ai/chart-completion/audits", {
+    admission_id: admissionId,
+  });
 }
 
 export async function decideChartCompletionAudit(
   id: number,
-  decision: 'accepted' | 'deferred' | 'rejected',
-  note?: string
+  decision: "accepted" | "deferred" | "rejected",
+  note?: string,
 ) {
-  return fetchAdminAPI<ChartCompletionAudit>(`/admin/clinical-ai/chart-completion/audits/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<ChartCompletionAudit>(
+    `/admin/clinical-ai/chart-completion/audits/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Clinical task extractor
 // ---------------------------------------------------------------------------
-export type ClinicalTaskPriority = 'routine' | 'soon' | 'urgent' | 'critical' | 'unknown';
-export type ClinicalTaskDecision = 'pending' | 'accepted' | 'rejected' | 'deferred' | 'completed';
+export type ClinicalTaskPriority =
+  "routine" | "soon" | "urgent" | "critical" | "unknown";
+export type ClinicalTaskDecision =
+  "pending" | "accepted" | "rejected" | "deferred" | "completed";
 
 export interface ClinicalAiTaskCandidate {
   id: number;
@@ -2687,14 +3126,16 @@ export interface ClinicalAiTaskCandidate {
   updated_at: string;
 }
 
-export async function listClinicalAiTasks(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  decision?: string;
-  priority?: string;
-  ownerRole?: string;
-  limit?: number;
-} = {}) {
+export async function listClinicalAiTasks(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    decision?: string;
+    priority?: string;
+    ownerRole?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -2703,8 +3144,8 @@ export async function listClinicalAiTasks(params: {
   if (params.ownerRole) query.owner_role = params.ownerRole;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ tasks: ClinicalAiTaskCandidate[]; count: number }>(
-    '/admin/clinical-ai/tasks',
-    query
+    "/admin/clinical-ai/tasks",
+    query,
   );
 }
 
@@ -2728,25 +3169,30 @@ export async function extractClinicalAiTasks(admissionId: number) {
     };
     decision_support_only: boolean;
     no_auto_assign: boolean;
-  }>('/admin/clinical-ai/tasks/extract', { admission_id: admissionId });
+  }>("/admin/clinical-ai/tasks/extract", { admission_id: admissionId });
 }
 
 export async function decideClinicalAiTask(
   id: number,
-  decision: Exclude<ClinicalTaskDecision, 'pending'>,
-  note?: string
+  decision: Exclude<ClinicalTaskDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<ClinicalAiTaskCandidate>(`/admin/clinical-ai/tasks/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<ClinicalAiTaskCandidate>(
+    `/admin/clinical-ai/tasks/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Consent & PHI policy sentinel
 // ---------------------------------------------------------------------------
-export type PrivacySentinelDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';
-export type PrivacySentinelRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type PrivacySentinelDecision =
+  "pending" | "acknowledged" | "escalated" | "dismissed";
+export type PrivacySentinelRiskBand =
+  "low" | "medium" | "high" | "critical" | "unknown";
 
 export interface PrivacySentinelFinding {
   severity: string;
@@ -2790,13 +3236,15 @@ export interface PrivacySentinelAudit {
   updated_at: string;
 }
 
-export async function listPrivacySentinelAudits(params: {
-  riskBand?: string;
-  decision?: string;
-  moduleKey?: string;
-  patientUid?: string;
-  limit?: number;
-} = {}) {
+export async function listPrivacySentinelAudits(
+  params: {
+    riskBand?: string;
+    decision?: string;
+    moduleKey?: string;
+    patientUid?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.riskBand) query.risk_band = params.riskBand;
   if (params.decision) query.decision = params.decision;
@@ -2804,16 +3252,18 @@ export async function listPrivacySentinelAudits(params: {
   if (params.patientUid) query.patient_uid = params.patientUid;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ audits: PrivacySentinelAudit[]; count: number }>(
-    '/admin/clinical-ai/privacy-sentinel/audits',
-    query
+    "/admin/clinical-ai/privacy-sentinel/audits",
+    query,
   );
 }
 
-export async function runPrivacySentinelScan(payload: {
-  generationId?: number | null;
-  windowDays?: number;
-  limit?: number;
-} = {}) {
+export async function runPrivacySentinelScan(
+  payload: {
+    generationId?: number | null;
+    windowDays?: number;
+    limit?: number;
+  } = {},
+) {
   return postJSON<{
     audits: PrivacySentinelAudit[];
     count: number;
@@ -2827,7 +3277,7 @@ export async function runPrivacySentinelScan(payload: {
     };
     module_key: string;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/privacy-sentinel/scans', {
+  }>("/admin/clinical-ai/privacy-sentinel/scans", {
     generation_id: payload.generationId || null,
     window_days: payload.windowDays || 7,
     limit: payload.limit || 100,
@@ -2836,19 +3286,22 @@ export async function runPrivacySentinelScan(payload: {
 
 export async function decidePrivacySentinelAudit(
   id: number,
-  decision: 'acknowledged' | 'escalated' | 'dismissed',
-  note?: string
+  decision: "acknowledged" | "escalated" | "dismissed",
+  note?: string,
 ) {
-  return fetchAdminAPI<PrivacySentinelAudit>(`/admin/clinical-ai/privacy-sentinel/audits/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<PrivacySentinelAudit>(
+    `/admin/clinical-ai/privacy-sentinel/audits/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Abnormal result triage worklist
 // ---------------------------------------------------------------------------
-export type AbnormalTriageBand = 'routine' | 'watch' | 'urgent' | 'critical';
+export type AbnormalTriageBand = "routine" | "watch" | "urgent" | "critical";
 
 export interface AbnormalTriageItem {
   source?: string;
@@ -2869,7 +3322,12 @@ export interface AbnormalResultTriageDraft {
   used_ai: boolean;
   prompt_version: string;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
-  citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  citations: Array<{
+    source_type: string;
+    source_id: string | null;
+    label: string;
+    timestamp?: string | null;
+  }>;
   draft: {
     urgent_items?: AbnormalTriageItem[];
     watch_items?: AbnormalTriageItem[];
@@ -2894,20 +3352,22 @@ export interface AbnormalResultTriageDraft {
   created_at: string;
 }
 
-export async function listAbnormalResultTriages(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  urgencyBand?: string;
-  limit?: number;
-} = {}) {
+export async function listAbnormalResultTriages(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    urgencyBand?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
   if (params.urgencyBand) query.urgency_band = params.urgencyBand;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ drafts: AbnormalResultTriageDraft[]; count: number }>(
-    '/admin/clinical-ai/abnormal-results/triage',
-    query
+    "/admin/clinical-ai/abnormal-results/triage",
+    query,
   );
 }
 
@@ -2920,23 +3380,32 @@ export async function generateAbnormalResultTriage(admissionId: number) {
     };
     module_key: string;
     prompt_version: string;
-    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    source_citations: Array<{
+      source_type: string;
+      source_id: string | null;
+      label: string;
+      timestamp?: string | null;
+    }>;
     safety_flags: Array<{ severity: string; code: string; message: string }>;
     review_status: string;
     review_id: number | null;
     generation_id: number | null;
     requires_signoff: boolean;
-  }>('/admin/clinical-ai/abnormal-results/triage', { admission_id: admissionId });
+  }>("/admin/clinical-ai/abnormal-results/triage", {
+    admission_id: admissionId,
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Infection control sentinel
 // ---------------------------------------------------------------------------
-export type InfectionControlRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
-export type InfectionControlDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';
+export type InfectionControlRiskBand =
+  "low" | "medium" | "high" | "critical" | "unknown";
+export type InfectionControlDecision =
+  "pending" | "acknowledged" | "escalated" | "dismissed";
 
 export interface InfectionControlSignal {
-  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  severity: "low" | "medium" | "high" | "critical" | string;
   code: string;
   category: string;
   title: string;
@@ -2954,10 +3423,19 @@ export interface InfectionControlAudit {
   risk_score: number;
   risk_band: InfectionControlRiskBand;
   signals: InfectionControlSignal[];
-  recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+  recommendations: Array<{
+    code: string;
+    severity: string;
+    recommendation: string;
+  }>;
   stewardship_flags: InfectionControlSignal[];
   isolation_flags: InfectionControlSignal[];
-  source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  source_citations: Array<{
+    source_type: string;
+    source_id: string | null;
+    label: string;
+    timestamp?: string | null;
+  }>;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
   reviewer_decision: InfectionControlDecision;
   reviewed_by?: string | null;
@@ -2968,13 +3446,15 @@ export interface InfectionControlAudit {
   updated_at?: string;
 }
 
-export async function listInfectionControlAudits(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  decision?: string;
-  riskBand?: string;
-  limit?: number;
-} = {}) {
+export async function listInfectionControlAudits(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    decision?: string;
+    riskBand?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -2982,8 +3462,8 @@ export async function listInfectionControlAudits(params: {
   if (params.riskBand) query.risk_band = params.riskBand;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ audits: InfectionControlAudit[]; count: number }>(
-    '/admin/clinical-ai/infection-control/audits',
-    query
+    "/admin/clinical-ai/infection-control/audits",
+    query,
   );
 }
 
@@ -2996,35 +3476,55 @@ export async function generateInfectionControlAudit(admissionId: number) {
       risk_score: number;
       risk_band: InfectionControlRiskBand;
       signals: InfectionControlSignal[];
-      recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+      recommendations: Array<{
+        code: string;
+        severity: string;
+        recommendation: string;
+      }>;
       stewardship_flags: InfectionControlSignal[];
       isolation_flags: InfectionControlSignal[];
       summary?: string;
     };
     module_key: string;
     prompt_version: string;
-    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    source_citations: Array<{
+      source_type: string;
+      source_id: string | null;
+      label: string;
+      timestamp?: string | null;
+    }>;
     safety_flags: Array<{ severity: string; code: string; message: string }>;
     review_status: string;
     requires_signoff: boolean;
-  }>('/admin/clinical-ai/infection-control/audits', { admission_id: admissionId });
+  }>("/admin/clinical-ai/infection-control/audits", {
+    admission_id: admissionId,
+  });
 }
 
-export async function decideInfectionControlAudit(id: number, decision: Exclude<InfectionControlDecision, 'pending'>, note?: string) {
-  return fetchAdminAPI<InfectionControlAudit>(`/admin/clinical-ai/infection-control/audits/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+export async function decideInfectionControlAudit(
+  id: number,
+  decision: Exclude<InfectionControlDecision, "pending">,
+  note?: string,
+) {
+  return fetchAdminAPI<InfectionControlAudit>(
+    `/admin/clinical-ai/infection-control/audits/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Antimicrobial stewardship assistant
 // ---------------------------------------------------------------------------
-export type AntimicrobialStewardshipRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
-export type AntimicrobialStewardshipDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
+export type AntimicrobialStewardshipRiskBand =
+  "low" | "medium" | "high" | "critical" | "unknown";
+export type AntimicrobialStewardshipDecision =
+  "pending" | "accepted" | "deferred" | "rejected";
 
 export interface AntimicrobialStewardshipFlag {
-  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  severity: "low" | "medium" | "high" | "critical" | string;
   code: string;
   category: string;
   title: string;
@@ -3065,7 +3565,11 @@ export interface AntimicrobialStewardshipReview {
   renal_summary: Record<string, unknown>;
   fever_summary: Record<string, unknown>;
   flags: AntimicrobialStewardshipFlag[];
-  recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+  recommendations: Array<{
+    code: string;
+    severity: string;
+    recommendation: string;
+  }>;
   source_citations: ClinicalAiSourceCitation[];
   safety_flags: ClinicalAiSafetyFlagSummary[];
   reviewer_decision: AntimicrobialStewardshipDecision;
@@ -3077,13 +3581,15 @@ export interface AntimicrobialStewardshipReview {
   updated_at?: string;
 }
 
-export async function listAntimicrobialStewardshipReviews(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  decision?: string;
-  riskBand?: string;
-  limit?: number;
-} = {}) {
+export async function listAntimicrobialStewardshipReviews(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    decision?: string;
+    riskBand?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -3091,12 +3597,14 @@ export async function listAntimicrobialStewardshipReviews(params: {
   if (params.riskBand) query.risk_band = params.riskBand;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ reviews: AntimicrobialStewardshipReview[]; count: number }>(
-    '/admin/clinical-ai/antimicrobial-stewardship/reviews',
-    query
+    "/admin/clinical-ai/antimicrobial-stewardship/reviews",
+    query,
   );
 }
 
-export async function generateAntimicrobialStewardshipReview(admissionId: number) {
+export async function generateAntimicrobialStewardshipReview(
+  admissionId: number,
+) {
   return postJSON<{
     review_id: number | null;
     generation_id: number | null;
@@ -3109,7 +3617,11 @@ export async function generateAntimicrobialStewardshipReview(admissionId: number
       renal_summary: Record<string, unknown>;
       fever_summary: Record<string, unknown>;
       flags: AntimicrobialStewardshipFlag[];
-      recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+      recommendations: Array<{
+        code: string;
+        severity: string;
+        recommendation: string;
+      }>;
       summary?: string;
     };
     module_key: string;
@@ -3120,18 +3632,23 @@ export async function generateAntimicrobialStewardshipReview(admissionId: number
     requires_signoff: boolean;
     rules_authoritative: boolean;
     ai_metadata?: Record<string, unknown>;
-  }>('/admin/clinical-ai/antimicrobial-stewardship/reviews', { admission_id: admissionId });
+  }>("/admin/clinical-ai/antimicrobial-stewardship/reviews", {
+    admission_id: admissionId,
+  });
 }
 
 export async function decideAntimicrobialStewardshipReview(
   id: number,
-  decision: Exclude<AntimicrobialStewardshipDecision, 'pending'>,
-  note?: string
+  decision: Exclude<AntimicrobialStewardshipDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<AntimicrobialStewardshipReview>(`/admin/clinical-ai/antimicrobial-stewardship/reviews/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<AntimicrobialStewardshipReview>(
+    `/admin/clinical-ai/antimicrobial-stewardship/reviews/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3198,41 +3715,49 @@ export interface AiRoiSnapshot extends AiRoiMetrics {
 }
 
 export async function getAiRoiMetrics(periodDays: number = 30) {
-  return getJSON<AiRoiMetrics>('/admin/clinical-ai/roi', { period_days: String(periodDays) });
+  return getJSON<AiRoiMetrics>("/admin/clinical-ai/roi", {
+    period_days: String(periodDays),
+  });
 }
 
-export async function saveAiRoiSnapshot(payload: { periodDays?: number; moduleKey?: string } = {}) {
+export async function saveAiRoiSnapshot(
+  payload: { periodDays?: number; moduleKey?: string } = {},
+) {
   const body: Record<string, unknown> = {};
   if (payload.periodDays) body.period_days = payload.periodDays;
   if (payload.moduleKey) body.module_key = payload.moduleKey;
   return postJSON<{ snapshot: AiRoiSnapshot; metrics: AiRoiMetrics }>(
-    '/admin/clinical-ai/roi/snapshots',
-    body
+    "/admin/clinical-ai/roi/snapshots",
+    body,
   );
 }
 
-export async function listAiRoiSnapshots(params: { moduleKey?: string; limit?: number } = {}) {
+export async function listAiRoiSnapshots(
+  params: { moduleKey?: string; limit?: number } = {},
+) {
   const query: Record<string, string> = {};
   if (params.moduleKey) query.module_key = params.moduleKey;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ snapshots: AiRoiSnapshot[]; count: number }>(
-    '/admin/clinical-ai/roi/snapshots',
-    query
+    "/admin/clinical-ai/roi/snapshots",
+    query,
   );
 }
 
-export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
+export async function getLatestAiRoiSnapshot(moduleKey: string = "ALL") {
   return getJSON<{ snapshot: AiRoiSnapshot | null }>(
-    '/admin/clinical-ai/roi/snapshots/latest',
-    { module_key: moduleKey }
+    "/admin/clinical-ai/roi/snapshots/latest",
+    { module_key: moduleKey },
   );
 }
 
 // ---------------------------------------------------------------------------
 // Staff burnout / workload risk
 // ---------------------------------------------------------------------------
-export type StaffBurnoutRiskBand = 'low' | 'moderate' | 'high' | 'critical' | 'unknown' | 'insufficient_data';
-export type StaffBurnoutDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'escalated';
+export type StaffBurnoutRiskBand =
+  "low" | "moderate" | "high" | "critical" | "unknown" | "insufficient_data";
+export type StaffBurnoutDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "escalated";
 
 export interface StaffBurnoutSignal {
   code: string;
@@ -3274,26 +3799,32 @@ export interface StaffBurnoutReview {
   updated_at?: string;
 }
 
-export async function listStaffBurnoutReviews(params: {
-  staffUid?: string;
-  department?: string;
-  riskBand?: StaffBurnoutRiskBand | string;
-  reviewerDecision?: StaffBurnoutDecision | string;
-  limit?: number;
-} = {}) {
+export async function listStaffBurnoutReviews(
+  params: {
+    staffUid?: string;
+    department?: string;
+    riskBand?: StaffBurnoutRiskBand | string;
+    reviewerDecision?: StaffBurnoutDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.staffUid) query.staff_uid = params.staffUid;
   if (params.department) query.department = params.department;
   if (params.riskBand) query.risk_band = params.riskBand;
-  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.reviewerDecision)
+    query.reviewer_decision = params.reviewerDecision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ reviews: StaffBurnoutReview[]; count: number }>(
-    '/admin/clinical-ai/staff-burnout/reviews',
-    query
+    "/admin/clinical-ai/staff-burnout/reviews",
+    query,
   );
 }
 
-export async function evaluateStaffBurnout(payload: { staffUid: string; windowDays?: number }) {
+export async function evaluateStaffBurnout(payload: {
+  staffUid: string;
+  windowDays?: number;
+}) {
   const body: Record<string, unknown> = { staff_uid: payload.staffUid };
   if (payload.windowDays) body.window_days = payload.windowDays;
   return postJSON<{
@@ -3314,26 +3845,38 @@ export async function evaluateStaffBurnout(payload: { staffUid: string; windowDa
     review_status: string;
     rules_authoritative: boolean;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/staff-burnout/evaluate', body);
+  }>("/admin/clinical-ai/staff-burnout/evaluate", body);
 }
 
 export async function decideStaffBurnoutReview(
   id: number,
-  decision: Exclude<StaffBurnoutDecision, 'pending'>,
-  note?: string
+  decision: Exclude<StaffBurnoutDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<StaffBurnoutReview>(`/admin/clinical-ai/staff-burnout/reviews/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<StaffBurnoutReview>(
+    `/admin/clinical-ai/staff-burnout/reviews/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Pediatric dosing safety
 // ---------------------------------------------------------------------------
-export type PediatricSafetyBand = 'safe' | 'caution' | 'unsafe' | 'missing_data' | 'unknown';
-export type PediatricDoseDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
-export type PediatricAgeBand = 'neonate' | 'infant' | 'toddler' | 'child' | 'adolescent' | 'adult' | 'unknown';
+export type PediatricSafetyBand =
+  "safe" | "caution" | "unsafe" | "missing_data" | "unknown";
+export type PediatricDoseDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "edited";
+export type PediatricAgeBand =
+  | "neonate"
+  | "infant"
+  | "toddler"
+  | "child"
+  | "adolescent"
+  | "adult"
+  | "unknown";
 
 export interface PediatricDoseCheck {
   id: number;
@@ -3368,22 +3911,25 @@ export interface PediatricDoseCheck {
   updated_at?: string;
 }
 
-export async function listPediatricDoseChecks(params: {
-  patientUid?: string;
-  admissionId?: number | string;
-  safetyBand?: PediatricSafetyBand | string;
-  reviewerDecision?: PediatricDoseDecision | string;
-  limit?: number;
-} = {}) {
+export async function listPediatricDoseChecks(
+  params: {
+    patientUid?: string;
+    admissionId?: number | string;
+    safetyBand?: PediatricSafetyBand | string;
+    reviewerDecision?: PediatricDoseDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.patientUid) query.patient_uid = params.patientUid;
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.safetyBand) query.safety_band = params.safetyBand;
-  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.reviewerDecision)
+    query.reviewer_decision = params.reviewerDecision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ checks: PediatricDoseCheck[]; count: number }>(
-    '/admin/clinical-ai/pediatric-dose-checks',
-    query
+    "/admin/clinical-ai/pediatric-dose-checks",
+    query,
   );
 }
 
@@ -3406,9 +3952,12 @@ export async function evaluatePediatricDose(payload: {
   if (payload.prescriptionId) body.prescription_id = payload.prescriptionId;
   if (payload.admissionId) body.admission_id = payload.admissionId;
   if (payload.prescribedRoute) body.prescribed_route = payload.prescribedRoute;
-  if (payload.prescribedFrequency) body.prescribed_frequency = payload.prescribedFrequency;
-  if (payload.ageDaysOverride !== undefined) body.age_days_override = payload.ageDaysOverride;
-  if (payload.weightKgOverride !== undefined) body.weight_kg_override = payload.weightKgOverride;
+  if (payload.prescribedFrequency)
+    body.prescribed_frequency = payload.prescribedFrequency;
+  if (payload.ageDaysOverride !== undefined)
+    body.age_days_override = payload.ageDaysOverride;
+  if (payload.weightKgOverride !== undefined)
+    body.weight_kg_override = payload.weightKgOverride;
   return postJSON<{
     check_id: number | null;
     generation_id: number | null;
@@ -3424,32 +3973,37 @@ export async function evaluatePediatricDose(payload: {
     review_status: string;
     rules_authoritative: boolean;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/pediatric-dose-checks/evaluate', body);
+  }>("/admin/clinical-ai/pediatric-dose-checks/evaluate", body);
 }
 
 export async function decidePediatricDoseCheck(
   id: number,
-  decision: Exclude<PediatricDoseDecision, 'pending'>,
-  note?: string
+  decision: Exclude<PediatricDoseDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<PediatricDoseCheck>(`/admin/clinical-ai/pediatric-dose-checks/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<PediatricDoseCheck>(
+    `/admin/clinical-ai/pediatric-dose-checks/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Lab autoverification / delta check
 // ---------------------------------------------------------------------------
-export type LabAutoverificationDecision = 'pending' | 'auto_verify' | 'hold_for_review' | 'critical' | 'rejected';
-export type LabAutoverificationReviewerDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type LabAutoverificationDecision =
+  "pending" | "auto_verify" | "hold_for_review" | "critical" | "rejected";
+export type LabAutoverificationReviewerDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "edited";
 export type LabCriticalBand =
-  | 'normal'
-  | 'borderline_low'
-  | 'borderline_high'
-  | 'critical_low'
-  | 'critical_high'
-  | 'unknown';
+  | "normal"
+  | "borderline_low"
+  | "borderline_high"
+  | "critical_low"
+  | "critical_high"
+  | "unknown";
 
 export interface LabAutoverification {
   id: number;
@@ -3484,22 +4038,25 @@ export interface LabAutoverification {
   updated_at?: string;
 }
 
-export async function listLabAutoverifications(params: {
-  patientUid?: string;
-  decision?: LabAutoverificationDecision | string;
-  criticalBand?: LabCriticalBand | string;
-  reviewerDecision?: LabAutoverificationReviewerDecision | string;
-  limit?: number;
-} = {}) {
+export async function listLabAutoverifications(
+  params: {
+    patientUid?: string;
+    decision?: LabAutoverificationDecision | string;
+    criticalBand?: LabCriticalBand | string;
+    reviewerDecision?: LabAutoverificationReviewerDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.patientUid) query.patient_uid = params.patientUid;
   if (params.decision) query.decision = params.decision;
   if (params.criticalBand) query.critical_band = params.criticalBand;
-  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.reviewerDecision)
+    query.reviewer_decision = params.reviewerDecision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ autoverifications: LabAutoverification[]; count: number }>(
-    '/admin/clinical-ai/lab-autoverifications',
-    query
+    "/admin/clinical-ai/lab-autoverifications",
+    query,
   );
 }
 
@@ -3526,32 +4083,39 @@ export async function evaluateLabAutoverification(investigationId: number) {
     review_status: string;
     rules_authoritative: boolean;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/lab-autoverifications/evaluate', { investigation_id: investigationId });
+  }>("/admin/clinical-ai/lab-autoverifications/evaluate", {
+    investigation_id: investigationId,
+  });
 }
 
 export async function decideLabAutoverification(
   id: number,
-  decision: Exclude<LabAutoverificationReviewerDecision, 'pending'>,
-  note?: string
+  decision: Exclude<LabAutoverificationReviewerDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<LabAutoverification>(`/admin/clinical-ai/lab-autoverifications/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<LabAutoverification>(
+    `/admin/clinical-ai/lab-autoverifications/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Payer contract variance / underpayment AI
 // ---------------------------------------------------------------------------
-export type PayerVarianceDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'escalated';
+export type PayerVarianceDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "escalated";
 export type PayerVarianceCategory =
-  | 'match'
-  | 'underpayment'
-  | 'overpayment'
-  | 'missing_contract'
-  | 'missing_payment'
-  | 'unknown';
-export type PayerVarianceBand = 'within_tolerance' | 'review' | 'investigate' | 'escalate' | 'unknown';
+  | "match"
+  | "underpayment"
+  | "overpayment"
+  | "missing_contract"
+  | "missing_payment"
+  | "unknown";
+export type PayerVarianceBand =
+  "within_tolerance" | "review" | "investigate" | "escalate" | "unknown";
 
 export interface PayerContract {
   id: number;
@@ -3604,20 +4168,22 @@ export interface PayerVarianceReview {
   updated_at?: string;
 }
 
-export async function listPayerContracts(params: {
-  payerName?: string;
-  procedureCode?: string;
-  active?: boolean;
-  limit?: number;
-} = {}) {
+export async function listPayerContracts(
+  params: {
+    payerName?: string;
+    procedureCode?: string;
+    active?: boolean;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.payerName) query.payer_name = params.payerName;
   if (params.procedureCode) query.procedure_code = params.procedureCode;
-  if (typeof params.active === 'boolean') query.active = String(params.active);
+  if (typeof params.active === "boolean") query.active = String(params.active);
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ contracts: PayerContract[]; count: number }>(
-    '/admin/clinical-ai/payer-contracts',
-    query
+    "/admin/clinical-ai/payer-contracts",
+    query,
   );
 }
 
@@ -3641,24 +4207,31 @@ export async function upsertPayerContract(payload: {
     expected_rate_minor: payload.expectedRateMinor,
   };
   if (payload.payerCode) body.payer_code = payload.payerCode;
-  if (payload.procedureDescription) body.procedure_description = payload.procedureDescription;
+  if (payload.procedureDescription)
+    body.procedure_description = payload.procedureDescription;
   if (payload.currencyCode) body.currency_code = payload.currencyCode;
-  if (payload.tolerancePct !== undefined) body.tolerance_pct = payload.tolerancePct;
-  if (payload.effectiveStartDate) body.effective_start_date = payload.effectiveStartDate;
-  if (payload.effectiveEndDate) body.effective_end_date = payload.effectiveEndDate;
-  if (payload.contractReference) body.contract_reference = payload.contractReference;
+  if (payload.tolerancePct !== undefined)
+    body.tolerance_pct = payload.tolerancePct;
+  if (payload.effectiveStartDate)
+    body.effective_start_date = payload.effectiveStartDate;
+  if (payload.effectiveEndDate)
+    body.effective_end_date = payload.effectiveEndDate;
+  if (payload.contractReference)
+    body.contract_reference = payload.contractReference;
   if (payload.notes) body.notes = payload.notes;
-  if (typeof payload.active === 'boolean') body.active = payload.active;
-  return postJSON<PayerContract>('/admin/clinical-ai/payer-contracts', body);
+  if (typeof payload.active === "boolean") body.active = payload.active;
+  return postJSON<PayerContract>("/admin/clinical-ai/payer-contracts", body);
 }
 
-export async function listPayerVarianceReviews(params: {
-  claimId?: number | string;
-  decision?: PayerVarianceDecision | string;
-  category?: PayerVarianceCategory | string;
-  band?: PayerVarianceBand | string;
-  limit?: number;
-} = {}) {
+export async function listPayerVarianceReviews(
+  params: {
+    claimId?: number | string;
+    decision?: PayerVarianceDecision | string;
+    category?: PayerVarianceCategory | string;
+    band?: PayerVarianceBand | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.claimId) query.claim_id = String(params.claimId);
   if (params.decision) query.decision = params.decision;
@@ -3666,8 +4239,8 @@ export async function listPayerVarianceReviews(params: {
   if (params.band) query.band = params.band;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ reviews: PayerVarianceReview[]; count: number }>(
-    '/admin/clinical-ai/payer-variance/reviews',
-    query
+    "/admin/clinical-ai/payer-variance/reviews",
+    query,
   );
 }
 
@@ -3678,7 +4251,8 @@ export async function evaluateClaimVariance(payload: {
 }) {
   const body: Record<string, unknown> = { claim_id: payload.claimId };
   if (payload.procedureCode) body.procedure_code = payload.procedureCode;
-  if (payload.tolerancePct !== undefined) body.tolerance_pct = payload.tolerancePct;
+  if (payload.tolerancePct !== undefined)
+    body.tolerance_pct = payload.tolerancePct;
   return postJSON<{
     review_id: number | null;
     generation_id: number | null;
@@ -3701,36 +4275,42 @@ export async function evaluateClaimVariance(payload: {
     review_status: string;
     rules_authoritative: boolean;
     decision_support_only: boolean;
-  }>('/admin/clinical-ai/payer-variance/evaluate', body);
+  }>("/admin/clinical-ai/payer-variance/evaluate", body);
 }
 
 export async function decidePayerVarianceReview(
   id: number,
-  decision: Exclude<PayerVarianceDecision, 'pending'>,
-  note?: string
+  decision: Exclude<PayerVarianceDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<PayerVarianceReview>(`/admin/clinical-ai/payer-variance/reviews/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<PayerVarianceReview>(
+    `/admin/clinical-ai/payer-variance/reviews/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Consent-aware family update generator
 // ---------------------------------------------------------------------------
-export type FamilyUpdateDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
-export type FamilyUpdateStatus = 'draft' | 'ready_to_send' | 'sent' | 'withdrawn';
+export type FamilyUpdateDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "edited";
+export type FamilyUpdateStatus =
+  "draft" | "ready_to_send" | "sent" | "withdrawn";
 export type FamilyCaregiverRelationship =
-  | 'spouse'
-  | 'parent'
-  | 'child'
-  | 'sibling'
-  | 'friend'
-  | 'legal_guardian'
-  | 'guardian'
-  | 'care_manager'
-  | 'other';
-export type FamilyUpdateLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+  | "spouse"
+  | "parent"
+  | "child"
+  | "sibling"
+  | "friend"
+  | "legal_guardian"
+  | "guardian"
+  | "care_manager"
+  | "other";
+export type FamilyUpdateLanguage =
+  "en" | "hi" | "ta" | "te" | "ml" | "mr" | "bn" | "kn";
 
 export interface FamilyUpdateDraft {
   language: FamilyUpdateLanguage;
@@ -3774,13 +4354,15 @@ export interface FamilyUpdate {
   updated_at?: string;
 }
 
-export async function listFamilyUpdates(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  updateStatus?: FamilyUpdateStatus | string;
-  decision?: FamilyUpdateDecision | string;
-  limit?: number;
-} = {}) {
+export async function listFamilyUpdates(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    updateStatus?: FamilyUpdateStatus | string;
+    decision?: FamilyUpdateDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -3788,8 +4370,8 @@ export async function listFamilyUpdates(params: {
   if (params.decision) query.decision = params.decision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ updates: FamilyUpdate[]; count: number }>(
-    '/admin/clinical-ai/family-updates',
-    query
+    "/admin/clinical-ai/family-updates",
+    query,
   );
 }
 
@@ -3804,11 +4386,15 @@ export async function generateFamilyUpdate(payload: {
 }) {
   const body: Record<string, unknown> = { patient_uid: payload.patientUid };
   if (payload.admissionId) body.admission_id = payload.admissionId;
-  if (payload.caregiverIdentifier) body.caregiver_identifier = payload.caregiverIdentifier;
-  if (payload.caregiverRelationship) body.caregiver_relationship = payload.caregiverRelationship;
+  if (payload.caregiverIdentifier)
+    body.caregiver_identifier = payload.caregiverIdentifier;
+  if (payload.caregiverRelationship)
+    body.caregiver_relationship = payload.caregiverRelationship;
   if (payload.language) body.language = payload.language;
-  if (payload.sourceGenerationId) body.source_generation_id = payload.sourceGenerationId;
-  if (payload.consentReference) body.consent_reference = payload.consentReference;
+  if (payload.sourceGenerationId)
+    body.source_generation_id = payload.sourceGenerationId;
+  if (payload.consentReference)
+    body.consent_reference = payload.consentReference;
   return postJSON<{
     update_id: number | null;
     generation_id: number | null;
@@ -3825,31 +4411,41 @@ export async function generateFamilyUpdate(payload: {
     decision_support_only: boolean;
     language: FamilyUpdateLanguage;
     caregiver_relationship: FamilyCaregiverRelationship;
-  }>('/admin/clinical-ai/family-updates', body);
+  }>("/admin/clinical-ai/family-updates", body);
 }
 
 export async function decideFamilyUpdate(
   id: number,
-  decision: Exclude<FamilyUpdateDecision, 'pending'>,
-  note?: string
+  decision: Exclude<FamilyUpdateDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<FamilyUpdate>(`/admin/clinical-ai/family-updates/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<FamilyUpdate>(
+    `/admin/clinical-ai/family-updates/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
-export async function markFamilyUpdateSent(id: number, deliveryChannel?: string) {
-  return postJSON<FamilyUpdate>(`/admin/clinical-ai/family-updates/${id}/sent`, {
-    delivery_channel: deliveryChannel,
-  });
+export async function markFamilyUpdateSent(
+  id: number,
+  deliveryChannel?: string,
+) {
+  return postJSON<FamilyUpdate>(
+    `/admin/clinical-ai/family-updates/${id}/sent`,
+    {
+      delivery_channel: deliveryChannel,
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Nursing ambient documentation
 // ---------------------------------------------------------------------------
-export type NursingAmbientShift = 'day' | 'evening' | 'night' | 'custom';
-export type NursingAmbientDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type NursingAmbientShift = "day" | "evening" | "night" | "custom";
+export type NursingAmbientDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "edited";
 
 export interface NursingAmbientObservation {
   description: string;
@@ -3914,13 +4510,15 @@ export interface NursingAmbientSession {
   updated_at?: string;
 }
 
-export async function listNursingAmbientSessions(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  shift?: NursingAmbientShift | string;
-  decision?: NursingAmbientDecision | string;
-  limit?: number;
-} = {}) {
+export async function listNursingAmbientSessions(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    shift?: NursingAmbientShift | string;
+    decision?: NursingAmbientDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -3928,78 +4526,50 @@ export async function listNursingAmbientSessions(params: {
   if (params.decision) query.decision = params.decision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ sessions: NursingAmbientSession[]; count: number }>(
-    '/admin/clinical-ai/nursing-ambient/sessions',
-    query
+    "/admin/clinical-ai/nursing-ambient/sessions",
+    query,
   );
-}
-
-export async function generateNursingAmbientSession(payload: {
-  patientUid: string;
-  admissionId?: number;
-  shift?: NursingAmbientShift;
-  recordingStartedAt?: string;
-  transcriptSegments?: Array<{ speaker: string; text: string; start_seconds?: number; end_seconds?: number }>;
-  consentReference?: string;
-}) {
-  const body: Record<string, unknown> = {
-    patient_uid: payload.patientUid,
-    transcript_segments: payload.transcriptSegments || [],
-  };
-  if (payload.admissionId) body.admission_id = payload.admissionId;
-  if (payload.shift) body.shift = payload.shift;
-  if (payload.recordingStartedAt) body.recording_started_at = payload.recordingStartedAt;
-  if (payload.consentReference) body.consent_reference = payload.consentReference;
-  return postJSON<{
-    session_id: number | null;
-    generation_id: number | null;
-    draft: NursingAmbientDraft;
-    module_key: string;
-    prompt_version: string;
-    source_citations: ClinicalAiSourceCitation[];
-    safety_flags: ClinicalAiSafetyFlagSummary[];
-    session_status: string;
-    review_status: string;
-    requires_signoff: boolean;
-    rules_authoritative: boolean;
-    decision_support_only: boolean;
-    shift: NursingAmbientShift;
-  }>('/admin/clinical-ai/nursing-ambient/sessions', body);
 }
 
 export async function decideNursingAmbientSession(
   id: number,
-  decision: Exclude<NursingAmbientDecision, 'pending'>,
-  note?: string
+  decision: Exclude<NursingAmbientDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<NursingAmbientSession>(`/admin/clinical-ai/nursing-ambient/sessions/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<NursingAmbientSession>(
+    `/admin/clinical-ai/nursing-ambient/sessions/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Appeal letter generator for denied claims
 // ---------------------------------------------------------------------------
-export type AppealLetterDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type AppealLetterDecision =
+  "pending" | "accepted" | "deferred" | "rejected" | "edited";
 export type AppealLetterStatus =
-  | 'draft'
-  | 'ready_for_submission'
-  | 'submitted'
-  | 'approved'
-  | 'denied'
-  | 'withdrawn';
-export type AppealType = 'first_level' | 'second_level' | 'external_review' | 'reconsideration';
+  | "draft"
+  | "ready_for_submission"
+  | "submitted"
+  | "approved"
+  | "denied"
+  | "withdrawn";
+export type AppealType =
+  "first_level" | "second_level" | "external_review" | "reconsideration";
 export type AppealDenialClassification =
-  | 'medical_necessity'
-  | 'coding_error'
-  | 'prior_auth_missing'
-  | 'documentation_insufficient'
-  | 'duplicate_claim'
-  | 'coverage'
-  | 'timely_filing'
-  | 'bundled_service'
-  | 'non_covered_service'
-  | 'other';
+  | "medical_necessity"
+  | "coding_error"
+  | "prior_auth_missing"
+  | "documentation_insufficient"
+  | "duplicate_claim"
+  | "coverage"
+  | "timely_filing"
+  | "bundled_service"
+  | "non_covered_service"
+  | "other";
 
 export interface AppealLetterDraft {
   cover_letter: string;
@@ -4047,14 +4617,16 @@ export interface AppealLetter {
   updated_at?: string;
 }
 
-export async function listAppealLetters(params: {
-  claimId?: number | string;
-  patientUid?: string;
-  appealStatus?: AppealLetterStatus | string;
-  decision?: AppealLetterDecision | string;
-  classification?: AppealDenialClassification | string;
-  limit?: number;
-} = {}) {
+export async function listAppealLetters(
+  params: {
+    claimId?: number | string;
+    patientUid?: string;
+    appealStatus?: AppealLetterStatus | string;
+    decision?: AppealLetterDecision | string;
+    classification?: AppealDenialClassification | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.claimId) query.claim_id = String(params.claimId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -4062,7 +4634,10 @@ export async function listAppealLetters(params: {
   if (params.decision) query.decision = params.decision;
   if (params.classification) query.classification = params.classification;
   if (params.limit) query.limit = String(params.limit);
-  return getJSON<{ appeals: AppealLetter[]; count: number }>('/admin/clinical-ai/appeal-letters', query);
+  return getJSON<{ appeals: AppealLetter[]; count: number }>(
+    "/admin/clinical-ai/appeal-letters",
+    query,
+  );
 }
 
 export async function generateAppealLetter(payload: {
@@ -4089,7 +4664,10 @@ export async function generateAppealLetter(payload: {
       claim_amount: number | string;
       status: string;
     };
-    classification: { classification: AppealDenialClassification; severity: string };
+    classification: {
+      classification: AppealDenialClassification;
+      severity: string;
+    };
     source_citations: ClinicalAiSourceCitation[];
     safety_flags: ClinicalAiSafetyFlagSummary[];
     module_key: string;
@@ -4099,51 +4677,66 @@ export async function generateAppealLetter(payload: {
     rules_authoritative: boolean;
     decision_support_only: boolean;
     ai_metadata?: Record<string, unknown>;
-  }>('/admin/clinical-ai/appeal-letters', body);
+  }>("/admin/clinical-ai/appeal-letters", body);
 }
 
 export async function decideAppealLetter(
   id: number,
-  decision: Exclude<AppealLetterDecision, 'pending'>,
-  note?: string
+  decision: Exclude<AppealLetterDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<AppealLetter>(
+    `/admin/clinical-ai/appeal-letters/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
-export async function submitAppealLetter(id: number, payerReferenceId?: string) {
-  return postJSON<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}/submit`, {
-    payer_reference_id: payerReferenceId,
-  });
+export async function submitAppealLetter(
+  id: number,
+  payerReferenceId?: string,
+) {
+  return postJSON<AppealLetter>(
+    `/admin/clinical-ai/appeal-letters/${id}/submit`,
+    {
+      payer_reference_id: payerReferenceId,
+    },
+  );
 }
 
 export async function recordAppealPayerResponse(
   id: number,
-  status: 'approved' | 'denied' | 'withdrawn',
-  payload?: { response?: Record<string, unknown>; note?: string }
+  status: "approved" | "denied" | "withdrawn",
+  payload?: { response?: Record<string, unknown>; note?: string },
 ) {
-  return postJSON<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}/payer-response`, {
-    status,
-    response: payload?.response,
-    note: payload?.note,
-  });
+  return postJSON<AppealLetter>(
+    `/admin/clinical-ai/appeal-letters/${id}/payer-response`,
+    {
+      status,
+      response: payload?.response,
+      note: payload?.note,
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Patient teach-back / comprehension AI
 // ---------------------------------------------------------------------------
-export type TeachBackDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
-export type TeachBackStatus = 'draft' | 'in_progress' | 'completed' | 'needs_clinician_review';
-export type TeachBackLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+export type TeachBackDecision =
+  "pending" | "accepted" | "deferred" | "rejected";
+export type TeachBackStatus =
+  "draft" | "in_progress" | "completed" | "needs_clinician_review";
+export type TeachBackLanguage =
+  "en" | "hi" | "ta" | "te" | "ml" | "mr" | "bn" | "kn";
 export type TeachBackCategory =
-  | 'medications'
-  | 'warning_signs'
-  | 'follow_up'
-  | 'diet_activity'
-  | 'wound_care'
-  | 'emergency_escalation';
+  | "medications"
+  | "warning_signs"
+  | "follow_up"
+  | "diet_activity"
+  | "wound_care"
+  | "emergency_escalation";
 
 export interface TeachBackQuestion {
   id: string;
@@ -4152,7 +4745,7 @@ export interface TeachBackQuestion {
   expected: string;
   expected_keywords?: string[];
   choices?: string[];
-  difficulty?: 'easy' | 'medium' | 'hard';
+  difficulty?: "easy" | "medium" | "hard";
   free_text?: boolean;
   explanation?: string;
   source_citation?: ClinicalAiSourceCitation | null;
@@ -4167,7 +4760,7 @@ export interface TeachBackAnswer {
 export interface TeachBackMisunderstandingFlag {
   question_id: string;
   category: TeachBackCategory;
-  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  severity: "low" | "medium" | "high" | "critical" | string;
   code: string;
   prompt: string;
   expected?: string;
@@ -4201,13 +4794,15 @@ export interface TeachBackSession {
   updated_at?: string;
 }
 
-export async function listTeachBackSessions(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  status?: TeachBackStatus | string;
-  decision?: TeachBackDecision | string;
-  limit?: number;
-} = {}) {
+export async function listTeachBackSessions(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    status?: TeachBackStatus | string;
+    decision?: TeachBackDecision | string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -4215,8 +4810,8 @@ export async function listTeachBackSessions(params: {
   if (params.decision) query.decision = params.decision;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ sessions: TeachBackSession[]; count: number }>(
-    '/admin/clinical-ai/teach-back/sessions',
-    query
+    "/admin/clinical-ai/teach-back/sessions",
+    query,
   );
 }
 
@@ -4229,7 +4824,8 @@ export async function generateTeachBackSession(payload: {
   const body: Record<string, unknown> = {};
   if (payload.admissionId) body.admission_id = payload.admissionId;
   if (payload.patientUid) body.patient_uid = payload.patientUid;
-  if (payload.sourceGenerationId) body.source_generation_id = payload.sourceGenerationId;
+  if (payload.sourceGenerationId)
+    body.source_generation_id = payload.sourceGenerationId;
   if (payload.language) body.language = payload.language;
   return postJSON<{
     session_id: number | null;
@@ -4254,35 +4850,33 @@ export async function generateTeachBackSession(payload: {
     rules_authoritative: boolean;
     language: TeachBackLanguage;
     ai_metadata?: Record<string, unknown>;
-  }>('/admin/clinical-ai/teach-back/sessions', body);
-}
-
-export async function submitTeachBackAnswers(id: number, answers: TeachBackAnswer[]) {
-  return postJSON<TeachBackSession & { evaluated_answers: unknown[] }>(
-    `/admin/clinical-ai/teach-back/sessions/${id}/answers`,
-    { answers }
-  );
+  }>("/admin/clinical-ai/teach-back/sessions", body);
 }
 
 export async function decideTeachBackSession(
   id: number,
-  decision: Exclude<TeachBackDecision, 'pending'>,
-  note?: string
+  decision: Exclude<TeachBackDecision, "pending">,
+  note?: string,
 ) {
-  return fetchAdminAPI<TeachBackSession>(`/admin/clinical-ai/teach-back/sessions/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+  return fetchAdminAPI<TeachBackSession>(
+    `/admin/clinical-ai/teach-back/sessions/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Sepsis bundle sentinel
 // ---------------------------------------------------------------------------
-export type SepsisBundleRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
-export type SepsisBundleDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';
+export type SepsisBundleRiskBand =
+  "low" | "medium" | "high" | "critical" | "unknown";
+export type SepsisBundleDecision =
+  "pending" | "acknowledged" | "escalated" | "dismissed";
 
 export interface SepsisBundleFinding {
-  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  severity: "low" | "medium" | "high" | "critical" | string;
   code: string;
   category: string;
   title: string;
@@ -4301,8 +4895,17 @@ export interface SepsisBundleAudit {
   risk_band: SepsisBundleRiskBand;
   criteria: SepsisBundleFinding[];
   bundle_gaps: SepsisBundleFinding[];
-  recommendations: Array<{ code: string; severity: string; recommendation: string }>;
-  source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  recommendations: Array<{
+    code: string;
+    severity: string;
+    recommendation: string;
+  }>;
+  source_citations: Array<{
+    source_type: string;
+    source_id: string | null;
+    label: string;
+    timestamp?: string | null;
+  }>;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
   reviewer_decision: SepsisBundleDecision;
   reviewed_by?: string | null;
@@ -4313,13 +4916,15 @@ export interface SepsisBundleAudit {
   updated_at?: string;
 }
 
-export async function listSepsisBundleAudits(params: {
-  admissionId?: number | string;
-  patientUid?: string;
-  decision?: string;
-  riskBand?: string;
-  limit?: number;
-} = {}) {
+export async function listSepsisBundleAudits(
+  params: {
+    admissionId?: number | string;
+    patientUid?: string;
+    decision?: string;
+    riskBand?: string;
+    limit?: number;
+  } = {},
+) {
   const query: Record<string, string> = {};
   if (params.admissionId) query.admission_id = String(params.admissionId);
   if (params.patientUid) query.patient_uid = params.patientUid;
@@ -4327,8 +4932,8 @@ export async function listSepsisBundleAudits(params: {
   if (params.riskBand) query.risk_band = params.riskBand;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ audits: SepsisBundleAudit[]; count: number }>(
-    '/admin/clinical-ai/sepsis-bundle/audits',
-    query
+    "/admin/clinical-ai/sepsis-bundle/audits",
+    query,
   );
 }
 
@@ -4342,25 +4947,41 @@ export async function generateSepsisBundleAudit(admissionId: number) {
       risk_band: SepsisBundleRiskBand;
       criteria: SepsisBundleFinding[];
       bundle_gaps: SepsisBundleFinding[];
-      recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+      recommendations: Array<{
+        code: string;
+        severity: string;
+        recommendation: string;
+      }>;
       summary?: string;
       suspected_sepsis?: boolean;
       shock_signal?: boolean;
     };
     module_key: string;
     prompt_version: string;
-    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    source_citations: Array<{
+      source_type: string;
+      source_id: string | null;
+      label: string;
+      timestamp?: string | null;
+    }>;
     safety_flags: Array<{ severity: string; code: string; message: string }>;
     review_status: string;
     requires_signoff: boolean;
-  }>('/admin/clinical-ai/sepsis-bundle/audits', { admission_id: admissionId });
+  }>("/admin/clinical-ai/sepsis-bundle/audits", { admission_id: admissionId });
 }
 
-export async function decideSepsisBundleAudit(id: number, decision: Exclude<SepsisBundleDecision, 'pending'>, note?: string) {
-  return fetchAdminAPI<SepsisBundleAudit>(`/admin/clinical-ai/sepsis-bundle/audits/${id}`, {
-    method: 'PATCH',
-    body: { decision, note },
-  });
+export async function decideSepsisBundleAudit(
+  id: number,
+  decision: Exclude<SepsisBundleDecision, "pending">,
+  note?: string,
+) {
+  return fetchAdminAPI<SepsisBundleAudit>(
+    `/admin/clinical-ai/sepsis-bundle/audits/${id}`,
+    {
+      method: "PATCH",
+      body: { decision, note },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -4380,18 +5001,20 @@ export interface AmbientEncounter {
   stt_language: string | null;
   diarization_provider: string | null;
   speaker_count: number;
-  transcript_status: 'completed' | 'skipped' | 'pending' | string;
+  transcript_status: "completed" | "skipped" | "pending" | string;
   generation_id: number | null;
   created_at: string;
 }
 
-export async function listAmbientEncounters(params: { patientUid?: string; limit?: number } = {}) {
+export async function listAmbientEncounters(
+  params: { patientUid?: string; limit?: number } = {},
+) {
   const query: Record<string, string> = {};
   if (params.patientUid) query.patient_uid = params.patientUid;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ encounters: AmbientEncounter[]; count: number }>(
-    '/clinical/ambient/encounters',
-    query
+    "/clinical/ambient/encounters",
+    query,
   );
 }
 
@@ -4400,7 +5023,7 @@ export async function listAmbientEncounters(params: { patientUid?: string; limit
 // ---------------------------------------------------------------------------
 export interface RosterAssignment {
   date: string;
-  shift_code: 'morning' | 'evening' | 'night' | string;
+  shift_code: "morning" | "evening" | "night" | string;
   start_hour: number;
   end_hour: number;
   staff_uid: string;
@@ -4431,7 +5054,7 @@ export interface RosterRun {
   department: string;
   start_date: string;
   end_date: string;
-  status: 'suggested' | 'edited' | 'published' | 'discarded' | string;
+  status: "suggested" | "edited" | "published" | "discarded" | string;
   total_slots: number;
   filled_slots: number;
   coverage_gap_count: number;
@@ -4456,14 +5079,16 @@ export interface RosterSuggestion {
   decision_support_only: boolean;
 }
 
-export async function listRosterRuns(params: { department?: string; status?: string; limit?: number } = {}) {
+export async function listRosterRuns(
+  params: { department?: string; status?: string; limit?: number } = {},
+) {
   const query: Record<string, string> = {};
   if (params.department) query.department = params.department;
   if (params.status) query.status = params.status;
   if (params.limit) query.limit = String(params.limit);
   return getJSON<{ runs: RosterRun[]; count: number }>(
-    '/admin/clinical-ai/roster',
-    query
+    "/admin/clinical-ai/roster",
+    query,
   );
 }
 
@@ -4472,25 +5097,27 @@ export async function generateRosterSuggestion(payload: {
   start_date: string;
   end_date: string;
 }) {
-  return postJSON<RosterSuggestion>('/admin/clinical-ai/roster', payload);
+  return postJSON<RosterSuggestion>("/admin/clinical-ai/roster", payload);
 }
 
 export async function publishRosterRun(id: number) {
-  return fetchAdminAPI<{ id: number; status: string; published_at: string; published_by: string | null }>(
-    `/admin/clinical-ai/roster/${id}/publish`,
-    {
-      method: 'PATCH',
-      body: {},
-    }
-  );
+  return fetchAdminAPI<{
+    id: number;
+    status: string;
+    published_at: string;
+    published_by: string | null;
+  }>(`/admin/clinical-ai/roster/${id}/publish`, {
+    method: "PATCH",
+    body: {},
+  });
 }
 
 export async function discardRosterRun(id: number) {
   return fetchAdminAPI<{ id: number; status: string }>(
     `/admin/clinical-ai/roster/${id}/discard`,
     {
-      method: 'PATCH',
+      method: "PATCH",
       body: {},
-    }
+    },
   );
 }

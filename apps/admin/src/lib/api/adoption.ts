@@ -175,7 +175,10 @@ export function getAdoptionSummary() {
 }
 
 export function saveHelpCategory(payload: HelpCategoryPayload) {
-  return putJSON<HelpCenterCategory>("/admin/adoption/help-categories", payload);
+  return putJSON<HelpCenterCategory>(
+    "/admin/adoption/help-categories",
+    payload,
+  );
 }
 
 export function saveLearningModule(payload: LearningModulePayload) {
@@ -186,13 +189,6 @@ export function saveTourDefinition(payload: TourPayload) {
   return putJSON<TourDefinition>("/admin/adoption/tours", payload);
 }
 
-export function getTrainingEvidence(params?: QueryParams) {
-  return getJSON<{ evidence: TrainingEvidence[]; count: number }>(
-    "/admin/adoption/evidence-ledger",
-    params,
-  );
-}
-
 export async function downloadTrainingEvidenceCsv(params?: QueryParams) {
   const search = new URLSearchParams({ format: "csv" });
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -200,7 +196,9 @@ export async function downloadTrainingEvidenceCsv(params?: QueryParams) {
       search.set(key, String(value));
     }
   }
-  const res = await apiFetch(`/api/v1/admin/adoption/evidence-ledger?${search.toString()}`);
+  const res = await apiFetch(
+    `/api/v1/admin/adoption/evidence-ledger?${search.toString()}`,
+  );
   if (!res.ok) {
     throw new Error(`Evidence export failed with HTTP ${res.status}`);
   }

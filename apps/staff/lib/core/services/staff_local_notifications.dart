@@ -12,6 +12,18 @@ import 'windows_window_control.dart';
 const String codeBlueNotificationPayload = 'code_blue';
 const String staffMessageNotificationPayload = 'staff_message';
 
+/// Payload for a Code Blue toast: `code_blue:<eventId>` when the event data
+/// carries a usable durable-event id, else the bare [codeBlueNotificationPayload].
+/// Both the WS `staff:code-blue` event and the FCM authority-fetched content
+/// carry `eventId` (the FCM path also historically `event_id`).
+@visibleForTesting
+String codeBluePayloadFromData(Map<String, dynamic> data) {
+  final raw = _text(data['eventId'] ?? data['event_id']);
+  final eventId = int.tryParse(raw);
+  if (eventId == null || eventId <= 0) return codeBlueNotificationPayload;
+  return '$codeBlueNotificationPayload:$eventId';
+}
+
 @visibleForTesting
 bool shouldShowDesktopToast({
   required bool isWindows,
@@ -30,6 +42,17 @@ String codeBlueToastBodyFromData(Map<String, dynamic> data) {
 
 @visibleForTesting
 String? routeForNotificationPayload(String? payload) {
+  if (payload == null) return null;
+  // Code Blue tap deep-links straight to the durable resus record when the
+  // payload carries the event id ("deep-link when cheap"). The router's
+  // StaffRoutePolicy redirect still authorizes /safety/resus/:eventId, so an
+  // unauthorized role bounces to the dashboard rather than the record.
+  final codeBluePrefix = '$codeBlueNotificationPayload:';
+  if (payload.startsWith(codeBluePrefix)) {
+    final eventId = int.tryParse(payload.substring(codeBluePrefix.length));
+    if (eventId != null && eventId > 0) return '/safety/resus/$eventId';
+    return null;
+  }
   return switch (payload) {
     staffMessageNotificationPayload => '/messaging',
     _ => null,
@@ -175,7 +198,7 @@ class StaffLocalNotifications {
           subtitle: 'Respond immediately',
         ),
       ),
-      payload: codeBlueNotificationPayload,
+      payload: codeBluePayloadFromData(data),
     );
   }
 

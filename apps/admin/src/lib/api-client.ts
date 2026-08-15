@@ -416,26 +416,3 @@ export async function refreshToken(): Promise<void> {
     throw new Error("Refresh failed");
   }
 }
-
-/* =========================
- * Generic authed fetcher (legacy)
- * ========================= */
-
-export async function authenticatedFetch(
-  endpoint: string,
-  init: RequestInit = {},
-): Promise<Response> {
-  try {
-    const { apiFetch } = await import("./api-fetch");
-    return apiFetch(endpoint, {
-      ...init,
-      headers: init.headers as HeadersInit | undefined,
-    });
-  } catch (err) {
-    if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
-      clearAuthData();
-      if (typeof window !== "undefined") window.location.href = "/login";
-    }
-    throw err;
-  }
-}

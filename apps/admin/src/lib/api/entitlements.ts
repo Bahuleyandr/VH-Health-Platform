@@ -118,13 +118,6 @@ export function getCurrentEntitlementSummary() {
   return fetchAdminAPI<TenantEntitlementSummary>("/admin/entitlements/current");
 }
 
-export function getEntitlementCatalog() {
-  return fetchAdminAPI<{
-    packages: ProductPackage[];
-    features: ProductFeature[];
-  }>("/admin/entitlements/catalog");
-}
-
 export function getTenantEntitlementSummary(tenantId: string) {
   return fetchAdminAPI<TenantEntitlementSummary>(
     `/admin/entitlements/tenants/${encodeURIComponent(tenantId)}`,

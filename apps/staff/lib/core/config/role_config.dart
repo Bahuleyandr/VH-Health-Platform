@@ -76,7 +76,6 @@ enum StaffRole {
       'ANAESTHETIST',
       'ANESTHESIOLOGIST',
       'ANAESTHESIOLOGIST',
-      'ANESTHETIST',
     }.contains(normalized)) {
       return StaffRole.anaesthetist;
     }
@@ -186,15 +185,11 @@ enum StaffRole {
     }.contains(normalized)) {
       return StaffRole.storesPurchaseIncharge;
     }
-    if (const {
-      'CHIEF_NURSING_OFFICER',
-      'NURSING_SUPERINTENDENT',
-    }.contains(normalized)) {
+    if (const {'CHIEF_NURSING_OFFICER'}.contains(normalized)) {
       return StaffRole.nursingSuperintendent;
     }
     if (const {
       'CHIEF_MEDICAL_OFFICER',
-      'CMO',
       'MEDICAL_SUPERINTENDANT',
       'MEDICAL_SUPERINTENDENT_ROLE',
     }.contains(normalized)) {
@@ -210,9 +205,11 @@ enum StaffRole {
     if (const {'HOUSEKEEPING', 'HOUSEKEEPING_ATTENDANT'}.contains(normalized)) {
       return StaffRole.housekeeping;
     }
-    for (final role in StaffRole.values) {
-      if (role.value == normalized) return role;
-    }
+    // No enum-value fallback loop: every StaffRole.value is a key in
+    // canonicalStaffRoleArchetypeCodes, so bare enum codes always resolve
+    // through the canonical archetype lookup above (pinned by
+    // role_config_test's "every enum value resolves" test). Anything left
+    // here is genuinely unknown and must fail closed.
     return null;
   }
 

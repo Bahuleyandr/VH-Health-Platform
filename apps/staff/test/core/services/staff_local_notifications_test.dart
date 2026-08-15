@@ -39,8 +39,38 @@ void main() {
       routeForNotificationPayload(staffMessageNotificationPayload),
       '/messaging',
     );
+    // A Code Blue payload without a durable event id has nowhere cheap to
+    // land, so tapping it only focuses the app.
     expect(routeForNotificationPayload(codeBlueNotificationPayload), isNull);
     expect(routeForNotificationPayload('unknown'), isNull);
+  });
+
+  test('Code Blue tap deep-links to the durable resus record', () {
+    expect(routeForNotificationPayload('code_blue:42'), '/safety/resus/42');
+    expect(routeForNotificationPayload('code_blue:0'), isNull);
+    expect(routeForNotificationPayload('code_blue:-3'), isNull);
+    expect(routeForNotificationPayload('code_blue:abc'), isNull);
+    expect(routeForNotificationPayload('code_blue:'), isNull);
+  });
+
+  test('codeBluePayloadFromData embeds the event id when usable', () {
+    expect(codeBluePayloadFromData(const {'eventId': 42}), 'code_blue:42');
+    expect(codeBluePayloadFromData(const {'eventId': '42'}), 'code_blue:42');
+    expect(codeBluePayloadFromData(const {'event_id': '7'}), 'code_blue:7');
+    expect(codeBluePayloadFromData(const {}), 'code_blue');
+    expect(codeBluePayloadFromData(const {'eventId': null}), 'code_blue');
+    expect(codeBluePayloadFromData(const {'eventId': 'null'}), 'code_blue');
+    expect(codeBluePayloadFromData(const {'eventId': 0}), 'code_blue');
+    expect(codeBluePayloadFromData(const {'eventId': 'x'}), 'code_blue');
+  });
+
+  test('payload → route mapping round-trips for a live event', () {
+    expect(
+      routeForNotificationPayload(
+        codeBluePayloadFromData(const {'eventId': 42}),
+      ),
+      '/safety/resus/42',
+    );
   });
 
   test('stableNotificationId is deterministic and keeps a fallback', () {
