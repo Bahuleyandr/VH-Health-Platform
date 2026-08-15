@@ -582,17 +582,7 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   return false;
 }
 
-/**
- * Remove expired entries from the invalidated_tokens table.
- * Should be called periodically (e.g. daily) to prevent table bloat.
- */
-export async function cleanupExpiredTokens() {
-  try {
-    const result = await prisma.$queryRawUnsafe(
-      'DELETE FROM invalidated_tokens WHERE expires_at < NOW()'
-    );
-    logger.info('Token blacklist cleanup complete', { deleted: Number(result) || 0 });
-  } catch (err) {
-    logger.error('Token blacklist cleanup failed:', err.message);
-  }
-}
+// NOTE: expired invalidated_tokens rows are purged by the scheduler's
+// 'purge-invalidated-tokens' cron (src/utils/scheduler.js) — the former
+// cleanupExpiredTokens() helper here duplicated that DELETE and had no
+// callers, so it was removed (2026-08-14 findings, backend-HTTP P3 #4).
