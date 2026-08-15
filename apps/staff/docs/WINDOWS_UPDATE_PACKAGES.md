@@ -8,6 +8,10 @@ The Staff app has two Windows update paths:
 
 ## Local Hands-On Updates Without Reinstall
 
+To bring the whole local stack online first (QA Postgres + backend on port
+5206, then launch the installed Staff app), run
+`.\scripts\start-local-staff-stack.ps1`.
+
 Use this path for day-to-day bug fixes while testing locally:
 
 ```powershell
