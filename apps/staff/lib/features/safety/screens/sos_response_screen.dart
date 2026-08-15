@@ -76,7 +76,9 @@ class _SosResponseScreenState extends State<SosResponseScreen> {
       ]);
       if (!mounted) return;
       setState(() {
-        _alerts = (results[0] as List).whereType<Map<String, dynamic>>().toList();
+        _alerts = (results[0] as List)
+            .whereType<Map<String, dynamic>>()
+            .toList();
         _analytics = results[1] is Map<String, dynamic>
             ? results[1] as Map<String, dynamic>
             : const {};
@@ -108,7 +110,8 @@ class _SosResponseScreenState extends State<SosResponseScreen> {
     );
     if (message == null || !mounted) return;
     await _perform(
-      () => SosResponderApiService.respond(alertId: id, responseMessage: message),
+      () =>
+          SosResponderApiService.respond(alertId: id, responseMessage: message),
       s.lookup('sos.respond_done'),
     );
   }
@@ -465,13 +468,11 @@ class _AlertCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: (active ? AppTheme.errorOnSurface : AppTheme.primaryTeal)
-                      .withValues(alpha: 0.12),
+                  color:
+                      (active ? AppTheme.errorOnSurface : AppTheme.primaryTeal)
+                          .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(

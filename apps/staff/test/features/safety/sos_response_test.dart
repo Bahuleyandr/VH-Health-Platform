@@ -45,12 +45,15 @@ void main() {
     );
 
     test('route policy admits exactly the contract roster', () {
-      final allowedRoster = canonicalStaffFeatureRouteRoleCodes['sos_response']!;
+      final allowedRoster =
+          canonicalStaffFeatureRouteRoleCodes['sos_response']!;
       for (final rawRole in canonicalStaffRoleCodes) {
         for (final path in const ['/sos-response', '/sos-response/42']) {
           expect(
-            StaffRoutePolicy.authorize(Uri.parse(path), rawRole: rawRole)
-                .allowed,
+            StaffRoutePolicy.authorize(
+              Uri.parse(path),
+              rawRole: rawRole,
+            ).allowed,
             allowedRoster.contains(rawRole),
             reason: '$rawRole $path',
           );
