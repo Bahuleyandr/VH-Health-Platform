@@ -274,6 +274,53 @@ describe('silent loss (command failure with connection nominally up)', () => {
     }
   });
 
+  // 873-F7: decrement()/resetKey() used to call the MUTATING
+  // evaluateStoreAccess(), so with the breaker half-open a decrement (e.g.
+  // authRateLimiter's skipSuccessfulRequests after a successful login)
+  // consumed the probe token on an operation that can never close the breaker
+  // (only increment() calls markStoreCommandOk) — holding fail-closed
+  // profiles at 429 for another 15s interval after Redis had recovered. They
+  // now route through the read-only peekStoreAccess().
+  test('decrement neither consumes the half-open probe token nor blocks the next increment probe (873-F7)', async () => {
+    const innerDecrement = jest.fn();
+    const innerIncrement = jest.fn(async () => ({
+      totalHits: 1,
+      resetTime: new Date(Date.now() + 60000),
+    }));
+    const store = new ResilientRateLimitStore({
+      inner: {
+        init() {},
+        increment: innerIncrement,
+        decrement: innerDecrement,
+        resetKey: jest.fn(),
+      },
+      profileName: 'auth',
+      posture: storeLossPostureFor('auth'),
+    });
+    await store.init({ windowMs: 15 * 60 * 1000 });
+
+    markStoreCommandFailed(new Error('boom')); // breaker opens
+
+    const realNow = Date.now;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 16000); // half-open
+    try {
+      // Best-effort cleanup while half-open: skipped entirely — no store
+      // round-trip, no probe token spent.
+      await store.decrement('t:default:auth:k');
+      expect(innerDecrement).not.toHaveBeenCalled();
+      expect(rateLimitStoreStatus().counters.probes).toBe(0);
+
+      // The NEXT increment still gets the probe grant, succeeds, and closes
+      // the breaker.
+      const result = await store.increment('t:default:auth:k');
+      expect(innerIncrement).toHaveBeenCalledTimes(1);
+      expect(result.totalHits).toBe(1);
+      expect(rateLimitStoreStatus().state).toBe('ok');
+    } finally {
+      Date.now.mockRestore();
+    }
+  });
+
   // Regression: a metrics scrape must OBSERVE the breaker, never consume its
   // half-open probe token. Prod runs two Prometheus replicas that both scrape
   // every target (~15s effective cadence on /health/metrics — the same as the
