@@ -12,10 +12,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
 }));
+// Controllable: the revoke-all Redis positive cache is consulted ONLY while
+// the connection is live (isRedisConnected guard, added with the 2026-08-15
+// Redis-loss drill remediation — mirrors isTokenBlacklisted). Tests of the
+// Redis-hit path flip this to true; everything else runs disconnected.
+let redisConnected = false;
 jest.unstable_mockModule('../../lib/redis.js', () => ({
   cacheGet: cacheGetMock,
   cacheSet: cacheSetMock,
-  isRedisConnected: () => false,
+  isRedisConnected: () => redisConnected,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -52,6 +57,7 @@ beforeEach(() => {
   cacheSetMock.mockReset();
   pushSessionRevokedMock.mockReset();
   pushDelegatedSessionRevokedMock.mockReset();
+  redisConnected = false;
 });
 
 describe('delegated tuple revocation', () => {
@@ -113,6 +119,7 @@ describe('tokenBlacklist revoke-all fallback', () => {
   });
 
   it('treats a Redis marker from the same second as token iat as revoked', async () => {
+    redisConnected = true; // the positive cache is only consulted while live
     cacheGetMock.mockResolvedValueOnce({ revokedAt: 1234 });
 
     await expect(isUserTokensRevoked('42', 1234)).resolves.toBe(true);

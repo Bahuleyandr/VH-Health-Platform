@@ -504,16 +504,25 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   // not carry the identity epoch-bump timestamp needed to disambiguate a
   // freshly minted epoch-stamped token from a same-second revocation marker,
   // so those tokens always use the durable predicate below.
-  try {
-    const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
-    if (result
-      && result.revokedAt
-      && !hasTokenEpoch
-      && result.revokedAt >= Number(tokenIssuedAt)) {
-      return true;
+  //
+  // The isRedisConnected() guard mirrors isTokenBlacklisted() above (both run
+  // on EVERY authenticated request via jwtMiddleware): once the connection is
+  // down, skip Redis entirely instead of queueing a command behind ioredis's
+  // reconnect backoff. The 2026-08-15 Redis-loss drill measured this exact
+  // missing guard at 1.3s rising to ~15-20s of added latency PER authenticated
+  // request during an outage, versus 0-2ms for the guarded sibling.
+  if (isRedisConnected()) {
+    try {
+      const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
+      if (result
+        && result.revokedAt
+        && !hasTokenEpoch
+        && result.revokedAt >= Number(tokenIssuedAt)) {
+        return true;
+      }
+    } catch {
+      // Redis failed — the durable store below is authoritative anyway.
     }
-  } catch {
-    // Redis failed — the durable store below is authoritative anyway.
   }
 
   try {

@@ -5,6 +5,7 @@ import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/pr
 import { assertRedisWritable, getRedisClient, redisIsRequired } from '../../lib/redis.js';
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
+import { rateLimitStoreStatus } from '../../middleware/rateLimitStoreHealth.js';
 import { readMigrationState } from '../../utils/migrations/runMigrations.js';
 import { isWsFanoutReady } from '../../utils/websocket/wsServer.js';
 
@@ -262,6 +263,10 @@ router.get('/metrics', requireProductionMonitoringAccess, async (_req, res) => {
     error_rate: totalRequests > 0 ? (totalErrors / totalRequests).toFixed(4) : '0.0000',
     database: dbPoolStats,
     tenant_rls: tenantRls,
+    // Redis-backed rate-limit store posture (Redis-loss drill 2026-08-15):
+    // 'degraded' means fail-closed profiles are answering 429 and fail-open
+    // profiles are passing unmetered. Same operator pattern as circuitBreaker.
+    rate_limit_store: rateLimitStoreStatus(),
     memory: {
       rss_mb: Math.round(memUsage.rss / 1024 / 1024),
       heap_used_mb: Math.round(memUsage.heapUsed / 1024 / 1024),
