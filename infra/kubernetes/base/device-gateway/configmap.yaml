@@ -19,6 +19,15 @@ data:
   DEVICE_GATEWAY_MAX_SPOOL_BYTES: "1073741824"
   # Held until every per-source identity, capacity, clock, retention, and
   # enrollment input has been supplied and owner-cleared.
+  #
+  # FAIL-CLOSED BY DESIGN: with zero enrollments the gateway's isReady()
+  # returns false, so the /readyz probe answers 503 forever and the Pod never
+  # becomes Ready. A legacy-only deployment of this manifest is therefore
+  # impossible as committed — that is intentional. Operators MUST populate
+  # this list at activation (apps/backend/docs/RUNBOOKS/
+  # device-gateway-activation.md; enrollment/clearance inputs per
+  # docs/continuity/c6-1-i09-gateway-sequencing-design-delta.md Step 2 gates);
+  # do not "fix" readiness by relaxing the probe or the isReady() gate.
   DEVICE_GATEWAY_I09_ENROLLMENTS: "[]"
   DEVICE_GATEWAY_DRAIN_INTERVAL_MS: "5000"
   # DEVICE_GATEWAY_COLD_CHAIN_PORT is intentionally unset. The cold-chain
