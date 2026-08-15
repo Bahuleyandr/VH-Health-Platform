@@ -8,7 +8,6 @@
  *   - Key endpoint groups exist (auth, users, doctors, departments, etc.)
  *   - getHeaders builds correct header objects
  *   - buildUrl constructs URLs with param replacement
- *   - requiresAuth matches protected routes
  */
 
 import {
@@ -17,12 +16,10 @@ import {
   WS_ENDPOINT,
   WS_ENDPOINTS,
   API_ENDPOINTS,
-  PROTECTED_ROUTES,
   getHeaders,
   buildUrl,
   ensureApiV1Path,
   buildProxyUrl,
-  requiresAuth,
 } from "@/lib/api-config";
 
 // ---------------------------------------------------------------------------
@@ -241,27 +238,6 @@ describe("API_ENDPOINTS — dynamic endpoints", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PROTECTED_ROUTES
-// ---------------------------------------------------------------------------
-describe("PROTECTED_ROUTES", () => {
-  it("is a non-empty array of strings", () => {
-    expect(Array.isArray(PROTECTED_ROUTES)).toBe(true);
-    expect(PROTECTED_ROUTES.length).toBeGreaterThan(0);
-    for (const route of PROTECTED_ROUTES) {
-      expect(typeof route).toBe("string");
-    }
-  });
-
-  it("includes admin wildcard routes", () => {
-    expect(PROTECTED_ROUTES).toContain("/api/v1/admin/*");
-  });
-
-  it("includes staff admin routes", () => {
-    expect(PROTECTED_ROUTES).toContain("/api/v1/staff/admin/*");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // getHeaders
 // ---------------------------------------------------------------------------
 describe("getHeaders", () => {
@@ -334,27 +310,6 @@ describe("proxy URL helpers", () => {
     ).toBe(
       `${API_BASE_URL}/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01`,
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// requiresAuth
-// ---------------------------------------------------------------------------
-describe("requiresAuth", () => {
-  it("returns true for admin wildcard routes", () => {
-    expect(requiresAuth("/api/v1/admin/dashboard")).toBe(true);
-  });
-
-  it("returns true for exact protected routes", () => {
-    expect(requiresAuth("/api/v1/devices")).toBe(true);
-  });
-
-  it("returns false for public health-check endpoint", () => {
-    expect(requiresAuth("/api/v1/health/health-check")).toBe(false);
-  });
-
-  it("returns false for auth login endpoint", () => {
-    expect(requiresAuth("/api/v1/auth/admin/login")).toBe(false);
   });
 });
 
