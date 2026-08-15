@@ -15,11 +15,16 @@ export function shouldLogPhiAccessPath(originalUrl, matchers) {
 
 export function phiAccessLoggerForPaths(recordType, matchers) {
   const loggerMiddleware = phiAccessLogger(recordType);
-  return (req, res, next) => {
+  const middleware = (req, res, next) => {
     const originalUrl = req.originalUrl || req.url || '';
     if (!shouldLogPhiAccessPath(originalUrl, matchers)) return next();
     return loggerMiddleware(req, res, next);
   };
+  // Same introspection tag phiAccessLogger carries, so mount-wiring tests can
+  // pin path-scoped PHI logging exactly like the unconditional variant.
+  middleware.phiRecordType = recordType;
+  middleware.phiPathMatchers = matchers;
+  return middleware;
 }
 
 /**
