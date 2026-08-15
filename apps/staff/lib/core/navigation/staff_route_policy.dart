@@ -258,6 +258,21 @@ class StaffRoutePolicy {
       anyFeatureIds: {'safety_center'},
       anyGates: _clinical,
     ),
+    // SOS responder loop mirrors backend emergencyResponderRoutes RBAC
+    // (rbacConfig.js): EMERGENCY_RESPONDER, SECURITY, DRIVER, ADMIN, CMO,
+    // MEDICAL_SUPERINTENDENT (+ SUPER_ADMIN via requireRole's bypass) — the
+    // generated sos_response contract group pins the exact roster.
+    // externalEntry lets the EMERGENCY push notification deep-link here.
+    StaffRouteMetadata(
+      '/sos-response',
+      anyFeatureIds: {'sos_response'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/sos-response/:alertId',
+      anyFeatureIds: {'sos_response'},
+      externalEntry: true,
+    ),
     StaffRouteMetadata('/audit-logs', anyFeatureIds: {'audit_logs'}),
     StaffRouteMetadata(
       '/staff-diagnostics',
