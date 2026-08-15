@@ -10,9 +10,105 @@
 
 import prisma from '../lib/prisma.js';
 import { cacheGet, cacheSet, isRedisConnected } from '../lib/redis.js';
+// Namespace import alongside the named ones, for exports several test suites'
+// partial lib/redis mocks do not provide (same pattern + rationale as
+// rateLimitStoreHealth.js): a static named import of a newer export would
+// break their module graphs at load, a namespace property read just yields
+// undefined and the optional-chained call falls back.
+import * as redisLib from '../lib/redis.js';
 import logger from '../logging/logger.js';
 
 const BLACKLIST_PREFIX = 'blacklist:';
+
+// ---------------------------------------------------------------------------
+// Known-bad latch for the Redis positive-cache reads (873-F9).
+//
+// isTokenBlacklisted + isUserTokensRevoked both run on EVERY authenticated
+// request (jwtMiddleware). isRedisConnected() only catches DETECTED loss
+// (ioredis saw 'close'); a BLACKHOLED peer (packets silently dropped, no
+// FIN/RST) keeps the connection looking up, so each of the two cache reads
+// paid the full REDIS_COMMAND_TIMEOUT_MS (2000ms) — ~4s added to every
+// authenticated request, sustained until TCP noticed, with no breaker.
+//
+// Shape modelled on rateLimitStoreHealth.js's command-failure breaker, kept
+// deliberately small: after LATCH_FAILURE_THRESHOLD consecutive timeout-class
+// cache failures the latch opens and cache reads are skipped — requests go
+// straight to the authoritative DB predicate. One read per probe interval is
+// allowed through as a half-open recovery probe. This NEVER fails open: the
+// cache is a positive-hit accelerator only; the DB stays authoritative in
+// every state, and a dual (cache+DB) failure still throws
+// RevocationCheckUnavailableError → 503.
+//
+// Failure classification: cacheGet() swallows command errors and returns null
+// (lib/redis.js), so in production a timeout manifests as a SLOW null, not a
+// throw — we classify by elapsed time >= the command timeout. A throwing
+// cache (possible under test mocks / future refactors) counts too.
+const LATCH_FAILURE_THRESHOLD = 3;
+const LATCH_PROBE_INTERVAL_MS = 15000;
+let cacheLatchedAt = null; // non-null => latch open (cache known-bad)
+let cacheFailureStreak = 0;
+let nextCacheProbeAt = 0;
+
+const cacheTimeoutClassMs = () => redisLib.redisCommandTimeoutMs?.() ?? 2000;
+
+function noteRevocationCacheOk() {
+  if (cacheLatchedAt !== null) {
+    logger.info('Token-revocation Redis cache recovered — resuming cache reads ahead of the durable store.', {
+      latchedForMs: Date.now() - cacheLatchedAt,
+    });
+  }
+  cacheLatchedAt = null;
+  cacheFailureStreak = 0;
+  nextCacheProbeAt = 0;
+}
+
+function noteRevocationCacheFailed(reason) {
+  cacheFailureStreak += 1;
+  if (cacheLatchedAt === null && cacheFailureStreak >= LATCH_FAILURE_THRESHOLD) {
+    cacheLatchedAt = Date.now();
+    nextCacheProbeAt = cacheLatchedAt + LATCH_PROBE_INTERVAL_MS;
+    logger.warn(
+      'Token-revocation Redis cache latched known-bad after consecutive timeout-class failures — '
+        + 'skipping cache reads; the durable DB store remains authoritative (never fail-open).',
+      { reason, consecutiveFailures: cacheFailureStreak },
+    );
+  }
+}
+
+/**
+ * Read the revocation positive-cache through the known-bad latch. Returns the
+ * cached value, or null on a miss / a skipped (latched) read / any failure —
+ * every null falls through to the authoritative DB predicate at the caller.
+ */
+async function readRevocationCache(key, now = Date.now()) {
+  if (cacheLatchedAt !== null) {
+    if (now < nextCacheProbeAt) return null; // latched: skip the read entirely
+    nextCacheProbeAt = now + LATCH_PROBE_INTERVAL_MS; // half-open probe token
+  }
+  const startedAt = Date.now();
+  try {
+    const value = await cacheGet(key);
+    if (Date.now() - startedAt >= cacheTimeoutClassMs()) {
+      // Timeout-class latency: cacheGet absorbed a command timeout and
+      // returned null (or returned so late the answer is worthless). Discard
+      // even a hit — the DB below reaches the same authoritative answer.
+      noteRevocationCacheFailed('timeout_class_latency');
+      return null;
+    }
+    noteRevocationCacheOk();
+    return value;
+  } catch (err) {
+    noteRevocationCacheFailed(err?.message || String(err));
+    return null;
+  }
+}
+
+/** Test-only: reset the cache latch between cases. */
+export function __resetTokenBlacklistCacheLatchForTests() {
+  cacheLatchedAt = null;
+  cacheFailureStreak = 0;
+  nextCacheProbeAt = 0;
+}
 
 // The epoch columns live on the identity tables and are keyed by uuid uid.
 // Legacy revoke keys can be non-uuid (int id / phone fallbacks in old tokens);
@@ -164,15 +260,13 @@ export async function isTokenBlacklisted(jti) {
   // the durable invalidated_tokens row still stands. So only a hit short-circuits;
   // a miss (or any Redis error) falls through to the authoritative DB query
   // (Sol Ultra #29 — a Redis clean-miss must never accept a DB-revoked token).
+  // The read goes through the 873-F9 known-bad latch above, so a blackholed
+  // Redis stops costing a command timeout per read after a few failures.
   if (isRedisConnected()) {
-    try {
-      const result = await cacheGet(`${BLACKLIST_PREFIX}${jti}`);
-      if (result !== null) return true;
-      // miss → fall through to the DB; absence in Redis is not proof.
-    } catch (err) {
-      // Redis failed, fall through to DB
-      logger.warn('Token blacklist Redis read failed, falling back to DB:', err.message);
-    }
+    const result = await readRevocationCache(`${BLACKLIST_PREFIX}${jti}`);
+    if (result !== null) return true;
+    // miss / latched / failed → fall through to the DB; absence in Redis is
+    // not proof.
   }
 
   // DB: authoritative negative answer (and the fallback when Redis missed/failed)
@@ -511,17 +605,14 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   // reconnect backoff. The 2026-08-15 Redis-loss drill measured this exact
   // missing guard at 1.3s rising to ~15-20s of added latency PER authenticated
   // request during an outage, versus 0-2ms for the guarded sibling.
+  // (Read goes through the 873-F9 known-bad latch — see readRevocationCache.)
   if (isRedisConnected()) {
-    try {
-      const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
-      if (result
-        && result.revokedAt
-        && !hasTokenEpoch
-        && result.revokedAt >= Number(tokenIssuedAt)) {
-        return true;
-      }
-    } catch {
-      // Redis failed — the durable store below is authoritative anyway.
+    const result = await readRevocationCache(`${BLACKLIST_PREFIX}user:${userId}`);
+    if (result
+      && result.revokedAt
+      && !hasTokenEpoch
+      && result.revokedAt >= Number(tokenIssuedAt)) {
+      return true;
     }
   }
 
