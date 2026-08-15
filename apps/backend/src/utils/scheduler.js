@@ -1089,28 +1089,30 @@ if (process.env.NODE_ENV !== 'test') {
   // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
   registerCron('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
     logger.info('Scheduled Task: Purging expired invalidated tokens...');
-    const result = await prisma.$queryRawUnsafe(
+    // $executeRawUnsafe returns the affected-row count; $queryRawUnsafe on a
+    // RETURNING-less DELETE returned [] and the log always said 0.
+    const deleted = await prisma.$executeRawUnsafe(
       `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
     );
-    logger.info(`Invalidated tokens cleanup: ${Number(result) || 0} rows deleted`);
+    logger.info(`Invalidated tokens cleanup: ${Number(deleted) || 0} rows deleted`);
   }));
 
   // 🗓️ Daily at 03:40 - Purge expired OTP sessions
   registerCron('40 3 * * *', withJobLock('purge-expired-otps', async () => {
     logger.info('Scheduled Task: Purging expired OTP sessions...');
-    const result = await prisma.$queryRawUnsafe(
+    const deleted = await prisma.$executeRawUnsafe(
       `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
     );
-    logger.info(`Expired OTP cleanup: ${Number(result) || 0} rows deleted`);
+    logger.info(`Expired OTP cleanup: ${Number(deleted) || 0} rows deleted`);
   }));
 
   // 🗓️ Daily at 03:45 - Purge file deletion log entries older than 90 days
   registerCron('45 3 * * *', withJobLock('purge-file-deletion-log', async () => {
     logger.info('Scheduled Task: Purging file_deletion_log entries older than 90 days...');
-    const result = await prisma.$queryRawUnsafe(
+    const deleted = await prisma.$executeRawUnsafe(
       `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
     );
-    logger.info(`File deletion log cleanup: ${Number(result) || 0} rows deleted`);
+    logger.info(`File deletion log cleanup: ${Number(deleted) || 0} rows deleted`);
   }));
 
   // 🗓️ Daily at 03:50 - Purge housekeeping photos past retention window
@@ -1338,7 +1340,7 @@ export async function runAllScheduledTasksNow() {
     // Purge file deletion log entries older than 90 days
     await runManualTask('purge-file-deletion-log', () => (
       withDbAdvisoryLock('purge-file-deletion-log', () => runWithSuperAdmin(async () => {
-        const fileDeletionResult = await prisma.$queryRawUnsafe(
+        const fileDeletionResult = await prisma.$executeRawUnsafe(
           `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
         );
         logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
