@@ -21,30 +21,6 @@ export function getAuditLogs<T = unknown>(params?: AuditLogParams) {
 }
 
 /**
- * GET /api/v1/logs/audit/export
- * Download audit log as CSV.
- */
-export function exportAuditLogs<T = unknown>(params?: AuditLogParams) {
-  return getJSON<T>(API_ENDPOINTS.infrastructure.auditLogExport, params);
-}
-
-/**
- * GET /api/v1/logs/system
- * Paginated system/admin activity logs.
- */
-export function getSystemLogs<T = unknown>(params?: AuditLogParams) {
-  return getJSON<T>(API_ENDPOINTS.infrastructure.systemLog, params);
-}
-
-/**
- * GET /api/v1/logs/system/export
- * Download system logs as CSV.
- */
-export function exportSystemLogs<T = unknown>(params?: AuditLogParams) {
-  return getJSON<T>(API_ENDPOINTS.infrastructure.systemLogExport, params);
-}
-
-/**
  * POST /api/v1/rbac/admin/toggle-user-status
  */
 export function toggleUserStatus<T = unknown>(userId: string, active: boolean) {

@@ -58,33 +58,6 @@ export function hrApproveReplacement<T = unknown>(requestId: string) {
   return postJSON<T>(`/api/v1/staff/admin/replacement/${requestId}/hr-approve`, {});
 }
 
-// ─── Staff Attendance (portal-facing) ─────────────────────────────────────
-
-export function getStaffAttendanceSummary<T = unknown>(params?: {
-  date?: string;
-  department?: string;
-}) {
-  return getJSON<T>(API_ENDPOINTS.staff.admin.attendance.absentReport, params);
-}
-
-export function getAbsentToday<T = unknown>(params?: { department?: string }) {
-  const today = new Date().toISOString().slice(0, 10);
-  return getJSON<T>(API_ENDPOINTS.staff.admin.attendance.absentReport, { 
-    date: today, 
-    ...params 
-  });
-}
-
-// ─── Shifts ────────────────────────────────────────────────────────────────
-
-export function getShifts<T = unknown>() {
-  return getJSON<T>('/api/v1/staff/admin/shifts');
-}
-
-export function assignShift<T = unknown>(data: { staffId: string | number; shiftId: string | number; effectiveFrom?: string }) {
-  return postJSON<T>('/api/v1/staff/admin/shifts/assign', data);
-}
-
 // ─── Disputes ──────────────────────────────────────────────────────────────
 
 export function getPendingDisputes<T = unknown>() {
@@ -114,10 +87,6 @@ export function approveOvertimeRequest<T = unknown>(id: string | number, data: {
 
 // ─── Bulk Correction ───────────────────────────────────────────────────────
 
-export function getBulkTemplate<T = unknown>() {
-  return getJSON<T>('/api/v1/staff/admin/attendance/bulk-template');
-}
-
 export function bulkCorrectAttendance<T = unknown>(data: {
   corrections: Array<{
     staff_id: string | number;
@@ -129,10 +98,4 @@ export function bulkCorrectAttendance<T = unknown>(data: {
   reason?: string;
 }) {
   return postJSON<T>('/api/v1/staff/admin/bulk/attendance-correction', data);
-}
-
-// ─── Geofence Breaches ────────────────────────────────────────────────────
-
-export function getGeofenceBreaches<T = unknown>(params?: { limit?: number; staff_id?: string | number }) {
-  return getJSON<T>('/api/v1/staff/admin/attendance/geofence-breaches', params);
 }

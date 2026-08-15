@@ -186,13 +186,6 @@ export function saveTourDefinition(payload: TourPayload) {
   return putJSON<TourDefinition>("/admin/adoption/tours", payload);
 }
 
-export function getTrainingEvidence(params?: QueryParams) {
-  return getJSON<{ evidence: TrainingEvidence[]; count: number }>(
-    "/admin/adoption/evidence-ledger",
-    params,
-  );
-}
-
 export async function downloadTrainingEvidenceCsv(params?: QueryParams) {
   const search = new URLSearchParams({ format: "csv" });
   for (const [key, value] of Object.entries(params ?? {})) {

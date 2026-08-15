@@ -126,10 +126,6 @@ export async function listTenantInteropSecrets(tenantId: string) {
   );
 }
 
-export async function getTenantBrandKit(tenantId: string) {
-  return getJSON<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`);
-}
-
 export async function updateTenantBrandKit(tenantId: string, payload: TenantBrandKitPatch) {
   return fetchAdminAPI<{ brandKit: TenantBrandKit }>(`/admin/tenants/${tenantId}/brand-kit`, {
     method: 'PATCH',

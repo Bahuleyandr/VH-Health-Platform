@@ -238,9 +238,6 @@ export const getRevisions = <T = SalaryRevision[]>(params?: {
     params as QueryParams | undefined,
   );
 
-export const getRevisionDetail = <T = SalaryRevision>(id: string | number) =>
-  getJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}`);
-
 export const getAnnualReviewStatus = <
   T = { year: number; staff: AnnualReviewStaff[] },
 >() => getJSON<T>("/api/v1/staff/admin/payroll/annual-review");
@@ -280,12 +277,6 @@ export const adminSignPayrollRun = <T = unknown>(
   runId: string,
   data: { comment?: string; acknowledge_failed_payslips?: boolean },
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/admin-sign`, data);
-
-export const manualEditPayslip = <T = unknown>(
-  payslipId: string,
-  data: Record<string, unknown>,
-) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/payslips/${payslipId}/edit`, data);
 
 // ─── New Features ─────────────────────────────────────────────────────────────
 

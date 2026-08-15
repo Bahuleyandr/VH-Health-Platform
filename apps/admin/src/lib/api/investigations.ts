@@ -95,10 +95,6 @@ export function getSLADashboard(fromDate?: string, toDate?: string) {
   return getJSON<SLADashboard>(API_ENDPOINTS.investigations.slaDashboard, params);
 }
 
-export function getPendingInvestigations() {
-  return getJSON<Investigation[]>(API_ENDPOINTS.investigations.pending);
-}
-
 export function orderInvestigation(data: {
   patient_id: number;
   test_name: string;
@@ -114,10 +110,6 @@ export function orderInvestigation(data: {
 
 export function updateInvestigationStatus(id: number, status: string) {
   return putJSON<Investigation>(`/api/v1/investigations/${id}/status`, { status });
-}
-
-export function addInvestigationResults(id: number, results: Record<string, unknown>) {
-  return putJSON<Investigation>(`/api/v1/investigations/${id}/results`, results);
 }
 
 /* ─── Investigation Bookings (Patient-Initiated) ─── */
@@ -205,12 +197,6 @@ export function getBookingSLA(fromDate?: string, toDate?: string) {
   if (fromDate) params.from_date = fromDate;
   if (toDate) params.to_date = toDate;
   return getJSON<BookingSLADashboard>("/api/v1/investigations/bookings/sla", params);
-}
-
-export function getBookingDetail(id: number) {
-  return getJSON<{ booking: InvestigationBooking; history: Array<Record<string, unknown>> }>(
-    `/api/v1/investigations/bookings/${id}`
-  );
 }
 
 export function confirmBooking(id: number, data: { confirmation_notes?: string; actual_tests?: string; final_cost?: number }) {

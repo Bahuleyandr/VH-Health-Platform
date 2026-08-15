@@ -329,18 +329,6 @@ export async function getClinicalAiConfig() { return getJSON<ClinicalAiConfig>('
 export async function getClinicalAiStatus(days = 7) {
   return getJSON<ClinicalAiStatus>('/admin/clinical-ai/status', { days });
 }
-export async function getClinicalAiModules() {
-  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/modules');
-}
-export async function getClinicalAiTenantModules() {
-  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/tenant-modules');
-}
-export async function updateClinicalAiModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
-    method: 'PATCH',
-    body: payload,
-  });
-}
 export async function updateClinicalAiTenantModule(moduleKey: string, payload: ClinicalAiModulePatch) {
   return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
@@ -835,20 +823,6 @@ export async function listPromptExperiments(status?: string) {
     '/admin/clinical-ai/experiments',
     query
   );
-}
-
-export async function createPromptExperiment(payload: {
-  module_key: string;
-  name?: string;
-  variant_a_prompt_id: number;
-  variant_b_prompt_id: number;
-  traffic_split_a?: number;
-}) {
-  return postJSON<PromptExperiment>('/admin/clinical-ai/experiments', payload);
-}
-
-export async function getPromptExperimentStats(id: number) {
-  return getJSON<PromptExperimentStats>(`/admin/clinical-ai/experiments/${id}/stats`);
 }
 
 export async function concludePromptExperiment(id: number, winningVariant?: 'A' | 'B') {
@@ -3933,39 +3907,6 @@ export async function listNursingAmbientSessions(params: {
   );
 }
 
-export async function generateNursingAmbientSession(payload: {
-  patientUid: string;
-  admissionId?: number;
-  shift?: NursingAmbientShift;
-  recordingStartedAt?: string;
-  transcriptSegments?: Array<{ speaker: string; text: string; start_seconds?: number; end_seconds?: number }>;
-  consentReference?: string;
-}) {
-  const body: Record<string, unknown> = {
-    patient_uid: payload.patientUid,
-    transcript_segments: payload.transcriptSegments || [],
-  };
-  if (payload.admissionId) body.admission_id = payload.admissionId;
-  if (payload.shift) body.shift = payload.shift;
-  if (payload.recordingStartedAt) body.recording_started_at = payload.recordingStartedAt;
-  if (payload.consentReference) body.consent_reference = payload.consentReference;
-  return postJSON<{
-    session_id: number | null;
-    generation_id: number | null;
-    draft: NursingAmbientDraft;
-    module_key: string;
-    prompt_version: string;
-    source_citations: ClinicalAiSourceCitation[];
-    safety_flags: ClinicalAiSafetyFlagSummary[];
-    session_status: string;
-    review_status: string;
-    requires_signoff: boolean;
-    rules_authoritative: boolean;
-    decision_support_only: boolean;
-    shift: NursingAmbientShift;
-  }>('/admin/clinical-ai/nursing-ambient/sessions', body);
-}
-
 export async function decideNursingAmbientSession(
   id: number,
   decision: Exclude<NursingAmbientDecision, 'pending'>,
@@ -4255,13 +4196,6 @@ export async function generateTeachBackSession(payload: {
     language: TeachBackLanguage;
     ai_metadata?: Record<string, unknown>;
   }>('/admin/clinical-ai/teach-back/sessions', body);
-}
-
-export async function submitTeachBackAnswers(id: number, answers: TeachBackAnswer[]) {
-  return postJSON<TeachBackSession & { evaluated_answers: unknown[] }>(
-    `/admin/clinical-ai/teach-back/sessions/${id}/answers`,
-    { answers }
-  );
 }
 
 export async function decideTeachBackSession(

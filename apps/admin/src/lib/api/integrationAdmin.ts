@@ -72,10 +72,6 @@ export async function createIntegration(payload: {
   return postJSON<Integration>('/admin/integrations', payload);
 }
 
-export async function getIntegration(id: number) {
-  return getJSON<Integration>(`/admin/integrations/${id}`);
-}
-
 export async function updateIntegration(id: number, payload: {
   name?: string;
   description?: string | null;
@@ -139,23 +135,6 @@ export interface WebhookSubscription {
 export async function listIntegrationSubscriptions(integrationId: number) {
   return getJSON<{ subscriptions: WebhookSubscription[]; count: number }>(
     `/admin/integrations/${integrationId}/subscriptions`,
-  );
-}
-
-export async function listSubscriptions(params: {
-  integration_id?: number;
-  event_type?: string;
-  is_active?: boolean;
-  limit?: number;
-} = {}) {
-  const query: Record<string, string | number | boolean> = {};
-  if (params.integration_id) query.integration_id = params.integration_id;
-  if (params.event_type) query.event_type = params.event_type;
-  if (params.is_active != null) query.is_active = params.is_active;
-  if (params.limit) query.limit = params.limit;
-  return getJSON<{ subscriptions: WebhookSubscription[]; count: number }>(
-    '/admin/webhook-subscriptions',
-    query,
   );
 }
 

@@ -217,16 +217,6 @@ export async function markInterfaceMessageDead(id: number, payload: { reason?: s
   });
 }
 
-export async function enqueueInterfaceOutbound(payload: {
-  channel_id: number;
-  payload: string;
-  message_type?: string | null;
-  source_table?: string | null;
-  source_id?: string | null;
-}) {
-  return postJSON<InteropMessage>('/admin/interface-engine/messages/enqueue-outbound', payload);
-}
-
 export async function dispatchInterfaceOutbound(payload: { batch_size?: number } = {}) {
   return postJSON<{ picked: number; delivered: number; failed: number; dead: number }>(
     '/admin/interface-engine/messages/dispatch-now',

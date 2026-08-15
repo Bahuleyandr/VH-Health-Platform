@@ -285,23 +285,6 @@ export function getAppointmentSlaDashboard(params?: QueryParams) {
   );
 }
 
-// LOOSE backend (TodayQueueItem / PendingAppointment are additionalProperties:
-// true) — return the richer hand-typed AppointmentWorkflow[] the admin queue/
-// pending UIs consume (see the AppointmentWorkflow note above).
-export function getTodayQueue(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(
-    API_ENDPOINTS.appointments.queue,
-    params,
-  );
-}
-
-export function getPendingAppointments(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(
-    API_ENDPOINTS.appointments.pending,
-    params,
-  );
-}
-
 export function confirmAppointmentAdmin<T = unknown>(
   id: number,
   data: {
@@ -329,12 +312,6 @@ export function cancelAppointmentAdmin<T = unknown>(
   data?: { cancellation_reason?: string },
 ) {
   return postJSON<T>(`/api/v1/appointments/${id}/cancel`, data ?? {});
-}
-
-export function getAppointmentDocumentsAdmin(appointmentId: number) {
-  return getJSON<AppointmentDocument[]>(
-    `/api/v1/appointments/${appointmentId}/documents`,
-  );
 }
 
 export function getAllAppointmentDocuments(params?: QueryParams) {
