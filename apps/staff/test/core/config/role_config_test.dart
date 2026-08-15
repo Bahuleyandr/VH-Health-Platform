@@ -27,6 +27,33 @@ void main() {
       },
     );
 
+    test('every enum value resolves through the canonical archetype map', () {
+      // Pins the invariant that made tryFromString's old enum-value
+      // fallback loop dead code: every StaffRole.value is a key of the
+      // generated canonical archetype map and maps back to itself.
+      for (final role in StaffRole.values) {
+        expect(
+          canonicalStaffRoleArchetypeCodes[role.value],
+          role.value,
+          reason: '${role.value} must be canonical and self-mapping',
+        );
+        expect(
+          StaffRole.tryFromString(role.value),
+          role,
+          reason: '${role.value} must round-trip through tryFromString',
+        );
+      }
+      // Aliases removed from the hand-written sets still resolve via the
+      // canonical map (they were shadowed by it, which is why the literal
+      // set entries were dead).
+      expect(StaffRole.tryFromString('CMO'), StaffRole.medicalSuperintendent);
+      expect(StaffRole.tryFromString('ANESTHETIST'), StaffRole.anaesthetist);
+      expect(
+        StaffRole.tryFromString('NURSING_SUPERINTENDENT'),
+        StaffRole.nursingSuperintendent,
+      );
+    });
+
     test('parses canonical uppercase backend values', () {
       expect(StaffRole.fromString('DOCTOR'), StaffRole.doctor);
       expect(StaffRole.fromString('ANESTHETIST'), StaffRole.anaesthetist);
