@@ -62,6 +62,17 @@ process.env.REQUIRE_MFA_FOR_SUPER_ADMIN ||= 'false';
 // unless a test (e.g. the fail-closed suite) overrides it.
 process.env.ALLOW_DEFAULT_TENANT ||= 'true';
 
+// FILE_SCAN_POLICY defaults to 'required' (fail closed), which 503s every
+// upload when no clamd is reachable — and neither CI nor the declared prod
+// posture runs a scanner. Declare the test env's posture explicitly so generic
+// suites exercising upload paths test their own behavior, not scanner
+// availability. Policy suites (upload-scan-policy.deep, fileScanService,
+// investigationFileScanGate, bookingUploadScanScreen, ...) still cover the
+// `required` fail-closed contract: resolveFileScanPolicy reads process.env
+// lazily per call, and those suites set/delete the var per test, overriding
+// this default. Only applied when unset, so an explicit env value wins.
+process.env.FILE_SCAN_POLICY ||= 'disabled_accepted_risk';
+
 // BigInt JSON serialization. Prod sets this in bin/www.js, but tests import
 // app.js directly (bin/www.js never runs), so any endpoint returning a BIGSERIAL
 // column (e.g. cash_drawer_sessions.id) would throw "Do not know how to serialize
