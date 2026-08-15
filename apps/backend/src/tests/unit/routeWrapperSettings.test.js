@@ -1,10 +1,11 @@
 // Guard: every rate-limit profile name referenced by the route wrapper's
-// per-route override map must exist in RATE_LIMIT_PROFILES. getRateLimiter
-// falls back to the generic `default` profile for unknown names instead of
-// throwing, so a typo or a never-defined profile here silently swaps the
-// intended limiter for the generic bucket (finding 2026-08-14: the phantom
-// 'strict'/'relaxed' mappings routed appointment/feedback writes to `default`
-// for their whole life).
+// per-route override map must exist in RATE_LIMIT_PROFILES. Historically
+// getRateLimiter fell back silently to the generic `default` profile for
+// unknown names (finding 2026-08-14: the phantom 'strict'/'relaxed' mappings
+// routed appointment/feedback writes to `default` for their whole life);
+// since 873-F8 it THROWS at construction, so a phantom name here would crash
+// route registration at boot. This test keeps failing earlier and clearer —
+// in CI, naming the offending mapping — before anything tries to boot.
 
 import { ROUTE_RATE_PROFILES } from '../../config/routeWrapperSettings.js';
 import { RATE_LIMIT_PROFILES } from '../../config/rateLimitProfiles.js';

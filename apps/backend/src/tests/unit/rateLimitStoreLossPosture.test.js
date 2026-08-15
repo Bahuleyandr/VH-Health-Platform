@@ -74,7 +74,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getRateLimitOverride: jest.fn(async () => null),
 }));
 
-const { authRateLimiter, otpRateLimiter, sosRateLimiter } = await import(
+const { authRateLimiter, otpRateLimiter, sosRateLimiter, getRateLimiter } = await import(
   '../../middleware/rateLimitMiddleware.js'
 );
 const {
@@ -156,6 +156,48 @@ describe('fail-open profiles under store loss', () => {
 
     expect(result.totalHits).toBe(1); // admitted
     expect(incrementMock).not.toHaveBeenCalled(); // without touching the store
+    expect(rateLimitStoreStatus().counters.passedUnmeteredWhileDown).toBe(1);
+  });
+});
+
+describe('logout under store loss (873-F5)', () => {
+  // Regression: /auth/logout used to ride the fail-closed `auth` limiter, so a
+  // Redis outage 429'd self-revocation — a security action whose blacklist
+  // write is DB-authoritative and needs no Redis at all. The dedicated
+  // `logout` profile fails open: the request passes, and the pass is counted.
+  it('an authenticated logout passes (not 429, not 500) while the store is down', async () => {
+    // getRateLimiter's built-in skip disables enforcement under jest; build
+    // the limiter with a non-test env snapshot so it behaves as in production.
+    const savedNodeEnv = process.env.NODE_ENV;
+    const savedWorker = process.env.JEST_WORKER_ID;
+    process.env.NODE_ENV = 'development';
+    delete process.env.JEST_WORKER_ID;
+    let logoutLimiter;
+    try {
+      logoutLimiter = getRateLimiter('logout');
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+      if (savedWorker !== undefined) process.env.JEST_WORKER_ID = savedWorker;
+    }
+
+    redisConnected = false; // full store outage
+
+    const app = express();
+    app.use(express.json());
+    app.post(
+      '/auth/logout',
+      (req, _res, next) => {
+        req.user = { uid: 'patient-1' }; // jwtAuth runs before the limiter on the real route
+        next();
+      },
+      logoutLimiter,
+      (_req, res) => res.status(200).json({ ok: true })
+    );
+
+    const res = await request(app).post('/auth/logout').send({});
+
+    expect(res.status).toBe(200);
+    expect(incrementMock).not.toHaveBeenCalled(); // dead store never asked
     expect(rateLimitStoreStatus().counters.passedUnmeteredWhileDown).toBe(1);
   });
 });
