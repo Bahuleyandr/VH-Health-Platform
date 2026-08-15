@@ -69,6 +69,14 @@ class AppLocalizationsMl extends AppLocalizations {
   String get authSosTriggered => 'SOS അലേർട്ട് പ്രവർത്തനക്ഷമമാക്കി!';
 
   @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
+
+  @override
   String get authGuestUserSOS => 'അതിഥി_ഉപയോക്താവ്_sos';
 
   @override

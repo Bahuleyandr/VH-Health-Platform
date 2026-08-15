@@ -218,6 +218,18 @@ abstract class AppLocalizations {
   /// **'SOS alert has been triggered!'**
   String get authSosTriggered;
 
+  /// Honest failure snack-bar when the SOS backend POST fails; the dialer call remains the safety net
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.'**
+  String get authSosBackendFailed;
+
+  /// Snack-bar when no SOS alert was sent because the user is a guest / has no stored phone; must not claim the alert was triggered
+  ///
+  /// In en, this message translates to:
+  /// **'Emergency call opened. Sign in to also send an SOS alert to the hospital.'**
+  String get authSosGuestSkipped;
+
   /// Identifier used when SOS is triggered without a signed-in phone
   ///
   /// In en, this message translates to:
