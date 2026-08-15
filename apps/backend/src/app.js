@@ -44,7 +44,8 @@ import {
   getRateLimiter,
   adminRateLimiter,
   dataExportRateLimiter,
-  dashboardRateLimiter
+  dashboardRateLimiter,
+  healthMountRateLimiter
 } from './middleware/rateLimitMiddleware.js';
 import { requireRole, requireSuperAdminStepUp } from './middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from './middleware/sanitizeMiddleware.js';
@@ -777,21 +778,45 @@ app.use('/api/v1/health', genericLimiter, healthRoutes);
 // endpoints pre-auth; the WS transport itself (/ws) is unaffected.
 // SCIM is provisioning, not user authentication. It resolves the tenant/provider
 // from the URL and verifies its own bearer token before any API-key/JWT middleware.
-app.use('/api/v1/scim/v2', genericLimiter, scimRoutes);
+//
+// 873-F3: dedicated fail-closed profile, keyed by SOURCE IP (`keyMode: 'ip'`).
+// The generic limiter's defaultKeyGenerator buckets bearer requests per
+// sha256(token) — sound only for VERIFIED tokens; here every guessed
+// provisioning bearer minted its own fresh bucket, so brute-force was
+// effectively unmetered even with Redis healthy. Caps + rationale documented
+// on the `scimProvisioning` profile (rateLimitProfiles.js).
+const scimRateLimiter = getRateLimiter('scimProvisioning', { keyMode: 'ip' });
+app.use('/api/v1/scim/v2', scimRateLimiter, scimRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);
 // NHCX gateway callbacks (public — no JWT/API key, tenant-scoped signed callback)
 app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
 // NL11-S11 interface-engine ingress (public connector, HMAC-signed per tenant/channel).
-app.use('/api/v1/interface-engine', genericLimiter, interfaceEngineIngressRoutes);
+// 873-F3: pre-auth signature-verification CPU rides a dedicated FAIL-CLOSED
+// profile keyed by source IP — sending engines spool and retry, so an honest
+// 429 during a store outage is recoverable, while unmetered HMAC verification
+// is not. See `interfaceEngineIngress` in rateLimitProfiles.js.
+const interfaceEngineRateLimiter = getRateLimiter('interfaceEngineIngress', { keyMode: 'ip' });
+app.use('/api/v1/interface-engine', interfaceEngineRateLimiter, interfaceEngineIngressRoutes);
 
 // ====================================
 // PUBLIC HEALTH CHECK (no auth required — for Render/uptime monitors)
 // ====================================
 app.get('/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.get('/api/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
-app.use('/health', genericLimiter, uptimeRoutes);
+// TRAP (P1 finding 2026-08-15, 873-F1) — same prefix-strip as the /metrics
+// mount above: `app.use('/health', ...)` makes the limiter observe
+// `req.path === '/ready'` / `'/live'`, so the default profile's built-in
+// `startsWith('/health')` skip NEVER matched and the k8s probes were metered
+// in the shared `t:default:127.0.0.1` bucket — 3 replicas x 12 probe hits/min
+// vs prod's 100/15min `default` cap = every pod NotReady for ~12 of each 15
+// minutes (deployment.yaml readiness treats a 429 as a probe failure).
+// healthMountRateLimiter routes exactly those two mount-relative probe paths
+// through the per-pod `probe` profile (still metered, sized for probe
+// cadence, fail-open under store loss); every other /health surface keeps the
+// generic limiter unchanged.
+app.use('/health', healthMountRateLimiter(probeLimiter, genericLimiter), uptimeRoutes);
 
 // Public SMART-on-FHIR launch + token endpoints, plus a SMART-token-only FHIR
 // resource path. Platform JWT FHIR traffic falls through to the authenticated
@@ -813,7 +838,18 @@ app.use('/api/v1/fhir', publicSmartFhirResourceRouter);
 // closed; monitoring credentials never authorize this route. It cannot
 // DB-audit during an outage, so access is Winston-file logged inside the router
 // instead.
-app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntimeRoutes);
+// 873-F3: metered under the clinicalContinuityPolicyDelivery profile rather
+// than `default` — downtime packs are precisely the surface that must keep
+// working while infrastructure (including Redis) is failing, and that
+// profile's fail-open posture carries exactly that rationale on the record
+// (rateLimitStoreLossPolicy.js). Dedicated store prefix so ward-pack fetches
+// never share buckets with the policy-delivery endpoints.
+app.use(
+  '/downtime/static',
+  getRateLimiter('clinicalContinuityPolicyDelivery', { storePrefix: 'rl:downtimeStatic:' }),
+  requireDowntimeAccess,
+  staticDowntimeRoutes
+);
 
 // ====================================
 // PUBLIC PAYMENT LANDING PAGE (audit F8)
@@ -1692,7 +1728,10 @@ app.use('/exports', requireRole(...ADMIN_ROUTE_ROLES), express.static('exports')
 // ERROR HANDLING
 // ====================================
 
-// Fallback rate limiter
+// Fallback rate limiter for unmatched paths (the terminal 404 below). Stays on
+// the fail-open `default` profile by documented decision (873-F3): there is no
+// resource behind an unmatched path, so denying it during a store outage buys
+// nothing — see the `default` entry in rateLimitStoreLossPolicy.js.
 app.use(genericLimiter);
 
 // Terminal 404 (M19 — audit 2026-06-22). Any request that matched no route
