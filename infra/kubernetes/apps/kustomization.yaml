@@ -33,12 +33,16 @@ resources:
 #     the signed ref with cosign, and only then rewrites this block. It
 #     REFUSES mutable-tag re-resolution for this tree (audit finding #20 —
 #     a rebindable tag would permit pinning any previously-signed image);
-#   - .forgejo/workflows/release-images.yml runs it after every signed
-#     backend-v* / admin-v* / staff-web-v* release with that run's
-#     image-ref.txt artifact; .forgejo/workflows/release-pin-digests.yml is
+#   - on GitHub, .github/workflows/release-pin-digests.yml runs it
+#     automatically (workflow_run after "Release Container Images" succeeds
+#     on a backend-v* / admin-v* / staff-web-v* tag) with that run's
+#     image-ref artifact — .github/workflows/release-images.yml itself only
+#     echoes the operator pin command;
+#   - on Forgejo, .forgejo/workflows/release-images.yml runs it inline after
+#     every signed release, and .forgejo/workflows/release-pin-digests.yml is
 #     the manual repair path (operator supplies the build-emitted digest).
-#     Both commit the bump (GitOps write-back), which the ArgoCD `apps`
-#     Application then syncs.
+#     All of these commit the bump (GitOps write-back), which the ArgoCD
+#     `apps` Application then syncs.
 # OPERATOR: before the first sync after this change, run
 #   COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs \
 #     --tag backend-vX.Y.Z --expected-digest sha256:<from that release run> \

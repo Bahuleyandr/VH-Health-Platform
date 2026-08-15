@@ -7,7 +7,8 @@
 # CI integration: `.forgejo/workflows/security-sweep.yml` runs this config via
 #   semgrep scan --config .semgrep.yml
 # The CI step is ADVISORY (continue-on-error: true) until the initial finding
-# backlog is triaged. Flip to blocking per docs/SECURITY_CONTROLS_SELFASSESSMENT.md §8.
+# backlog is triaged. Flip to blocking per
+# docs/archive/audits/SECURITY_CONTROLS_SELFASSESSMENT.md §8.
 #
 # To run locally (requires semgrep >=1.40):
 #   pip install semgrep
