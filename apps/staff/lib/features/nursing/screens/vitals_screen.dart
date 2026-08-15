@@ -33,6 +33,57 @@ final RegExp quickVitalsUuidRe = RegExp(
   caseSensitive: false,
 );
 
+/// The quick-vitals form collects temperature in °F ([VitalUnit.temperature]).
+/// POST /health/records stores canonical °C and happens to default a unitless
+/// `vital_signs.temperature` to 'F' — but the cross-repo contract is that °F
+/// senders DECLARE the unit explicitly instead of leaning on that default
+/// (same rule as the EMR record sheet's `vitalsTemperatureUnitSent`).
+const String quickVitalsTemperatureUnitSent = 'F';
+
+/// Builds the `vital_signs` and `measurements` maps the quick-vitals form
+/// POSTs to /health/records. Pinned by
+/// `test/features/nursing/quick_vitals_payload_test.dart`.
+({Map<String, dynamic> vitalSigns, Map<String, dynamic> measurements})
+buildQuickVitalsPayload({
+  required String bpSystolic,
+  required String bpDiastolic,
+  required String temperature,
+  required String pulse,
+  required String spo2,
+  required String weight,
+}) {
+  final bpSysValue = normalizeVitalValue(bpSystolic, VitalUnit.bp);
+  final bpDiaValue = normalizeVitalValue(bpDiastolic, VitalUnit.bp);
+  final tempValue = normalizeVitalValue(temperature, VitalUnit.temperature);
+  final pulseValue = normalizeVitalValue(pulse, VitalUnit.pulse);
+  final spo2Value = normalizeVitalValue(spo2, VitalUnit.spo2);
+  final weightValue = normalizeVitalValue(weight, VitalUnit.weight);
+
+  final vitalSigns = <String, dynamic>{};
+  final measurements = <String, dynamic>{};
+
+  if (bpSysValue.isNotEmpty && bpDiaValue.isNotEmpty) {
+    vitalSigns['blood_pressure'] = {
+      'systolic': int.parse(bpSysValue),
+      'diastolic': int.parse(bpDiaValue),
+    };
+  }
+  if (tempValue.isNotEmpty) {
+    vitalSigns['temperature'] = double.parse(tempValue);
+    vitalSigns['temperature_unit'] = quickVitalsTemperatureUnitSent;
+  }
+  if (pulseValue.isNotEmpty) {
+    vitalSigns['pulse'] = int.parse(pulseValue);
+  }
+  if (spo2Value.isNotEmpty) {
+    vitalSigns['spo2'] = double.parse(spo2Value);
+  }
+  if (weightValue.isNotEmpty) {
+    measurements['weight'] = double.parse(weightValue);
+  }
+  return (vitalSigns: vitalSigns, measurements: measurements);
+}
+
 /// Pick the positively-identified row out of patient-search results:
 /// an exact uid match for wristband scans, or an exact numeric-id match for
 /// manually verified IDs. Anything else (fuzzy hits) returns null.
@@ -347,39 +398,21 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     final strings = AppStrings.of(context);
     try {
       final staffId = await ApiConfig.getStaffId();
-      final vitalSigns = <String, dynamic>{};
-      final measurements = <String, dynamic>{};
-
-      final bpSys = normalizeVitalValue(_bpSysCtrl.text, VitalUnit.bp);
-      final bpDia = normalizeVitalValue(_bpDiaCtrl.text, VitalUnit.bp);
-      final temp = normalizeVitalValue(_tempCtrl.text, VitalUnit.temperature);
-      final pulse = normalizeVitalValue(_pulseCtrl.text, VitalUnit.pulse);
-      final spo2 = normalizeVitalValue(_spo2Ctrl.text, VitalUnit.spo2);
-      final weight = normalizeVitalValue(_weightCtrl.text, VitalUnit.weight);
-
-      if (bpSys.isNotEmpty && bpDia.isNotEmpty) {
-        vitalSigns['blood_pressure'] = {
-          'systolic': int.parse(bpSys),
-          'diastolic': int.parse(bpDia),
-        };
-      }
-      if (temp.isNotEmpty) {
-        vitalSigns['temperature'] = double.parse(temp);
-      }
-      if (pulse.isNotEmpty) {
-        vitalSigns['pulse'] = int.parse(pulse);
-      }
-      if (spo2.isNotEmpty) {
-        vitalSigns['spo2'] = double.parse(spo2);
-      }
-      if (weight.isNotEmpty) {
-        measurements['weight'] = double.parse(weight);
-      }
+      final payload = buildQuickVitalsPayload(
+        bpSystolic: _bpSysCtrl.text,
+        bpDiastolic: _bpDiaCtrl.text,
+        temperature: _tempCtrl.text,
+        pulse: _pulseCtrl.text,
+        spo2: _spo2Ctrl.text,
+        weight: _weightCtrl.text,
+      );
 
       await MedicalApiService.recordVitals(
         patientId: confirmedId,
-        vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
-        measurements: measurements.isNotEmpty ? measurements : null,
+        vitalSigns: payload.vitalSigns.isNotEmpty ? payload.vitalSigns : null,
+        measurements: payload.measurements.isNotEmpty
+            ? payload.measurements
+            : null,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         recordedBy: staffId != null ? int.tryParse(staffId) : null,
       );
