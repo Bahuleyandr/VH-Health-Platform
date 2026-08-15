@@ -83,6 +83,19 @@ export const envSchema = Joi.object({
     then: Joi.string().min(16).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('REDIS_SENTINEL_PASSWORD'),
+  // Hard deadline for boot-time Redis initialization (lib/redis.js). Without
+  // it, unreachable Sentinels hang initRedis() forever — the strict-mode
+  // fail-fast in bin/www.js never executes and the pod neither becomes ready
+  // nor crash-loops (Redis-loss drill 2026-08-15, Finding 2). Floor of 1s so a
+  // typo can't make every boot fail; ceiling of 5min so it stays a deadline.
+  REDIS_INIT_TIMEOUT_MS: Joi.number().integer().min(1000).max(300000).optional()
+    .label('REDIS_INIT_TIMEOUT_MS'),
+  // Per-command Redis timeout (lib/redis.js). Bounds commands on blackholed
+  // sockets and commands queued behind reconnect backoff — measured unbounded
+  // and 15.2s respectively without it. Floor of 100ms so a typo can't fail
+  // every healthy command.
+  REDIS_COMMAND_TIMEOUT_MS: Joi.number().integer().min(100).max(60000).optional()
+    .label('REDIS_COMMAND_TIMEOUT_MS'),
 
   // Cap on tenant-scoped staff push fan-out (staffPushRecipientService).
   // .max(500) is the Firebase multicast ceiling: sendPushNotification THROWS

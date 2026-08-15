@@ -5,9 +5,50 @@ import logger from '../logging/logger.js';
 let redis = null;
 let redisInitPromise = null;
 let isConnected = false;
+let initEverFailed = false;
+let reinitTimer = null;
 
 const DEFAULT_SENTINEL_PORT = 26379;
 const DEFAULT_SENTINEL_MASTER = 'vhhealth-primary';
+
+// Boot-time initialization deadline. Without one, initRedis() can hang FOREVER
+// under the production config shape: with all Sentinels unreachable, ioredis's
+// SentinelConnector exhausts the sentinel list, then sentinelRetryStrategy
+// (which always returns a delay) restarts discovery "from scratch" indefinitely
+// — connect() never rejects, so www.js's strict-mode fail-fast never fires and
+// the pod neither becomes ready nor crash-loops into visibility. Measured
+// 2026-08-15 (redis-loss drill follow-up): sentinel-all-closed still pending at
+// 30s+ (17 discovery passes); a blackholed socket (TCP accepts, no bytes) also
+// never settles in EITHER mode because the ready-check INFO is never answered
+// and connectTimeout only bounds the TCP dial. Standalone against a CLOSED port
+// is the one shape that already settled fast (~5ms).
+const DEFAULT_INIT_TIMEOUT_MS = 15000;
+
+// Per-command timeout. Without one, a command on a connection whose peer
+// stopped responding (blackholed socket) waits UNBOUNDED (measured 30s+ and
+// still pending), and a command queued while ioredis reconnects during a
+// sustained outage waits for maxRetriesPerRequest reconnect attempts at the
+// matured 5s backoff cap (measured 15,239ms). With commandTimeout=2000 both
+// shapes fail in ~2s (measured 2,004ms / 2,008ms). Callers that already treat
+// Redis as a best-effort cache (cacheGet/cacheSet, token-blacklist positive
+// cache, rate-limit store) turn a multi-second stall into a fast fallback.
+const DEFAULT_COMMAND_TIMEOUT_MS = 2000;
+
+// Cadence of background reconnect attempts after a degraded (non-strict) start.
+const REINIT_INTERVAL_MS = 30000;
+
+function positiveIntFromEnv(name, fallback) {
+  const value = Number.parseInt(String(process.env[name] || ''), 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+export function redisInitTimeoutMs() {
+  return positiveIntFromEnv('REDIS_INIT_TIMEOUT_MS', DEFAULT_INIT_TIMEOUT_MS);
+}
+
+export function redisCommandTimeoutMs() {
+  return positiveIntFromEnv('REDIS_COMMAND_TIMEOUT_MS', DEFAULT_COMMAND_TIMEOUT_MS);
+}
 
 function enabled(value) {
   return String(value || '').trim().toLowerCase() === 'true';
@@ -119,6 +160,10 @@ function commonOptions() {
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
     lazyConnect: true,
+    // Bounds EVERY command — including one sitting in the offline queue while
+    // ioredis reconnects, and one sent on a blackholed-but-established socket.
+    // See DEFAULT_COMMAND_TIMEOUT_MS above for the measured shapes this fixes.
+    commandTimeout: redisCommandTimeoutMs(),
     retryStrategy(times) {
       const delay = Math.min(times * 200, 5000);
       logger.info(`Redis reconnecting in ${delay}ms (attempt ${times})`);
@@ -170,15 +215,45 @@ async function createClient() {
     logger.info('Redis connection closed');
   });
 
+  // Initialization must SETTLE in bounded time in every configuration.
+  // retryStrategy/sentinelRetryStrategy stay infinite on purpose — that is what
+  // makes MID-FLIGHT loss self-heal (the drill proved reconnection works) — so
+  // the bound has to be an overall deadline on the initial connect+ping, not a
+  // retry cap. On deadline we hard-disconnect the never-ready client so its
+  // discovery/reconnect loop stops, and throw: www.js then either fail-fasts
+  // (strict Sentinel mode → exit(1), pod restarts visibly) or continues
+  // degraded (non-strict → scheduleRedisReinit keeps trying off-request-path).
+  const timeoutMs = redisInitTimeoutMs();
+  let deadlineTimer = null;
+  const deadline = new Promise((_resolve, reject) => {
+    deadlineTimer = setTimeout(() => {
+      const err = new Error(
+        `Redis initialization did not complete within ${timeoutMs}ms (${connection.mode}) — endpoints unreachable or unresponsive`,
+      );
+      err.code = 'REDIS_INIT_TIMEOUT';
+      reject(err);
+    }, timeoutMs);
+    deadlineTimer.unref?.();
+  });
+
   try {
-    await client.connect();
-    await client.ping();
+    const attempt = (async () => {
+      await client.connect();
+      await client.ping();
+    })();
+    // If the deadline wins the race, the losing attempt may still reject later
+    // (e.g. "Connection is closed." after our disconnect). Mark it handled so
+    // it cannot surface as an unhandledRejection and tear the process down.
+    attempt.catch(() => {});
+    await Promise.race([attempt, deadline]);
     isConnected = true;
     return client;
   } catch (err) {
     isConnected = false;
     client.disconnect?.(false);
     throw err;
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 }
 
@@ -192,7 +267,12 @@ export async function initRedis() {
     redisInitPromise = createClient()
       .then((client) => {
         redis = client;
+        initEverFailed = false;
         return client;
+      })
+      .catch((err) => {
+        initEverFailed = true;
+        throw err;
       })
       .finally(() => {
         redisInitPromise = null;
@@ -200,6 +280,52 @@ export async function initRedis() {
   }
 
   return redisInitPromise;
+}
+
+/**
+ * Whether initialization has been attempted and failed without a later
+ * success. Consumers that would otherwise lazily re-init on the REQUEST path
+ * (the rate-limit store) use this to short-circuit instead of paying a
+ * bounded-but-slow connect attempt per request; recovery is owned by
+ * scheduleRedisReinit() off the request path.
+ */
+export function hasRedisInitFailed() {
+  return initEverFailed;
+}
+
+/**
+ * Background reconnect loop for a degraded (non-strict) start: Redis was
+ * configured but unreachable at boot, and nothing else ever calls initRedis()
+ * again. Keeps trying on a fixed cadence — each attempt bounded by the init
+ * deadline — until Redis returns, then stops. The timer is unref'd so it never
+ * holds the process open. Idempotent; a no-op when Redis is already up.
+ *
+ * NOTE: this restores the shared cache, token-blacklist fast path, and the
+ * rate-limit store. The WebSocket fan-out subscriber is boot-wired only and
+ * stays single-process until the pod restarts (pre-existing behaviour).
+ */
+export function scheduleRedisReinit({ intervalMs = REINIT_INTERVAL_MS } = {}) {
+  if (reinitTimer || redis) return false;
+  logger.warn(`Redis unavailable — retrying connection in the background every ${intervalMs}ms`);
+  reinitTimer = setInterval(async () => {
+    if (redis) {
+      clearInterval(reinitTimer);
+      reinitTimer = null;
+      return;
+    }
+    try {
+      const client = await initRedis();
+      clearInterval(reinitTimer);
+      reinitTimer = null;
+      if (client) {
+        logger.info('Redis background reconnect succeeded — shared cache and rate-limit store restored');
+      }
+    } catch (err) {
+      logger.warn('Redis background reconnect attempt failed:', err.message);
+    }
+  }, intervalMs);
+  reinitTimer.unref?.();
+  return true;
 }
 
 /**
@@ -325,6 +451,10 @@ export async function cacheClear(pattern) {
  * Gracefully disconnect from Redis.
  */
 export async function disconnectRedis() {
+  if (reinitTimer) {
+    clearInterval(reinitTimer);
+    reinitTimer = null;
+  }
   if (redis) {
     try {
       await redis.quit();
@@ -346,6 +476,8 @@ export default {
   initRedis,
   getRedisClient,
   isRedisConnected,
+  hasRedisInitFailed,
+  scheduleRedisReinit,
   assertRedisWritable,
   cacheGet,
   cacheSet,
