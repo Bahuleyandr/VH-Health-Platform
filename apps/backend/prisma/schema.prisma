@@ -5417,27 +5417,6 @@ model event_outbox {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model external_system_mappings {
-  id                     Int          @id @default(autoincrement())
-  tenant_id              String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  integration_id         Int
-  internal_resource_type String       @db.VarChar(60)
-  internal_id            String       @db.VarChar(120)
-  external_system_id     String       @db.VarChar(255)
-  status                 String       @default("active") @db.VarChar(20)
-  last_synced_at         DateTime?    @db.Timestamptz(6)
-  metadata               Json         @default("{}")
-  created_at             DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime     @default(now()) @db.Timestamptz(6)
-  integrations           integrations @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([tenant_id, integration_id, internal_resource_type, internal_id])
-  @@index([tenant_id, integration_id, external_system_id], map: "idx_external_mappings_external")
-  @@index([tenant_id, internal_resource_type, internal_id], map: "idx_external_mappings_internal")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model facilities {
   id                                                   Int                                                    @id @default(autoincrement())
   tenant_id                                            String                                                 @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -6388,22 +6367,21 @@ model integration_logs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model integrations {
-  id                       Int                        @id @default(autoincrement())
-  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  name                     String                     @db.VarChar(160)
-  description              String?
-  integration_type         String                     @db.VarChar(80)
-  status                   String                     @default("active") @db.VarChar(20)
-  config                   Json                       @default("{}")
-  created_by               String?                    @db.Uuid
-  metadata                 Json                       @default("{}")
-  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
-  external_system_mappings external_system_mappings[]
-  integration_credentials  integration_credentials[]
-  integration_logs         integration_logs[]
-  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  webhook_subscriptions    webhook_subscriptions[]
+  id                      Int                       @id @default(autoincrement())
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  name                    String                    @db.VarChar(160)
+  description             String?
+  integration_type        String                    @db.VarChar(80)
+  status                  String                    @default("active") @db.VarChar(20)
+  config                  Json                      @default("{}")
+  created_by              String?                   @db.Uuid
+  metadata                Json                      @default("{}")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  integration_credentials integration_credentials[]
+  integration_logs        integration_logs[]
+  tenants                 tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  webhook_subscriptions   webhook_subscriptions[]
 
   @@unique([tenant_id, name])
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_integrations_tenant_status")
@@ -7864,30 +7842,29 @@ model patient_merge_requests {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an index with non-default null sort order and requires additional setup for migrations. Visit https://pris.ly/d/default-index-null-ordering for more info.
 model patient_problems {
-  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid           String                  @db.Uuid
-  patient_id            Int?
-  title                 String                  @db.VarChar(255)
-  icd10_code            String?                 @db.VarChar(20)
-  snomed_code           String?                 @db.VarChar(80)
-  status                String                  @default("active") @db.VarChar(20)
-  severity              String?                 @db.VarChar(20)
-  is_chronic            Boolean                 @default(false)
-  onset_date            DateTime?               @db.Date
-  resolved_date         DateTime?               @db.Date
-  managing_doctor_id    Int?
-  source_encounter_id   String?                 @db.Uuid
-  source_diagnosis_id   Int?
-  notes                 String?
-  resolution_notes      String?
-  recorded_by           String?                 @db.Uuid
-  resolved_by           String?                 @db.Uuid
-  metadata              Json                    @default("{}")
-  created_at            DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
-  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_problems_tenant")
-  problem_episode_links problem_episode_links[]
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid         String    @db.Uuid
+  patient_id          Int?
+  title               String    @db.VarChar(255)
+  icd10_code          String?   @db.VarChar(20)
+  snomed_code         String?   @db.VarChar(80)
+  status              String    @default("active") @db.VarChar(20)
+  severity            String?   @db.VarChar(20)
+  is_chronic          Boolean   @default(false)
+  onset_date          DateTime? @db.Date
+  resolved_date       DateTime? @db.Date
+  managing_doctor_id  Int?
+  source_encounter_id String?   @db.Uuid
+  source_diagnosis_id Int?
+  notes               String?
+  resolution_notes    String?
+  recorded_by         String?   @db.Uuid
+  resolved_by         String?   @db.Uuid
+  metadata            Json      @default("{}")
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_problems_tenant")
 
   @@unique([tenant_id, patient_uid, icd10_code], map: "uq_patient_problems_active_code", where: raw("(((status)::text = 'active'::text) AND (icd10_code IS NOT NULL))"))
   @@index([tenant_id, patient_uid, status, created_at(sort: Desc)], map: "idx_patient_problems_patient_status")
@@ -10754,7 +10731,6 @@ model tenants {
   external_recovery_critical_acknowledgements          external_recovery_critical_review_acknowledgements[]
   external_recovery_critical_obligations               external_recovery_critical_review_obligations[]
   external_recovery_operability_actions                external_recovery_operability_actions[]
-  external_system_mappings                             external_system_mappings[]
   facilities                                           facilities?
   facility_locations                                   facility_locations[]
   facility_rooms                                       facility_rooms[]
@@ -10798,9 +10774,7 @@ model tenants {
   icu_chart_audit_events                               icu_chart_audit_events[]
   icu_chart_policy_versions                            icu_chart_policy_versions[]
   icu_chart_settings                                   icu_chart_settings?
-  icu_chart_ui_preferences                             icu_chart_ui_preferences[]
   icu_code_status_history                              icu_code_status_history[]
-  icu_daily_chart_summaries                            icu_daily_chart_summaries[]
   icu_device_observation_links                         icu_device_observation_links[]
   icu_line_tube_drain_events                           icu_line_tube_drain_events[]
   icu_scoring_outputs                                  icu_scoring_outputs[]
@@ -10850,7 +10824,6 @@ model tenants {
   knowledge_import_batches                             knowledge_import_batches[]
   knowledge_retrieval_logs                             knowledge_retrieval_logs[]
   lab_analyzer_qc_runs                                 lab_analyzer_qc_runs[]
-  lab_analyzer_status_history                          lab_analyzer_status_history[]
   lab_analyzers                                        lab_analyzers[]
   lab_interface_messages                               lab_interface_messages[]
   lab_oru_ingest_messages                              lab_oru_ingest_messages[]
@@ -11003,8 +10976,6 @@ model tenants {
   prescription_safety_overrides                        prescription_safety_overrides[]
   prescriptions                                        prescriptions[]
   privilege_catalog                                    privilege_catalog[]
-  problem_episode_links                                problem_episode_links[]
-  problem_list_snapshots                               problem_list_snapshots[]
   provider_availability_template_audit                 provider_availability_template_audit[]
   provider_availability_template_exceptions            provider_availability_template_exceptions[]
   provider_availability_templates                      provider_availability_templates[]
@@ -11801,8 +11772,6 @@ model users {
   housekeeping_requests_housekeeping_requests_verified_by_uidTousers                                                               housekeeping_requests[]                                @relation("housekeeping_requests_verified_by_uidTousers")
   hr_activity_logs                                                                                                                 hr_activity_logs[]
   icu_chart_audit_events                                                                                                           icu_chart_audit_events[]
-  icu_chart_ui_preferences                                                                                                         icu_chart_ui_preferences[]
-  icu_daily_chart_summaries                                                                                                        icu_daily_chart_summaries[]
   icu_device_observation_links                                                                                                     icu_device_observation_links[]
   icu_line_tube_drain_events                                                                                                       icu_line_tube_drain_events[]
   icu_scoring_outputs                                                                                                              icu_scoring_outputs[]
@@ -14995,7 +14964,6 @@ model icu_admissions {
   icu_chart_audit_events                icu_chart_audit_events[]
   icu_code_status_history               icu_code_status_history[]
   icu_daily_bundles                     icu_daily_bundles[]
-  icu_daily_chart_summaries             icu_daily_chart_summaries[]
   icu_device_observation_links          icu_device_observation_links[]
   icu_flowsheet_entries                 icu_flowsheet_entries[]
   icu_line_tube_drain_events            icu_line_tube_drain_events[]
@@ -16199,52 +16167,31 @@ model lab_analyzer_qc_runs {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model lab_analyzer_status_history {
-  id            Int           @id @default(autoincrement())
-  tenant_id     String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  analyzer_id   Int
-  from_status   String?       @db.VarChar(30)
-  to_status     String        @db.VarChar(30)
-  reason        String?
-  changed_by    String?       @db.Uuid
-  metadata      Json          @default("{}")
-  created_by    String?       @db.Uuid
-  updated_by    String?       @db.Uuid
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
-  lab_analyzers lab_analyzers @relation(fields: [analyzer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([tenant_id, analyzer_id, created_at(sort: Desc)], map: "idx_lab_analyzer_status_history_time")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model lab_analyzers {
-  id                          Int                           @id @default(autoincrement())
-  tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_id                 Int?
-  location_id                 Int?
-  analyzer_code               String                        @db.VarChar(120)
-  display_name                String                        @db.VarChar(255)
-  manufacturer                String?                       @db.VarChar(120)
-  model                       String?                       @db.VarChar(120)
-  serial_number               String?                       @db.VarChar(120)
-  interface_kind              String                        @default("manual") @db.VarChar(40)
-  status                      String                        @default("active") @db.VarChar(30)
-  last_qc_at                  DateTime?                     @db.Timestamptz(6)
-  metadata                    Json                          @default("{}")
-  created_by                  String?                       @db.Uuid
-  updated_by                  String?                       @db.Uuid
-  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
-  lab_analyzer_qc_runs        lab_analyzer_qc_runs[]
-  lab_analyzer_status_history lab_analyzer_status_history[]
-  facilities                  facilities?                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_lab_analyzers_facility_tenant")
-  facility_locations          facility_locations?           @relation(fields: [location_id], references: [id], onUpdate: NoAction)
-  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  lab_interface_messages      lab_interface_messages[]
-  lab_oru_ingest_messages     lab_oru_ingest_messages[]
-  lab_results                 lab_results[]
+  id                      Int                       @id @default(autoincrement())
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id             Int?
+  location_id             Int?
+  analyzer_code           String                    @db.VarChar(120)
+  display_name            String                    @db.VarChar(255)
+  manufacturer            String?                   @db.VarChar(120)
+  model                   String?                   @db.VarChar(120)
+  serial_number           String?                   @db.VarChar(120)
+  interface_kind          String                    @default("manual") @db.VarChar(40)
+  status                  String                    @default("active") @db.VarChar(30)
+  last_qc_at              DateTime?                 @db.Timestamptz(6)
+  metadata                Json                      @default("{}")
+  created_by              String?                   @db.Uuid
+  updated_by              String?                   @db.Uuid
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  lab_analyzer_qc_runs    lab_analyzer_qc_runs[]
+  facilities              facilities?               @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_lab_analyzers_facility_tenant")
+  facility_locations      facility_locations?       @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lab_interface_messages  lab_interface_messages[]
+  lab_oru_ingest_messages lab_oru_ingest_messages[]
+  lab_results             lab_results[]
 
   @@unique([tenant_id, analyzer_code])
   @@index([tenant_id, status, analyzer_code], map: "idx_lab_analyzers_tenant_status")
@@ -17273,44 +17220,6 @@ model portal_proxy_grants {
 
   @@unique([patient_uid, proxy_uid], map: "uq_portal_proxy_grants_active", where: raw("((status)::text = 'active'::text)"))
   @@index([proxy_uid, status], map: "idx_portal_proxy_grants_proxy")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model problem_episode_links {
-  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid      String           @db.Uuid
-  episode_name     String           @db.VarChar(255)
-  problem_id       String           @db.Uuid
-  link_role        String           @default("primary") @db.VarChar(40)
-  notes            String?
-  linked_by        String?          @db.Uuid
-  created_at       DateTime         @default(now()) @db.Timestamptz(6)
-  patient_problems patient_problems @relation(fields: [problem_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_episode_links_problem")
-  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_episode_links_tenant")
-
-  @@index([tenant_id, patient_uid, episode_name], map: "idx_episode_links_patient")
-  @@index([problem_id], map: "idx_episode_links_problem")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model problem_list_snapshots {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid   String   @db.Uuid
-  snapshot_type String   @default("discharge") @db.VarChar(40)
-  snapshot_date DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
-  encounter_id  String?  @db.Uuid
-  problems      Json     @default("[]")
-  generated_by  String?  @db.Uuid
-  metadata      Json     @default("{}")
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_problem_snapshots_tenant")
-
-  @@index([encounter_id], map: "idx_problem_snapshots_encounter", where: raw("(encounter_id IS NOT NULL)"))
-  @@index([tenant_id, patient_uid, snapshot_date(sort: Desc)], map: "idx_problem_snapshots_patient")
 }
 
 model terminology_audit_events {
@@ -22037,48 +21946,6 @@ model icu_chart_settings {
   created_at              DateTime  @default(now()) @db.Timestamptz(6)
   updated_at              DateTime  @default(now()) @db.Timestamptz(6)
   tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model icu_chart_ui_preferences {
-  id             BigInt   @id @default(autoincrement())
-  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  user_uid       String   @db.Uuid
-  unit_code      String?  @db.VarChar(20)
-  preference_key String   @default("default") @db.VarChar(80)
-  preferences    Json     @default("{}")
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime @default(now()) @db.Timestamptz(6)
-  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_icu_chart_ui_preferences_tenant")
-  users          users    @relation(fields: [user_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "fk_icu_chart_ui_preferences_user")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model icu_daily_chart_summaries {
-  id                             BigInt         @id @default(autoincrement())
-  tenant_id                      String         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  icu_admission_id               Int
-  patient_uid                    String         @db.Uuid
-  summary_date                   DateTime       @db.Date
-  manual_flowsheet_count         Int            @default(0)
-  device_vitals_count            Int            @default(0)
-  unverified_device_vitals_count Int            @default(0)
-  active_denominator_devices     Json           @default("[]")
-  ventilation_minutes            Int            @default(0)
-  sbt_trials_count               Int            @default(0)
-  scoring_outputs_count          Int            @default(0)
-  net_balance_ml                 Int?
-  summary_payload                Json           @default("{}")
-  materialized_at                DateTime       @default(now()) @db.Timestamptz(6)
-  created_at                     DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime       @default(now()) @db.Timestamptz(6)
-  tenants                        tenants        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_icu_daily_chart_summaries_tenant")
-  icu_admissions                 icu_admissions @relation(fields: [icu_admission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                          users          @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([tenant_id, icu_admission_id, summary_date], map: "uq_icu_daily_chart_summaries_day")
-  @@index([tenant_id, patient_uid, summary_date(sort: Desc)], map: "idx_icu_daily_chart_summaries_patient")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

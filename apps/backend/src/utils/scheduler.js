@@ -7,7 +7,6 @@
 // function; the named one is the unambiguous home.
 import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
-import path from 'path';
 import purgeArchives from '../../admin/purge-archives.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import {
