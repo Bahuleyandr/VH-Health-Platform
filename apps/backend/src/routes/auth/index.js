@@ -66,13 +66,15 @@ router.use('/staff', staffAuthRoutes); // Staff auth at /api/v1/auth/staff/* (EM
 // Firebase OTP round-trip when explicitly enabled.
 //
 // Production must stay fail-closed: this route is never mounted when
-// NODE_ENV is production, even if ENABLE_DEV_AUTH is accidentally set. In
-// non-production environments it is disabled by default and mounted only when
-// ENABLE_DEV_AUTH=true.
+// NODE_ENV is production, even if ENABLE_DEV_AUTH is accidentally set
+// (isDevAuthEnabled hard-ANDs !production). In non-production environments it
+// is disabled by default and mounted only when ENABLE_DEV_AUTH=true.
 //
-// SECURITY: the route is still gated by the standard x-api-key check
-// (validateApiKey) and creates only PATIENT-role JWTs — it cannot escalate
-// to staff/admin even if accidentally exposed.
+// SECURITY: the mount-time gate above is the ONLY exposure control. This
+// router is NOT behind validateApiKey — /api/v1/auth is mounted before the
+// API-key middleware in app.js (a previous comment here claimed otherwise).
+// It creates only PATIENT-role JWTs, so it cannot escalate to staff/admin
+// even if accidentally exposed in a dev environment.
 if (isDevAuthEnabled()) {
   const { default: devAuthRoutes } = await import('./devAuthRoutes.js');
   router.use('/dev', devAuthRoutes);
