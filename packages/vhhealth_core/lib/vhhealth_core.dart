@@ -53,7 +53,6 @@ export 'services/idempotency_key.dart';
 export 'services/mtls_client_service.dart';
 export 'services/realtime_client.dart';
 export 'services/realtime_provider.dart';
-export 'services/version_gate.dart';
 // OpenAPI-generated API (models + chopper client). Re-exported from
 // lib/api/vhhealth_api.dart once `dart run build_runner build` has
 // generated the artefacts. The auth interceptor (api/vh_auth_interceptor.dart)
