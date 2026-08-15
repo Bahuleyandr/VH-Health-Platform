@@ -778,7 +778,7 @@ describe("middleware — CSP header (M9)", () => {
     const scriptSrc = (cspCall![1] as string)
       .split(";")
       .find((d: string) => d.trim().startsWith("script-src"))!;
-    // The hardening: prod CSP no longer permits eval (Sentry/workbox/app are eval-free).
+    // The hardening: prod CSP no longer permits eval (Sentry/app are eval-free).
     expect(scriptSrc).not.toContain("unsafe-eval");
     // The nonce + strict-dynamic XSS backstop stays intact.
     expect(scriptSrc).toContain("'strict-dynamic'");

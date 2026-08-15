@@ -193,8 +193,8 @@ function isIpAllowed(request: NextRequest): boolean {
 // per-request nonce + 'strict-dynamic': Next.js App Router picks the nonce up
 // from the request CSP header and stamps it on its own inline scripts.
 // 'unsafe-eval' is needed ONLY by the Next.js dev server (HMR / react-refresh
-// evaluate modules via eval) — production bundles are eval-free (Sentry v10 and
-// workbox do not eval at browser runtime; no app code uses eval/Function), so it
+// evaluate modules via eval) — production bundles are eval-free (Sentry v10
+// does not eval at browser runtime; no app code uses eval/Function), so it
 // is DROPPED from the prod CSP (M-ADM-2, staged step 2 of audit M9). Both
 // 'unsafe-inline' (injection-relevant) and prod 'unsafe-eval' are GONE.
 /**
