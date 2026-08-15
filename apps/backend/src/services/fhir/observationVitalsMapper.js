@@ -232,7 +232,21 @@ function assignFhir(vitals, code, node, unmapped) {
   return { code, temperatureUnit: conversion.temperatureUnit || null };
 }
 
-function assignObx(vitals, code, value, unmapped) {
+/**
+ * Apply a unitConversion() entry to a raw source value, producing the
+ * canonical-unit value. Shared by the ORU/device flavour below. Almost every
+ * conversion is a pure factor; temperature °F→°C is the one affine
+ * (non-linear-in-factor) case — the same formula the FHIR write path applies
+ * downstream via vitalsChartService#toCelsius on its temperature_unit hint.
+ * Kept here (not imported from vitalsChartService) so this mapper stays pure
+ * and free of the DB import graph.
+ */
+export function applyUnitConversion(value, conversion) {
+  if (conversion.kind === 'fahrenheit') return ((value - 32) * 5) / 9;
+  return value * conversion.factor;
+}
+
+function assignObx(vitals, code, value, unit, unmapped) {
   const mapping = LOINC_TO_VITALS_FIELD[code];
   if (!mapping) {
     if (code) unmapped.push(code);
@@ -244,7 +258,31 @@ function assignObx(vitals, code, value, unmapped) {
       'OBX_VITAL_INVALID_VALUE',
     );
   }
-  vitals[mapping.field] = value;
+  // OBX-6 unit handling (gap-audit 2026-08, HL7 units):
+  //   * known unit          → convert to the vitals_chart canonical unit
+  //     (e.g. blood glucose mmol/L ×18.0182 → mg/dL; temperature °F → °C —
+  //     the canonical storage contract vitalSignMonitor's ranges assume, so a
+  //     normal 3.9 mmol/L glucose no longer stores as 3.9 "mg/dL" and fires a
+  //     false CRITICAL-hypo alert);
+  //   * unknown non-empty   → REJECT loudly. Storing an unconverted value
+  //     under the wrong unit is a clinical-safety defect; the 400 dead-letters
+  //     the message at the gateway for human review (NO_MAPPABLE_OBX
+  //     precedent);
+  //   * empty/absent OBX-6  → historical behavior, unchanged: assume the value
+  //     is already canonical (many bedside monitors omit units).
+  let stored = value;
+  const unitToken = String(unit ?? '').trim();
+  if (unitToken) {
+    const conversion = unitConversion(mapping.field, unitToken);
+    if (!conversion) {
+      throw AppError.badRequest(
+        `OBX ${mapping.label} carries an unsupported unit (${unitToken}) — refusing to store an unconverted value`,
+        'DEVICE_VITALS_UNSUPPORTED_UNIT',
+      );
+    }
+    stored = applyUnitConversion(value, conversion);
+  }
+  vitals[mapping.field] = stored;
   return code;
 }
 
@@ -300,8 +338,15 @@ export function fhirObservationToVitals(resource = {}) {
 }
 
 /**
- * Map a list of parsed OBX-style results ({ loinc_code|test_code, value })
- * to vitals fields — the ORU/device flavour of the same table. Pure.
+ * Map a list of parsed OBX-style results ({ loinc_code|test_code, value,
+ * units? }) to vitals fields — the ORU/device flavour of the same table. Pure.
+ *
+ * Unit contract (see assignObx): `units` (OBX-6 identifier) is optional.
+ * Known units are converted to the vitals_chart canonical unit HERE (unlike
+ * the FHIR flavour, which defers °F→°C to the storage layer via its
+ * temperatureUnit hint — the ORU consumers have no such hint plumbing), an
+ * unknown non-empty unit throws DEVICE_VITALS_UNSUPPORTED_UNIT, and an
+ * absent/empty unit keeps the historical assume-canonical behavior.
  */
 export function obxResultsToVitals(results = []) {
   const vitals = {};
@@ -313,10 +358,12 @@ export function obxResultsToVitals(results = []) {
       ? r.value_text
       : (r?.value ?? r?.value_numeric);
     const value = strictNumericValue(sourceValue);
-    const hit = assignObx(vitals, code, value, unmapped);
+    const hit = assignObx(vitals, code, value, r?.units ?? r?.unit, unmapped);
     if (hit) mapped.push(hit);
   }
   return { vitals, mapped: [...new Set(mapped)], unmapped: [...new Set(unmapped)] };
 }
 
-export default { LOINC_TO_VITALS_FIELD, BP_PANEL_LOINC, fhirObservationToVitals, obxResultsToVitals };
+export default {
+  LOINC_TO_VITALS_FIELD, BP_PANEL_LOINC, fhirObservationToVitals, obxResultsToVitals, applyUnitConversion,
+};
