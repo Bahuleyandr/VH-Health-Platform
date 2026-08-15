@@ -20,18 +20,21 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              name: vhhealth-monitoring
+              kubernetes.io/metadata.name: vhhealth-monitoring
       ports:
         - protocol: TCP
           port: 9108
   egress:
+    # Backend REST API (device resolve + vitals ingest + spool drain). The
+    # Service is vhhealth-backend:80, but NetworkPolicy is evaluated after
+    # the Service DNAT, so the rule must name the pod label and pod port.
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: backend
+              app.kubernetes.io/name: vhhealth-backend
       ports:
         - protocol: TCP
-          port: 3000
+          port: 5000
     - to:
         - namespaceSelector:
             matchLabels:

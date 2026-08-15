@@ -110,6 +110,85 @@ void main() {
       }
     });
 
+    test('safety center and resus record admit every staff role', () {
+      // Backend truth: /resuscitation/* is requireStaffOrAdmin (any staff),
+      // so the Safety Center and the resus documentation record must not be
+      // hidden behind the narrower phone_self_service capability group.
+      expect(
+        canonicalStaffFeatureRouteRoleCodes['safety_center'],
+        containsAll(canonicalStaffRoleCodes),
+      );
+      for (final rawRole in canonicalStaffRoleCodes) {
+        expect(
+          StaffRoutePolicy.authorize(
+            Uri.parse('/safety-center'),
+            rawRole: rawRole,
+          ).allowed,
+          isTrue,
+          reason: '$rawRole safety center',
+        );
+        expect(
+          StaffRoutePolicy.authorize(
+            Uri.parse('/safety/resus/42'),
+            rawRole: rawRole,
+          ).allowed,
+          isTrue,
+          reason: '$rawRole resus documentation',
+        );
+      }
+      // Regression pins for the emergency/critical-care roles the old
+      // phone_self_service gate excluded.
+      for (final rawRole in const [
+        'ER_STAFF',
+        'EMERGENCY_RESPONDER',
+        'ICU_NURSE',
+      ]) {
+        expect(
+          canonicalStaffFeatureRouteRoleCodes['safety_center'],
+          contains(rawRole),
+        );
+        expect(
+          StaffRoutePolicy.authorize(
+            Uri.parse('/safety/resus/7'),
+            rawRole: rawRole,
+          ).allowed,
+          isTrue,
+          reason: rawRole,
+        );
+      }
+    });
+
+    test('HR self-service stays reachable for every staff role', () {
+      // Backend truth: staff profile/attendance/leave/payroll/directory/
+      // reports policies are allowSelf for every staff role
+      // (staffAccessPolicyRegistry.js), so no staff role may lose these.
+      const selfServiceFeatures = {
+        'profile': '/profile',
+        'leave': '/leave',
+        'payroll': '/payroll',
+        'attendance': '/attendance',
+        'staff_directory': '/staff-directory',
+        'reports_grievances': '/reports-grievances',
+      };
+      for (final entry in selfServiceFeatures.entries) {
+        expect(
+          canonicalStaffFeatureRouteRoleCodes[entry.key],
+          containsAll(canonicalStaffRoleCodes),
+          reason: entry.key,
+        );
+        for (final rawRole in canonicalStaffRoleCodes) {
+          expect(
+            StaffRoutePolicy.authorize(
+              Uri.parse(entry.value),
+              rawRole: rawRole,
+            ).allowed,
+            isTrue,
+            reason: '$rawRole ${entry.value}',
+          );
+        }
+      }
+    });
+
     test(
       'lossy presentation aliases cannot change backend route authority',
       () {

@@ -51,9 +51,15 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose/jwt/verify";
 
 // Grab references to the mock functions for assertions
-const mockRedirect = NextResponse.redirect as jest.MockedFunction<typeof NextResponse.redirect>;
-const mockNext = NextResponse.next as jest.MockedFunction<typeof NextResponse.next>;
-const mockJson = NextResponse.json as jest.MockedFunction<typeof NextResponse.json>;
+const mockRedirect = NextResponse.redirect as jest.MockedFunction<
+  typeof NextResponse.redirect
+>;
+const mockNext = NextResponse.next as jest.MockedFunction<
+  typeof NextResponse.next
+>;
+const mockJson = NextResponse.json as jest.MockedFunction<
+  typeof NextResponse.json
+>;
 const mockJwtVerify = jwtVerify as jest.MockedFunction<typeof jwtVerify>;
 
 // ---------------------------------------------------------------------------
@@ -110,6 +116,7 @@ beforeEach(() => {
   delete process.env.ADMIN_CANONICAL_ORIGIN;
   delete process.env.ADMIN_IP_ALLOWLIST;
   delete process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
+  delete process.env.NEXT_PUBLIC_WS_URL;
   (process.env as Record<string, string>).NODE_ENV = "test";
   // By default, jwtVerify should NOT be called (no secretKey)
   mockJwtVerify.mockReset();
@@ -329,36 +336,30 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/clinical-governance",
   ];
 
-  it.each(adminOnlyPaths)(
-    "blocks STAFF from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(adminOnlyPaths)("blocks STAFF from %s", async (path) => {
+    const token = fakeJwt({
+      role: "STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(adminOnlyPaths)(
-    "allows ADMIN to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "ADMIN",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(adminOnlyPaths)("allows ADMIN to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -416,82 +417,67 @@ describe("HR_PLUS_PATHS", () => {
     "/dashboard/reporting",
   ];
 
-  it.each(hrPlusPaths)(
-    "blocks STAFF from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("blocks STAFF from %s", async (path) => {
+    const token = fakeJwt({
+      role: "STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(hrPlusPaths)(
-    "blocks DOCTOR from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "DOCTOR",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("blocks DOCTOR from %s", async (path) => {
+    const token = fakeJwt({
+      role: "DOCTOR",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(hrPlusPaths)(
-    "allows HR to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "HR",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows HR to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "HR",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 
-  it.each(hrPlusPaths)(
-    "allows HR_STAFF to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "HR_STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows HR_STAFF to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "HR_STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 
-  it.each(hrPlusPaths)(
-    "allows ADMIN to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "ADMIN",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows ADMIN to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -714,6 +700,63 @@ describe("middleware — CSP header (M9)", () => {
       .split(";")
       .find((d: string) => d.trim().startsWith("script-src"))!;
     expect(scriptSrc).toContain("'unsafe-eval'");
+  });
+
+  // Regression: the NEXT_PUBLIC_WS_URL override was honored by api-config's
+  // WS_BASE_URL but the CSP only allowed the API-derived ws origin, so an
+  // overridden realtime host was blocked by connect-src.
+  it("includes the NEXT_PUBLIC_WS_URL override origin in connect-src", async () => {
+    process.env.NEXT_PUBLIC_WS_URL = "wss://realtime.vhhealth.app";
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const connectSrc = (cspCall![1] as string)
+      .split(";")
+      .find((d: string) => d.trim().startsWith("connect-src"))!;
+    expect(connectSrc).toContain("wss://realtime.vhhealth.app");
+    // The API-derived ws origin stays allowed alongside the override.
+    expect(connectSrc).toContain("'self'");
+  });
+
+  it("normalizes an http(s) NEXT_PUBLIC_WS_URL override to its ws(s) origin", async () => {
+    process.env.NEXT_PUBLIC_WS_URL = "https://realtime.vhhealth.app/some/path";
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const connectSrc = (cspCall![1] as string)
+      .split(";")
+      .find((d: string) => d.trim().startsWith("connect-src"))!;
+    expect(connectSrc).toContain("wss://realtime.vhhealth.app");
+    expect(connectSrc).not.toContain("/some/path");
+  });
+
+  it("keeps the CSP unchanged when NEXT_PUBLIC_WS_URL is unset", async () => {
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const connectSrc = (cspCall![1] as string)
+      .split(";")
+      .find((d: string) => d.trim().startsWith("connect-src"))!;
+    expect(connectSrc).not.toContain("realtime.vhhealth.app");
+    // Exactly the pre-existing sources: self, API URL, API-derived ws
+    // origin, and the Sentry hosts.
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    expect(connectSrc.trim()).toBe(
+      `connect-src 'self' ${apiUrl} ${apiUrl.replace(/^http/, "ws")} ` +
+        "https://*.sentry.io https://*.ingest.sentry.io",
+    );
   });
 
   it("DROPS 'unsafe-eval' from script-src in production (M-ADM-2)", async () => {

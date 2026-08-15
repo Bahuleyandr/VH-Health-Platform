@@ -116,7 +116,15 @@ test('accepts only the exact documented zero app placeholders as held', () => {
     // in the prod root, so the PG18 cutover target cannot ride an ordinary sync.
     `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`,
   ]);
-  assert.equal(HELD_APP_OCCURRENCES.length, 7);
+  // 6 apps-root workload occurrences + the prod database hold + the same 6
+  // workloads mirrored by the staging app-tier overlay.
+  assert.equal(HELD_APP_OCCURRENCES.length, 13);
+  assert.equal(
+    HELD_APP_OCCURRENCES.filter(
+      ({ target }) => target === 'infra/kubernetes/overlays/staging/apps',
+    ).length,
+    6,
+  );
   const heldOccurrence = { ...HELD_APP_OCCURRENCES[1], line: 10 };
   const held = classifyImageOccurrence(heldOccurrence);
   assert.equal(held.held, true);
@@ -220,6 +228,7 @@ test('every rendered root is inventoried, with the held all-zero set confined to
     'infra/kubernetes/apps',
     'infra/kubernetes/overlays/staging',
     'infra/kubernetes/overlays/dev',
+    'infra/kubernetes/overlays/staging/apps',
   ]);
 
   const occurrences = renderProductionImages();
@@ -228,11 +237,32 @@ test('every rendered root is inventoried, with the held all-zero set confined to
     .map((occurrence) => classifyImageOccurrence(occurrence));
   assert.doesNotThrow(() => assertHeldOccurrenceInventory(held));
 
-  // Every held occurrence is production-only. A non-production overlay that
-  // inherited the hold would appear here and fail classification outright.
+  // Held occurrences appear only where the hold is deliberate: the production
+  // roots and the staging app-tier overlay (whose digests fail closed until a
+  // manual staging dispatch pins release tags). A platform overlay that
+  // inherited a hold would appear here and fail classification outright.
   assert.deepEqual(
     [...new Set(held.map(({ target }) => target))].sort(),
-    ['infra/kubernetes/apps', 'infra/kubernetes/overlays/prod'],
+    [
+      'infra/kubernetes/apps',
+      'infra/kubernetes/overlays/prod',
+      'infra/kubernetes/overlays/staging/apps',
+    ],
+  );
+
+  // The staging app-tier holds are exactly the apps-root workload holds,
+  // re-rendered — same kind/name/container/ref, different target.
+  const byKey = (occurrence) =>
+    [occurrence.resourceKind, occurrence.resourceName, occurrence.container, occurrence.ref].join('|');
+  assert.deepEqual(
+    held
+      .filter(({ target }) => target === 'infra/kubernetes/overlays/staging/apps')
+      .map(byKey)
+      .sort(),
+    held
+      .filter(({ target }) => target === 'infra/kubernetes/apps')
+      .map(byKey)
+      .sort(),
   );
   for (const root of ENVIRONMENT_ROOTS) {
     assert.equal(
@@ -505,7 +535,7 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   assert.equal(result.active[0].occurrences, 2);
   assert.equal(result.activeOccurrences.length, 2);
   assert.equal(result.held.length, 4);
-  assert.equal(result.heldOccurrences.length, 7);
+  assert.equal(result.heldOccurrences.length, 13);
   assert.equal(result.verified.length, 1);
 });
 
@@ -518,7 +548,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       })),
       verify: async (image) => image,
     }),
-    /exact expected 7.*missing/,
+    /exact expected 13.*missing/,
   );
   await assert.rejects(
     validateProductionImages({
@@ -527,7 +557,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       ),
       verify: async (image) => image,
     }),
-    /exact expected 7.*extra/,
+    /exact expected 13.*extra/,
   );
 });
 

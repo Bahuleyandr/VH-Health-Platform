@@ -51,7 +51,9 @@ function fullToken() {
   return generateToken({ uid: FULL_UID, role: 'PATIENT', tenant_id: TENANT }, '1h');
 }
 function setupToken() {
-  return issueSetupToken({ uid: SETUP_UID, role: 'SUPER_ADMIN' });
+  // Epoch 0 — SETUP_UID is a throwaway identity with no admins/users row, so
+  // its durable epoch is 0 and the revocation gate admits the token.
+  return issueSetupToken({ uid: SETUP_UID, role: 'SUPER_ADMIN' }, 0);
 }
 
 function buildApp() {

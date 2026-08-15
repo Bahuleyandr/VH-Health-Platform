@@ -11,8 +11,39 @@ class NotificationProvider extends ChangeNotifier {
     : _feedFetcher = feedFetcher;
 
   final NotificationFeedFetcher? _feedFetcher;
+  WebSocketProvider? _webSocketSource;
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
+
+  /// Live-wires realtime `notification` events into the unread badge.
+  ///
+  /// [mergeFromWebSocket] had zero callers after the #867 realtime
+  /// consolidation deleted the old websocket_service wire, so WS-delivered
+  /// notifications were buffered forever and the badge only moved on the next
+  /// poll. Binding here re-attaches the wire: every [WebSocketProvider]
+  /// notification event drains the buffer into [unreadCount] immediately
+  /// (which also keeps the buffer from growing for the life of the session).
+  /// Called once from `main.dart` where both providers are constructed.
+  void bindWebSocket(WebSocketProvider webSocketProvider) {
+    if (identical(_webSocketSource, webSocketProvider)) return;
+    _webSocketSource?.removeListener(_onWebSocketChanged);
+    _webSocketSource = webSocketProvider;
+    webSocketProvider.addListener(_onWebSocketChanged);
+    // Drain anything that arrived before the wire was attached.
+    mergeFromWebSocket(webSocketProvider);
+  }
+
+  void _onWebSocketChanged() {
+    final source = _webSocketSource;
+    if (source != null) mergeFromWebSocket(source);
+  }
+
+  @override
+  void dispose() {
+    _webSocketSource?.removeListener(_onWebSocketChanged);
+    _webSocketSource = null;
+    super.dispose();
+  }
 
   /// Merge any pending WS-delivered notifications into the unread count.
   void mergeFromWebSocket(WebSocketProvider wsProv) {

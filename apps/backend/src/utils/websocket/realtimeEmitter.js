@@ -291,14 +291,19 @@ export function emitEdBoardEvent(kind, visit, { tenantId } = {}) {
   }
 }
 
-/** Admin KPI tile tick. */
-export function emitAdminKpi(tile, value) {
+/**
+ * Admin KPI tile tick (per-tenant cron). The payload shape stays
+ * `{ tile, value, at }` — the admin LiveBedOccupancyTile reads exactly that —
+ * while `tenantId` scopes delivery so a tenant's counts reach only that
+ * tenant's admin sockets (a tenant-null broadcast matches every socket).
+ */
+export function emitAdminKpi(tile, value, { tenantId } = {}) {
   try {
     broadcast('admin:kpi', {
       tile,
       value,
       at: new Date().toISOString(),
-    });
+    }, { tenantId });
   } catch (err) {
     logger.warn('emitAdminKpi failed:', err.message);
   }

@@ -195,11 +195,30 @@ verifyToken.lastError = null;
  * standard RBAC layer (see rbacMiddleware) treats non-'full' scopes as
  * insufficient for normal admin endpoints.
  *
+ * R1 (issuance-time revocation gate, migration 650): the setup token is a
+ * REST bearer on the /mfa/setup-* routes — it runs through jwtMiddleware's
+ * fail-closed revocation gate like any other bearer, so an epoch-less mint
+ * is treated as legacy epoch-0 and refused (401 TOKEN_REVOKED) for any
+ * identity whose durable epoch is >= 1. That would lock an admin who ever
+ * logged out (or was force-revoked) out of first-time MFA enrollment
+ * entirely. The signer is synchronous and cannot read the durable store, so
+ * the caller MUST resolve the identity's current epoch
+ * (tokenBlacklist.getCurrentTokenEpoch — fails closed) and pass it in; a
+ * missing/non-finite epoch throws rather than silently minting a token the
+ * gate will refuse.
+ *
  * @param {{ uid?: string, id?: number|string, role: string, username?: string }} admin
+ * @param {number} tokenEpoch - the identity's current durable token epoch.
  * @returns {string} signed JWT (expires in 10 minutes)
  */
-export function issueSetupToken(admin) {
+export function issueSetupToken(admin, tokenEpoch) {
   const sub = String(admin.uid ?? admin.id ?? '');
+  const epoch = Number(tokenEpoch);
+  if (!Number.isFinite(epoch)) {
+    throw new Error(
+      'issueSetupToken: a finite tokenEpoch is required (resolve it via getCurrentTokenEpoch)',
+    );
+  }
   return jwt.sign(
     {
       jti: crypto.randomUUID(),
@@ -207,6 +226,7 @@ export function issueSetupToken(admin) {
       uid: sub,
       role: String(admin.role || '').toUpperCase(),
       scope: 'mfa_setup',
+      token_epoch: epoch,
     },
     JWT_SECRET,
     { expiresIn: '10m' }

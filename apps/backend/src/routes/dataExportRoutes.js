@@ -17,7 +17,7 @@ async function findCurrentPatient(req) {
   const tenantId = deriveTenantIdFromRequest(req);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid, name, phone, email, role, gender, birthday, address, allergies,
-            emergency_contact, blood_group, registered_at, last_login, is_active, tenant_id
+            emergency_contact, blood_group, registered_at, is_active, tenant_id
        FROM users
       WHERE tenant_id = $2::uuid
         AND (uid::text = $1 OR phone = $1)
@@ -238,9 +238,11 @@ router.delete('/my-data', async (req, res) => {
         );
         results.push({ table, affected: result.length });
       } catch (err) {
-        // Table might not have deleted_at column — that's OK
-        logger.warn(`Soft-delete skipped for ${table}: ${err.message}`);
-        results.push({ table, skipped: true, reason: err.message });
+        // Table might not have deleted_at column — that's OK. Log the real
+        // failure server-side; the response must never carry err.message
+        // (repo rule: raw driver/Prisma errors leak schema + SQL detail).
+        logger.error(`Soft-delete skipped for ${table}: ${err.message}`);
+        results.push({ table, skipped: true, reason: 'Table not eligible for soft deletion' });
       }
     }
 

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
+import { sanitizePostLoginRedirect } from "@/lib/postLoginRedirect";
 
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 const HANDOFF_COOKIE = "vh_admin_sso_handoff";
@@ -44,12 +45,18 @@ export async function GET(request: Request) {
     const token = payload?.token;
     const refreshToken = payload?.refreshToken;
     if (!upstream.ok || !token || !refreshToken) {
-      const response = NextResponse.redirect(new URL("/login?sso=failed", request.url));
+      const response = NextResponse.redirect(
+        new URL("/login?sso=failed", request.url),
+      );
       clearHandoff(response, request);
       return response;
     }
 
-    const response = NextResponse.redirect(new URL(payload.returnTo || "/dashboard", request.url));
+    // returnTo originates from a client-controlled query parameter — apply
+    // the same strict open-redirect validation as the password login paths.
+    const response = NextResponse.redirect(
+      new URL(sanitizePostLoginRedirect(payload.returnTo), request.url),
+    );
     response.cookies.set("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -67,7 +74,9 @@ export async function GET(request: Request) {
     clearHandoff(response, request);
     return response;
   } catch {
-    const response = NextResponse.redirect(new URL("/login?sso=unavailable", request.url));
+    const response = NextResponse.redirect(
+      new URL("/login?sso=unavailable", request.url),
+    );
     clearHandoff(response, request);
     return response;
   }

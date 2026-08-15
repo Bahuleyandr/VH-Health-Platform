@@ -183,6 +183,49 @@ void main() {
       expect(idsFor('NEW_UNMAPPED_ROLE'), isEmpty);
     });
 
+    test('emergency and critical-care roles keep safety + HR self-service', () {
+      Set<String> idsFor(String rawRole) => RoleFeatures.getFeaturesForRawRole(
+        rawRole,
+      ).map((feature) => feature.id).toSet();
+
+      // Backend allows any staff role on the resuscitation surface and
+      // allowSelf HR self-service; the old phone_self_service gate wrongly
+      // dropped these roles (while keeping DRIVER/SECURITY).
+      for (final rawRole in const [
+        'ER_STAFF',
+        'EMERGENCY_RESPONDER',
+        'ICU_NURSE',
+        'SENIOR_DOCTOR',
+        'PHARMACIST',
+      ]) {
+        expect(
+          idsFor(rawRole),
+          containsAll(const [
+            'safety_center',
+            'profile',
+            'leave',
+            'payroll',
+            'attendance',
+          ]),
+          reason: rawRole,
+        );
+      }
+      // The previously-included roles keep access too.
+      for (final rawRole in const ['DRIVER', 'SECURITY']) {
+        expect(
+          idsFor(rawRole),
+          containsAll(const [
+            'safety_center',
+            'profile',
+            'leave',
+            'payroll',
+            'attendance',
+          ]),
+          reason: rawRole,
+        );
+      }
+    });
+
     test('doctor gets clinical features but NOT HR dashboard', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
       final ids = feats.map((f) => f.id).toSet();

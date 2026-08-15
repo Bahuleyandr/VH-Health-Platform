@@ -953,9 +953,48 @@ export class NdjsonSpool {
     }
   }
 
+  async readRaw() {
+    try {
+      return await readFile(this.file);
+    } catch (err) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  // A crash mid-append leaves a torn trailing line: bytes after the last
+  // newline that never got their terminator (appendDurable always writes the
+  // terminator with the line, so a complete file ends in a newline).
+  splitTornTail(raw) {
+    if (!raw || raw.length === 0 || raw[raw.length - 1] === 0x0a) {
+      return { intact: raw || Buffer.alloc(0), torn: null };
+    }
+    const boundary = raw.lastIndexOf(0x0a);
+    return {
+      intact: boundary >= 0 ? raw.subarray(0, boundary + 1) : Buffer.alloc(0),
+      torn: boundary >= 0 ? raw.subarray(boundary + 1) : raw,
+    };
+  }
+
+  // Mirror of SequencedPartition.loadJournal's torn-tail handling: quarantine
+  // the torn bytes as an evidence file (never silently drop them) and truncate
+  // the spool back to its last complete line. Every mutation runs this first,
+  // so an append can never concatenate onto a torn line and a rewrite can
+  // never discard the torn bytes. The device never got an ACK for the torn
+  // message, so its retransmit preserves at-least-once delivery.
+  // Callers must hold the mutex.
+  async quarantineTornTailUnlocked() {
+    const raw = await this.readRaw();
+    const { intact, torn } = this.splitTornTail(raw);
+    if (!torn) return;
+    await atomicWrite(join(this.dir, `${this.source}.torn-tail.${randomUUID()}.evidence`), torn);
+    await atomicWrite(this.file, intact);
+  }
+
   async append(entry) {
     return this.exclusive(async () => {
       await this.ensure();
+      await this.quarantineTornTailUnlocked();
       const row = {
         id: entry.id || randomUUID(),
         queued_at: entry.queued_at || new Date().toISOString(),
@@ -970,13 +1009,13 @@ export class NdjsonSpool {
   }
 
   async entries() {
-    try {
-      const raw = await readFile(this.file, 'utf8');
-      return raw.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-    } catch (err) {
-      if (err.code === 'ENOENT') return [];
-      throw err;
-    }
+    const raw = await this.readRaw();
+    if (!raw) return [];
+    // Read-only torn-tail tolerance: parse only complete lines so a torn tail
+    // cannot wedge every future read. The torn bytes stay in the file until
+    // the next mutation quarantines them with evidence.
+    const { intact } = this.splitTornTail(raw);
+    return intact.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
   }
 
   async replaceUnlocked(entries) {
@@ -987,10 +1026,14 @@ export class NdjsonSpool {
   }
 
   async replace(entries) {
-    return this.exclusive(() => this.replaceUnlocked(entries));
+    return this.exclusive(async () => {
+      await this.quarantineTornTailUnlocked();
+      await this.replaceUnlocked(entries);
+    });
   }
 
   async removeUnlocked(id) {
+    await this.quarantineTornTailUnlocked();
     await this.replaceUnlocked((await this.entries()).filter((entry) => entry.id !== id));
   }
 

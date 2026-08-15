@@ -12,6 +12,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth/core/services/deep_link_service.dart';
+import 'package:vhhealth/core/services/startup_gate_service.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 
 // Import all your screens
@@ -119,6 +120,34 @@ class AppRouter {
     return DeepLinkService.parseExternalRoute(uri.toString()) ?? '/';
   }
 
+  /// Cold-start gate guard: no non-splash route may render until the
+  /// device-integrity and minimum-version gates have passed once for this
+  /// process (see [StartupGateService]).
+  ///
+  /// The gates used to live ONLY in the splash tap handler, so a
+  /// `vhhealth://app/<route>` deep-link cold start — which normalizes straight
+  /// to its target on the first routing pass and never renders the splash —
+  /// bypassed both of them. Holding the check here makes the splash path and
+  /// every deep-link path share one fail-closed contract: a pass is cached
+  /// process-wide (so an ordinary deep link costs nothing extra once the app
+  /// has started normally), while a block bounces to the inert splash route,
+  /// whose auto-advance re-runs the same evaluation and surfaces the
+  /// integrity blocker / update-required screen.
+  @visibleForTesting
+  static Future<String?> startupGateRedirect(String location) async {
+    if (location == '/') return null;
+    StartupGateResult gate;
+    try {
+      gate = await StartupGateService.ensureEvaluated();
+    } catch (e) {
+      // Fail closed: an unevaluable gate holds the user on the splash, which
+      // retries the evaluation, rather than letting the target route render.
+      if (kDebugMode) debugPrint('Startup gate evaluation failed: $e');
+      return '/';
+    }
+    return gate.allowed ? null : '/';
+  }
+
   /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
   /// Used for the splash → login / login → profile-setup transitions so
   /// they don't appear as a hard cut.
@@ -185,6 +214,11 @@ class AppRouter {
       if (location == '/') {
         return null;
       }
+
+      // Cold-start security gates hold on EVERY path into a non-splash route,
+      // including deep-link cold starts that never render the splash.
+      final gateRedirect = await startupGateRedirect(location);
+      if (gateRedirect != null) return gateRedirect;
 
       // Route authority comes only from a backend JWT. Firebase identity and
       // cached profile fields are inputs to login/hydration, never substitutes

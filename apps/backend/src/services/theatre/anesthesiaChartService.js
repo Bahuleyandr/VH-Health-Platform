@@ -6,6 +6,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { assertWhoSignInComplete } from './surgicalSafetyGateService.js';
 
@@ -121,12 +122,26 @@ export async function recordEntry({
     });
   }
   const entryRecordedAt = recorded_at || new Date().toISOString();
+  const tid = tenantOr(tenantId);
+  // Phase 0 pre-flight (outside the tx, per the transaction-boundary rule):
+  // resolve the theatre case so the canonical timeline emit below carries the
+  // patient identity. A missing case is a clean 404, never a 500 from a
+  // downstream FK failure.
+  const scheduleRows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, procedure_name
+       FROM ot_schedules
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      LIMIT 1`,
+    Number(ot_schedule_id),
+    tid,
+  );
+  if (scheduleRows.length === 0) throw AppError.notFound('OT schedule not found');
+  const schedule = scheduleRows[0];
   // Atomic (audit §3 fix #5): the chart-entry INSERT and the case-record
   // rollup recompute run in ONE tenant-scoped transaction. Either both land or
   // neither does, so the anaesthesia_records totals can never drift from the
   // chart entries (e.g. blood-loss/fluid totals undercounting because the
   // accumulator update failed after the entry committed).
-  const tid = tenantOr(tenantId);
   return setTenantTx(tid, async (tx) => {
     await assertWhoSignInComplete({
       db: tx,
@@ -158,6 +173,43 @@ export async function recordEntry({
       tid,
     );
     await syncCaseAnesthesiaRecord(tx, { tenantId: tid, otScheduleId: ot_schedule_id, entryId: rows[0].id });
+    // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+    // the intra-op chart entry is a patient-facing clinical write, so the
+    // detail row, the rollup, one clinical_timeline_events row, and one
+    // clinical_audit_events row commit in the SAME tenant transaction —
+    // recordCanonicalClinicalEvent throws (rolling everything back) when
+    // either canonical row cannot be recorded. Chart entries are an
+    // append-only observation series (no UPDATE/DELETE product path;
+    // corrections are new entries), so the fixed per-entry idempotency keys
+    // are insert-once — the partograph-entry precedent. Both keys are passed
+    // explicitly because the audit-side derived fallback keys on resourceId
+    // (the ot_schedule), which would collapse every entry of a case into one
+    // audit row.
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: schedule.patient_uid,
+      eventType: 'anesthesia.chart_entry.recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'anesthesia_chart_entries',
+      sourceId: rows[0].id,
+      // Theatre convention (surgicalDocumentationService): source keys the
+      // detail row, resource keys the case so per-case timeline lookups work.
+      resourceType: 'ot_schedule',
+      resourceId: String(ot_schedule_id),
+      actorUid: recorded_by ? String(recorded_by) : null,
+      summary: `Intra-op anesthesia chart entry recorded: ${schedule.procedure_name || 'theatre case'}`,
+      payload: {
+        ot_schedule_id: Number(ot_schedule_id),
+        recorded_at: entryRecordedAt,
+        drugs_recorded: drugsArr.length,
+        iv_fluids_ml: iv_fluids_ml ?? null,
+        blood_loss_ml: blood_loss_ml ?? null,
+        urine_output_ml: urine_output_ml ?? null,
+        has_event_note: !!(event_note && String(event_note).trim() !== ''),
+      },
+      timelineIdempotencyKey: `anesthesia_chart_entries:${rows[0].id}:recorded`,
+      auditIdempotencyKey: `anesthesia_chart_entries:${rows[0].id}:audit:recorded`,
+    }, { db: tx });
     return rows[0];
   });
 }

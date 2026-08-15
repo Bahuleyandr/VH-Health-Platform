@@ -1,10 +1,12 @@
 // src/middleware/rateLimitMiddleware.js
 import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
+import os from 'os';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 import { initRedis, isRedisConfigured } from '../lib/redis.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
 
 function hashRateLimitIdentity(value, { lowercase = false } = {}) {
   const normalized = lowercase ? String(value).toLowerCase() : String(value);
@@ -17,11 +19,12 @@ function hashRateLimitIdentity(value, { lowercase = false } = {}) {
  *
  * Mobile and admin clients share app-level API keys; once JWT auth has run,
  * the user identity is the right bucket to avoid cross-user throttling.
- * For pre-auth login-shaped requests (which carry employeeId/email/username
- * in the body), key by IP+account so one staff member's failed attempts do
- * not throttle a different staff member from the same API key — the bug
- * surfaced during the ER reassessment role-switch in finding
- * 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit.
+ * For pre-auth login-shaped requests (which carry employeeId/email/username,
+ * a patient phone, or a Firebase idToken in the body), key by IP+account so
+ * one user's failed attempts do not throttle a different user from the same
+ * API key — the bug surfaced during the ER reassessment role-switch in
+ * finding 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit,
+ * and again fleet-wide for patients in finding 2026-08-14 P1.
  *
  * Uses ipKeyGenerator(req.ip) to satisfy express-rate-limit's IPv6 validation.
  */
@@ -44,6 +47,30 @@ const defaultKeyGenerator = (req) => {
     req.body?.email;
   if (account) {
     return `acct:${ipKeyGenerator(req.ip)}:${hashRateLimitIdentity(account, { lowercase: true })}`;
+  }
+
+  // Patient pre-auth flows (/api/v1/auth request-otp / verify-otp / legacy
+  // DB-OTP login, /api/v1/otp) identify the account by phone, not
+  // employeeId/email. Without this branch every logged-out patient fell
+  // through to the shared app API key below — one global bucket for the
+  // whole fleet (same bug class as the staff-login fix above, finding
+  // 2026-08-14 P1). Normalize first so "98765 43210" and "+919876543210"
+  // share one bucket; hash so the store never holds the raw phone.
+  const rawPhone = req.body?.phone || req.body?.phoneNumber;
+  if (rawPhone) {
+    const phone = normalizePhone(String(rawPhone)) || String(rawPhone);
+    return `acct:${ipKeyGenerator(req.ip)}:${hashRateLimitIdentity(phone)}`;
+  }
+
+  // Firebase exchange (/auth/firebase/firebase-login) carries only
+  // { idToken } — no phone, no account field. The idToken maps 1:1 to a
+  // single Firebase identity, so IP + a hash of the token gives each
+  // logging-in patient their own bucket (mirrors the challengeToken
+  // pattern in authKeyGenerator). Hash so the limiter store never holds
+  // the raw credential.
+  const idToken = req.body?.idToken;
+  if (typeof idToken === 'string' && idToken.length > 0) {
+    return `acct:${ipKeyGenerator(req.ip)}:idt:${hashRateLimitIdentity(idToken)}`;
   }
 
   const authorization =
@@ -75,6 +102,44 @@ const defaultKeyGenerator = (req) => {
 const tenantPrefix = (req) => `t:${req?.tenantId || 'default'}:`;
 export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGenerator(req)}`;
 const ipOnlyKeyGenerator = (req) => ipKeyGenerator(req.ip);
+
+/**
+ * Per-instance bucket scoping (opt-in via `instanceScoped`).
+ *
+ * With the shared Redis store every replica increments the SAME key, so a
+ * bucket keyed only by the caller's credential silently becomes a function of
+ * replica count: the per-pod share is `max / replicas`, and it shrinks exactly
+ * when the HPA scales up — i.e. during an incident. That is fine for user API
+ * traffic (a fleet-wide quota is the point) and wrong for surfaces whose load
+ * is inherently per-instance. Prometheus scrapes pod endpoints directly via
+ * EndpointSlice discovery, so each backend pod always observes its own
+ * constant scrape rate no matter how many replicas exist; prefixing the pod
+ * identity makes the probe budget invariant to replica count, which is the
+ * only way a static number can stay correct under an autoscaler.
+ *
+ * POD_NAME is injected by the downward API
+ * (infra/kubernetes/apps/backend/deployment.yaml:97-100). HOSTNAME is the
+ * container-runtime fallback and os.hostname() the local/dev one.
+ * RATE_LIMIT_INSTANCE_ID is an explicit override (tests, non-k8s deploys).
+ * Resolved per call but memoized on the raw env value, so a redeploy or a test
+ * that repoints the identity is picked up without an import-time snapshot.
+ */
+let instanceIdSource = null;
+let instanceIdResolved = null;
+const resolveInstanceId = () => {
+  const raw = String(
+    process.env.RATE_LIMIT_INSTANCE_ID ||
+      process.env.POD_NAME ||
+      process.env.HOSTNAME ||
+      ''
+  );
+  if (raw !== instanceIdSource) {
+    instanceIdSource = raw;
+    instanceIdResolved = raw || os.hostname();
+  }
+  return instanceIdResolved;
+};
+const instancePrefix = () => `i:${resolveInstanceId()}:`;
 
 // W3: replica-safe counters via a shared Redis store. Returns undefined (the
 // express-rate-limit default per-process MemoryStore) when Redis is unset,
@@ -148,6 +213,7 @@ const defaultHandler = (req, res, _next, options) => {
 export const getRateLimiter = (profileName = 'default', {
   keyMode = 'default',
   tenantScoped = true,
+  instanceScoped = false,
   storePrefix = null,
   enforceOnMatchedPath = false,
 } = {}) => {
@@ -159,9 +225,12 @@ export const getRateLimiter = (profileName = 'default', {
       : typeof profile.keyGenerator === 'function'
       ? profile.keyGenerator
       : defaultKeyGenerator;
-  const keyGen = tenantScoped
-    ? (req) => `${tenantPrefix(req)}${baseKeyGen(req)}`
+  const scopedKeyGen = instanceScoped
+    ? (req) => `${instancePrefix()}${baseKeyGen(req)}`
     : baseKeyGen;
+  const keyGen = tenantScoped
+    ? (req) => `${tenantPrefix(req)}${scopedKeyGen(req)}`
+    : scopedKeyGen;
 
   const handlerFn = typeof profile.handler === 'function'
     ? profile.handler
@@ -290,6 +359,8 @@ export const __testing__ = {
   authRateLimiterConfig,
   hashRateLimitIdentity,
   otpKeyGenerator,
+  resolveInstanceId,
+  instancePrefix,
 };
 
 /** ✅ Data export rate limiter — strict: 5 requests per hour */

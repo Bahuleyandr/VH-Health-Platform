@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 import '../widgets/partograph_chart.dart';
@@ -154,9 +155,9 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final added = await Navigator.of(
-            context,
-          ).pushNamed('/maternity/partograph/${widget.laborAdmissionId}');
+          final added = await context.push<bool>(
+            '/maternity/partograph/${widget.laborAdmissionId}',
+          );
           if (added == true) {
             unawaited(_fetch());
           }

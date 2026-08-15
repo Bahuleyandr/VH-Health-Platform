@@ -101,6 +101,15 @@ export function runInfraStage({
       'scripts/ci/forgejo-deploy-preflight.test.mjs',
       'scripts/check-redis-ha-contract.test.mjs',
       'scripts/ci/infra.test.mjs',
+      // CI-policy guards: workflow-shape invariants for the canonical gate,
+      // fail-closed Semgrep availability, complete branch-delta selection,
+      // and Forgejo action/image supply-chain pins. Enumerated here because
+      // nothing else runs them — a guard that never executes guards nothing.
+      'scripts/ci/canonical-workflow.test.mjs',
+      'scripts/ci/merge-gate-policy.test.mjs',
+      'scripts/ci/security.test.mjs',
+      'scripts/ci/stage-selection.test.mjs',
+      'scripts/check-forgejo-supply-chain-pins.test.mjs',
     ], { env: installedTools?.env });
     runCommand(
       process.execPath,

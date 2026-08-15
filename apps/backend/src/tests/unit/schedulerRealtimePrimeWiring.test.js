@@ -17,6 +17,9 @@ describe('operational realtime startup prime', () => {
     expect(initAt).toBeGreaterThan(0);
     expect(primeAt).toBeGreaterThan(initAt);
     expect(scheduler).toContain(
+      "withDbAdvisoryLock('admin-kpi-tick', () => runWithSuperAdmin(tickAdminKpi))",
+    );
+    expect(scheduler).toContain(
       "withDbAdvisoryLock('daily-ops-tick', () => runWithSuperAdmin(tickDailyOps))",
     );
     expect(scheduler).toContain(

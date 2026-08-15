@@ -94,6 +94,14 @@ class WebSocketProvider extends ChangeNotifier {
   bool get isAppointmentSubscriptionAcknowledged => _appointmentAcknowledged;
   bool get isQueueSubscriptionAcknowledged => _queueAcknowledged;
 
+  /// Upper bound on locally buffered notification events. The buffer only
+  /// exists to hand events to [NotificationProvider.mergeFromWebSocket], which
+  /// drains it on every merge — this cap is the backstop that keeps an
+  /// unwired (or slow-to-attach) consumer from letting it grow for the life
+  /// of the session. Oldest events are dropped first; the badge consumer only
+  /// counts entries, so dropping overflow loses nothing it needs.
+  static const int maxBufferedNotifications = 100;
+
   final List<Map<String, dynamic>> _wsNotifications = [];
   List<Map<String, dynamic>> get wsNotifications =>
       List.unmodifiable(_wsNotifications);
@@ -158,6 +166,12 @@ class WebSocketProvider extends ChangeNotifier {
 
   void _onNotification(RealtimeEvent event) {
     _wsNotifications.add(event.data);
+    if (_wsNotifications.length > maxBufferedNotifications) {
+      _wsNotifications.removeRange(
+        0,
+        _wsNotifications.length - maxBufferedNotifications,
+      );
+    }
     notifyListeners();
   }
 

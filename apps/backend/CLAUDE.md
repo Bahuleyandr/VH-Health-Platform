@@ -102,6 +102,25 @@ prisma/schema.prisma  # canonical schema source, 863 models (regenerated after e
 | otp | 10min | 3 per phone | /auth/firebase-login, /auth/request-otp |
 | dashboard | 1min | 10 per IP | /dashboard |
 | sos | 1hr | 3 per user | POST /sos/ |
+| probe | 1min | 120 per **pod** per caller | `GET /`, `HEAD /`, `/metrics` |
+
+★ **`probe` is the one profile whose bucket is keyed per instance, and that is
+load-bearing.** It is mounted `instanceScoped: true` (app.js), which prefixes
+the pod identity (`POD_NAME`, downward API) onto the key. Prometheus sends one
+static Bearer for every scrape of every replica and the mount sits ahead of
+auth, so without that prefix every scrape in the fleet derives the same key and
+the shared Redis store collapses the whole deployment into one bucket — making
+the effective quota `max / replicas`, i.e. tightest exactly when the HPA scales
+up during an incident. Prometheus scrapes pod endpoints directly, so a pod
+always sees its own constant scrape rate; keying per pod is what makes a static
+number correct under an autoscaler. Do not "simplify" this back to a
+fleet-wide key, do not point the probe surfaces at `default` (its
+`RATE_LIMIT_WINDOW_MS`/`RATE_LIMIT_MAX` knobs are 900000/100 in prod — 100
+requests per 15 minutes for all probe traffic combined), and do not exempt
+`/metrics` (the root probe runs a real `SELECT 1` per hit and the exemption
+would reopen an unmetered DB amplifier). The sizing derivation is in
+`src/config/rateLimitProfiles.js` and is pinned against the live infra
+manifests by `src/tests/unit/probeRateLimitProfile.test.js`.
 
 ### IDOR Protection
 All patient-facing mutation endpoints verify resource ownership:

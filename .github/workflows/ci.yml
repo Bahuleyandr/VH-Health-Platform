@@ -50,6 +50,7 @@ jobs:
       admin: ${{ steps.plan.outputs.admin }}
       flutter: ${{ steps.plan.outputs.flutter }}
       contracts: ${{ steps.plan.outputs.contracts }}
+      gateway: ${{ steps.plan.outputs.gateway }}
       infra: ${{ steps.plan.outputs.infra }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -137,6 +138,15 @@ jobs:
       notification_label: Client contract affected gate
     secrets: inherit
 
+  quick_gateway:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.gateway == 'true' }}
+    uses: ./.github/workflows/_reusable-device-gateway-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Device gateway affected gate
+    secrets: inherit
+
   quick_infra:
     needs: plan
     if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.infra == 'true' }}
@@ -191,6 +201,15 @@ jobs:
       notification_label: Canonical client contract
     secrets: inherit
 
+  full_gateway:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-device-gateway-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical Device Gateway
+    secrets: inherit
+
   full_infra:
     needs: plan
     if: ${{ needs.plan.outputs.tier == 'full' }}
@@ -211,12 +230,14 @@ jobs:
       - quick_admin
       - quick_flutter
       - quick_contracts
+      - quick_gateway
       - quick_infra
       - lint-and-test
       - fhir-conformance
       - full_admin
       - full_flutter
       - full_contracts
+      - full_gateway
       - full_infra
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -236,6 +257,7 @@ jobs:
           SELECT_ADMIN: ${{ needs.plan.outputs.admin }}
           SELECT_FLUTTER: ${{ needs.plan.outputs.flutter }}
           SELECT_CONTRACTS: ${{ needs.plan.outputs.contracts }}
+          SELECT_GATEWAY: ${{ needs.plan.outputs.gateway }}
           SELECT_INFRA: ${{ needs.plan.outputs.infra }}
         run: node scripts/ci/assert-canonical-results.mjs
 

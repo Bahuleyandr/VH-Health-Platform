@@ -298,7 +298,25 @@ jobs:
         # drift from the shard list (adversarial-review finding #1).
         env:
           JEST_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-        run: npm run test:ci
+        # `tee` + pipefail: the job-log API serves only the last ~5000 lines,
+        # which the Postgres service-container dump fills entirely, so a
+        # failing shard's jest output is unrecoverable after the fact (three
+        # irreproducible shard-2/3 failures on 2026-08-14 died exactly this
+        # blind). Capture the runner's stdout to a file and publish it as an
+        # artifact so the FAIL lines survive; pipefail keeps jest's exit code
+        # as the step verdict.
+        run: |
+          set -o pipefail
+          npm run test:ci 2>&1 | tee /tmp/jest-shard-output.log
+
+      - name: Upload jest output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jest-shard-${{ matrix.shard }}-of-${{ strategy.job-total }}-output
+          path: /tmp/jest-shard-output.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Notify Discord on failure
         if: failure() && inputs.notify_on_failure
