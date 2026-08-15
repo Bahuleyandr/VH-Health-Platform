@@ -691,8 +691,22 @@ if (!isProduction) {
 // limiter that is only ever mounted on the exact paths it must guard. A
 // dedicated store prefix keeps probe traffic out of the shared default bucket
 // namespace.
-const probeLimiter = getRateLimiter('default', {
+//
+// FOLLOW-UP (finding 2026-08-15): the limiter now fires, but it was built from
+// the wrong profile and the wrong key. `default` is the generic API bucket,
+// derived from the blanket RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX knobs that
+// prod sets to 900000/100 — 100 requests per 15 minutes for ALL probe traffic
+// combined — and every Prometheus scrape in the fleet collapsed into one
+// cluster-wide Redis bucket (single static Bearer, no x-api-key, mount ahead
+// of auth), so 3-10 replicas x 2 Prometheus HA replicas x 30 scrapes/window =
+// 180-600 requests into a bucket of 100. Monitoring went blind hardest during
+// scale-up, i.e. during an incident. Fixed by a dedicated per-surface `probe`
+// profile (see rateLimitProfiles.js for the full scrape arithmetic) mounted
+// `instanceScoped` so the budget is per pod and therefore invariant to replica
+// count. /metrics is deliberately NOT exempted — it shares the profile.
+const probeLimiter = getRateLimiter('probe', {
   enforceOnMatchedPath: true,
+  instanceScoped: true,
   storePrefix: 'rl:probe:',
 });
 app.use('/metrics', probeLimiter, requireProductionMonitoringAccess, metricsRoutes);

@@ -1,6 +1,7 @@
 // src/middleware/rateLimitMiddleware.js
 import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
+import os from 'os';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 import { initRedis, isRedisConfigured } from '../lib/redis.js';
@@ -102,6 +103,44 @@ const tenantPrefix = (req) => `t:${req?.tenantId || 'default'}:`;
 export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGenerator(req)}`;
 const ipOnlyKeyGenerator = (req) => ipKeyGenerator(req.ip);
 
+/**
+ * Per-instance bucket scoping (opt-in via `instanceScoped`).
+ *
+ * With the shared Redis store every replica increments the SAME key, so a
+ * bucket keyed only by the caller's credential silently becomes a function of
+ * replica count: the per-pod share is `max / replicas`, and it shrinks exactly
+ * when the HPA scales up — i.e. during an incident. That is fine for user API
+ * traffic (a fleet-wide quota is the point) and wrong for surfaces whose load
+ * is inherently per-instance. Prometheus scrapes pod endpoints directly via
+ * EndpointSlice discovery, so each backend pod always observes its own
+ * constant scrape rate no matter how many replicas exist; prefixing the pod
+ * identity makes the probe budget invariant to replica count, which is the
+ * only way a static number can stay correct under an autoscaler.
+ *
+ * POD_NAME is injected by the downward API
+ * (infra/kubernetes/apps/backend/deployment.yaml:97-100). HOSTNAME is the
+ * container-runtime fallback and os.hostname() the local/dev one.
+ * RATE_LIMIT_INSTANCE_ID is an explicit override (tests, non-k8s deploys).
+ * Resolved per call but memoized on the raw env value, so a redeploy or a test
+ * that repoints the identity is picked up without an import-time snapshot.
+ */
+let instanceIdSource = null;
+let instanceIdResolved = null;
+const resolveInstanceId = () => {
+  const raw = String(
+    process.env.RATE_LIMIT_INSTANCE_ID ||
+      process.env.POD_NAME ||
+      process.env.HOSTNAME ||
+      ''
+  );
+  if (raw !== instanceIdSource) {
+    instanceIdSource = raw;
+    instanceIdResolved = raw || os.hostname();
+  }
+  return instanceIdResolved;
+};
+const instancePrefix = () => `i:${resolveInstanceId()}:`;
+
 // W3: replica-safe counters via a shared Redis store. Returns undefined (the
 // express-rate-limit default per-process MemoryStore) when Redis is unset,
 // preserving single-node correctness + the local-test path. sendCommand resolves
@@ -174,6 +213,7 @@ const defaultHandler = (req, res, _next, options) => {
 export const getRateLimiter = (profileName = 'default', {
   keyMode = 'default',
   tenantScoped = true,
+  instanceScoped = false,
   storePrefix = null,
   enforceOnMatchedPath = false,
 } = {}) => {
@@ -185,9 +225,12 @@ export const getRateLimiter = (profileName = 'default', {
       : typeof profile.keyGenerator === 'function'
       ? profile.keyGenerator
       : defaultKeyGenerator;
-  const keyGen = tenantScoped
-    ? (req) => `${tenantPrefix(req)}${baseKeyGen(req)}`
+  const scopedKeyGen = instanceScoped
+    ? (req) => `${instancePrefix()}${baseKeyGen(req)}`
     : baseKeyGen;
+  const keyGen = tenantScoped
+    ? (req) => `${tenantPrefix(req)}${scopedKeyGen(req)}`
+    : scopedKeyGen;
 
   const handlerFn = typeof profile.handler === 'function'
     ? profile.handler
@@ -316,6 +359,8 @@ export const __testing__ = {
   authRateLimiterConfig,
   hashRateLimitIdentity,
   otpKeyGenerator,
+  resolveInstanceId,
+  instancePrefix,
 };
 
 /** ✅ Data export rate limiter — strict: 5 requests per hour */
