@@ -7,7 +7,7 @@ import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { issueApiKey, upsertApiClient } from '../services/auth/apiClientService.js';
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfTestDb = databaseUrl ? describe : describe.skip;
 const RUN_ID = randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();
 const TENANT_A = randomUUID();
