@@ -27,7 +27,6 @@ lib/
     theme/app_theme.dart             # Material 3 blue/teal theme
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
-      sos_button.dart                # Emergency SOS FAB
   features/                          # 41 feature modules (226 Dart files total)
     auth/                            # Employee ID + password/PIN login plus tenant-enabled OIDC SSO
     dashboard/                       # Home: check-in status, stats, feature grid
@@ -121,7 +120,7 @@ flutter create . --org com.vhhealth.staff
 ```
 
 ## Shared Core Package
-Depends on `vhhealth_core` (at `packages/vhhealth_core/`) via the root Dart pub workspace — `vhhealth_core: any` in this app's `pubspec.yaml` resolves to the local package. Shared code: ApiConfig, AuthService, HttpClient, Theme, SOS widget, offline queue, connectivity sync, version gate, crash reporter adapter.
+Depends on `vhhealth_core` (at `packages/vhhealth_core/`) via the root Dart pub workspace — `vhhealth_core: any` in this app's `pubspec.yaml` resolves to the local package. Shared code the staff app consumes: ApiConfig, AuthService, HttpClient, Theme, offline queue, connectivity sync, crash reporter adapter. (Core's `SosButton` is a patient-app surface — the staff app has no SOS FAB.)
 
 Front-office registration follows backend duplicate-review semantics: a 409
 `PATIENT_DUPLICATE_REVIEW_REQUIRED` opens the review dialog, and create-anyway
