@@ -191,6 +191,87 @@ describe('recovery-state gauge transitions (GW-L2)', () => {
   });
 });
 
+describe('legacy spool backlog metrics', () => {
+  it('exports legacy depth/age on the shared gauges with scope="legacy" and zeroes them after a drain', async () => {
+    const backend = {
+      resolveDevice: jest.fn(async () => {
+        throw Object.assign(new Error('backend down'), { code: 'ECONNREFUSED' });
+      }),
+      ingest: jest.fn(async () => ({ ok: true })),
+    };
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      const result = await runtime.acceptFrame({
+        listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-MET-1'),
+      });
+      expect(result.ackCode).toBe('AA');
+      const ref = runtime.legacySpool('MON-ICU-01').source;
+
+      // The spooled backlog is visible on the SAME metric the
+      // DeviceGatewaySpoolDepthHigh alert matches (bare metric name),
+      // distinguished from I09 partitions by scope="legacy".
+      let metrics = serializeMetrics();
+      expect(metrics).toContain(`gateway_spool_depth{scope="legacy",partition_ref="${ref}"} 1`);
+      expect(metrics).toMatch(
+        new RegExp(`gateway_spool_oldest_age_seconds\\{scope="legacy",partition_ref="${ref}"\\} \\d`),
+      );
+
+      await runtime.drainLegacySource('MON-ICU-01');
+      expect(backend.ingest).toHaveBeenCalledTimes(1);
+      metrics = serializeMetrics();
+      expect(metrics).toContain(`gateway_spool_depth{scope="legacy",partition_ref="${ref}"} 0`);
+      expect(metrics).toContain(`gateway_spool_oldest_age_seconds{scope="legacy",partition_ref="${ref}"} 0`);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps refreshing depth when a drain pass breaks off mid-backlog', async () => {
+    const backend = {
+      resolveDevice: jest.fn(async () => {
+        throw Object.assign(new Error('backend down'), { code: 'ECONNREFUSED' });
+      }),
+      ingest: jest.fn(async () => {
+        throw Object.assign(new Error('still down'), { code: 'ECONNREFUSED' });
+      }),
+    };
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-MET-2') });
+      await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-MET-3') });
+      const ref = runtime.legacySpool('MON-ICU-01').source;
+
+      // Delivery fails (outage continues), the pass breaks off — but the
+      // finally-path still exports the remaining backlog for the alerts.
+      await runtime.drainLegacySource('MON-ICU-01');
+      expect(serializeMetrics())
+        .toContain(`gateway_spool_depth{scope="legacy",partition_ref="${ref}"} 2`);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves I09 partition series without a scope label', async () => {
+    const { dir, runtime } = await tempRuntime({});
+    try {
+      await runtime.refreshPartitionMetrics({
+        ref: 'i09scopetestref',
+        stats: () => ({
+          depth: 3,
+          oldestAgeSeconds: 0,
+          headPosition: '0',
+          backendHighWaterPosition: '0',
+          recoveryState: 'ready',
+          reconciliationState: null,
+        }),
+      });
+      expect(serializeMetrics()).toContain('gateway_spool_depth{partition_ref="i09scopetestref"} 3');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('metrics stay PHI-free alongside logging', () => {
   it('does not leak identifiers into serialized metrics', () => {
     expect(serializeMetrics()).not.toContain(PATIENT_UID);

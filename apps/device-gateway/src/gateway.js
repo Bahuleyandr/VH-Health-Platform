@@ -518,6 +518,7 @@ export class GatewayRuntime {
         control_id: meta.controlId,
       });
       this.markControlId(deviceKey, meta.controlId);
+      await this.refreshLegacySpoolMetrics(this.legacySpool(source));
       return { duplicate: false, entry };
     });
   }
@@ -556,6 +557,17 @@ export class GatewayRuntime {
   }
 
   async drainLegacySpool(spool) {
+    try {
+      await this.drainLegacySpoolInner(spool);
+    } finally {
+      // Refresh depth/age even when the drain broke off (backend outage,
+      // unreadable spool): the remaining backlog is exactly what the alerts
+      // need to see.
+      await this.refreshLegacySpoolMetrics(spool);
+    }
+  }
+
+  async drainLegacySpoolInner(spool) {
     for (const entry of await spool.entries()) {
       try {
         await this.backendClient.ingest({
@@ -772,6 +784,22 @@ export class GatewayRuntime {
     }
     this.lastRecoveryState.set(partition.ref, stats.recoveryState);
     gatewayRecoveryState.set({ partition_ref: partition.ref, state: stats.recoveryState }, 1);
+  }
+
+  // Export legacy spool backlog on the same depth/age gauges the I09
+  // partitions use, distinguished by scope="legacy", so the
+  // DeviceGatewaySpoolDepthHigh / ...OldestAgeHigh alerts can see legacy
+  // depth (NdjsonSpool.stats() previously had no production caller). Metrics
+  // are best-effort: an unreadable spool is already surfaced by the drain
+  // path (spool_unreadable), so a stats failure must never fail the caller.
+  async refreshLegacySpoolMetrics(spool) {
+    try {
+      const stats = await spool.stats();
+      gatewaySpoolDepth.set({ scope: 'legacy', partition_ref: spool.source }, stats.depth);
+      gatewaySpoolOldestAge.set({ scope: 'legacy', partition_ref: spool.source }, stats.oldestAgeSeconds);
+    } catch {
+      // Never let observability break durability semantics.
+    }
   }
 
   startSupervisedDrains(intervalMs = 5000) {
