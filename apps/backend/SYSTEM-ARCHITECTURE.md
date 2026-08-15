@@ -91,8 +91,8 @@
 ADMIN_APP_ORIGINS, ADMIN_PASSWORD_COLUMN, ADMIN_TABLE
 ALLOWED_ORIGINS, API_BASE_URL, API_KEY
 CF_ACCOUNT_ID, CF_R2_BUCKET, CF_R2_URL, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY
-CLAMAV_API_KEY, CLAMAV_API_URL
 DATABASE_URL, DEBUG_CORS
+FILE_SCAN_POLICY
 FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, FIREBASE_PROJECT_ID
 GENERIC_RATE_LIMIT_MAX_REQUESTS, GENERIC_RATE_LIMIT_WINDOW_MINUTES
 JWT_EXPIRES_IN, JWT_SECRET
@@ -1474,10 +1474,19 @@ UI components including `DataTable`, `MetricCard`, `ChartCard`, `CommandPalette`
 | Audit logs (DB) | 90 days |
 
 ### Virus Scanning
-- **ClamAV integration** via `clamavScanHelper.js`
-- External ClamAV API (`CLAMAV_API_URL` + `CLAMAV_API_KEY`)
-- Quarantined files viewable at `/upload/admin/quarantined`
-- Rescan capability at `/upload/admin/rescan/:fileId`
+- Declared by **`FILE_SCAN_POLICY`** (`src/config/fileScanPolicy.js`):
+  `required` (default, fail-closed at ingest) or `disabled_accepted_risk`
+  (an on-the-record declaration that no scanner is deployed; files are
+  stored/served as `not_scanned`). There is no env knob for the scanner
+  endpoint — `src/utils/virusScanner.js` talks to a node-local clamd over
+  loopback (`127.0.0.1:3310`); whether a deployment HAS one is what the
+  policy declares.
+- Every caller-byte ingest path screens through
+  `services/security/fileScanService.js#screenUploadBuffer` before storage;
+  serving gates re-check `scan_status` via the shared servable-set allowlist.
+- Admin quarantine review/rescan lives on the admin dashboard endpoints
+  (`GET /api/v1/admin/upload/quarantine`, `POST .../upload/rescan/:fileId`)
+  backed by the real stores (`file_metadata`, `staff_message_attachments`).
 
 ### File Types Handled
 - Appointment documents

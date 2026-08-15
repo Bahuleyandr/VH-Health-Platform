@@ -1,62 +1,56 @@
 // src/routes/admin/services/uploadService.js
-import logger from '../../../logging/logger.js';
+//
+// Admin file-management surface over the REAL scan-status stores.
+//
+// This module used to probe for tables named uploads/file_uploads/files/
+// documents — none of which have ever existed in this schema — so the admin
+// uploads dashboard reported 0 quarantined files forever and "rescan" would
+// have stamped the never-servable legacy 'pending' status (871-F3). It now
+// targets the two stores that actually carry a scan_status:
+//
+//   * file_metadata              — generic uploads (uploadController)
+//   * staff_message_attachments  — staff messaging attachments
+//
+// and makes every status it writes come from the unified vocabulary in
+// src/config/fileScanPolicy.js. Nothing here can mint a permanently-blocked
+// row: a rescan outcome is either a real verdict ('clean'/'quarantined'), the
+// declared no-scanner status ('not_scanned'), or NO write at all.
+
 import {
-  tableExists,
-  columnExists,
-  safeQuery,
-  safeScalar,
-} from './common.js';
+  FILE_SCAN_POLICY,
+  FILE_SCAN_STATUS,
+  normalizeScanStatus,
+  resolveFileScanPolicy,
+} from '../../../config/fileScanPolicy.js';
+import logger from '../../../logging/logger.js';
+import { SCAN_OUTCOME, scanBufferVerdict } from '../../../utils/virusScanner.js';
+import { deleteObject, getFileFromR2 } from '../../../utils/r2Storage.js';
+import { safeQuery, safeScalar } from './common.js';
 
-/* -----------------------------------------------------------------------------
-   Helpers to adapt to different schemas
------------------------------------------------------------------------------ */
+// Rows an admin needs to review: statuses that are never servable under ANY
+// policy. ('not_scanned' is deliberately absent — it is the declared, visible
+// posture of this deployment, not a stuck state.) Matches the normalization
+// idiom of migrations 674/676: legacy rows may carry 'PENDING', blank, or NULL.
+const REVIEW_PREDICATE =
+  "LOWER(TRIM(COALESCE(scan_status, ''))) IN ('quarantined', 'failed', 'pending', '')";
 
-async function resolveUploadsTable() {
-  const candidates = ['uploads', 'file_uploads', 'files', 'documents'];
-  for (const t of candidates) {
-    if (await tableExists(t)) return t;
-  }
-  return null;
-}
+const QUARANTINED_PREDICATE =
+  "LOWER(TRIM(COALESCE(scan_status, ''))) = 'quarantined'";
 
-async function pickDateColumn(table) {
-  const preferred = ['created_at', 'uploaded_at', 'createdon', 'inserted_at'];
-  for (const c of preferred) {
-    if (await columnExists(table, c)) return c;
-  }
-  return null;
-}
+// Composite ids keep the two stores unambiguous through the REST surface:
+// 'generic:<id>' → file_metadata, 'attachment:<id>' → staff_message_attachments.
+// A bare number is accepted as file_metadata for back-compat.
+const SOURCE_GENERIC = 'generic';
+const SOURCE_ATTACHMENT = 'attachment';
 
-async function pickFilenameColumn(table) {
-  const candidates = ['filename', 'name', 'original_name', 'file_name'];
-  for (const c of candidates) {
-    if (await columnExists(table, c)) return c;
-  }
-  return null;
-}
-
-async function pickSizeExpr(table) {
-  const sizes = ['size_bytes', 'size', 'bytes', 'file_size'];
-  for (const c of sizes) {
-    if (await columnExists(table, c)) return `COALESCE(${c},0)`;
-  }
-  return null;
-}
-
-async function hasHipaaColumn(table) {
-  const cols = ['hipaa_protected', 'is_hipaa', 'is_hipaa_protected'];
-  for (const c of cols) {
-    if (await columnExists(table, c)) return c;
-  }
-  return null;
-}
-
-async function hasQuarantineColumn(table) {
-  const cols = ['is_quarantined', 'quarantined'];
-  for (const c of cols) {
-    if (await columnExists(table, c)) return c;
-  }
-  return null;
+export function parseUploadFileId(raw) {
+  const text = String(raw ?? '').trim();
+  const match = /^(?:(generic|attachment):)?(\d+)$/.exec(text);
+  if (!match) return null;
+  return {
+    source: match[1] || SOURCE_GENERIC,
+    id: Number(match[2]),
+  };
 }
 
 /* -----------------------------------------------------------------------------
@@ -64,68 +58,57 @@ async function hasQuarantineColumn(table) {
 ----------------------------------------------------------------------------- */
 
 export async function getUploadSummary() {
-  const table = await resolveUploadsTable();
-  if (!table) {
-    return {
-      totalFiles: 0,
-      totalSizeBytes: 0,
-      hipaaProtected: 0,
-      quarantined: 0,
-      expired: 0,
-      last7Days: [],
-    };
-  }
+  const totalFiles =
+    (await safeScalar('SELECT COUNT(*) FROM file_metadata', [], 0)) +
+    (await safeScalar('SELECT COUNT(*) FROM staff_message_attachments', [], 0));
 
-  const dateCol = await pickDateColumn(table);
-  const sizeExpr = await pickSizeExpr(table);
-  const hipaaCol = await hasHipaaColumn(table);
-  const quarantineCol = await hasQuarantineColumn(table);
+  const totalSizeBytes =
+    (await safeScalar('SELECT COALESCE(SUM(file_size), 0) FROM file_metadata', [], 0)) +
+    (await safeScalar('SELECT COALESCE(SUM(file_size), 0) FROM staff_message_attachments', [], 0));
 
-  const totalFiles = await safeScalar(`SELECT COUNT(*) FROM ${table}`, [], 0);
+  // file_metadata has no per-file HIPAA flag; privacy_level='RESTRICTED' is the
+  // real column that expresses "not generally accessible" (every generic upload
+  // is written RESTRICTED today).
+  const hipaaProtected = await safeScalar(
+    "SELECT COUNT(*) FROM file_metadata WHERE privacy_level = 'RESTRICTED'",
+    [],
+    0,
+  );
 
-  const totalSizeBytes = sizeExpr
-    ? await safeScalar(`SELECT COALESCE(SUM(${sizeExpr}),0) FROM ${table}`, [], 0)
-    : 0;
-
-  const hipaaProtected = hipaaCol
-    ? await safeScalar(`SELECT COUNT(*) FROM ${table} WHERE ${hipaaCol} = true`, [], 0)
-    : 0;
-
-  // Quarantine via dedicated table OR column on uploads
-  let quarantined = 0;
-  if (await tableExists('quarantined_files')) {
-    quarantined = await safeScalar(`SELECT COUNT(*) FROM quarantined_files`, [], 0);
-  } else if (quarantineCol) {
-    quarantined = await safeScalar(
-      `SELECT COUNT(*) FROM ${table} WHERE ${quarantineCol} = true`,
+  // The count the "Quarantined" tile reports is the review backlog — every row
+  // no policy will ever serve — so the tile agrees with the list below.
+  const quarantined =
+    (await safeScalar(`SELECT COUNT(*) FROM file_metadata WHERE ${REVIEW_PREDICATE}`, [], 0)) +
+    (await safeScalar(
+      `SELECT COUNT(*) FROM staff_message_attachments WHERE ${REVIEW_PREDICATE}`,
       [],
-      0
-    );
-  }
+      0,
+    ));
 
-  // Expired if an expires_at column exists
-  const expired = (await columnExists(table, 'expires_at'))
-    ? await safeScalar(
-        `SELECT COUNT(*) FROM ${table} WHERE expires_at IS NOT NULL AND expires_at < NOW()`,
-        [],
-        0
-      )
-    : 0;
+  // No expires_at concept exists in this schema; deactivated generic uploads
+  // (is_active = false — purged or withdrawn) are the closest real state.
+  const expired = await safeScalar(
+    'SELECT COUNT(*) FROM file_metadata WHERE is_active = false',
+    [],
+    0,
+  );
 
-  // Trend (past 7 days)
-  const last7Days = dateCol
-    ? await safeQuery(
-        `
-        SELECT date_trunc('day', ${dateCol}) AS date, COUNT(*)::int AS count
-        FROM ${table}
-        WHERE ${dateCol} >= CURRENT_DATE - INTERVAL '7 days'
-        GROUP BY 1
-        ORDER BY 1
-        `,
-        [],
-        'uploads.trend7'
-      )
-    : [];
+  const last7Days = await safeQuery(
+    `
+    SELECT date_trunc('day', uploaded)::date::text AS date, COUNT(*)::int AS count
+      FROM (
+        SELECT uploaded_at AS uploaded FROM file_metadata
+         WHERE uploaded_at >= CURRENT_DATE - INTERVAL '7 days'
+        UNION ALL
+        SELECT created_at AS uploaded FROM staff_message_attachments
+         WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+      ) u
+     GROUP BY 1
+     ORDER BY 1
+    `,
+    [],
+    'uploads.trend7',
+  );
 
   return {
     totalFiles: Number(totalFiles) || 0,
@@ -138,199 +121,275 @@ export async function getUploadSummary() {
 }
 
 export async function listQuarantinedFiles(limit = 50, offset = 0) {
-  // Prefer dedicated quarantined_files table
-  if (await tableExists('quarantined_files')) {
-    return await safeQuery(
-      `
-      SELECT id, filename, quarantine_reason, created_at
-      FROM quarantined_files
-      ORDER BY created_at DESC
-      LIMIT $1 OFFSET $2
-      `,
-      [limit, offset],
-      'uploads.quarantine.list_dedicated'
-    );
-  }
-
-  // Fallback to uploads table with is_quarantined column
-  const table = await resolveUploadsTable();
-  if (!table) return [];
-  const quarantineCol = await hasQuarantineColumn(table);
-  const dateCol = await pickDateColumn(table);
-  const nameCol = await pickFilenameColumn(table);
-
-  if (!quarantineCol) return [];
-
-  const orderCol = dateCol || '1';
-  const selectName = nameCol ? `${nameCol} AS filename,` : '';
   return await safeQuery(
     `
-    SELECT id, ${selectName} ${quarantineCol} AS is_quarantined${dateCol ? `, ${dateCol} AS created_at` : ''}
-    FROM ${table}
-    WHERE ${quarantineCol} = true
-    ORDER BY ${orderCol} DESC
-    LIMIT $1 OFFSET $2
+    SELECT source || ':' || id AS id,
+           source,
+           file_name,
+           scan_status,
+           reason,
+           uploaded_by,
+           quarantined_at,
+           size_bytes
+      FROM (
+        SELECT '${SOURCE_GENERIC}' AS source, id, file_name,
+               scan_status,
+               'scan_status=' || COALESCE(scan_status, 'NULL') AS reason,
+               uploaded_by::text AS uploaded_by,
+               uploaded_at AS quarantined_at,
+               COALESCE(file_size, 0) AS size_bytes
+          FROM file_metadata
+         WHERE ${REVIEW_PREDICATE}
+        UNION ALL
+        SELECT '${SOURCE_ATTACHMENT}' AS source, id, file_name,
+               scan_status,
+               'scan_status=' || COALESCE(scan_status, 'NULL') AS reason,
+               uploaded_by_uid::text AS uploaded_by,
+               created_at AS quarantined_at,
+               COALESCE(file_size, 0) AS size_bytes
+          FROM staff_message_attachments
+         WHERE ${REVIEW_PREDICATE}
+      ) q
+     ORDER BY quarantined_at DESC NULLS LAST
+     LIMIT $1 OFFSET $2
     `,
     [limit, offset],
-    'uploads.quarantine.list_fallback'
+    'uploads.quarantine.list',
   );
 }
 
 export async function getHipaaAuditReport({ limit = 50, offset = 0, startDate = null, endDate = null } = {}) {
-  const table = await resolveUploadsTable();
-  if (!table) return { files: [], total: 0 };
-
-  const hipaaCol = await hasHipaaColumn(table);
-  if (!hipaaCol) return { files: [], total: 0 };
-
-  const nameCol = await pickFilenameColumn(table);
-  const dateCol = await pickDateColumn(table);
-  const accessedCol = (await columnExists(table, 'last_accessed_at')) ? 'last_accessed_at' : null;
-
-  const params = [startDate, endDate, limit, offset];
-  const whereDate =
-    dateCol ? `AND ${dateCol} >= COALESCE($1::timestamp, '-infinity') AND ${dateCol} <= COALESCE($2::timestamp, 'infinity')` : '';
+  // The real PHI access ledger (written by utils/hipaaAudit.js), mapped to the
+  // shape the admin dashboard renders (actor / action / resource / created_at).
+  const whereDate = `
+    WHERE accessed_at >= COALESCE($1::timestamptz, '-infinity')
+      AND accessed_at <= COALESCE($2::timestamptz, 'infinity')
+  `;
 
   const rows = await safeQuery(
     `
-    SELECT
-      id
-      ${nameCol ? `, ${nameCol} AS filename` : ''}
-      ${dateCol ? `, ${dateCol} AS created_at` : ''}
-      ${accessedCol ? `, ${accessedCol} AS last_accessed_at` : ''}
-    FROM ${table}
-    WHERE ${hipaaCol} = true
-    ${whereDate}
-    ORDER BY ${dateCol || 'id'} DESC
-    LIMIT $3 OFFSET $4
+    SELECT id,
+           COALESCE(accessed_by::text, 'unknown')
+             || COALESCE(' (' || accessed_by_role || ')', '') AS actor,
+           action,
+           record_type AS resource_type,
+           patient_id  AS resource_id,
+           accessed_at AS created_at
+      FROM hipaa_access_log
+      ${whereDate}
+     ORDER BY accessed_at DESC
+     LIMIT $3 OFFSET $4
     `,
-    params,
-    'uploads.hipaa.audit'
+    [startDate, endDate, limit, offset],
+    'uploads.hipaa.audit',
   );
 
-  // total count with same filters
   const total = await safeScalar(
-    `
-    SELECT COUNT(*) FROM ${table}
-    WHERE ${hipaaCol} = true
-    ${whereDate}
-    `,
+    `SELECT COUNT(*) FROM hipaa_access_log ${whereDate}`,
     [startDate, endDate],
-    0
+    0,
   );
 
   return { files: rows, total: Number(total) || 0 };
 }
 
 /* -----------------------------------------------------------------------------
-   Admin Actions (safe, no-throw; act as stubs when columns/tables missing)
+   Admin Actions
 ----------------------------------------------------------------------------- */
 
+async function loadUploadRow({ source, id }) {
+  if (source === SOURCE_ATTACHMENT) {
+    const rows = await safeQuery(
+      `SELECT id, file_name, storage_key, scan_status
+         FROM staff_message_attachments WHERE id = $1`,
+      [id],
+      'uploads.rescan.load_attachment',
+    );
+    return rows[0] || null;
+  }
+  const rows = await safeQuery(
+    `SELECT id, file_name, storage_key, scan_status
+       FROM file_metadata WHERE id = $1`,
+    [id],
+    'uploads.rescan.load_generic',
+  );
+  return rows[0] || null;
+}
+
+async function stampScanStatus({ source, id }, scanStatus) {
+  const table = source === SOURCE_ATTACHMENT ? 'staff_message_attachments' : 'file_metadata';
+  const rows = await safeQuery(
+    `UPDATE ${table}
+        SET scan_status = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING id`,
+    [scanStatus, id],
+    'uploads.rescan.stamp',
+  );
+  return rows.length;
+}
+
+/**
+ * Re-evaluate one stored file against the active FILE_SCAN_POLICY.
+ *
+ * Every written status is a terminal vocabulary value — this action can never
+ * re-create the stuck-'pending' defect the old stub carried:
+ *   * disabled_accepted_risk: no scan is attempted (there is no scanner, by
+ *     declaration); a legacy 'failed'/'pending' row is re-stamped to the same
+ *     'not_scanned' status any new upload gets — this is the admin release
+ *     path for pre-policy backlogs. A 'quarantined' row is REFUSED: known-bad
+ *     stays blocked unless an actual scan proves otherwise.
+ *   * required: the bytes are fetched and actually scanned. clean →
+ *     'clean', infected → 'quarantined'; scanner unavailable/erroring →
+ *     NO write at all (the row keeps its current status) and the outcome is
+ *     reported to the operator.
+ */
 export async function rescanFile(fileId) {
-  const table = await resolveUploadsTable();
-  if (!table) return { success: true, updated: 0, message: 'No uploads table' };
-
-  const canSetStatus = await columnExists(table, 'scan_status');
-  const canSetScannedAt = await columnExists(table, 'scanned_at');
-
-  if (!canSetStatus && !canSetScannedAt) {
-    logger.warn('[uploads.rescan] missing scan columns; returning stub response');
-    return { success: true, updated: 0, message: 'Scan columns not present' };
+  const target = parseUploadFileId(fileId);
+  if (!target) {
+    return { success: false, updated: 0, message: 'Invalid file id (expected generic:<id> or attachment:<id>)' };
   }
 
-  const sets = [];
-  if (canSetStatus) sets.push(`scan_status = 'pending'`);
-  if (canSetScannedAt) sets.push(`scanned_at = NOW()`);
-
-  const r = await safeQuery(
-    `UPDATE ${table} SET ${sets.join(', ')} WHERE id = $1 RETURNING id`,
-    [fileId],
-    'uploads.rescan'
-  );
-  return { success: true, updated: r.length, fileId };
-}
-
-export async function cleanupExpiredFiles(dryRun = true) {
-  const table = await resolveUploadsTable();
-  if (!table || !(await columnExists(table, 'expires_at'))) {
-    return { success: true, deleted: 0, dryRun, details: [] };
+  const row = await loadUploadRow(target);
+  if (!row) {
+    return { success: false, updated: 0, message: 'File not found' };
   }
 
-  if (dryRun) {
-    const rows = await safeQuery(
-      `SELECT id FROM ${table} WHERE expires_at IS NOT NULL AND expires_at < NOW() ORDER BY expires_at ASC LIMIT 500`,
-      [],
-      'uploads.cleanup.preview'
-    );
-    return { success: true, deleted: 0, dryRun, details: rows.map(r => r.id) };
-  }
+  const policy = resolveFileScanPolicy();
+  const currentStatus = normalizeScanStatus(row.scan_status);
 
-  const result = await safeQuery(
-    `DELETE FROM ${table} WHERE expires_at IS NOT NULL AND expires_at < NOW() RETURNING id`,
-    [],
-    'uploads.cleanup.delete'
-  );
-  return { success: true, deleted: result.length, dryRun: false, details: result.map(r => r.id) };
-}
-
-export async function bulkUpdateHipaaProtection({ ids = [], protect = true } = {}) {
-  const table = await resolveUploadsTable();
-  if (!table) return { success: true, updated: 0 };
-
-  const hipaaCol = await hasHipaaColumn(table);
-  if (!hipaaCol || !Array.isArray(ids) || ids.length === 0) {
-    return { success: true, updated: 0 };
-  }
-
-  const r = await safeQuery(
-    `UPDATE ${table} SET ${hipaaCol} = $1 WHERE id = ANY($2::uuid[]) RETURNING id`,
-    [Boolean(protect), ids],
-    'uploads.hipaa.bulk'
-  );
-  return { success: true, updated: r.length };
-}
-
-export async function purgeQuarantinedFiles(dryRun = true) {
-  // Prefer dedicated table
-  if (await tableExists('quarantined_files')) {
-    if (dryRun) {
-      const rows = await safeQuery(
-        `SELECT id FROM quarantined_files ORDER BY created_at DESC LIMIT 500`,
-        [],
-        'uploads.quarantine.preview'
-      );
-      return { success: true, purged: 0, dryRun, details: rows.map(r => r.id) };
+  if (policy === FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK) {
+    if (currentStatus === FILE_SCAN_STATUS.QUARANTINED) {
+      return {
+        success: false,
+        updated: 0,
+        fileId,
+        scan_status: FILE_SCAN_STATUS.QUARANTINED,
+        message: 'File is quarantined (known-bad); it can only be released by an actual clean scan under FILE_SCAN_POLICY=required',
+      };
     }
-    const del = await safeQuery(
-      `DELETE FROM quarantined_files RETURNING id`,
-      [],
-      'uploads.quarantine.delete'
-    );
-    return { success: true, purged: del.length, dryRun: false, details: del.map(r => r.id) };
+    const updated = await stampScanStatus(target, FILE_SCAN_STATUS.NOT_SCANNED);
+    logger.info('[uploads.rescan] released under disabled_accepted_risk', {
+      fileId, previous_status: row.scan_status,
+    });
+    return {
+      success: true,
+      updated,
+      fileId,
+      scan_status: FILE_SCAN_STATUS.NOT_SCANNED,
+      message: 'No scanner is deployed (disabled_accepted_risk); file recorded as not_scanned, the same status any new upload receives',
+    };
   }
 
-  // Fallback: flag column on uploads
-  const table = await resolveUploadsTable();
-  if (!table) return { success: true, purged: 0, dryRun, details: [] };
-
-  const quarantineCol = await hasQuarantineColumn(table);
-  if (!quarantineCol) return { success: true, purged: 0, dryRun, details: [] };
-
-  if (dryRun) {
-    const rows = await safeQuery(
-      `SELECT id FROM ${table} WHERE ${quarantineCol} = true ORDER BY id DESC LIMIT 500`,
-      [],
-      'uploads.quarantine.preview2'
-    );
-    return { success: true, purged: 0, dryRun, details: rows.map(r => r.id) };
+  let bytes;
+  try {
+    bytes = Buffer.from(await getFileFromR2(row.storage_key));
+  } catch (fetchErr) {
+    logger.error('[uploads.rescan] could not fetch stored bytes', { fileId, error: fetchErr.message });
+    return { success: false, updated: 0, fileId, message: 'Stored file could not be fetched for scanning' };
   }
 
-  const upd = await safeQuery(
-    `UPDATE ${table} SET ${quarantineCol} = false WHERE ${quarantineCol} = true RETURNING id`,
+  const verdict = await scanBufferVerdict(bytes);
+
+  if (verdict.outcome === SCAN_OUTCOME.CLEAN) {
+    const updated = await stampScanStatus(target, FILE_SCAN_STATUS.CLEAN);
+    return { success: true, updated, fileId, scan_status: FILE_SCAN_STATUS.CLEAN };
+  }
+  if (verdict.outcome === SCAN_OUTCOME.INFECTED) {
+    const updated = await stampScanStatus(target, FILE_SCAN_STATUS.QUARANTINED);
+    logger.warn('[uploads.rescan] malware detected on stored file', {
+      fileId, signature: verdict.signature,
+    });
+    return { success: true, updated, fileId, scan_status: FILE_SCAN_STATUS.QUARANTINED };
+  }
+
+  // UNAVAILABLE / ERROR: write nothing. Stamping 'failed' here would mint the
+  // permanently-blocked status this wave exists to retire.
+  return {
+    success: false,
+    updated: 0,
+    fileId,
+    scan_status: row.scan_status,
+    message: 'Scanner did not answer; file status unchanged — retry when clamd is reachable',
+  };
+}
+
+// No expires_at / retention column exists on either real store, so there is
+// nothing to clean up. Deterministic honest no-op (the old version probed
+// nonexistent tables and pretended); retention for these stores is a
+// deliberate future decision, not a silent delete.
+export async function cleanupExpiredFiles(dryRun = true) {
+  return {
+    success: true,
+    deleted: 0,
+    dryRun,
+    details: [],
+    message: 'No retention/expiry column exists on file_metadata or staff_message_attachments; nothing to clean up',
+  };
+}
+
+// No per-file HIPAA flag exists (privacy_level is set at ingest and is not an
+// admin toggle). Deterministic honest no-op instead of a stub that pretends.
+export async function bulkUpdateHipaaProtection({ ids = [], protect = true } = {}) {
+  void ids; void protect;
+  return {
+    success: true,
+    updated: 0,
+    message: 'file_metadata has no per-file HIPAA flag; privacy_level is assigned at ingest and is not admin-togglable',
+  };
+}
+
+/**
+ * Purge KNOWN-BAD files only: rows whose scan_status is 'quarantined'
+ * (a scanner positively identified malware). The stored object is deleted;
+ * the database row is kept as evidence with its 'quarantined' status, which
+ * every serving gate already refuses, and generic uploads are additionally
+ * deactivated (is_active = false → 410 on lookup). Review-backlog statuses
+ * ('failed'/'pending') are NEVER purged — they are unreviewed, not condemned.
+ */
+export async function purgeQuarantinedFiles(dryRun = true) {
+  const rows = await safeQuery(
+    `
+    SELECT source, id, storage_key FROM (
+      SELECT '${SOURCE_GENERIC}' AS source, id, storage_key
+        FROM file_metadata
+       WHERE ${QUARANTINED_PREDICATE} AND is_active = true
+      UNION ALL
+      SELECT '${SOURCE_ATTACHMENT}' AS source, id, storage_key
+        FROM staff_message_attachments
+       WHERE ${QUARANTINED_PREDICATE}
+    ) q
+    ORDER BY source, id
+    LIMIT 500
+    `,
     [],
-    'uploads.quarantine.clearflag'
+    'uploads.quarantine.purge_candidates',
   );
-  return { success: true, purged: upd.length, dryRun: false, details: upd.map(r => r.id) };
+
+  const details = rows.map(r => `${r.source}:${r.id}`);
+  if (dryRun) {
+    return { success: true, purged: 0, dryRun: true, details };
+  }
+
+  let purged = 0;
+  for (const row of rows) {
+    try {
+      await deleteObject(row.storage_key);
+      if (row.source === SOURCE_GENERIC) {
+        await safeQuery(
+          'UPDATE file_metadata SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id',
+          [row.id],
+          'uploads.quarantine.deactivate',
+        );
+      }
+      purged += 1;
+    } catch (purgeErr) {
+      logger.error('[uploads.purge] failed to purge quarantined object', {
+        source: row.source, id: row.id, error: purgeErr.message,
+      });
+    }
+  }
+  return { success: true, purged, dryRun: false, details };
 }
 
 export default {
@@ -341,4 +400,5 @@ export default {
   cleanupExpiredFiles,
   bulkUpdateHipaaProtection,
   purgeQuarantinedFiles,
+  parseUploadFileId,
 };
