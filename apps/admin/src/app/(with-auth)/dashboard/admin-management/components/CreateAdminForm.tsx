@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { postJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 interface CreateAdminFormProps {
   onAdminCreated?: () => void;

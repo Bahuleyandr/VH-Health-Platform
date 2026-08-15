@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getPayrollComparison, PayrollComparisonData } from "@/lib/api/payroll";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 type StaffEntry = PayrollComparisonData["staff"][number];
 type PayslipEntry = StaffEntry["payslips"][number];

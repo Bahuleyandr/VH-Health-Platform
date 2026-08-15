@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department, Doctor } from "@/lib/types";
 import Link from "next/link";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 interface EditDoctorFormProps {
   doctor: Doctor;

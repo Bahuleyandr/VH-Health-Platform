@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clock, Lock, Plus, Pencil, Trash2, Save, X } from "lucide-react";
 import { getJSON, postJSON, putJSON, deleteJSON } from "@/lib/api/core";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 interface Shift {
   id: number;
