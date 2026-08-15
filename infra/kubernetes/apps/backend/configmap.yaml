@@ -81,9 +81,6 @@ data:
   SENTRY_ENVIRONMENT: "production"
   SENTRY_TRACES_SAMPLE_RATE: "0.1"
 
-  # API versioning header default
-  API_VERSION_DEFAULT: "v1"
-
   # Admin IP allowlist. Production backend middleware fails closed when this is
   # empty; overlays/operators must set hospital VPN/admin CIDRs before admin
   # APIs are reachable.
