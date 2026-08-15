@@ -3725,6 +3725,9 @@ class AppStrings {
           'permanent clinical record.',
       'resus.trigger_confirm_action': 'Trigger now',
       'resus.trigger_created': 'Resuscitation event created',
+      'resus.trigger_not_sent':
+          'NOT triggered — the confirmation closed before you activated it. '
+          'The resuscitation team has NOT been alerted.',
       'action.close': 'Close',
       'continuity.online_only.title': 'Online connection required',
       'continuity.online_only.message':
@@ -10240,6 +10243,9 @@ class AppStrings {
           'रिकॉर्ड बनाएगा।',
       'resus.trigger_confirm_action': 'अभी ट्रिगर करें',
       'resus.trigger_created': 'पुनर्जीवन इवेंट बनाया गया',
+      'resus.trigger_not_sent':
+          'ट्रिगर नहीं हुआ — सक्रिय करने से पहले ही पुष्टि विंडो बंद हो गई। '
+          'पुनर्जीवन टीम को सूचित नहीं किया गया है।',
       'action.close': 'बंद करें',
       'continuity.online_only.title': 'ऑनलाइन कनेक्शन आवश्यक है',
       'continuity.online_only.message':
@@ -16615,6 +16621,9 @@ class AppStrings {
           'பதிவை உருவாக்கும்.',
       'resus.trigger_confirm_action': 'இப்போது தொடங்கவும்',
       'resus.trigger_created': 'மீளுயிர்ப்பு நிகழ்வு உருவாக்கப்பட்டது',
+      'resus.trigger_not_sent':
+          'தொடங்கப்படவில்லை — செயல்படுத்தும் முன்பே உறுதிப்படுத்தல் மூடப்பட்டது. '
+          'மீளுயிர்ப்புக் குழுவுக்குத் தகவல் அனுப்பப்படவில்லை.',
       'action.close': 'மூடு',
       'continuity.online_only.title': 'ஆன்லைன் இணைப்பு தேவை',
       'continuity.online_only.message':
@@ -23693,6 +23702,9 @@ class AppStrings {
           'రికార్డును సృష్టిస్తుంది.',
       'resus.trigger_confirm_action': 'ఇప్పుడు ట్రిగ్గర్ చేయండి',
       'resus.trigger_created': 'రిససిటేషన్ ఈవెంట్ సృష్టించబడింది',
+      'resus.trigger_not_sent':
+          'ట్రిగర్ కాలేదు — యాక్టివేట్ చేయకముందే నిర్ధారణ మూసుకుపోయింది. '
+          'రిససిటేషన్ బృందానికి సమాచారం వెళ్లలేదు.',
       'action.close': 'మూసివేయి',
       'continuity.online_only.title': 'ఆన్‌లైన్ కనెక్షన్ అవసరం',
       'continuity.online_only.message':
@@ -30657,6 +30669,9 @@ class AppStrings {
           'രേഖ സൃഷ്ടിക്കുകയും ചെയ്യും.',
       'resus.trigger_confirm_action': 'ഇപ്പോൾ ട്രിഗർ ചെയ്യുക',
       'resus.trigger_created': 'പുനരുജ്ജീവന ഇവന്റ് സൃഷ്ടിച്ചു',
+      'resus.trigger_not_sent':
+          'ട്രിഗർ ചെയ്തിട്ടില്ല — സജീവമാക്കുന്നതിനു മുൻപേ സ്ഥിരീകരണം അടഞ്ഞു. '
+          'പുനരുജ്ജീവന ടീമിനെ അറിയിച്ചിട്ടില്ല.',
       'action.close': 'അടയ്ക്കുക',
       'continuity.online_only.title': 'ഓൺലൈൻ കണക്ഷൻ ആവശ്യമാണ്',
       'continuity.online_only.message':

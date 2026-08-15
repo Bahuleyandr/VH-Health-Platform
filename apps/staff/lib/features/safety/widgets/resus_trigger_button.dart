@@ -7,6 +7,12 @@
 // alarm cannot fire from a stray tap or pocket activation. On success the
 // durable resuscitation record opens (`/safety/resus/:eventId`); the
 // backend owns the realtime notification (emitted post-commit).
+//
+// The guard runs in both directions. As well as "no accidental fire", the
+// confirmation step enforces "no accidental *miss*": it cannot be closed by a
+// barrier tap or a back gesture, and if it is ever torn down some other way
+// the caller says so out loud instead of treating it as a Cancel. A clinician
+// must never be left believing they raised a Code Blue that was never sent.
 
 import 'dart:async';
 
@@ -60,10 +66,56 @@ class _ResusTriggerButtonState extends State<ResusTriggerButton> {
     if (_busy) return;
     final s = AppStrings.of(context);
     final draft = await _collectDraft(s);
+    // A `null` draft is an ordinary abandon of the details form: nothing has
+    // been escalated, the screen returns unchanged, and the trigger stays on
+    // screen — so it needs no announcement. See `_collectDraft` for why that
+    // step is guarded differently from the confirmation step.
     if (draft == null || !mounted) return;
+    await _confirmAndCreate(s, draft);
+  }
+
+  /// Confirmation step plus create, split out of [_startFlow] so the
+  /// "escalation was dropped" recovery action can resume here without making
+  /// the clinician re-enter the patient and context during an arrest.
+  Future<void> _confirmAndCreate(AppStrings s, _ResusDraft draft) async {
+    // Re-entrant via the recovery action below, which can outlive this widget.
+    if (_busy || !mounted) return;
     final confirmed = await _confirm(s, draft);
-    if (confirmed != true || !mounted) return;
-    await _create(s, draft);
+    if (!mounted) return;
+    if (confirmed == true) {
+      await _create(s, draft);
+      return;
+    }
+    // `false` is an explicit Cancel — the clinician chose it, so staying quiet
+    // is right. `null` is NOT a choice. The confirmation dialog is barrier- and
+    // back-locked, so a `null` can now only mean the route was torn down from
+    // underneath us (session timeout redirect, a programmatic pop). That must
+    // never read as "cancelled": the clinician would walk away believing the
+    // resuscitation team had been called when nothing was sent.
+    if (confirmed == null) _warnNotTriggered(s, draft);
+  }
+
+  /// Loud, dismissible-by-the-clinician notice that the escalation did **not**
+  /// go out, with a one-tap resume that keeps the drafted patient/context.
+  void _warnNotTriggered(AppStrings s, _ResusDraft draft) {
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: theme.colorScheme.error,
+          duration: const Duration(seconds: 10),
+          content: Text(
+            s.lookup('resus.trigger_not_sent'),
+            style: TextStyle(color: theme.colorScheme.onError),
+          ),
+          action: SnackBarAction(
+            label: s.actionRetry,
+            textColor: theme.colorScheme.onError,
+            onPressed: () => unawaited(_confirmAndCreate(s, draft)),
+          ),
+        ),
+      );
   }
 
   Future<_ResusDraft?> _collectDraft(AppStrings s) {
@@ -81,6 +133,17 @@ class _ResusTriggerButtonState extends State<ResusTriggerButton> {
 
     return showDialog<_ResusDraft>(
       context: context,
+      // Guarded more weakly than the confirmation step, on purpose. Dismissing
+      // this step cannot lose an escalation — nothing has been triggered yet —
+      // so the failure mode here is only the loss of half-entered emergency
+      // context (patient search, reason, ward, bed), which still costs seconds
+      // during an arrest. So: block the accidental surface (a stray tap on the
+      // barrier, easy to hit around a scrolling, keyboard-covered form) but
+      // deliberately leave the system back gesture working as a real escape.
+      // Back here is equivalent to Cancel and its outcome is self-evident —
+      // the unchanged screen with the trigger still on it — which is exactly
+      // what is NOT true of the confirmation step below.
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           Future<void> runSearch() async {
@@ -239,50 +302,64 @@ class _ResusTriggerButtonState extends State<ResusTriggerButton> {
   Future<bool?> _confirm(AppStrings s, _ResusDraft draft) {
     return showDialog<bool>(
       context: context,
+      // The escalation decision itself lives in this dialog, so an accidental
+      // dismissal is a patient-safety failure, not an inconvenience: it used to
+      // complete the future with `null`, which the caller could not tell apart
+      // from an explicit Cancel, and the Code Blue was abandoned with no
+      // feedback whatsoever. Both accidental exits are closed — the barrier
+      // here, the back gesture via the `PopScope` below. This is "no *silent*
+      // cancel", not "no cancel": the deliberate way out stays a plainly
+      // visible, screen-reader-labelled Cancel button in `actions`, which is
+      // also the escape a locked-down modal owes assistive-technology users
+      // once their dismiss gesture is inert.
+      barrierDismissible: false,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        return AlertDialog(
-          icon: Icon(
-            Icons.warning_amber_rounded,
-            color: theme.colorScheme.error,
-          ),
-          title: const AppText('resus.trigger_confirm_title'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                s.lookup('resus.trigger_confirm_body'),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                [
-                  resusEnumLabel(s, 'event_kind', draft.eventKind),
-                  if (draft.patientName.isNotEmpty) draft.patientName,
-                  if (draft.ward != null)
-                    '${s.lookup('resus.ward')} ${draft.ward}',
-                ].join(' · '),
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            icon: Icon(
+              Icons.warning_amber_rounded,
+              color: theme.colorScheme.error,
+            ),
+            title: const AppText('resus.trigger_confirm_title'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  s.lookup('resus.trigger_confirm_body'),
+                  textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 10),
+                Text(
+                  [
+                    resusEnumLabel(s, 'event_kind', draft.eventKind),
+                    if (draft.patientName.isNotEmpty) draft.patientName,
+                    if (draft.ward != null)
+                      '${s.lookup('resus.ward')} ${draft.ward}',
+                  ].join(' · '),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text(s.actionCancel),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: theme.colorScheme.error,
+                  foregroundColor: theme.colorScheme.onError,
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text(s.lookup('resus.trigger_confirm_action')),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(s.actionCancel),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.error,
-                foregroundColor: theme.colorScheme.onError,
-              ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(s.lookup('resus.trigger_confirm_action')),
-            ),
-          ],
         );
       },
     );
