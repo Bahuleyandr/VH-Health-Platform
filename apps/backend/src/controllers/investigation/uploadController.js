@@ -11,7 +11,7 @@ import {
 } from '../../services/investigation/fileService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -119,7 +119,14 @@ export const uploadResult = async (req, res) => {
     
   } catch (err) {
     logger.error('Upload Error:', err);
-    
+
+    // Screening refusals (422 FILE_SCAN_QUARANTINED / 503 FILE_SCAN_UNAVAILABLE)
+    // are deliberate, caller-actionable answers from fileScanService — relay
+    // them instead of collapsing to a generic 500.
+    if (err && err.statusCode) {
+      return relayAppError(res, err, 'Failed to upload file', { safe: true });
+    }
+
     // Specific error handling
     if (err.message === 'Investigation not found') {
       return error(res, 'Investigation not found', 404);
@@ -128,7 +135,7 @@ export const uploadResult = async (req, res) => {
     } else if (err.message.includes('File size exceeds')) {
       return error(res, err.message, 400);
     }
-    
+
     error(res, 'Failed to upload file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -221,11 +228,17 @@ export const downloadFile = async (req, res) => {
 
   } catch (err) {
     logger.error('Download File Error:', err);
-    
+
+    // The scan-policy gate in getFileStream throws 423 FILE_SCAN_NOT_CLEAN —
+    // relay it (same contract as the generic-upload / messaging gates).
+    if (err && err.statusCode) {
+      return relayAppError(res, err, 'Failed to download file', { safe: true });
+    }
+
     if (err.message === 'File not found' || err.message === 'File not found on disk') {
       return error(res, 'File not found', 404);
     }
-    
+
     error(res, 'Failed to download file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

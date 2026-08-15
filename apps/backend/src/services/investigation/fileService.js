@@ -2,12 +2,15 @@
 // Migrated from raw pg to Prisma ORM
 
 import crypto from 'crypto';
+import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
+import { isScanStatusServable, normalizeScanStatus } from '../../config/fileScanPolicy.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { screenUploadBuffer } from '../security/fileScanService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/investigations';
@@ -99,6 +102,15 @@ export const uploadInvestigationFile = async (
     );
   }
 
+  // Screen BEFORE anything touches disk. Policy-aware (FILE_SCAN_POLICY):
+  // under `required` an unscannable or infected file is refused and nothing is
+  // stored; under `disabled_accepted_risk` the verdict is 'not_scanned'. The
+  // returned status is persisted on the row and read back by the download gate.
+  const screened = await screenUploadBuffer(file.buffer, {
+    subject: 'Investigation file',
+    context: { investigationId, uploadedBy, tenantId: effectiveTenantId },
+  });
+
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(8).toString('hex');
   const fileName = `inv_${investigationId}_${timestamp}_${randomString}${fileExt}`;
@@ -108,17 +120,26 @@ export const uploadInvestigationFile = async (
     await fs.writeFile(filePath, file.buffer);
 
     const result = await setTenantTx(effectiveTenantId, async (tx) => {
-      const created = await tx.investigation_files.create({
-        data: {
-          investigation_id: parseInt(investigationId),
-          file_name: file.originalname,
-          file_path: filePath,
-          file_type: fileExt,
-          file_size: BigInt(file.size),
-          uploaded_by: uploadedBy || null,
-          tenant_id: effectiveTenantId,
-        },
-      });
+      // Raw INSERT (not tx.investigation_files.create): scan_status was added
+      // by migration 676 after the checked-in Prisma client was generated, and
+      // the typed delegate rejects columns it does not know about.
+      const createdRows = await tx.$queryRawUnsafe(
+        `INSERT INTO investigation_files
+           (investigation_id, file_name, file_path, file_type, file_size,
+            uploaded_by, tenant_id, scan_status)
+         VALUES ($1::int, $2, $3, $4, $5::bigint, $6::uuid, $7::uuid, $8)
+         RETURNING id, investigation_id, file_name, file_path, file_type,
+                   file_size, uploaded_by, tenant_id, scan_status, created_at`,
+        parseInt(investigationId),
+        file.originalname,
+        filePath,
+        fileExt,
+        String(file.size),
+        uploadedBy || null,
+        effectiveTenantId,
+        screened.scanStatus,
+      );
+      const created = createdRows[0];
       await recordRequiredFileEvent(tx, rows[0], created, {
         eventType: 'investigation.file_uploaded',
         actorUid: uploadedBy,
@@ -149,14 +170,17 @@ export const getInvestigationFiles = async (investigationId) => {
 };
 
 export const getFileById = async (fileId) => {
-  return prisma.investigation_files.findUnique({
-    where: { id: parseInt(fileId) },
-    select: {
-      id: true, investigation_id: true, file_name: true,
-      file_path: true, file_type: true, file_size: true,
-      uploaded_by: true, created_at: true,
-    },
-  });
+  // Raw SELECT (not the typed delegate): scan_status postdates the generated
+  // Prisma client — see the INSERT in uploadInvestigationFile.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, investigation_id, file_name, file_path, file_type, file_size,
+            uploaded_by, scan_status, created_at
+       FROM investigation_files
+      WHERE id = $1::int
+      LIMIT 1`,
+    parseInt(fileId),
+  );
+  return rows[0] || null;
 };
 
 export const deleteFile = async (
@@ -217,6 +241,22 @@ export const getFileStream = async (fileId) => {
   const file = await getFileById(fileId);
   if (!file) throw new Error('File not found');
 
+  // ALLOWLIST gate before any bytes leave disk — the same shared servable-set
+  // decision the generic-upload, messaging, and brand-kit gates make
+  // (src/config/fileScanPolicy.js). Backfilled legacy rows carry
+  // 'not_scanned' (migration 676): servable under disabled_accepted_risk,
+  // blocked under `required` until actually scanned.
+  if (!isScanStatusServable(file.scan_status)) {
+    throw AppError.locked(
+      'File is not available until its security scan passes',
+      'FILE_SCAN_NOT_CLEAN',
+      {
+        scan_status: file.scan_status || 'pending',
+        normalized_scan_status: normalizeScanStatus(file.scan_status),
+      },
+    );
+  }
+
   try {
     await fs.access(file.file_path);
   } catch (_e) {
@@ -224,7 +264,10 @@ export const getFileStream = async (fileId) => {
   }
 
   return {
-    stream: fs.createReadStream(file.file_path),
+    // NOTE: createReadStream comes from 'fs' — it does not exist on the
+    // 'fs/promises' namespace this module otherwise uses; the previous
+    // `fs.createReadStream(...)` was a guaranteed TypeError on every download.
+    stream: createReadStream(file.file_path),
     fileName: file.file_name,
     fileType: file.file_type,
   };

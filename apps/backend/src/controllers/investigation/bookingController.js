@@ -1,12 +1,14 @@
+import { isScanStatusServable } from '../../config/fileScanPolicy.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { queuePatientSms } from '../../utils/notifications/smsOutbox.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { resolveStaffPushRecipients } from '../../services/notification/staffPushRecipientService.js';
@@ -15,6 +17,21 @@ import { AppError } from '../../utils/AppError.js';
 
 // Roles alerted when a patient books an investigation.
 const LAB_ALERT_ROLES = ['LAB_STAFF', 'NURSING_STAFF'];
+
+// Short signed-URL window for slip/result photos: the client redeems the URL
+// immediately (inline render or download start), so a long TTL only widens the
+// span in which a later quarantine or policy flip is still being honoured.
+const FILE_URL_TTL_SECONDS = 300;
+
+// Issue a signed URL only when the stored per-file scan status is servable
+// under the active FILE_SCAN_POLICY — the same allowlist decision as the
+// generic-upload, messaging, and brand-kit gates (src/config/fileScanPolicy.js).
+// Rows backfilled by migration 676 carry 'not_scanned'; a missing status on a
+// present key normalizes to 'pending' and is never served.
+async function gatedSignedUrl(key, scanStatus, baseUrl) {
+  if (!key || !isScanStatusServable(scanStatus)) return null;
+  return getSignedFileUrl(key, FILE_URL_TTL_SECONDS, { baseUrl }).catch(() => null);
+}
 
 async function recordRequiredBookingEvent(tx, booking, {
   eventType,
@@ -184,7 +201,15 @@ export const createBooking = async (req, res) => {
 
     // Upload slip photo if provided
     let slipPhotoKey = null;
+    let slipPhotoScanStatus = null;
     if (req.file) {
+      // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+      // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+      const screened = await screenUploadBuffer(req.file.buffer, {
+        subject: 'Prescription slip',
+        context: { patientId, route: 'investigation-booking-slip' },
+      });
+      slipPhotoScanStatus = screened.scanStatus;
       const timestamp = Date.now();
       const ext = req.file.originalname?.split('.').pop() || 'jpg';
       slipPhotoKey = `investigations/slips/${patientId}/${timestamp}.${ext}`;
@@ -214,20 +239,20 @@ export const createBooking = async (req, res) => {
         const rows = await tx.$queryRawUnsafe(`
         INSERT INTO investigation_bookings (
           patient_id, patient_phone, patient_name,
-          selected_tests, custom_test_names, slip_photo_key, notes,
+          selected_tests, custom_test_names, slip_photo_key, slip_photo_scan_status, notes,
           collection_type, collection_address, collection_landmark,
           collection_lat, collection_lng,
           preferred_date, preferred_time_slot,
           estimated_cost, appointment_id, tenant_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16,$17::uuid)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,$15,$16,$17,$18::uuid)
         RETURNING id, booking_number, patient_id, patient_name, patient_phone,
-          selected_tests, custom_test_names, slip_photo_key, notes,
+          selected_tests, custom_test_names, slip_photo_key, slip_photo_scan_status, notes,
           collection_type, collection_address, collection_landmark,
           preferred_date, preferred_time_slot, estimated_cost,
           appointment_id, status, tenant_id, created_at, updated_at
       `,
         patientId, patientRow?.phone, patientRow?.name,
-        parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
+        parsedTests || null, custom_test_names || null, slipPhotoKey, slipPhotoScanStatus, notes || null,
         collection_type || 'home', collection_address || null, collection_landmark || null,
         collection_lat || null, collection_lng || null,
         preferred_date || null, preferred_time_slot || null,
@@ -321,7 +346,8 @@ export const getMyBookings = async (req, res) => {
         ib.selected_tests, ib.custom_test_names, ib.status, ib.notes,
         ib.collection_type, ib.collection_address, ib.collection_landmark,
         ib.preferred_date, ib.preferred_time_slot, ib.estimated_cost, ib.final_cost,
-        ib.slip_photo_key, ib.result_file_key,
+        ib.slip_photo_key, ib.slip_photo_scan_status,
+        ib.result_file_key, ib.result_file_scan_status,
         ib.result_notes, ib.result_uploaded_at,
         ib.collection_notes, ib.collected_at,
         ib.appointment_id,
@@ -349,8 +375,8 @@ export const getMyBookings = async (req, res) => {
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
+      b.slip_photo_url = await gatedSignedUrl(b.slip_photo_key, b.slip_photo_scan_status, baseUrl);
+      b.result_file_url = await gatedSignedUrl(b.result_file_key, b.result_file_scan_status, baseUrl);
       return b;
     }));
     const doctorOrders = orderedInvestigations.map((i) => ({
@@ -434,8 +460,8 @@ export const getBookingQueue = async (req, res) => {
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
+      b.slip_photo_url = await gatedSignedUrl(b.slip_photo_key, b.slip_photo_scan_status, baseUrl);
+      b.result_file_url = await gatedSignedUrl(b.result_file_key, b.result_file_scan_status, baseUrl);
       return b;
     }));
 
@@ -759,6 +785,13 @@ export const uploadResult = async (req, res) => {
       );
     }
 
+    // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+    // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+    const screened = await screenUploadBuffer(req.file.buffer, {
+      subject: 'Result file',
+      context: { bookingId: id, uploadedBy: staffId, route: 'investigation-booking-result' },
+    });
+
     // Upload to R2
     const timestamp = Date.now();
     const ext = req.file.originalname?.split('.').pop() || 'pdf';
@@ -772,12 +805,12 @@ export const uploadResult = async (req, res) => {
         const rows = await tx.$queryRawUnsafe(`
           UPDATE investigation_bookings SET
             status='RESULT_READY', result_uploaded_at=NOW(), result_uploaded_by=$1,
-            result_file_key=$2, result_notes=$3, updated_at=NOW()
-          WHERE id=$4 AND tenant_id=$5::uuid AND status='PROCESSING'
+            result_file_key=$2, result_file_scan_status=$3, result_notes=$4, updated_at=NOW()
+          WHERE id=$5 AND tenant_id=$6::uuid AND status='PROCESSING'
           RETURNING id, booking_number, investigation_id, patient_id, patient_name,
             patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes,
             tenant_id, created_at, updated_at
-        `, staffId, fileKey, result_notes, id, tenantId);
+        `, staffId, fileKey, screened.scanStatus, result_notes, id, tenantId);
         if (!rows.length) throw AppError.conflict('Booking status changed before result upload', 'BOOKING_STATUS_CHANGED');
         await tx.$queryRawUnsafe(
           `INSERT INTO investigation_booking_history
@@ -844,6 +877,10 @@ export const uploadResult = async (req, res) => {
     success(res, result[0], 'Result uploaded; patient notification queued');
   } catch (e) {
     logger.error('uploadResult error:', e);
+    // Screening refusals (422/503) are deliberate caller-facing answers.
+    if (e && e.statusCode) {
+      return relayAppError(res, e, 'Failed to upload result', { safe: true });
+    }
     error(res, 'Failed to upload result', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -861,7 +898,8 @@ export const getBookingDetail = async (req, res) => {
         ib.collection_lat, ib.collection_lng,
         ib.preferred_date, ib.preferred_time_slot, ib.scheduled_date,
         ib.estimated_cost, ib.final_cost,
-        ib.slip_photo_key, ib.result_file_key,
+        ib.slip_photo_key, ib.slip_photo_scan_status,
+        ib.result_file_key, ib.result_file_scan_status,
         ib.phlebotomist_id, ib.assigned_collector, ib.collector_phone,
         ib.confirmed_by, ib.confirmed_at, ib.dispatched_at, ib.collected_at,
         ib.processing_started_at, ib.result_uploaded_at,
@@ -881,8 +919,8 @@ export const getBookingDetail = async (req, res) => {
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const b = booking[0];
-    if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
-    if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
+    b.slip_photo_url = await gatedSignedUrl(b.slip_photo_key, b.slip_photo_scan_status, baseUrl);
+    b.result_file_url = await gatedSignedUrl(b.result_file_key, b.result_file_scan_status, baseUrl);
 
     success(res, { booking: b, history: history }, 'Booking detail');
   } catch (e) {

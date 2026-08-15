@@ -235,14 +235,20 @@ export const envSchema = Joi.object({
   CF_R2_ACCESS_KEY_ID: Joi.string().optional().label('CF_R2_ACCESS_KEY_ID'),
   CF_R2_SECRET_ACCESS_KEY: Joi.string().optional().label('CF_R2_SECRET_ACCESS_KEY'),
 
-  // Malware scanning posture for every file the platform accepts or serves.
+  // Malware scanning posture for every file the platform accepts from a
+  // caller: all byte-ingest paths screen through
+  // services/security/fileScanService.js before anything is stored.
   // `required` (default, fail-closed) refuses an upload outright when the local
   // clamd daemon is unreachable, rather than storing bytes no gate will ever
   // release. `disabled_accepted_risk` is an explicit on-the-record declaration
   // that this deployment runs without a scanner; files are stored and served as
-  // `not_scanned`. There is deliberately no third "best effort" value — that
-  // ambiguity is the defect this setting replaced.
-  // See src/config/fileScanPolicy.js.
+  // `not_scanned`. Serving-side, stores that carry a per-row scan_status
+  // (file_metadata, staff_message_attachments, investigation_files,
+  // consent_signatures, investigation_bookings photos) re-check servability at
+  // read time; the remaining stores enforce the policy at ingest only (see the
+  // fileScanService header for the exact coverage map). There is deliberately
+  // no third "best effort" value — that ambiguity is the defect this setting
+  // replaced. See src/config/fileScanPolicy.js.
   FILE_SCAN_POLICY: Joi.string()
     .valid(...FILE_SCAN_POLICY_VALUES)
     .default(FILE_SCAN_POLICY.REQUIRED)

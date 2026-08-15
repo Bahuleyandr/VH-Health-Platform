@@ -5,6 +5,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -97,6 +98,12 @@ export const placeOrder = async (req, res) => {
 
     let prescriptionPhotoKey = null;
     if (req.file) {
+      // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+      // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+      await screenUploadBuffer(req.file.buffer, {
+        subject: 'Prescription photo',
+        context: { patientId, route: 'pharmacy-order-prescription-photo' },
+      });
       const timestamp = Date.now();
       const ext = req.file.originalname?.split('.').pop() || 'jpg';
       prescriptionPhotoKey = `pharmacy/prescriptions/${patientId}/${timestamp}.${ext}`;
@@ -161,6 +168,8 @@ export const placeOrder = async (req, res) => {
     success(res, order, `Order placed. ${order.order_number}`);
   } catch (err) {
     logger.error('Place pharmacy order error:', err);
+    // Screening refusals (422/503) are deliberate caller-facing answers.
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to place order', { safe: true });
     error(res, 'Failed to place order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

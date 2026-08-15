@@ -91,7 +91,16 @@ data:
   #
   # ▶ TO RESTORE SCANNING: deploy clamd as a node-local daemon reachable at
   #   127.0.0.1:3310 from the backend pods, then change this to "required" and
-  #   sync. No code change is needed.
+  #   sync. No code change is needed. Every caller-byte ingest path screens
+  #   through the shared fileScanService, so `required` refuses unscanned
+  #   uploads platform-wide at ingest. Note the bound on retro-blocking:
+  #   stores WITH a per-row scan_status (generic uploads, staff-message
+  #   attachments, investigation files, consent signatures, booking photos)
+  #   also stop serving their never-scanned history under `required`; the
+  #   remaining legacy stores (appointment documents, patient records,
+  #   pharmacy/Rx photos, profile photos, proxy signatures, credential
+  #   documents) have no per-row status, so their pre-existing files keep
+  #   serving — see the fileScanService header for the coverage map.
   FILE_SCAN_POLICY: "disabled_accepted_risk"
 
   # MinIO upload archive source. Use the operator-managed `minio` Service name
