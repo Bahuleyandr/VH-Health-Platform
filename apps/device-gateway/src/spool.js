@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdir, open, readFile, readdir, rename, stat, unlink,
 } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 export const I09_GATEWAY_SEQUENCE_CONTRACT = 'vhhealth.i09.gateway-sequence/v1';
 export const POSTGRES_BIGINT_MAX = 9223372036854775807n;
@@ -444,6 +444,11 @@ export class SequencedPartition {
 
   async loadJournal() {
     this.events = [];
+    // Reset before re-reading: the flag describes THIS load. Without the
+    // reset, one torn-tail incident left it latched true forever and every
+    // subsequent observeResumeState (each 5s drain tick) re-appended another
+    // fsynced reconciliation event.
+    this.tornTail = false;
     let raw;
     try {
       raw = await readFile(this.journalFile);
@@ -526,7 +531,11 @@ export class SequencedPartition {
       };
       await this.writeManifest();
     }
-    if (this.tornTail) {
+    // Dedupe the same way block() does: a partition already held for this
+    // exact state/reason needs no second reconciliation event.
+    if (this.tornTail
+      && !(this.manifest.local_reconciliation_state === 'reconciliation_required_retention_gap'
+        && this.manifest.local_reconciliation_reason === 'torn_tail')) {
       await this.appendEvent({
         type: 'reconciliation',
         state: 'reconciliation_required_retention_gap',
@@ -954,8 +963,12 @@ export class NdjsonSpool {
   }
 
   async readRaw() {
+    return this.readRawFile(this.file);
+  }
+
+  async readRawFile(file) {
     try {
-      return await readFile(this.file);
+      return await readFile(file);
     } catch (err) {
       if (err.code === 'ENOENT') return null;
       throw err;
@@ -978,17 +991,18 @@ export class NdjsonSpool {
 
   // Mirror of SequencedPartition.loadJournal's torn-tail handling: quarantine
   // the torn bytes as an evidence file (never silently drop them) and truncate
-  // the spool back to its last complete line. Every mutation runs this first,
-  // so an append can never concatenate onto a torn line and a rewrite can
-  // never discard the torn bytes. The device never got an ACK for the torn
-  // message, so its retransmit preserves at-least-once delivery.
+  // the file back to its last complete line. Every mutation runs this first —
+  // on the live spool AND the dead-letter file — so an append can never
+  // concatenate onto a torn line and a rewrite can never discard the torn
+  // bytes. The device never got an ACK for the torn message, so its
+  // retransmit preserves at-least-once delivery.
   // Callers must hold the mutex.
-  async quarantineTornTailUnlocked() {
-    const raw = await this.readRaw();
+  async quarantineTornTailUnlocked(file = this.file) {
+    const raw = await this.readRawFile(file);
     const { intact, torn } = this.splitTornTail(raw);
     if (!torn) return;
-    await atomicWrite(join(this.dir, `${this.source}.torn-tail.${randomUUID()}.evidence`), torn);
-    await atomicWrite(this.file, intact);
+    await atomicWrite(join(this.dir, `${basename(file, '.ndjson')}.torn-tail.${randomUUID()}.evidence`), torn);
+    await atomicWrite(file, intact);
   }
 
   async append(entry) {
@@ -1043,6 +1057,7 @@ export class NdjsonSpool {
 
   async deadLetter(entry, reason) {
     return this.exclusive(async () => {
+      await this.quarantineTornTailUnlocked(this.deadFile);
       await appendDurable(
         this.deadFile,
         `${JSON.stringify({ ...entry, dead_lettered_at: new Date().toISOString(), reason })}\n`,
