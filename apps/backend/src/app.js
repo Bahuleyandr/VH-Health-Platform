@@ -769,7 +769,12 @@ app.use('/api/v1/auth/verify-otp', appCheckMiddleware({ expectedClient: 'patient
 app.use('/api/v1/auth', authRoutes); // Patient, staff, and admin authentication
 app.use('/api/v1/otp', patientRateLimiter, otpRoutes);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
-app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
+// NOTE: the realtime channel-catalog/health router (realtimeRoutes) is
+// mounted BELOW, behind validateApiKey + jwtAuth, next to the ticket
+// exchange. It used to sit here pre-API-key, disclosing the full channel
+// catalog and the live connection count to unauthenticated callers
+// (2026-08-14 findings, backend-HTTP P3 #7). No client consumes those two
+// endpoints pre-auth; the WS transport itself (/ws) is unaffected.
 // SCIM is provisioning, not user authentication. It resolves the tenant/provider
 // from the URL and verifies its own bearer token before any API-key/JWT middleware.
 app.use('/api/v1/scim/v2', genericLimiter, scimRoutes);
@@ -916,6 +921,12 @@ app.use('/api/v1/entitlements', requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES, 
 // Realtime ticket exchange — JWT-authed; issues short-lived WS-scoped tokens
 // for browser clients that can't expose their primary JWT to JS.
 app.use('/api/v1/realtime', genericLimiter, realtimeTicketRoutes);
+// Realtime channel catalog + connection-count health. Documentation/ops
+// surface for authenticated clients; moved behind validateApiKey + jwtAuth
+// so the channel inventory and live connection count are no longer public
+// reconnaissance (2026-08-14 findings, backend-HTTP P3 #7). Disjoint paths
+// from the ticket router (/channels, /health vs /ticket).
+app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
 
 // AI symptom-checker (Claude API). JWT-authed via the global middleware above.
 app.use('/api/v1/chatbot', patientRateLimiter, chatbotRoutes);
@@ -1639,7 +1650,12 @@ app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllB
 // to seed a returning child's schedule; doctors + nurses to record doses.
 app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), patientAccessGuard('PAEDIATRIC_IMMUNISATION', { careTeamModeGoverned: true }), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
 app.use('/api/v1/productivity', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), productivityRoutes);
-app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), dashboardsRoutes);
+// Admin BI dashboards (aggregate, non-PHI). Carries the same network-tier
+// gate as its admin siblings (adminIpAllowlist + adminRateLimiter) — it was
+// the one ADMIN_ROUTE_ROLES surface without them (2026-08-14 findings,
+// backend-HTTP P3 #7). No SUPER_ADMIN step-up: aggregate BI reads are not a
+// control-plane mutation surface (matches /admin/tenant-context posture).
+app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
