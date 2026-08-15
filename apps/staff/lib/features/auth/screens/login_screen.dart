@@ -116,16 +116,19 @@ class _LoginScreenState extends State<LoginScreen> {
         await AuthService.quickLogin(
           employeeId: employeeId,
           pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          rememberEmployeeId: _rememberMe,
         );
       } else if (_mode == _LoginMode.password) {
         await LoginService.loginWithPassword(
           employeeId: employeeId,
           password: _passwordController.text,
+          rememberEmployeeId: _rememberMe,
         );
       } else {
         await LoginService.loginWithPin(
           employeeId: employeeId,
           pin: _pinController.text,
+          rememberEmployeeId: _rememberMe,
         );
       }
       _finishLogin();
@@ -147,7 +150,10 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLockedOut = false;
     });
     try {
-      await LoginService.loginWithStaffSso(provider);
+      await LoginService.loginWithStaffSso(
+        provider,
+        rememberEmployeeId: _rememberMe,
+      );
       _finishLogin();
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
@@ -179,7 +185,11 @@ class _LoginScreenState extends State<LoginScreen> {
         if (result == BiometricAuthResult.cancelled) return;
         throw Exception('Biometric authentication is not available.');
       }
-      await AuthService.quickLogin(employeeId: employeeId, biometric: true);
+      await AuthService.quickLogin(
+        employeeId: employeeId,
+        biometric: true,
+        rememberEmployeeId: _rememberMe,
+      );
       _finishLogin();
     } catch (e) {
       if (mounted) {
