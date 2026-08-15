@@ -34,9 +34,12 @@ describe("investigations api contract", () => {
 
     await getTestCatalog("LAB");
 
-    expect(mockedGetJSON).toHaveBeenCalledWith("/api/v1/investigations/catalog", {
-      category: "LAB",
-    });
+    expect(mockedGetJSON).toHaveBeenCalledWith(
+      "/api/v1/investigations/catalog",
+      {
+        category: "LAB",
+      },
+    );
   });
 
   it("maps date filters to from_date/to_date in getBookingSLA", async () => {
@@ -118,12 +121,15 @@ describe("investigations api contract", () => {
       priority: "urgent",
     });
 
-    expect(mockedPostJSON).toHaveBeenCalledWith("/api/v1/investigations/order", {
-      patient_id: 5,
-      test_name: "CBC",
-      type: "lab",
-      priority: "urgent",
-    });
+    expect(mockedPostJSON).toHaveBeenCalledWith(
+      "/api/v1/investigations/order",
+      {
+        patient_id: 5,
+        test_name: "CBC",
+        type: "lab",
+        priority: "urgent",
+      },
+    );
   });
 
   it("forwards queue filters to getBookingQueue", async () => {
