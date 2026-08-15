@@ -80,7 +80,6 @@ class WebSocketProvider extends ChangeNotifier {
   bool _listening = false;
   bool _disposed = false;
   bool _appointmentAcknowledged = false;
-  bool _queueAcknowledged = false;
 
   Map<String, dynamic>? _lastAppointmentEvent;
   Map<String, dynamic>? get lastAppointmentEvent => _lastAppointmentEvent;
@@ -92,7 +91,6 @@ class WebSocketProvider extends ChangeNotifier {
   int get appointmentEventRevision => _appointmentEventRevision;
 
   bool get isAppointmentSubscriptionAcknowledged => _appointmentAcknowledged;
-  bool get isQueueSubscriptionAcknowledged => _queueAcknowledged;
 
   /// Upper bound on locally buffered notification events. The buffer only
   /// exists to hand events to [NotificationProvider.mergeFromWebSocket], which
@@ -180,21 +178,14 @@ class WebSocketProvider extends ChangeNotifier {
   void _syncAcknowledgements() {
     final realtime = _realtime;
     final appointmentChannel = _appointmentChannel;
-    final queueChannel = _queueChannel;
     final appointmentAcknowledged =
         realtime != null &&
         appointmentChannel != null &&
         realtime.isSubscribed(appointmentChannel);
-    final queueAcknowledged =
-        realtime != null &&
-        queueChannel != null &&
-        realtime.isSubscribed(queueChannel);
-    if (_appointmentAcknowledged == appointmentAcknowledged &&
-        _queueAcknowledged == queueAcknowledged) {
+    if (_appointmentAcknowledged == appointmentAcknowledged) {
       return;
     }
     _appointmentAcknowledged = appointmentAcknowledged;
-    _queueAcknowledged = queueAcknowledged;
     notifyListeners();
   }
 
@@ -238,17 +229,10 @@ class WebSocketProvider extends ChangeNotifier {
     _appointmentChannel = null;
     _queueChannel = null;
     _appointmentAcknowledged = false;
-    _queueAcknowledged = false;
   }
 
   void clearNotifications() {
     _wsNotifications.clear();
-  }
-
-  /// Kept for compatibility with older callers. New consumers use
-  /// [appointmentEventRevision] and never consume the event globally.
-  void clearAppointmentEvent() {
-    _lastAppointmentEvent = null;
   }
 
   @override

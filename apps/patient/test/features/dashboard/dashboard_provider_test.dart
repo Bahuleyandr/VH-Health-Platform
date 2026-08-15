@@ -117,11 +117,6 @@ class _FakeWebSocketProvider extends WebSocketProvider {
   @override
   int get appointmentEventRevision => _revision;
 
-  @override
-  void clearAppointmentEvent() {
-    _event = null;
-  }
-
   void emitAppointmentEvent(Map<String, dynamic> data) {
     _event = data;
     _revision += 1;
