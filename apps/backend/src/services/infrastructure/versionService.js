@@ -2,6 +2,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { describeFileScanPolicy, resolveFileScanPolicy } from '../../config/fileScanPolicy.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
@@ -171,11 +172,11 @@ export class VersionService {
           hasDatabase: !!process.env.DATABASE_URL,
           hasCloudStorage: !!process.env.CF_R2_BUCKET,
           hasFirebase: !!process.env.FIREBASE_PROJECT_ID,
-          // Virus scanning is a local clamd daemon (utils/virusScanner.js,
-          // 127.0.0.1:3310), probed at scan time and fail-closed — there is
-          // no env knob. The former CLAMAV_API_URL read here belonged to a
-          // deleted HTTP-scan helper and always reported false.
-          virusScanning: 'clamd (fail-closed at scan time)'
+          // Whether this deployment scans uploads is a DECLARED policy
+          // (FILE_SCAN_POLICY, see config/fileScanPolicy.js), not something
+          // inferred from a probe. Reporting the declaration is what lets an
+          // admin answer "are our uploads being scanned?" without a shell.
+          virusScanning: describeFileScanPolicy()
         };
       }
       
@@ -302,9 +303,9 @@ export class VersionService {
           api: 'operational',
           fileStorage: process.env.CF_R2_BUCKET ? 'operational' : 'disabled',
           notifications: 'operational',
-          // Local clamd daemon, probed per scan (utils/virusScanner.js) —
-          // availability is a runtime fact, not an env-derived one.
-          virusScanning: 'clamd (probed at scan time)'
+          // Declared posture (FILE_SCAN_POLICY), not a probe result — see
+          // config/fileScanPolicy.js.
+          virusScanning: resolveFileScanPolicy()
         },
         performance: {
           requestsPerMinute: 'N/A',

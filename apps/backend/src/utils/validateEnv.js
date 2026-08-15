@@ -1,6 +1,11 @@
 // src/utils/validateEnv.js
 
 import Joi from 'joi';
+import {
+  FILE_SCAN_POLICY,
+  FILE_SCAN_POLICY_VALUES,
+  describeFileScanPolicy,
+} from '../config/fileScanPolicy.js';
 import logger from '../logging/logger.js';
 import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVersionPolicy.js';
 
@@ -216,6 +221,19 @@ export const envSchema = Joi.object({
   CF_R2_URL: Joi.string().uri().optional().label('CF_R2_URL'),
   CF_R2_ACCESS_KEY_ID: Joi.string().optional().label('CF_R2_ACCESS_KEY_ID'),
   CF_R2_SECRET_ACCESS_KEY: Joi.string().optional().label('CF_R2_SECRET_ACCESS_KEY'),
+
+  // Malware scanning posture for every file the platform accepts or serves.
+  // `required` (default, fail-closed) refuses an upload outright when the local
+  // clamd daemon is unreachable, rather than storing bytes no gate will ever
+  // release. `disabled_accepted_risk` is an explicit on-the-record declaration
+  // that this deployment runs without a scanner; files are stored and served as
+  // `not_scanned`. There is deliberately no third "best effort" value — that
+  // ambiguity is the defect this setting replaced.
+  // See src/config/fileScanPolicy.js.
+  FILE_SCAN_POLICY: Joi.string()
+    .valid(...FILE_SCAN_POLICY_VALUES)
+    .default(FILE_SCAN_POLICY.REQUIRED)
+    .label('FILE_SCAN_POLICY'),
 
   // Firebase — optional but warn if missing
   FIREBASE_AUTH_ENABLED: Joi.string().valid('true', 'false').optional().label('FIREBASE_AUTH_ENABLED'),
@@ -625,6 +643,19 @@ if (envVars.FIREBASE_AUTH_ENABLED === 'true') {
 }
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
+}
+// Make the file-scanning posture discoverable at boot without reading code:
+// an operator scanning pod logs must be able to answer "is this deployment
+// scanning uploads?" A declared no-scanner deployment says so out loud every
+// start, because it is an accepted risk, not a default.
+if (envVars.FILE_SCAN_POLICY === FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK) {
+  optionalWarnings.push(
+    `FILE_SCAN_POLICY=${FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK} — malware scanning is OFF by explicit configuration. ` +
+      'Uploads and staff-message attachments are stored and served with scan_status=not_scanned. ' +
+      'Deploy clamd on the node and set FILE_SCAN_POLICY=required to restore scanning.',
+  );
+} else {
+  logger.info(`🛡️  File malware scanning: ${describeFileScanPolicy(envVars)}`);
 }
 if (!envVars.DOWNTIME_MIRROR_DIR && envVars.CLINICAL_CONTINUITY_PACKS_ENABLED !== 'true') {
   optionalWarnings.push('DOWNTIME_MIRROR_DIR is not set — static downtime ward-pack mirror falls back to an OS-temp directory; packs will not survive a pod restart/outage or be LAN-synced (point it at a shared hostPath/Longhorn volume — see docs/DOWNTIME_PROCEDURE.md)');

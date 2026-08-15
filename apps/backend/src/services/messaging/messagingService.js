@@ -1,13 +1,19 @@
 // src/services/messaging/messagingService.js
 
 import crypto from 'crypto';
+import {
+  FILE_SCAN_STATUS,
+  isScanStatusServable,
+  normalizeScanStatus,
+  resolveFileScanPolicy,
+} from '../../config/fileScanPolicy.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { getFileFromR2, uploadFileToR2 } from '../../utils/r2Storage.js';
-import { scanBuffer } from '../../utils/virusScanner.js';
 import { emitStaffMessage } from '../../utils/websocket/realtimeEmitter.js';
+import { screenUploadBuffer } from '../security/fileScanService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -80,7 +86,10 @@ const publicAttachment = row => ({
   file_name: row.file_name,
   content_type: row.content_type,
   file_size: row.file_size == null ? null : Number(row.file_size),
-  scan_status: row.scan_status || 'pending',
+  scan_status: normalizeScanStatus(row.scan_status),
+  // Truthful at list time, so a client never offers a download the gate will
+  // refuse. Legacy 'failed'/'pending' rows report false under every policy.
+  download_available: isScanStatusServable(row.scan_status),
   metadata: row.metadata || {},
   created_at: row.created_at,
   updated_at: row.updated_at
@@ -422,28 +431,14 @@ async function hydrateMessageAttachments(messages, tenantId, db = prisma) {
   }));
 }
 
-async function scanAttachmentBuffer(buffer) {
-  try {
-    await scanBuffer(Buffer.from(buffer));
-    return {
-      scanStatus: 'clean',
-      metadata: {
-        scanner: 'clamav',
-        scanned_at: new Date().toISOString()
-      }
-    };
-  } catch (err) {
-    const message = compactString(err?.message || err);
-    const infected = /virus detected|malicious|infected/i.test(message);
-    return {
-      scanStatus: infected ? 'quarantined' : 'failed',
-      metadata: {
-        scanner: 'clamav',
-        scanned_at: new Date().toISOString(),
-        scan_error: message || 'Attachment scan failed'
-      }
-    };
-  }
+// Attachment screening is the SAME decision the generic upload path makes, made
+// by the same module. The old local implementation guessed the outcome by
+// regex-matching an Error message and stored anything that wasn't recognisably
+// "infected" as 'failed' — which the download gate below then happily served,
+// because it tested only for 'quarantined'. Both halves of that are gone: the
+// outcome is structured, and the gate is an allowlist.
+async function screenAttachmentBuffer(buffer, context) {
+  return screenUploadBuffer(Buffer.from(buffer), { subject: 'Attachment', context });
 }
 
 function assertAttachmentFile(file) {
@@ -681,10 +676,16 @@ const messagingService = {
       throw AppError.badRequest('Cannot send an attachment to yourself');
     }
 
-    const scan = await scanAttachmentBuffer(attachmentFile.buffer);
-    if (scan.scanStatus === 'quarantined') {
-      throw AppError.badRequest('Attachment failed virus scan', 'ATTACHMENT_QUARANTINED');
-    }
+    // Screen before the bytes reach R2 or the ledger. Throws 422 for malware and
+    // 503 when scanning is required but no scanner answered — in both cases
+    // nothing is stored, so the sender learns at send time instead of the
+    // recipient discovering an undownloadable attachment later.
+    const scan = await screenAttachmentBuffer(attachmentFile.buffer, {
+      threadId,
+      senderUid,
+      tenantId: normalizedTenant,
+      fileName: attachmentFile.fileName
+    });
 
     const storageKey = storageKeyForAttachment({
       tenantId: normalizedTenant,
@@ -1188,8 +1189,30 @@ const messagingService = {
       staffUid,
       tenantId: normalizedTenant
     });
-    if (row.scan_status === 'quarantined') {
-      throw AppError.conflict('Attachment is quarantined and cannot be downloaded');
+    // ALLOWLIST, not a denylist. This gate used to read
+    // `if (row.scan_status === 'quarantined') throw` — which meant the 'failed'
+    // status an unreachable scanner always produced was served like a clean
+    // file, on a path whose code read as though scanning protected it. What may
+    // be served is now decided by the deployment's declared policy
+    // (src/config/fileScanPolicy.js), identically to the upload and brand-kit
+    // gates.
+    if (!isScanStatusServable(row.scan_status)) {
+      if (normalizeScanStatus(row.scan_status) === FILE_SCAN_STATUS.QUARANTINED) {
+        throw AppError.conflict(
+          'Attachment is quarantined and cannot be downloaded',
+          'ATTACHMENT_QUARANTINED',
+          { scan_status: FILE_SCAN_STATUS.QUARANTINED }
+        );
+      }
+      throw AppError.locked(
+        'Attachment is not available until its security scan passes',
+        'ATTACHMENT_SCAN_NOT_CLEAN',
+        {
+          scan_status: row.scan_status || FILE_SCAN_STATUS.PENDING,
+          normalized_scan_status: normalizeScanStatus(row.scan_status),
+          scan_policy: resolveFileScanPolicy()
+        }
+      );
     }
 
     const bytes = Buffer.from(await getFileFromR2(row.storage_key));

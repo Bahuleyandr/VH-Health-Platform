@@ -33,8 +33,26 @@ export class AppError extends Error {
     return new AppError(message, 409, code, details);
   }
 
+  static unprocessable(message, code = 'UNPROCESSABLE_ENTITY', details = null) {
+    return new AppError(message, 422, code, details);
+  }
+
   static tooMany(message = 'Too many requests', code = 'RATE_LIMITED') {
     return new AppError(message, 429, code);
+  }
+
+  static serviceUnavailable(message = 'Service temporarily unavailable', code = 'SERVICE_UNAVAILABLE', details = null) {
+    return new AppError(message, 503, code, details);
+  }
+
+  /**
+   * 423 Locked — the resource exists and the caller is entitled to it, but a
+   * precondition on the resource itself is unmet. Used by the file-scan gates
+   * for "stored, but not in a servable scan state" (see
+   * src/config/fileScanPolicy.js); distinct from 403 (caller not entitled).
+   */
+  static locked(message, code = 'RESOURCE_LOCKED', details = null) {
+    return new AppError(message, 423, code, details);
   }
 
   static internal(message = 'Internal server error', code = 'INTERNAL_ERROR') {

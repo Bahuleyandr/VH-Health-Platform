@@ -63,6 +63,26 @@ data:
   CF_R2_BUCKET: "vh-health-records"
   OFFSITE_BACKUP_PREFIX: "offsite/minio-records"
 
+  # Malware scanning posture — see apps/backend/src/config/fileScanPolicy.js.
+  # THIS IS A RISK DECLARATION, NOT A TUNING KNOB.
+  #
+  # The application-code default is `required`, which refuses every upload when
+  # no scanner answers. This cluster has NO clamd daemon deployed on any node —
+  # nothing in infra/ ships one — so `required` would take every file upload and
+  # every staff-message attachment to a hard 503 the moment this rolls out.
+  # Setting the value here states the true, currently-accepted posture on the
+  # record instead: files are stored and served with scan_status='not_scanned',
+  # visibly distinct from 'clean', and the backend logs a warning naming this
+  # on every pod start.
+  #
+  # Files already known to be malware ('quarantined') are still never served,
+  # under either value.
+  #
+  # ▶ TO RESTORE SCANNING: deploy clamd as a node-local daemon reachable at
+  #   127.0.0.1:3310 from the backend pods, then change this to "required" and
+  #   sync. No code change is needed.
+  FILE_SCAN_POLICY: "disabled_accepted_risk"
+
   # MinIO upload archive source. Use the operator-managed `minio` Service name
   # covered by requestAutoCert; the custom `minio-api` alias is not in the
   # generated certificate SANs. This is not the CNPG physical-backup target.
