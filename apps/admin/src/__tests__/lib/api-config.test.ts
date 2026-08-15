@@ -163,7 +163,9 @@ describe("API_ENDPOINTS — endpoint paths start with /api/v1/", () => {
     if (typeof obj === "string") {
       results.push(obj);
     } else if (typeof obj === "object" && obj !== null) {
-      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        obj as Record<string, unknown>,
+      )) {
         if (typeof value === "string") {
           results.push(value);
         } else if (typeof value === "object" && value !== null) {
@@ -295,7 +297,9 @@ describe("proxy URL helpers", () => {
 
   it("adds /api/v1 to short API paths", () => {
     expect(ensureApiV1Path("/admin/alerts")).toBe("/api/v1/admin/alerts");
-    expect(ensureApiV1Path("records/export/pdf")).toBe("/api/v1/records/export/pdf");
+    expect(ensureApiV1Path("records/export/pdf")).toBe(
+      "/api/v1/records/export/pdf",
+    );
   });
 
   it("builds a proxied URL without stripping the API version", () => {
@@ -306,10 +310,11 @@ describe("proxy URL helpers", () => {
 
   it("preserves query strings when building proxy URLs", () => {
     expect(
-      buildProxyUrl("/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01"),
+      buildProxyUrl(
+        "/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01",
+      ),
     ).toBe(
       `${API_BASE_URL}/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01`,
     );
   });
 });
-

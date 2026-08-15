@@ -45,7 +45,9 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
     }
 
     if (!/^[a-zA-Z0-9_-]{3,50}$/.test(data.username)) {
-      setError("Username must be 3–50 letters, numbers, underscores, or hyphens.");
+      setError(
+        "Username must be 3–50 letters, numbers, underscores, or hyphens.",
+      );
       setLoading(false);
       return;
     }
@@ -63,8 +65,14 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       return;
     }
 
-    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/.test(data.password)) {
-      setError("Password must include uppercase, lowercase, a number, and a special character.");
+    if (
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/.test(
+        data.password,
+      )
+    ) {
+      setError(
+        "Password must include uppercase, lowercase, a number, and a special character.",
+      );
       setLoading(false);
       return;
     }
@@ -178,7 +186,8 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             placeholder="Minimum 8 characters"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            At least 8 characters with uppercase, lowercase, a number, and a special character
+            At least 8 characters with uppercase, lowercase, a number, and a
+            special character
           </p>
         </div>
       </div>

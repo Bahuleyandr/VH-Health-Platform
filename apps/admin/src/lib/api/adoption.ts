@@ -175,7 +175,10 @@ export function getAdoptionSummary() {
 }
 
 export function saveHelpCategory(payload: HelpCategoryPayload) {
-  return putJSON<HelpCenterCategory>("/admin/adoption/help-categories", payload);
+  return putJSON<HelpCenterCategory>(
+    "/admin/adoption/help-categories",
+    payload,
+  );
 }
 
 export function saveLearningModule(payload: LearningModulePayload) {
@@ -193,7 +196,9 @@ export async function downloadTrainingEvidenceCsv(params?: QueryParams) {
       search.set(key, String(value));
     }
   }
-  const res = await apiFetch(`/api/v1/admin/adoption/evidence-ledger?${search.toString()}`);
+  const res = await apiFetch(
+    `/api/v1/admin/adoption/evidence-ledger?${search.toString()}`,
+  );
   if (!res.ok) {
     throw new Error(`Evidence export failed with HTTP ${res.status}`);
   }

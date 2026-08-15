@@ -26,6 +26,6 @@ export function getAuditLogs<T = unknown>(params?: AuditLogParams) {
 export function toggleUserStatus<T = unknown>(userId: string, active: boolean) {
   return postJSON<T>(API_ENDPOINTS.infrastructure.toggleUserStatus, {
     userId,
-    active
+    active,
   });
 }

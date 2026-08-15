@@ -74,14 +74,17 @@ export interface SLADashboard {
 export function getInvestigationsList(params?: QueryParams) {
   return getJSON<{ investigations: Investigation[]; pagination: unknown }>(
     API_ENDPOINTS.investigations.list,
-    params
+    params,
   );
 }
 
 export function getTestCatalog(category?: string) {
   const params: QueryParams = {};
   if (category) params.category = category;
-  return getJSON<TestCatalogItem[]>(API_ENDPOINTS.investigations.catalog, params);
+  return getJSON<TestCatalogItem[]>(
+    API_ENDPOINTS.investigations.catalog,
+    params,
+  );
 }
 
 export function upsertTestCatalog(data: Partial<TestCatalogItem>) {
@@ -92,7 +95,10 @@ export function getSLADashboard(fromDate?: string, toDate?: string) {
   const params: QueryParams = {};
   if (fromDate) params.from_date = fromDate;
   if (toDate) params.to_date = toDate;
-  return getJSON<SLADashboard>(API_ENDPOINTS.investigations.slaDashboard, params);
+  return getJSON<SLADashboard>(
+    API_ENDPOINTS.investigations.slaDashboard,
+    params,
+  );
 }
 
 export function orderInvestigation(data: {
@@ -104,12 +110,14 @@ export function orderInvestigation(data: {
 }) {
   return postJSON<{ investigation: Investigation; patient_name?: string }>(
     "/api/v1/investigations/order",
-    data
+    data,
   );
 }
 
 export function updateInvestigationStatus(id: number, status: string) {
-  return putJSON<Investigation>(`/api/v1/investigations/${id}/status`, { status });
+  return putJSON<Investigation>(`/api/v1/investigations/${id}/status`, {
+    status,
+  });
 }
 
 /* ─── Investigation Bookings (Patient-Initiated) ─── */
@@ -149,7 +157,12 @@ export interface InvestigationBooking {
   result_file_key: string | null;
   result_notes: string | null;
   notes: string | null;
-  test_details?: Array<{ id: number; name: string; default_cost: number; category: string }>;
+  test_details?: Array<{
+    id: number;
+    name: string;
+    default_cost: number;
+    category: string;
+  }>;
   test_names?: string[];
   mins_since_booked?: number;
   sla_breached?: boolean;
@@ -189,33 +202,72 @@ export interface BookingSLADashboard {
 }
 
 export function getBookingQueue(params?: QueryParams) {
-  return getJSON<InvestigationBooking[]>("/api/v1/investigations/bookings/queue", params);
+  return getJSON<InvestigationBooking[]>(
+    "/api/v1/investigations/bookings/queue",
+    params,
+  );
 }
 
 export function getBookingSLA(fromDate?: string, toDate?: string) {
   const params: QueryParams = {};
   if (fromDate) params.from_date = fromDate;
   if (toDate) params.to_date = toDate;
-  return getJSON<BookingSLADashboard>("/api/v1/investigations/bookings/sla", params);
+  return getJSON<BookingSLADashboard>(
+    "/api/v1/investigations/bookings/sla",
+    params,
+  );
 }
 
-export function confirmBooking(id: number, data: { confirmation_notes?: string; actual_tests?: string; final_cost?: number }) {
-  return postJSON<InvestigationBooking>(`/api/v1/investigations/bookings/${id}/confirm`, data);
+export function confirmBooking(
+  id: number,
+  data: {
+    confirmation_notes?: string;
+    actual_tests?: string;
+    final_cost?: number;
+  },
+) {
+  return postJSON<InvestigationBooking>(
+    `/api/v1/investigations/bookings/${id}/confirm`,
+    data,
+  );
 }
 
-export function dispatchCollectorBooking(id: number, data: { assigned_collector?: number; collector_phone?: string; notes?: string }) {
-  return postJSON<InvestigationBooking>(`/api/v1/investigations/bookings/${id}/dispatch`, data);
+export function dispatchCollectorBooking(
+  id: number,
+  data: {
+    assigned_collector?: number;
+    collector_phone?: string;
+    notes?: string;
+  },
+) {
+  return postJSON<InvestigationBooking>(
+    `/api/v1/investigations/bookings/${id}/dispatch`,
+    data,
+  );
 }
 
-export function markBookingCollected(id: number, data?: { collection_notes?: string }) {
-  return postJSON<InvestigationBooking>(`/api/v1/investigations/bookings/${id}/collected`, data ?? {});
+export function markBookingCollected(
+  id: number,
+  data?: { collection_notes?: string },
+) {
+  return postJSON<InvestigationBooking>(
+    `/api/v1/investigations/bookings/${id}/collected`,
+    data ?? {},
+  );
 }
 
 export function startBookingProcessing(id: number) {
-  return postJSON<InvestigationBooking>(`/api/v1/investigations/bookings/${id}/processing`, {});
+  return postJSON<InvestigationBooking>(
+    `/api/v1/investigations/bookings/${id}/processing`,
+    {},
+  );
 }
 
-export async function uploadBookingResult(id: number, file: File, notes?: string) {
+export async function uploadBookingResult(
+  id: number,
+  file: File,
+  notes?: string,
+) {
   const { apiFetch } = await import("../api-fetch");
   const formData = new FormData();
   formData.append("file", file);
