@@ -7,6 +7,16 @@ import 'package:vhhealth/core/services/logout_service.dart';
 /// After [timeoutDuration] of inactivity, clears credentials and sets
 /// [isSessionExpired] to true. The router redirect guard should check
 /// this flag and navigate to the login screen.
+///
+/// Lifecycle is owned by the router redirect guard: it calls
+/// [startTracking] when a live backend session lands on `/login`
+/// (login and re-login — this also clears a previous expiry) and
+/// [recordActivity] on every protected navigation. Guest mode calls
+/// [pauseForGuest]. Explicit logout does NOT stop the timer: logout
+/// triggers are context-free and funnel into the single-flight
+/// `LogoutService.logout()`, so a timer that fires after logout is a
+/// harmless idempotent re-run of the same teardown, and the next
+/// login's [startTracking] re-arms cleanly.
 class SessionTimeoutProvider extends ChangeNotifier {
   SessionTimeoutProvider({this.timeoutDuration = const Duration(minutes: 30)});
 
@@ -24,16 +34,10 @@ class SessionTimeoutProvider extends ChangeNotifier {
     _timer = Timer(timeoutDuration, _onTimeout);
   }
 
-  /// Start tracking. Call after login.
+  /// Start tracking. Called by the router guard after (re-)login.
   void startTracking() {
     _expired = false;
     recordActivity();
-  }
-
-  /// Stop tracking. Call on explicit logout.
-  void stopTracking() {
-    _timer?.cancel();
-    _timer = null;
   }
 
   /// Stop authenticated-session tracking without marking the session expired.
@@ -45,13 +49,6 @@ class SessionTimeoutProvider extends ChangeNotifier {
       _expired = false;
       notifyListeners();
     }
-  }
-
-  /// Reset after re-login.
-  void resetSession() {
-    _expired = false;
-    notifyListeners();
-    startTracking();
   }
 
   Future<void> _onTimeout() async {
