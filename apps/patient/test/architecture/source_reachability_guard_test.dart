@@ -98,7 +98,6 @@ const _reviewedExceptions = <String>{
   // Generated/public barrels are retained for their respective generators
   // and downstream import contracts even when main.dart has no direct edge.
   'gen/assets.gen.dart',
-  'gen/fonts.gen.dart',
   'generated/intl/messages_all.dart',
   'generated/intl/messages_en.dart',
   'generated/l10n.dart',

@@ -12,6 +12,7 @@ import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth/core/services/startup_gate_service.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/gen/fonts.gen.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/foundation.dart';
@@ -426,7 +427,11 @@ class _SplashScreenState extends State<SplashScreen>
                         'VH Health',
                         style: TextStyle(
                           fontSize: 28,
-                          fontFamily: 'VHFont',
+                          // The original 'VHFont' family was never declared in
+                          // pubspec.yaml, so this silently fell back to the
+                          // default typeface. DancingScript is the bundled
+                          // brand-title font (w500 = Medium is declared).
+                          fontFamily: FontFamily.dancingScript,
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
                         ),

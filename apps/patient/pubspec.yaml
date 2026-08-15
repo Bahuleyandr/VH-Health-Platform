@@ -120,9 +120,6 @@ flutter:
           weight: 500
         - asset: assets/fonts/DancingScript-SemiBold.ttf
           weight: 600
-    - family: SpaceMono
-      fonts:
-        - asset: assets/fonts/SpaceMono-Regular.ttf
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Flutter Gen config (optional)

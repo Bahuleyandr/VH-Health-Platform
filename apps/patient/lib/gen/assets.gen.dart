@@ -1,3 +1,5 @@
+// dart format width=80
+
 /// GENERATED CODE - DO NOT MODIFY BY HAND
 /// *****************************************************
 ///  FlutterGen
@@ -5,12 +7,15 @@
 
 // coverage:ignore-file
 // ignore_for_file: type=lint
-// ignore_for_file: directives_ordering,unnecessary_import,implicit_dynamic_list_literal,deprecated_member_use
+// ignore_for_file: deprecated_member_use,directives_ordering,implicit_dynamic_list_literal,unnecessary_import
 
 import 'package:flutter/widgets.dart';
 
 class $AssetsImagesGen {
   const $AssetsImagesGen();
+
+  /// Directory path: assets/images/features
+  $AssetsImagesFeaturesGen get features => const $AssetsImagesFeaturesGen();
 
   /// File path: assets/images/hospital_bg.jpg
   AssetGenImage get hospitalBg =>
@@ -27,42 +32,63 @@ class $AssetsImagesGen {
   List<AssetGenImage> get values => [hospitalBg, hospitalIcon, logo];
 }
 
-class $AssetsLangGen {
-  const $AssetsLangGen();
+class $AssetsImagesFeaturesGen {
+  const $AssetsImagesFeaturesGen();
 
-  /// File path: assets/lang/en.json
-  String get en => 'assets/lang/en.json';
+  /// File path: assets/images/features/about-us.svg
+  String get aboutUs => 'assets/images/features/about-us.svg';
 
-  /// File path: assets/lang/hi.json
-  String get hi => 'assets/lang/hi.json';
+  /// File path: assets/images/features/appointments.svg
+  String get appointments => 'assets/images/features/appointments.svg';
 
-  /// File path: assets/lang/ml.json
-  String get ml => 'assets/lang/ml.json';
+  /// File path: assets/images/features/ask-a-doubt.svg
+  String get askADoubt => 'assets/images/features/ask-a-doubt.svg';
 
-  /// File path: assets/lang/ta.json
-  String get ta => 'assets/lang/ta.json';
+  /// File path: assets/images/features/departments.svg
+  String get departments => 'assets/images/features/departments.svg';
 
-  /// File path: assets/lang/te.json
-  String get te => 'assets/lang/te.json';
+  /// File path: assets/images/features/investigations.svg
+  String get investigations => 'assets/images/features/investigations.svg';
+
+  /// File path: assets/images/features/pharmacy.svg
+  String get pharmacy => 'assets/images/features/pharmacy.svg';
+
+  /// File path: assets/images/features/trivia.svg
+  String get trivia => 'assets/images/features/trivia.svg';
+
+  /// File path: assets/images/features/your-health.svg
+  String get yourHealth => 'assets/images/features/your-health.svg';
 
   /// List of all assets
-  List<String> get values => [en, hi, ml, ta, te];
+  List<String> get values => [
+    aboutUs,
+    appointments,
+    askADoubt,
+    departments,
+    investigations,
+    pharmacy,
+    trivia,
+    yourHealth,
+  ];
 }
 
-class Assets {
-  const Assets._();
-
+abstract final class Assets {
   static const $AssetsImagesGen images = $AssetsImagesGen();
-  static const $AssetsLangGen lang = $AssetsLangGen();
 }
 
 class AssetGenImage {
-  const AssetGenImage(this._assetName, {this.size, this.flavors = const {}});
+  const AssetGenImage(
+    this._assetName, {
+    this.size,
+    this.flavors = const {},
+    this.animation,
+  });
 
   final String _assetName;
 
   final Size? size;
   final Set<String> flavors;
+  final AssetGenImageAnimation? animation;
 
   Image image({
     Key? key,
@@ -124,4 +150,16 @@ class AssetGenImage {
   String get path => _assetName;
 
   String get keyName => _assetName;
+}
+
+class AssetGenImageAnimation {
+  const AssetGenImageAnimation({
+    required this.isAnimation,
+    required this.duration,
+    required this.frames,
+  });
+
+  final bool isAnimation;
+  final Duration duration;
+  final int frames;
 }
