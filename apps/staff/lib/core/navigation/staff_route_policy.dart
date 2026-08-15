@@ -111,10 +111,6 @@ class StaffRoutePolicy {
       anyGates: {StaffRouteGate.patientLookup},
     ),
     StaffRouteMetadata(
-      '/reception-counter',
-      anyFeatureIds: {'front_office_workbench'},
-    ),
-    StaffRouteMetadata(
       '/front-office',
       anyFeatureIds: {'front_office_workbench'},
     ),
@@ -300,10 +296,6 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/oncology', anyFeatureIds: {'oncology'}),
     StaffRouteMetadata(
       '/calculators',
-      anyGates: {StaffRouteGate.clinicalCalculators},
-    ),
-    StaffRouteMetadata(
-      '/order-sets',
       anyGates: {StaffRouteGate.clinicalCalculators},
     ),
     StaffRouteMetadata('/maternity', anyGates: {StaffRouteGate.maternity}),

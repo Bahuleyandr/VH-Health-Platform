@@ -8,7 +8,6 @@ const staffNavExcludedRoutes = <String, String>{
       'contextual reconciliation flow from continuity recovery',
   '/phone/queries': 'phone self-service subpage',
   '/phone/patient-lookup': 'phone self-service subpage',
-  '/reception-counter': 'front-office contextual counter view',
   '/appointment-queue': 'legacy front-office redirect',
   '/clinical-ai/compose': 'clinical AI contextual compose flow',
   '/clinical-ai/voice-notes': 'clinical AI contextual voice-note flow',
@@ -19,5 +18,4 @@ const staffNavExcludedRoutes = <String, String>{
   '/payroll/declarations': 'payroll self-service subpage',
   '/payroll/tax-summary': 'payroll self-service subpage',
   '/about': 'settings subpage',
-  '/order-sets': 'patient-context order-set flow',
 };
