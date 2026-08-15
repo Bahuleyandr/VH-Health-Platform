@@ -4,13 +4,22 @@
 // Use these instead of raw string literals in switch statements.
 
 /// Appointment statuses returned by the backend.
+///
+/// Mirrors the backend's canonical list (`APPOINTMENT_STATUS` in
+/// `apps/backend/src/config/userConfig.js` / `APPOINTMENT_CONFIG.STATUSES`
+/// in `appointmentConfig.js`). The reschedule flow stamps the superseded
+/// appointment `RESCHEDULED` (terminal — the replacement is a new row).
+/// Non-canonical flow states occasionally seen in stored rows (e.g.
+/// `CHECKED_IN`, `WAITING`) are deliberately NOT listed: [fromString]
+/// fails closed (returns null) for them and callers handle them locally.
 enum AppointmentStatus {
   scheduled('SCHEDULED'),
   confirmed('CONFIRMED'),
   inProgress('IN_PROGRESS'),
   completed('COMPLETED'),
   cancelled('CANCELLED'),
-  noShow('NO_SHOW');
+  noShow('NO_SHOW'),
+  rescheduled('RESCHEDULED');
 
   final String value;
   const AppointmentStatus(this.value);
@@ -27,7 +36,10 @@ enum AppointmentStatus {
   bool get isActive =>
       this == scheduled || this == confirmed || this == inProgress;
   bool get isTerminal =>
-      this == completed || this == cancelled || this == noShow;
+      this == completed ||
+      this == cancelled ||
+      this == noShow ||
+      this == rescheduled;
 }
 
 /// Pharmacy order statuses returned by the backend.

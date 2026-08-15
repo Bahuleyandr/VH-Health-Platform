@@ -393,7 +393,8 @@ The five separate source repos these were merged from are archived on GitHub as 
 status string handling:
 
 - `AppointmentStatus` — SCHEDULED → CONFIRMED → IN_PROGRESS → COMPLETED;
-  + CANCELLED / NO_SHOW terminal.
+  + CANCELLED / NO_SHOW / RESCHEDULED terminal (a reschedule stamps the
+  superseded appointment RESCHEDULED; the replacement is a new row).
 - `PharmacyOrderStatus` — PENDING → CONFIRMED → PREPARING → READY →
   DISPATCHED → DELIVERED; + CANCELLED terminal. Legacy `PLACED` accepted
   in `fromString` as alias for `pending` (backend renamed 2026-04-14).

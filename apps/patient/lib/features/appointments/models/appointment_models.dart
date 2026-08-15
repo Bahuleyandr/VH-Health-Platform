@@ -1,6 +1,8 @@
 // Data models for the appointments feature — the parsed shapes the Book
 // and My-Appointments tabs work with. Extracted from appointments_screen.dart.
 
+import 'package:vhhealth/core/models/status_enums.dart';
+
 class DeptInfo {
   final int id;
   final String name;
@@ -44,12 +46,10 @@ class AppointmentInfo {
 
   bool get isTeleconsult => visitType.trim().toUpperCase() == 'TELE';
 
-  bool get hasTerminalStatus => [
-    'cancelled',
-    'no_show',
-    'completed',
-    'rescheduled',
-  ].contains(status.toLowerCase());
+  /// Fail-closed: an unknown status string parses to null and reads as
+  /// non-terminal, matching the previous raw-string behaviour.
+  bool get hasTerminalStatus =>
+      AppointmentStatus.fromString(status)?.isTerminal ?? false;
 
   bool get isUpcoming {
     final dt = DateTime.tryParse('$date $time');
