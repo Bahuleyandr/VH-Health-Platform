@@ -373,12 +373,10 @@ export const envSchema = Joi.object({
     .max(2 * 1024 * 1024)
     .default(256 * 1024)
     .label('SSO_SAML_MAX_ASSERTION_BYTES'),
-  SSO_DEBUG_ASSERTION_LOGGING: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.string().valid('false', '').optional()
-      .messages({ 'any.only': 'SSO_DEBUG_ASSERTION_LOGGING must not be "true" when NODE_ENV=production' }),
-    otherwise: Joi.string().valid('true', 'false').allow('').optional(),
-  }).label('SSO_DEBUG_ASSERTION_LOGGING'),
+  // NB: SSO_DEBUG_ASSERTION_LOGGING was removed (guard, .env.example, and
+  // seed) — the knob was validated here but read by no code anywhere; the
+  // debug-assertion logging it named was never implemented. If such logging
+  // is ever built, reinstate the production-must-be-false guard with it.
 
   // Tenant RLS enforcement. The runtime defaults this on in production when
   // unset; explicit false is reserved for confirmed single-tenant deployments.
