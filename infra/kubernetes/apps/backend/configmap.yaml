@@ -29,6 +29,17 @@ data:
   # the load-balanced Service so ioredis can retry discovery across all three.
   # Passwords live in vhhealth-backend-env. REDIS_REQUIRE_SENTINEL makes a
   # missing/malformed topology a startup failure instead of a silent downgrade.
+  #
+  # SCOPE OF STRICTNESS (873-F2, 2026-08-15): this knob is a BOOT gate only.
+  # A pod that cannot reach Redis at startup exits 1 and crash-loops into
+  # visibility. It does NOT make /health/ready fail on a run-time Redis
+  # outage: an already-initialized pod keeps serving degraded (fail-closed
+  # rate-limit profiles answer 429, caches fall to the authoritative DB) and
+  # reports the store state in the readiness payload's `degraded` block. It
+  # used to also gate readiness, which meant a full Redis loss pulled every
+  # pod from the Service in ~15s — converting a cache outage into the
+  # hospital-wide API outage the fail-open store-loss posture exists to
+  # prevent (apps/backend/src/config/rateLimitStoreLossPolicy.js).
   REDIS_REQUIRE_SENTINEL: "true"
   REDIS_SENTINEL_HOSTS: "redis-0.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-1.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-2.redis-headless.vhhealth-platform.svc.cluster.local:26379"
   REDIS_SENTINEL_MASTER: "vhhealth-primary"

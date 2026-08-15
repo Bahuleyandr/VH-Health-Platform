@@ -38,6 +38,16 @@
 //     FILE_SCAN_POLICY (#871): fail-open exists, but only as an explicit,
 //     per-profile, documented choice.
 //
+//     READINESS COHERENCE (873-F2, 2026-08-15): for this rationale to hold,
+//     /health/ready must keep an initialized pod IN the Service through a
+//     store outage. It does: REDIS_REQUIRE_SENTINEL is a boot-only gate
+//     (uptimeRoutes.js reports run-time Redis loss in a `degraded` block
+//     without flipping the HTTP status). Before that fix, strict prod
+//     readiness 503'd on any Redis loss and kubelet pulled every pod in
+//     ~15s — nullifying this table entirely: the fail-open postures were
+//     live only in the ≤15s pre-NotReady window. Do not re-add Redis
+//     reachability to the readiness gate.
+//
 // INVARIANTS — pinned by src/tests/unit/rateLimitStoreLossPolicy.test.js
 //   * auth, otp and sos are fail_closed, always. Not configurable. An
 //     unmetered credential-guessing or OTP-request window during a Redis

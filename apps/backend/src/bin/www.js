@@ -26,7 +26,7 @@ import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations, verifyMigrationsCurrent } from '../utils/migrations/runMigrations.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
-import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
+import { initWebSocket, initWsFanout, closeWsFanout, isWsFanoutReady } from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
@@ -203,7 +203,29 @@ async function prepareApplication() {
     // the shared cache and rate-limit store come back without a pod restart.
     // Until then the rate limiter applies its per-profile store-loss posture
     // (config/rateLimitStoreLossPolicy.js).
-    scheduleRedisReinit();
+    //
+    // 873-F10: the cache/limiter recover through the singleton automatically,
+    // but the WS fan-out subscriber below is boot-wired only — without this
+    // hook a reinit-recovered pod stayed silently deaf to cross-pod clinical
+    // broadcasts (code-blue / vitals) until restart, while reporting ready.
+    // Rewire it on the same background recovery.
+    scheduleRedisReinit({
+      onReconnect: async (client) => {
+        if (isWsFanoutReady()) return; // already wired by someone else
+        try {
+          const initialized = await initWsFanout({ pub: client });
+          if (initialized) {
+            logger.info('WS Redis fan-out restored after background Redis reconnect');
+          }
+        } catch (wsErr) {
+          logger.warn(
+            'WS fan-out rewire after Redis reconnect failed — broadcasts stay single-process '
+              + '(visible as redis_websocket_subscriber on /health/ready):',
+            wsErr.message,
+          );
+        }
+      },
+    });
   }
 
   // Wire cross-process WebSocket fan-out onto the Redis bus. The publisher is
