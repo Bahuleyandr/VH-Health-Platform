@@ -837,6 +837,19 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('unread-critical-notification-escalation', () => runUnreadCriticalEscalation());
   }));
 
+  // 🆘 Every 2 minutes - escalate never-acknowledged ACTIVE SOS alerts
+  // (HIGH-1): one severity-ladder step per 5-minute window + responder
+  // re-fan-out; stalled-at-CRITICAL alerts page ops and mark the
+  // sos_response_ack SLA instance escalated. Complements (does not replace)
+  // the unread-critical cron above, which watches notification rows — this
+  // watches the alert row itself.
+  registerCron('*/2 * * * *', withJobLock('sos-alert-age-escalation', async () => {
+    const { runSosAlertAgeEscalationSweep } = await import('../services/sosEscalationService.js');
+    await runForEachTenant('sos-alert-age-escalation', (tenantId) => (
+      runSosAlertAgeEscalationSweep({ tenantId })
+    ));
+  }));
+
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
   registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', () => runForEachTenant('escalate-stuck-orders', () => escalateStuckOrders())));
 

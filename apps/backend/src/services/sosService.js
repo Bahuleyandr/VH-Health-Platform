@@ -8,8 +8,74 @@ import { AppError } from '../utils/AppError.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import { logSecurityEvent } from '../utils/securityAuditLogger.js';
 import { sendSecurityWebhook } from '../utils/securityWebhook.js';
+import {
+  completeWorkflowSla,
+  recordCanonicalClinicalEvent,
+  startWorkflowSla,
+} from './clinical/canonicalClinicalPlatformService.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
+import { DEFAULT_TENANT_ID } from './tenant/tenantService.js';
+
+/** Canonical SLA rule armed at alert creation, completed on the first
+ * responder acknowledgement (or resolve/cancel). Seeded by migration 677. */
+export const SOS_RESPONSE_SLA_RULE = 'sos_response_ack';
+
+/**
+ * Canonical clinical timeline emit for an SOS lifecycle transition
+ * (sos.raised / sos.responded / sos.resolved / sos.cancelled / sos.escalated).
+ *
+ * SOS state changes are patient-facing clinical-adjacent writes, so they get
+ * the timeline+audit pair (CANONICAL_CLINICAL_TIMELINE.md invariant). Two
+ * deliberate deviations from the strict same-transaction shape, both following
+ * the housekeeping/bridge precedent (canonicalOperationalBridgeService):
+ *
+ * 1. Best-effort, never blocking: the SOS detail write is a life-safety path —
+ *    a canonical-layer failure must not 500 the alert (the patient would
+ *    retry/duplicate or believe nothing was recorded). Failures are logged.
+ * 2. `sos_alerts.uid` is nullable (guest / unknown-phone alerts). The timeline
+ *    writer no-ops without a patient_uid; the audit row still lands — same as
+ *    patient-less housekeeping rows.
+ */
+export async function emitSosCanonicalEvent({
+  db = prisma,
+  alertId,
+  tenantId = null,
+  patientUid = null,
+  eventType,
+  status,
+  previousStatus = null,
+  actorUid = null,
+  actorRole = null,
+  summary,
+  payload = {},
+} = {}) {
+  try {
+    const stamp = Date.now();
+    return await recordCanonicalClinicalEvent({
+      tenantId,
+      patientUid,
+      eventType,
+      eventStatus: status || null,
+      sourceTable: 'sos_alerts',
+      sourceId: String(alertId),
+      resourceType: 'sos_alert',
+      resourceId: String(alertId),
+      actorUid,
+      actorRole,
+      summary,
+      payload: { sos_alert_id: alertId, previous_status: previousStatus, status: status || null, ...payload },
+      beforeState: previousStatus ? { status: previousStatus } : null,
+      afterState: status ? { status } : null,
+      tags: ['sos', 'emergency'],
+      timelineIdempotencyKey: `sos_alerts:${alertId}:${eventType}:${status || 'none'}:${stamp}`,
+      auditIdempotencyKey: `sos_alerts:${alertId}:audit:${eventType}:${status || 'none'}:${stamp}`,
+    }, { db });
+  } catch (err) {
+    logger.error(`SOS alert ${alertId}: canonical ${eventType} emit failed`, { error: err.message });
+    return null;
+  }
+}
 
 export const createAlert = async (alertData) => {
   const {
@@ -24,6 +90,35 @@ export const createAlert = async (alertData) => {
     phone, user, latitude, longitude, severity, message,
     emergencyType, ip_address, userAgent, isTestAlert, createdBy,
   });
+
+  // Canonical timeline/audit pair + SLA clock (best-effort, post-detail-write —
+  // see emitSosCanonicalEvent for why this life-safety path is not strict).
+  // The sos_response_ack clock is what the sos-alert-age-escalation sweep and
+  // the admin ack-latency tiles measure; respond/resolve/cancel complete it.
+  await emitSosCanonicalEvent({
+    alertId: alert.id,
+    tenantId: alert.tenant_id,
+    patientUid: user.uid || null,
+    eventType: 'sos.raised',
+    status: 'ACTIVE',
+    actorUid: user.uid || null,
+    actorRole: 'PATIENT',
+    summary: `SOS alert #${alert.id} raised (${severity})`,
+    payload: { severity, alert_type: emergencyType, is_test: isTestAlert === true },
+  });
+  try {
+    await startWorkflowSla({
+      tenantId: alert.tenant_id,
+      ruleCode: SOS_RESPONSE_SLA_RULE,
+      patientUid: user.uid || null,
+      sourceTable: 'sos_alerts',
+      sourceId: String(alert.id),
+      priority: 'critical',
+      metadata: { severity, is_test: isTestAlert === true },
+    });
+  } catch (slaErr) {
+    logger.error(`SOS alert ${alert.id}: SLA clock start failed`, { error: slaErr.message });
+  }
 
   let nearbyServices = {};
   if (latitude && longitude) {
@@ -82,7 +177,7 @@ const insertAlert = async (data) => {
       ${data.ip_address ?? null},
       'ACTIVE', NOW(), NOW(), NOW()
     )
-    RETURNING id, created_at
+    RETURNING id, created_at, tenant_id
   `;
   return rows[0];
 };
@@ -160,10 +255,131 @@ export const cancelAlert = async (alertId, uid) => {
     WHERE id = ${parseInt(alertId, 10)}
       AND (uid = ${uid}::uuid OR phone IN (SELECT phone FROM users WHERE uid = ${uid}::uuid))
       AND status = 'ACTIVE'
-    RETURNING id, status
+    RETURNING id, status, tenant_id, uid
   `;
   if (rows.length === 0) throw new Error('Alert not found or already resolved');
-  return rows[0];
+  const alert = rows[0];
+  await emitSosCanonicalEvent({
+    alertId: alert.id,
+    tenantId: alert.tenant_id,
+    patientUid: alert.uid || null,
+    eventType: 'sos.cancelled',
+    status: 'CANCELLED',
+    previousStatus: 'ACTIVE',
+    actorUid: uid,
+    actorRole: 'PATIENT',
+    summary: `SOS alert #${alert.id} cancelled by the patient`,
+  });
+  try {
+    await completeWorkflowSla({
+      tenantId: alert.tenant_id,
+      ruleCode: SOS_RESPONSE_SLA_RULE,
+      sourceTable: 'sos_alerts',
+      sourceId: String(alert.id),
+      metadata: { completed_status: 'CANCELLED', completed_by: uid },
+    });
+  } catch (slaErr) {
+    logger.error(`SOS alert ${alert.id}: SLA completion on cancel failed`, { error: slaErr.message });
+  }
+  return { id: alert.id, status: alert.status };
+};
+
+/* ----------------------- responder loop transitions ----------------------- */
+// Moved out of sosController (HIGH-1): the transitions now persist the
+// validated responder text (migration 677 columns), complete the
+// sos_response_ack SLA clock, and emit the canonical timeline/audit pair.
+
+/**
+ * ACTIVE -> RESPONDING. Persists the responder's required message.
+ * @returns the updated row, or null when the alert is not ACTIVE / wrong tenant.
+ */
+export const respondToAlert = async ({ tenantId, alertId, responderUid, responseMessage, responderRole = null }) => {
+  // Tenant scoping preserves the original controller shape: the alert's tenant
+  // is derived from the raising user row (uid/phone join, defaulted), matching
+  // the responder-dashboard SELECT so a listed alert can always be actioned.
+  const rows = await prisma.$queryRawUnsafe(`
+    UPDATE sos_alerts
+    SET status = 'RESPONDING', responded_by = $1::uuid, responded_at = NOW(),
+        response_message = $4, updated_at = NOW()
+    WHERE id = $2::int AND status = 'ACTIVE'
+      AND EXISTS (
+        SELECT 1 FROM users u
+         WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
+           AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $3::uuid
+      )
+    RETURNING id, status, responded_at, response_message, tenant_id, uid
+  `, responderUid, parseInt(alertId, 10), tenantId, responseMessage ?? null);
+  if (rows.length === 0) return null;
+  const alert = rows[0];
+  await emitSosCanonicalEvent({
+    alertId: alert.id,
+    tenantId: alert.tenant_id,
+    patientUid: alert.uid || null,
+    eventType: 'sos.responded',
+    status: 'RESPONDING',
+    previousStatus: 'ACTIVE',
+    actorUid: responderUid,
+    actorRole: responderRole,
+    summary: `SOS alert #${alert.id} acknowledged by responder`,
+    payload: { response_message: responseMessage ?? null },
+  });
+  try {
+    await completeWorkflowSla({
+      tenantId: alert.tenant_id,
+      ruleCode: SOS_RESPONSE_SLA_RULE,
+      sourceTable: 'sos_alerts',
+      sourceId: String(alert.id),
+      metadata: { completed_status: 'RESPONDING', completed_by: responderUid },
+    });
+  } catch (slaErr) {
+    logger.error(`SOS alert ${alert.id}: SLA completion on respond failed`, { error: slaErr.message });
+  }
+  return { id: alert.id, status: alert.status, responded_at: alert.responded_at, response_message: alert.response_message };
+};
+
+/**
+ * ACTIVE|RESPONDING -> RESOLVED. Persists the responder's optional notes.
+ * @returns the updated row, or null when not resolvable / wrong tenant.
+ */
+export const resolveAlert = async ({ tenantId, alertId, actorUid = null, resolutionNotes = null, actorRole = null }) => {
+  // Same original user-join tenant scoping as respondToAlert above.
+  const rows = await prisma.$queryRawUnsafe(`
+    UPDATE sos_alerts
+    SET status = 'RESOLVED', resolved_at = NOW(),
+        resolution_notes = $3, updated_at = NOW()
+    WHERE id = $1::int AND status IN ('ACTIVE', 'RESPONDING')
+      AND EXISTS (
+        SELECT 1 FROM users u
+         WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
+           AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+      )
+    RETURNING id, status, resolved_at, resolution_notes, tenant_id, uid
+  `, parseInt(alertId, 10), tenantId, resolutionNotes ?? null);
+  if (rows.length === 0) return null;
+  const alert = rows[0];
+  await emitSosCanonicalEvent({
+    alertId: alert.id,
+    tenantId: alert.tenant_id,
+    patientUid: alert.uid || null,
+    eventType: 'sos.resolved',
+    status: 'RESOLVED',
+    actorUid,
+    actorRole,
+    summary: `SOS alert #${alert.id} resolved`,
+    payload: { resolution_notes: resolutionNotes ?? null },
+  });
+  try {
+    await completeWorkflowSla({
+      tenantId: alert.tenant_id,
+      ruleCode: SOS_RESPONSE_SLA_RULE,
+      sourceTable: 'sos_alerts',
+      sourceId: String(alert.id),
+      metadata: { completed_status: 'RESOLVED', completed_by: actorUid },
+    });
+  } catch (slaErr) {
+    logger.error(`SOS alert ${alert.id}: SLA completion on resolve failed`, { error: slaErr.message });
+  }
+  return { id: alert.id, status: alert.status, resolved_at: alert.resolved_at, resolution_notes: alert.resolution_notes };
 };
 
 export const getMyAlerts = async (uid, { limit = 20, offset = 0 } = {}) => {
