@@ -45,6 +45,7 @@ function dependentRow(overrides = {}) {
     dep_email: 'dependent@test.local',
     dep_role: 'PATIENT',
     dep_is_minor: true,
+    dep_is_minor_now: true,
     dep_tenant_id: TENANT_ID,
     dep_is_active: true,
     dep_status: 'active',
