@@ -45,6 +45,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
       TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up): with the DB env provisioned,
+      # any skipped test not declared in apps/backend/scripts/jest-skip-floor.json
+      # fails the run (scripts/jest-skip-floor-reporter.cjs).
+      JEST_ENFORCE_SKIP_FLOOR: '1'
       API_KEY: test-api-key
       JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
       NODE_ENV: test
