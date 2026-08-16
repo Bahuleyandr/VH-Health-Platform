@@ -12,6 +12,14 @@ import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVe
 // Minimum key length for all at-rest encryption keys (base64-encoded 32 bytes = 44 chars,
 // but Joi.min counts characters; 32 is the floor below which we refuse to boot).
 const MIN_KEY_LENGTH = 32;
+const ABHA_ENROLMENT_SANDBOX_HOST = 'abhasbx.abdm.gov.in';
+
+function rejectProductionAbhaSandboxHost(value, helpers) {
+  if (new URL(value).hostname.toLowerCase() === ABHA_ENROLMENT_SANDBOX_HOST) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
 
 const ENCRYPTION_KEY_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
@@ -657,11 +665,19 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CM_ID'),
-  // ABHA enrolment API base (v3). Sandbox default; only https targets.
-  ABHA_ENROLMENT_BASE_URL: Joi.string()
-    .uri({ scheme: ['https'] })
-    .default('https://abhasbx.abdm.gov.in/abha/api/v3')
-    .label('ABHA_ENROLMENT_BASE_URL'),
+  // ABHA enrolment API base (v3). Sandbox keeps the known-safe default;
+  // production must name a non-sandbox host explicitly so Aadhaar/mobile/OTP
+  // material cannot cross environments through a forgotten URL override.
+  ABHA_ENROLMENT_BASE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbhaSandboxHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://abhasbx.abdm.gov.in/abha/api/v3'),
+  }).label('ABHA_ENROLMENT_BASE_URL'),
   // Thin-HIU identity; defaults to ABDM_HIP_ID in abdmConfig when unset.
   ABDM_HIU_ID: Joi.string().allow('').optional().label('ABDM_HIU_ID'),
 

@@ -118,6 +118,15 @@ describe('run-ci-jest.mjs shard wiring (integration, instant-exit paths)', () =>
     expect(mandatoryBlock).toContain("'fhir-server.deep.test.js'");
   });
 
+  test('caps the default Jest process group below the observed seven-suite 4 GB OOM boundary', () => {
+    const runnerSource = readFileSync(runnerPath, 'utf8');
+    const defaultChunkSize = Number(
+      runnerSource.match(/JEST_CI_CHUNK_SIZE \|\| (\d+)/)?.[1],
+    );
+
+    expect(defaultChunkSize).toBe(6);
+  });
+
   test('JEST_CI_SHARD combined with the chunk window exits 1 (silent chunk loss refused)', () => {
     const res = runRunner({ JEST_CI_SHARD: '1/3', JEST_CI_START_CHUNK: '5' });
     expect(res.status).toBe(1);

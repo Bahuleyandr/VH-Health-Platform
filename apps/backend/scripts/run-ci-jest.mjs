@@ -8,14 +8,11 @@ import { parseShardSpec, chunkBelongsToShard } from './lib/jestShard.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');
-const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 8);
-// 6144 (was 4096): chunk membership is derived from the code-unit-sorted file
-// list, so adding test files near the top of the alphabet re-partitions every
-// later chunk. The 2026-08-16 wave repacked critical-paths + cron-fanout +
-// data-export-gdpr + debug into one chunk whose in-band heap crested 4 GB
-// (V8 "Ineffective mark-compacts near heap limit" on all three CI shards).
-// Same remedy as run-coverage-jest.mjs: GitHub-hosted ubuntu-latest runners
-// have 16 GB and chunks run one process at a time, so 6 GB is safe headroom.
+// PR #878's full gate showed two independent eight-file processes reaching
+// the 4 GB V8 heap after their seventh full-app suite. Six-file processes keep
+// lifetimes below that boundary, while the 6 GB ceiling preserves headroom for
+// unusually heavy combinations. Every file still runs exactly once.
+const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 6);
 const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 6144);
 const testTimeoutMs = Number(process.env.JEST_TEST_TIMEOUT_MS || 60000);
 const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);

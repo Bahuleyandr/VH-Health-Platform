@@ -90,6 +90,52 @@ describe('validateEnv signed integration secrets', () => {
 
     expect(result.status).toBe(0);
   });
+
+  it('fails closed when production ABDM omits its enrolment base URL', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABHA_ENROLMENT_BASE_URL');
+  });
+
+  it('fails closed when production ABDM names the sandbox enrolment host', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abhasbx.abdm.gov.in/abha/api/v3',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABHA_ENROLMENT_BASE_URL');
+  });
+
+  it('allows production ABDM with an explicit non-sandbox HTTPS enrolment host', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+    });
+
+    expect(result.status).toBe(0);
+  });
 });
 
 describe('validateEnv Redis Sentinel production contract', () => {

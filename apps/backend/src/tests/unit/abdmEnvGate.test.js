@@ -16,6 +16,12 @@ const BASE_ABDM = {
   ABDM_CALLBACK_SECRET: 'x'.repeat(64),
 };
 
+const VERIFIED_ABDM = {
+  ...BASE_ABDM,
+  ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+  ABDM_CM_PUBLIC_KEY: 'pk',
+};
+
 describe('ABDM artefact verification env gate (CAN-026)', () => {
   it('requires ABDM_VERIFY_CONSENT_ARTEFACT when ABDM is enabled', () => {
     expect(messages({ ...BASE_ABDM, ABDM_CM_PUBLIC_KEY: 'pk' }))
@@ -40,5 +46,44 @@ describe('ABDM artefact verification env gate (CAN-026)', () => {
   it('does not require them when ABDM is disabled', () => {
     expect(messages({ ABDM_ENABLED: 'false' }))
       .not.toMatch(/ABDM_VERIFY_CONSENT_ARTEFACT|ABDM_CM_PUBLIC_KEY/);
+  });
+});
+
+describe('ABHA enrolment environment binding', () => {
+  it('requires an explicit enrolment base URL in production', () => {
+    expect(messages({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'prod-cm',
+    })).toMatch(/ABHA_ENROLMENT_BASE_URL/);
+  });
+
+  it('rejects the sandbox enrolment host in production', () => {
+    expect(messages({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'prod-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://ABHASBX.ABDM.GOV.IN:443/alternate/path',
+    })).toMatch(/ABHA_ENROLMENT_BASE_URL/);
+  });
+
+  it('accepts an explicit non-sandbox HTTPS enrolment host in production', () => {
+    expect(messages({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'prod-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+    })).not.toMatch(/ABDM_ENVIRONMENT|ABDM_CM_ID|ABHA_ENROLMENT_BASE_URL/);
+  });
+
+  it('retains the sandbox default outside production', () => {
+    const { error, value } = envSchema.validate({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'sandbox',
+    }, { abortEarly: false });
+
+    expect((error?.details || []).map((detail) => detail.message).join(' | '))
+      .not.toMatch(/ABDM_ENVIRONMENT|ABDM_CM_ID|ABHA_ENROLMENT_BASE_URL/);
+    expect(value.ABHA_ENROLMENT_BASE_URL).toBe('https://abhasbx.abdm.gov.in/abha/api/v3');
   });
 });
