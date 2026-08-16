@@ -9079,6 +9079,12 @@ model radiology_orders {
   signoff_idempotency_key              String?                                @db.VarChar(200)
   signoff_request_sha256               String?                                @db.Char(64)
   admission_id                         Int?
+  contrast_planned                     Boolean                                @default(false)
+  contrast_agent                       String?                                @db.VarChar(120)
+  contrast_allergy_screen              Json                                   @default("{}")
+  contrast_override_reason             String?
+  contrast_override_by                 String?                                @db.Uuid
+  contrast_override_at                 DateTime?                              @db.Timestamptz(6)
   diagnostic_result_generations        diagnostic_result_generations[]
   imaging_study_link_recovery_receipts imaging_study_link_recovery_receipts[]
   users                                users?                                 @relation(fields: [tenant_id, classification_signed_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_classification_signer")
@@ -9097,6 +9103,7 @@ model radiology_orders {
   @@index([report_completed_at], map: "idx_radiology_orders_signoff_pending", where: raw("((report_completed_at IS NOT NULL) AND (report_signed_off_at IS NULL))"))
   @@index([tenant_id, template_id], map: "idx_radiology_orders_template", where: raw("(template_id IS NOT NULL)"))
   @@index([tenant_id, admission_id, id], map: "idx_radiology_orders_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_radiology_orders_contrast_override", where: raw("(contrast_override_at IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

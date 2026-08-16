@@ -119687,6 +119687,38 @@
         ]
       }
     },
+    "/api/v1/radiology/{id}/contrast": {
+      "put": {
+        "operationId": "put_api_v1_radiology_by_id_contrast",
+        "tags": [
+          "radiology"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Amend the contrast plan on a radiology order awaiting acquisition",
+        "description": "Protocolling step: set or clear contrast intent (contrast_planned, contrast_agent) on an order still in status 'ordered'. Runs the same contrast/allergy screen as order creation against the patient's unified active allergies: a contrast-relevant hit returns 409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED with the matched allergies unless an acknowledged override ({ override: { reason, approvedBy? } }, minimum 5-character reason) is supplied. Overrides and findings are persisted to medication_safety_reviews plus the canonical timeline/audit pair, and the screen evidence lands in radiology_orders.contrast_allergy_screen. Locked with 409 RADIOLOGY_CONTRAST_PLAN_LOCKED once the study leaves 'ordered'.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/radiology/{id}/peer-reviews": {
       "post": {
         "operationId": "post_api_v1_radiology_by_id_peer_reviews",

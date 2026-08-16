@@ -3,7 +3,11 @@
 import crypto from 'node:crypto';
 import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { recordCanonicalClinicalEvent, recordMedicationSafetyReviews } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  assertContrastOrderAllowed,
+  validateRadiologyContrastSafety,
+} from '../../utils/clinical/contrastAllergyCheck.js';
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
@@ -43,6 +47,8 @@ const RAD_RETURNING = `id, patient_uid, encounter_id, admission_id, modality, bo
     pacs_study_instance_uid, acquisition_evidence, template_id, structured_report,
     result_classification, classification_basis, report_generation_version,
     classification_signed_by, classification_signed_at,
+    contrast_planned, contrast_agent, contrast_allergy_screen,
+    contrast_override_reason, contrast_override_by, contrast_override_at,
     tenant_id, notes, created_at, updated_at`;
 
 const RAD_CURRENT_READ_PROJECTION = `ro.id, ro.patient_uid, ro.encounter_id, ro.modality,
@@ -78,6 +84,8 @@ const RAD_CURRENT_READ_PROJECTION = `ro.id, ro.patient_uid, ro.encounter_id, ro.
          AND patient_release_closed.generation_id = latest_generation.id
          AND patient_release_closed.action_kind = 'normal_auto_closed'
     ) AS patient_release_auto_closed,
+    ro.contrast_planned, ro.contrast_agent, ro.contrast_allergy_screen,
+    ro.contrast_override_reason, ro.contrast_override_by, ro.contrast_override_at,
     ro.tenant_id, ro.notes, ro.created_at, ro.updated_at`;
 
 const RAD_LATEST_ADDENDUM_JOIN = `LEFT JOIN LATERAL (
@@ -567,6 +575,52 @@ async function maybeEmitTatAlert(db, metric) {
   return rows[0] || null;
 }
 
+// Contrast intent parsed off an order create/amend payload. A named agent
+// implies a contrast study even when the boolean flag was omitted (the
+// migration-678 CHECK `chk_radiology_contrast_agent_implies_planned` enforces
+// the same rule at the DB).
+function parseContrastIntent(data = {}) {
+  const contrastAgent = cleanOptionalText(data.contrast_agent ?? data.contrastAgent);
+  const rawPlanned = data.contrast_planned ?? data.contrastPlanned;
+  const contrastPlanned = rawPlanned === true || rawPlanned === 'true' || Boolean(contrastAgent);
+  return { contrastPlanned, contrastAgent: contrastPlanned ? contrastAgent : null };
+}
+
+// Evidence blob persisted to radiology_orders.contrast_allergy_screen — the
+// immutable record of what the screen knew when the order was placed/amended.
+function buildContrastScreenEvidence(screen, override) {
+  if (!screen) return {};
+  return {
+    screened_at: screen.screened_at,
+    agent_class: screen.agent_class,
+    safe: screen.safe,
+    blockers: screen.blockers,
+    warnings: screen.warnings,
+    renal: screen.renal,
+    override: override ? { reason: override.reason, approved_by: override.approvedBy } : null,
+  };
+}
+
+// Canonical-invariant leg: contrast safety findings/overrides land in
+// medication_safety_reviews (the platform's safety-finding vehicle) in the
+// SAME transaction as the order write. recordMedicationSafetyReviews is
+// per-row best-effort and never throws.
+async function recordContrastSafetyReviews(tx, { tenantId, order, screen, override, actorUid }) {
+  if (!screen || (screen.blockers.length === 0 && screen.warnings.length === 0)) return;
+  const tagIssue = (issue) => ({ ...issue, radiology_order_id: order.id, source_table: 'radiology_orders' });
+  await recordMedicationSafetyReviews({
+    tenantId,
+    patientUid: order.patient_uid,
+    safety: {
+      safe: screen.safe,
+      blockers: screen.blockers.map(tagIssue),
+      warnings: screen.warnings.map(tagIssue),
+    },
+    override: override ? { reason: override.reason, approvedBy: override.approvedBy } : null,
+    actorUid,
+  }, { db: tx });
+}
+
 class RadiologyService {
   async createOrder(data, context = {}) {
     const tenantId = tenantOr(context.tenantId || data.tenantId || data.tenant_id);
@@ -599,6 +653,39 @@ class RadiologyService {
       );
     }
 
+    // ── Contrast/allergy screen (Phase 0 pre-flight, plain prisma) ──
+    // Mirrors the CDS hard-block in ePrescriptionController.createPrescription:
+    // a contrast study is screened against the patient's unified active
+    // allergies; a contrast-relevant hit blocks (409
+    // RADIOLOGY_CONTRAST_ALLERGY_BLOCKED) unless an explicit override with
+    // reason is supplied.
+    const { contrastPlanned, contrastAgent } = parseContrastIntent(data);
+    let contrastScreen = null;
+    let contrastOverride = null;
+    if (contrastPlanned) {
+      contrastScreen = await validateRadiologyContrastSafety({
+        patientUid: patient_uid,
+        modality,
+        contrastAgent,
+      });
+      contrastOverride = assertContrastOrderAllowed(
+        contrastScreen,
+        data.override ?? (data.contrast_override_reason
+          ? { reason: data.contrast_override_reason, approvedBy: data.contrast_override_by }
+          : null),
+        ordered_by,
+      );
+      if (contrastOverride) {
+        logger.warn('Radiology contrast allergy override used', {
+          patient_uid,
+          modality,
+          contrast_agent: contrastAgent,
+          blockers: contrastScreen.blockers.length,
+          approved_by: contrastOverride.approvedBy,
+        });
+      }
+    }
+
     const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid);
     const order = await setTenantTx(tenantId, async (tx) => {
       const admissionCandidate = explicitAdmissionId || resolvedEncounterId;
@@ -626,18 +713,39 @@ class RadiologyService {
       const result = await tx.$queryRawUnsafe(
         `INSERT INTO radiology_orders
           (patient_uid, encounter_id, admission_id, modality, body_part, clinical_indication,
-           priority, status, ordered_by, notes, tenant_id, created_at, updated_at)
-         VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7, 'ordered', $8::uuid, $9, $10::uuid, NOW(), NOW())
+           priority, status, ordered_by, notes, tenant_id,
+           contrast_planned, contrast_agent, contrast_allergy_screen,
+           contrast_override_reason, contrast_override_by, contrast_override_at,
+           created_at, updated_at)
+         VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7, 'ordered', $8::uuid, $9, $10::uuid,
+                 $11::boolean, $12, $13::jsonb,
+                 $14, $15::uuid, CASE WHEN $14::text IS NOT NULL THEN NOW() ELSE NULL END,
+                 NOW(), NOW())
          RETURNING ${RAD_RETURNING}`,
         patient_uid, resolvedEncounterId, admissionId, modality, body_part, clinical_indication,
         priority, ordered_by, notes || null, tenantId,
+        contrastPlanned, contrastAgent, JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride)),
+        contrastOverride?.reason ?? null, contrastOverride?.approvedBy ?? null,
       );
       const row = result[0];
+      await recordContrastSafetyReviews(tx, {
+        tenantId,
+        order: row,
+        screen: contrastScreen,
+        override: contrastOverride,
+        actorUid: ordered_by,
+      });
       const canonical = await emitRadiologyCanonicalEvent(tx, row, 'radiology.order_created', {
         actorUid: ordered_by,
         actorRole: context.actorRole || data.actorRole || null,
         summary: `Radiology ${modality} order created for ${body_part}`,
-        payload: { clinical_indication },
+        payload: {
+          clinical_indication,
+          contrast_planned: contrastPlanned,
+          contrast_agent: contrastAgent,
+          contrast_allergy_blockers: contrastScreen ? contrastScreen.blockers.length : 0,
+          contrast_allergy_override: Boolean(contrastOverride),
+        },
         afterStatus: 'ordered',
         occurredAt: row.created_at,
       });
@@ -658,6 +766,136 @@ class RadiologyService {
     });
 
     logger.info('Radiology order created', { orderId: order.id, modality, patient_uid });
+    return normalizeWireValue(order);
+  }
+
+  /**
+   * Amend an order's contrast plan before acquisition (the protocolling step:
+   * an order placed without contrast is later protocolled to contrast, or
+   * vice versa). Runs the same allergy screen + acknowledged-override gate as
+   * createOrder. Only allowed while the study is still 'ordered' — once the
+   * tech has acquired (or the order is completed/cancelled) the contrast
+   * decision is history, not a plan.
+   */
+  async setContrastPlan(id, data = {}, context = {}) {
+    const tenantId = tenantOr(context.tenantId || data.tenantId || data.tenant_id);
+    const actorUid = context.actorUid || data.actorUid || null;
+    if (!actorUid) throw AppError.badRequest('Authenticated actor is required');
+    const { contrastPlanned, contrastAgent } = parseContrastIntent(data);
+
+    // Phase 0 pre-flight on plain prisma: order lookup + allergy screen.
+    const preflight = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, modality, body_part, status, contrast_planned, contrast_agent
+         FROM radiology_orders
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        LIMIT 1`,
+      requireIntId(id),
+      tenantId,
+    );
+    if (preflight.length === 0) throw AppError.notFound('Radiology order not found');
+    if (preflight[0].status !== 'ordered') {
+      throw AppError.conflict(
+        `Contrast plan can only be amended while the order is awaiting acquisition (status is '${preflight[0].status}')`,
+        'RADIOLOGY_CONTRAST_PLAN_LOCKED',
+      );
+    }
+
+    let contrastScreen = null;
+    let contrastOverride = null;
+    if (contrastPlanned) {
+      contrastScreen = await validateRadiologyContrastSafety({
+        patientUid: preflight[0].patient_uid,
+        modality: preflight[0].modality,
+        contrastAgent,
+      });
+      contrastOverride = assertContrastOrderAllowed(
+        contrastScreen,
+        data.override ?? (data.contrast_override_reason
+          ? { reason: data.contrast_override_reason, approvedBy: data.contrast_override_by }
+          : null),
+        actorUid,
+      );
+      if (contrastOverride) {
+        logger.warn('Radiology contrast allergy override used (contrast plan amendment)', {
+          radiology_order_id: preflight[0].id,
+          patient_uid: preflight[0].patient_uid,
+          contrast_agent: contrastAgent,
+          blockers: contrastScreen.blockers.length,
+          approved_by: contrastOverride.approvedBy,
+        });
+      }
+    }
+
+    const order = await setTenantTx(tenantId, async (tx) => {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT id, tenant_id, patient_uid, encounter_id, status, contrast_planned, contrast_agent
+           FROM radiology_orders
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        requireIntId(id),
+        tenantId,
+      );
+      if (existing.length === 0) throw AppError.notFound('Radiology order not found');
+      if (existing[0].status !== 'ordered') {
+        throw AppError.conflict(
+          `Contrast plan can only be amended while the order is awaiting acquisition (status is '${existing[0].status}')`,
+          'RADIOLOGY_CONTRAST_PLAN_LOCKED',
+        );
+      }
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE radiology_orders
+            SET contrast_planned = $1::boolean,
+                contrast_agent = $2,
+                contrast_allergy_screen = $3::jsonb,
+                contrast_override_reason = $4,
+                contrast_override_by = $5::uuid,
+                contrast_override_at = CASE WHEN $4::text IS NOT NULL THEN NOW() ELSE NULL END,
+                updated_at = NOW()
+          WHERE id = $6::int AND tenant_id = $7::uuid
+          RETURNING ${RAD_RETURNING}`,
+        contrastPlanned,
+        contrastAgent,
+        JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride)),
+        contrastOverride?.reason ?? null,
+        contrastOverride?.approvedBy ?? null,
+        requireIntId(id),
+        tenantId,
+      );
+      const row = result[0];
+      await recordContrastSafetyReviews(tx, {
+        tenantId,
+        order: row,
+        screen: contrastScreen,
+        override: contrastOverride,
+        actorUid,
+      });
+      await emitRadiologyCanonicalEvent(tx, row, 'radiology.contrast_plan_updated', {
+        actorUid,
+        actorRole: context.actorRole || null,
+        summary: contrastPlanned
+          ? `Contrast planned for radiology ${row.modality} ${row.body_part}${contrastAgent ? ` (${contrastAgent})` : ''}`
+          : `Contrast removed from radiology ${row.modality} ${row.body_part} plan`,
+        payload: {
+          contrast_planned: contrastPlanned,
+          contrast_agent: contrastAgent,
+          previous_contrast_planned: existing[0].contrast_planned,
+          previous_contrast_agent: existing[0].contrast_agent,
+          contrast_allergy_blockers: contrastScreen ? contrastScreen.blockers.length : 0,
+          contrast_allergy_override: Boolean(contrastOverride),
+        },
+        beforeStatus: existing[0].status,
+        afterStatus: existing[0].status,
+        occurredAt: row.updated_at,
+      });
+      return row;
+    });
+
+    logger.info('Radiology contrast plan updated', {
+      orderId: order.id,
+      contrast_planned: contrastPlanned,
+      contrast_agent: contrastAgent,
+      override_used: Boolean(contrastOverride),
+    });
     return normalizeWireValue(order);
   }
 
