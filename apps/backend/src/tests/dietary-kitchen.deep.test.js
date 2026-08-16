@@ -1,13 +1,17 @@
-// Deep tests for kitchen management on top of diet orders (migration 685):
-// menu master CRUD + live-name uniqueness, meal-ticket generation correctness
-// (admitted-only, npo/discharged/inactive exclusion, allergen-aware menu
-// matching, idempotency + live uniqueness), same-day re-sync on diet-order
-// change, lifecycle transition validation with wrong-role rejection, the
-// canonical timeline/audit pair on delivery, and the production summary.
+// Deep tests for kitchen management on top of diet orders (migrations 685 +
+// 687): menu master CRUD + live-name uniqueness, meal-ticket generation
+// correctness (admitted-only, npo/discharged/inactive exclusion,
+// unified-allergy-store screening with fail-closed degradation + persisted
+// screen evidence, idempotency + live uniqueness), same-day re-sync on
+// diet-order change (stale kitchen-side tickets cancelled, out-of-kitchen
+// trays recall-flagged with the canonical recall event), the discharge
+// recall hook, stale/recalled transition refusal, lifecycle transition
+// validation with wrong-role rejection, the canonical timeline/audit pair on
+// delivery, and the production summary.
 import prisma from '../lib/prisma.js';
 import {
   createMenuItem, updateMenuItem, listMenuItems,
-  generateMealTickets, syncTicketsForOrder,
+  generateMealTickets, syncTicketsForOrder, recallTicketsForPatient,
   listMealTickets, getProductionSummary, transitionTicket,
   buildAllergenTerms, menuItemAllergenConflict, screenMenuItems,
   MEAL_TYPES,
@@ -23,6 +27,9 @@ const P_NPO = 'd1e73333-3333-4333-8333-333333333333'; // admitted, npo order
 const P_ONHOLD = 'd1e74444-4444-4444-8444-444444444444'; // admitted, on_hold order
 const P_FOREIGN = 'd1e75555-5555-4555-8555-555555555555'; // other tenant, admitted + active
 const P_UNIFIED = 'd1e76666-6666-4666-8666-666666666666'; // allergy only in patient_allergies
+const P_RECALL = 'd1e77777-7777-4777-8777-777777777777'; // NPO-change recall flow
+const P_STALE = 'd1e78888-8888-4888-8888-888888888888'; // stale transition refusal
+const P_DISCHG = 'd1e79999-9999-4999-8999-999999999999'; // discharge recall hook
 
 const DIETITIAN_ACTOR = { uid: 'd1e7aaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'DIETITIAN' };
 const KITCHEN_ACTOR = { uid: 'd1e7bbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', role: 'DIETARY_STAFF' };
@@ -63,7 +70,9 @@ async function insertAdmission(tenant, patientUid, {
 async function ticketsFor(orderId) {
   return prisma.$queryRawUnsafe(
     `SELECT id::text AS id, meal_type, status, diet_type, ward, bed_number, patient_name,
-            allergies, menu_selections, diet_spec, allergy_screen, service_date::text AS service_date
+            allergies, menu_selections, diet_spec, allergy_screen, cancel_reason,
+            recalled_at, recalled_by, recall_reason, recall_ack_at, recall_ack_by,
+            service_date::text AS service_date
        FROM dietary_meal_tickets
       WHERE diet_order_id = $1::int
       ORDER BY array_position(ARRAY['breakfast','lunch','dinner','snack']::text[], meal_type), id`,
@@ -71,8 +80,13 @@ async function ticketsFor(orderId) {
   );
 }
 
+const ALL_PATIENTS = [
+  P_ADMITTED, P_DISCHARGED, P_NPO, P_ONHOLD, P_FOREIGN,
+  P_UNIFIED, P_RECALL, P_STALE, P_DISCHG,
+];
+
 async function cleanup() {
-  const patients = [P_ADMITTED, P_DISCHARGED, P_NPO, P_ONHOLD, P_FOREIGN, P_UNIFIED];
+  const patients = ALL_PATIENTS;
   for (const tid of [TENANT, OTHER]) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM dietary_meal_tickets WHERE tenant_id = $1::uuid`, tid,
@@ -100,6 +114,11 @@ async function cleanup() {
     `DELETE FROM patient_allergies WHERE patient_uid = ANY($1::uuid[])`, patients,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM audit_logs WHERE uid = $1::uuid
+        OR (resource = 'admission' AND (metadata->>'patient_uid') = ANY($2::text[]))`,
+    DIETITIAN_ACTOR.uid, patients,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`, patients,
   ).catch(() => {});
 }
@@ -125,9 +144,12 @@ beforeAll(async () => {
   await seedPatient(P_NPO, 'Kitchen NPO', '9821000003', TENANT);
   await seedPatient(P_ONHOLD, 'Kitchen OnHold', '9821000004', TENANT);
   await seedPatient(P_FOREIGN, 'Kitchen Foreign', '9821000005', OTHER);
-  // Admission + diet order for this one are created inside its own describe
-  // so the earlier generation-count assertions stay exact.
+  // Admissions + diet orders for these four are created inside their own
+  // describes so the earlier generation-count assertions stay exact.
   await seedPatient(P_UNIFIED, 'Kitchen Unified Allergy', '9821000006', TENANT);
+  await seedPatient(P_RECALL, 'Kitchen Recall', '9821000007', TENANT);
+  await seedPatient(P_STALE, 'Kitchen Stale', '9821000008', TENANT);
+  await seedPatient(P_DISCHG, 'Kitchen Discharge Hook', '9821000009', TENANT);
 
   await insertAdmission(TENANT, P_ADMITTED, { ward: 'Ward A', bed: 'A-101' });
   await insertAdmission(TENANT, P_DISCHARGED, { status: 'discharged', dischargedAt: true });
@@ -241,7 +263,6 @@ describe('meal ticket generation', () => {
     expect(withheld[0].tag).toBe('peanut');
     expect(withheld[0].matched).toBe('peanut');
 
-
     // No diabetic lunch item exists → empty selections + free-text spec.
     const lunch = tickets.find((t) => t.meal_type === 'lunch');
     expect(lunch.menu_selections).toEqual([]);
@@ -264,8 +285,10 @@ describe('meal ticket generation', () => {
     )).rejects.toThrow(/23505|duplicate key/i);
   });
 
-  test('same-day re-sync on order change cancels pending tickets and re-cuts, leaving in-flight trays alone', async () => {
-    // Kitchen starts breakfast before the diet change lands.
+  test('same-day re-sync on order change cancels ALL stale kitchen-side tickets (preparing included) and re-cuts', async () => {
+    // Kitchen starts breakfast before the diet change lands — the stale
+    // preparing tray must NOT keep cooking the old diet (it would be served
+    // with the stale spec through delivered).
     const before = await ticketsFor(orderAdmitted);
     const breakfastId = before.find((t) => t.meal_type === 'breakfast').id;
     await transitionTicket({
@@ -279,21 +302,30 @@ describe('meal ticket generation', () => {
     const sync = await syncTicketsForOrder({
       tenantId: TENANT, dietOrderId: orderAdmitted, actorUid: DIETITIAN_ACTOR.uid,
     });
-    expect(sync.cancelled).toBe(3); // lunch/dinner/snack were pending
-    expect(sync.created).toBe(3); // re-cut with the new diet type
+    expect(sync.cancelled).toBe(4); // preparing breakfast + 3 pending, all stale
+    expect(sync.recalled).toBe(0); // nothing was out of the kitchen
+    expect(sync.created).toBe(4); // full re-cut with the new diet type
 
     const after = await ticketsFor(orderAdmitted);
     const live = after.filter((t) => t.status !== 'cancelled');
     expect(live.length).toBe(4);
-    // The in-flight breakfast keeps cooking under the old spec…
-    expect(live.find((t) => t.id === breakfastId).status).toBe('preparing');
-    expect(live.find((t) => t.id === breakfastId).diet_type).toBe('diabetic');
-    // …while the re-cut meals carry the new diet type.
-    for (const meal of ['lunch', 'dinner', 'snack']) {
-      expect(live.find((t) => t.meal_type === meal).diet_type).toBe('renal');
+    for (const meal of MEAL_TYPES) {
+      const ticket = live.find((t) => t.meal_type === meal);
+      expect(ticket.status).toBe('pending');
+      expect(ticket.diet_type).toBe('renal');
     }
+    const stale = after.find((t) => t.id === breakfastId);
+    expect(stale.status).toBe('cancelled');
     const cancelled = after.filter((t) => t.status === 'cancelled');
-    expect(cancelled.length).toBe(3);
+    expect(cancelled.length).toBe(4);
+
+    // Re-syncing with no order change is a no-op: nothing is stale.
+    const rerun = await syncTicketsForOrder({
+      tenantId: TENANT, dietOrderId: orderAdmitted, actorUid: DIETITIAN_ACTOR.uid,
+    });
+    expect(rerun.cancelled).toBe(0);
+    expect(rerun.recalled).toBe(0);
+    expect(rerun.created).toBe(0);
   });
 
   test('discharge ends generation for the patient', async () => {
@@ -416,16 +448,17 @@ describe('kitchen board + production summary', () => {
   test('production summary counts live tickets by meal x diet type', async () => {
     const summary = await getProductionSummary({ tenantId: TENANT, date: TODAY });
     expect(summary.totalLive).toBe(4);
-    // In-flight breakfast kept its original diabetic spec; the re-cut meals
-    // cook renal.
-    expect(summary.byMeal.breakfast.by_diet_type).toEqual({ diabetic: 1 });
+    // The stale diabetic breakfast was cancelled by the re-sync; every live
+    // ticket cooks the re-cut renal spec.
+    expect(summary.byMeal.breakfast.by_diet_type).toEqual({ renal: 1 });
     expect(summary.byMeal.lunch.by_diet_type).toEqual({ renal: 1 });
     expect(summary.byMeal.dinner.by_diet_type).toEqual({ renal: 1 });
     expect(summary.byMeal.snack.by_diet_type).toEqual({ renal: 1 });
     // Status rollup includes cancelled history for the day.
     expect(summary.byMeal.lunch.by_status.collected).toBe(1);
     expect(summary.byMeal.lunch.by_status.cancelled).toBe(1);
-    expect(summary.byMeal.breakfast.by_status.preparing).toBe(1);
+    expect(summary.byMeal.breakfast.by_status.pending).toBe(1);
+    expect(summary.byMeal.breakfast.by_status.cancelled).toBe(1);
   });
 
   test('cross-tenant isolation: the other tenant sees nothing', async () => {
@@ -532,5 +565,233 @@ describe('unified allergy stores gate menu selection (migration 687)', () => {
     expect(breakfast.allergy_screen.patient_allergies).toEqual(['Peanuts']);
     const hit = breakfast.allergy_screen.excluded.find((e) => e.name === 'Groundnut Poha');
     expect(hit).toMatchObject({ tag: 'groundnut', matched: 'peanuts', via: 'class:peanut' });
+  });
+});
+
+describe('NPO change recalls trays past pending (migration 687)', () => {
+  let orderRecall;
+  let byMeal;
+
+  beforeAll(async () => {
+    await insertAdmission(TENANT, P_RECALL, { ward: 'Ward D', bed: 'D-401' });
+    orderRecall = await insertDietOrder(TENANT, P_RECALL, { dietType: 'regular' });
+    await generateMealTickets({
+      tenantId: TENANT, source: 'manual', generatedBy: DIETITIAN_ACTOR.uid,
+      dietOrderId: orderRecall,
+    });
+    const tickets = await ticketsFor(orderRecall);
+    byMeal = Object.fromEntries(tickets.map((t) => [t.meal_type, t.id]));
+    // Kitchen state before the NPO order lands: breakfast cooking, lunch out
+    // on the ward, dinner already at the bedside, snack untouched.
+    const go = (id, statuses, actor) => statuses.reduce(
+      (p, toStatus) => p.then(() => transitionTicket({
+        tenantId: TENANT, ticketId: id, toStatus, actor,
+      })),
+      Promise.resolve(),
+    );
+    await go(byMeal.breakfast, ['preparing'], KITCHEN_ACTOR);
+    await go(byMeal.lunch, ['preparing', 'ready', 'dispatched'], KITCHEN_ACTOR);
+    await go(byMeal.dinner, ['preparing', 'ready', 'dispatched'], KITCHEN_ACTOR);
+    await go(byMeal.dinner, ['delivered'], NURSE_ACTOR);
+  });
+
+  test('re-sync cancels kitchen-side tickets and recall-flags out-of-kitchen trays with the canonical event', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE diet_orders SET diet_type = 'npo', updated_at = NOW() WHERE id = $1::int`,
+      orderRecall,
+    );
+    const sync = await syncTicketsForOrder({
+      tenantId: TENANT, dietOrderId: orderRecall, actorUid: DIETITIAN_ACTOR.uid,
+      reason: 'patient made nil by mouth',
+    });
+    expect(sync.cancelled).toBe(2); // preparing breakfast + pending snack
+    expect(sync.recalled).toBe(2); // dispatched lunch + delivered dinner
+    expect(sync.created).toBe(0); // npo cuts nothing
+
+    const tickets = await ticketsFor(orderRecall);
+    const lunch = tickets.find((t) => t.id === byMeal.lunch);
+    // The out-of-kitchen tray is NOT silently cancelled — it keeps its
+    // status with the do-not-serve flag until the ward accounts for it.
+    expect(lunch.status).toBe('dispatched');
+    expect(lunch.recalled_at).toBeTruthy();
+    expect(lunch.recall_reason).toBe('patient made nil by mouth');
+    expect(lunch.recall_ack_at).toBeNull();
+    const dinner = tickets.find((t) => t.id === byMeal.dinner);
+    expect(dinner.status).toBe('delivered');
+    expect(dinner.recalled_at).toBeTruthy();
+    expect(tickets.find((t) => t.id === byMeal.breakfast).status).toBe('cancelled');
+    expect(tickets.find((t) => t.id === byMeal.snack).status).toBe('cancelled');
+
+    // Canonical recall pair per out-of-kitchen tray, in the recall tx.
+    for (const id of [byMeal.lunch, byMeal.dinner]) {
+      const timeline = await prisma.$queryRawUnsafe(
+        `SELECT event_type, patient_uid FROM clinical_timeline_events WHERE idempotency_key = $1`,
+        `dietary_meal_tickets:${id}:recalled`,
+      );
+      expect(timeline.length).toBe(1);
+      expect(timeline[0].event_type).toBe('dietary.meal_recalled');
+      expect(timeline[0].patient_uid).toBe(P_RECALL);
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT id FROM clinical_audit_events WHERE idempotency_key = $1`,
+        `dietary_meal_tickets:${id}:audit:recalled`,
+      );
+      expect(audit.length).toBe(1);
+    }
+  });
+
+  test('a recalled tray refuses delivery (409) and the ward acknowledges by cancelling / collecting', async () => {
+    // Do-not-serve: the recalled dispatched tray cannot be delivered.
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: byMeal.lunch, toStatus: 'delivered', actor: NURSE_ACTOR,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'DIETARY_TICKET_RECALLED' });
+
+    // Ward acknowledges the dispatched tray by cancelling it (the leg that
+    // is already open to ward roles) — the ack is stamped.
+    const cancelledTicket = await transitionTicket({
+      tenantId: TENANT, ticketId: byMeal.lunch, toStatus: 'cancelled', actor: NURSE_ACTOR,
+      reason: 'recall acknowledged — tray returned to kitchen',
+    });
+    expect(cancelledTicket.status).toBe('cancelled');
+    expect(cancelledTicket.recall_ack_at).toBeTruthy();
+    expect(cancelledTicket.recall_ack_by).toBe(NURSE_ACTOR.uid);
+
+    // A recalled delivered tray is acknowledged by collecting it back.
+    const collectedTicket = await transitionTicket({
+      tenantId: TENANT, ticketId: byMeal.dinner, toStatus: 'collected', actor: NURSE_ACTOR,
+    });
+    expect(collectedTicket.status).toBe('collected');
+    expect(collectedTicket.recall_ack_at).toBeTruthy();
+    expect(collectedTicket.recall_ack_by).toBe(NURSE_ACTOR.uid);
+  });
+});
+
+describe('stale-ticket transition refusal (live re-check at dispatch/deliver)', () => {
+  let orderStale;
+  let breakfastId;
+
+  beforeAll(async () => {
+    await insertAdmission(TENANT, P_STALE, { ward: 'Ward E', bed: 'E-501' });
+    orderStale = await insertDietOrder(TENANT, P_STALE, { dietType: 'regular' });
+    await generateMealTickets({
+      tenantId: TENANT, source: 'manual', generatedBy: DIETITIAN_ACTOR.uid,
+      dietOrderId: orderStale,
+    });
+    const tickets = await ticketsFor(orderStale);
+    breakfastId = tickets.find((t) => t.meal_type === 'breakfast').id;
+    await transitionTicket({
+      tenantId: TENANT, ticketId: breakfastId, toStatus: 'preparing', actor: KITCHEN_ACTOR,
+    });
+    await transitionTicket({
+      tenantId: TENANT, ticketId: breakfastId, toStatus: 'ready', actor: KITCHEN_ACTOR,
+    });
+  });
+
+  test('diet changed under the ticket → dispatch refused 409 with the reason', async () => {
+    // Direct SQL change — no re-sync ran (e.g. another node changed the
+    // order between board refreshes). transitionTicket must still notice.
+    await prisma.$executeRawUnsafe(
+      `UPDATE diet_orders SET diet_type = 'diabetic', updated_at = NOW() WHERE id = $1::int`,
+      orderStale,
+    );
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: breakfastId, toStatus: 'dispatched', actor: KITCHEN_ACTOR,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DIETARY_TICKET_STALE',
+      details: { reason: 'diet_changed' },
+    });
+  });
+
+  test('NPO under the ticket → refused with patient_npo', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE diet_orders SET diet_type = 'npo', updated_at = NOW() WHERE id = $1::int`,
+      orderStale,
+    );
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: breakfastId, toStatus: 'dispatched', actor: KITCHEN_ACTOR,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DIETARY_TICKET_STALE',
+      details: { reason: 'patient_npo' },
+    });
+  });
+
+  test('admission ended under the ticket → refused with admission_ended', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE diet_orders SET diet_type = 'regular', updated_at = NOW() WHERE id = $1::int`,
+      orderStale,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE admissions SET status = 'discharged', discharged_at = NOW()
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT, P_STALE,
+    );
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: breakfastId, toStatus: 'dispatched', actor: KITCHEN_ACTOR,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DIETARY_TICKET_STALE',
+      details: { reason: 'admission_ended' },
+    });
+  });
+});
+
+describe('discharge recalls the patient\'s live tickets', () => {
+  let orderDischg;
+  let byMeal;
+  let admissionId;
+
+  beforeAll(async () => {
+    admissionId = await insertAdmission(TENANT, P_DISCHG, { ward: 'Ward F', bed: 'F-601' });
+    orderDischg = await insertDietOrder(TENANT, P_DISCHG, { dietType: 'regular' });
+    await generateMealTickets({
+      tenantId: TENANT, source: 'manual', generatedBy: DIETITIAN_ACTOR.uid,
+      dietOrderId: orderDischg,
+    });
+    const tickets = await ticketsFor(orderDischg);
+    byMeal = Object.fromEntries(tickets.map((t) => [t.meal_type, t.id]));
+    // One tray out of the kitchen when the discharge lands.
+    for (const toStatus of ['preparing', 'ready', 'dispatched']) {
+      await transitionTicket({
+        tenantId: TENANT, ticketId: byMeal.lunch, toStatus, actor: KITCHEN_ACTOR,
+      });
+    }
+  });
+
+  test('dischargePatient (Phase 1.5 hook) cancels kitchen-side tickets and recall-flags the dispatched tray', async () => {
+    const { default: admissionService } = await import('../services/emr/admissionService.js');
+    // LAMA bypasses the discharge readiness gate — this test is about the
+    // dietary hook, not the gate.
+    await admissionService.dischargePatient(
+      admissionId,
+      { discharge_type: 'lama' },
+      DIETITIAN_ACTOR.uid,
+      { tenantId: TENANT },
+    );
+
+    const tickets = await ticketsFor(orderDischg);
+    for (const meal of ['breakfast', 'dinner', 'snack']) {
+      const ticket = tickets.find((t) => t.id === byMeal[meal]);
+      expect(ticket.status).toBe('cancelled');
+      expect(ticket.cancel_reason).toBe('admission ended (lama)');
+    }
+    const lunch = tickets.find((t) => t.id === byMeal.lunch);
+    expect(lunch.status).toBe('dispatched');
+    expect(lunch.recalled_at).toBeTruthy();
+    expect(lunch.recall_reason).toBe('admission ended (lama)');
+
+    // And the stale re-check backstops the hook: even if the recall had been
+    // missed, the discharged patient's tray cannot be delivered.
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: byMeal.lunch, toStatus: 'delivered', actor: NURSE_ACTOR,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'DIETARY_TICKET_RECALLED' });
+  });
+
+  test('recallTicketsForPatient is idempotent — a second run finds nothing live', async () => {
+    const rerun = await recallTicketsForPatient({
+      tenantId: TENANT, patientUid: P_DISCHG,
+      actorUid: DIETITIAN_ACTOR.uid, reason: 'admission ended (lama)',
+    });
+    expect(rerun).toEqual({ cancelled: 0, recalled: 0 });
   });
 });

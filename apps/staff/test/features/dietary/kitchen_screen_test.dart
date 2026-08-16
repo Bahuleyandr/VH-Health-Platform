@@ -12,6 +12,8 @@ Map<String, dynamic> _ticket({
     {'id': 1, 'name': 'Ragi Porridge', 'is_veg': true},
   ],
   List<String> allergies = const [],
+  String? recalledAt,
+  String? recallReason,
 }) {
   return {
     'id': id,
@@ -27,6 +29,8 @@ Map<String, dynamic> _ticket({
         ? '$diet diet — prepare per diet spec'
         : null,
     'allergies': allergies,
+    'recalled_at': recalledAt,
+    'recall_reason': recallReason,
     'service_date': '2026-08-16',
   };
 }
@@ -187,5 +191,45 @@ void main() {
     expect(calls, [
       ['2', 'delivered', null],
     ]);
+  });
+
+  testWidgets('a recalled dispatched tray shows the do-not-serve banner, '
+      'loses Mark Delivered, and offers the acknowledge-cancel', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _screen(
+        tickets: [
+          _ticket(
+            id: '5',
+            meal: 'lunch',
+            status: 'dispatched',
+            recalledAt: '2026-08-16T10:00:00Z',
+            recallReason: 'patient made nil by mouth',
+          ),
+          _ticket(
+            id: '6',
+            meal: 'dinner',
+            status: 'delivered',
+            recalledAt: '2026-08-16T10:00:00Z',
+            recallReason: 'admission ended (lama)',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Tray tracking'));
+    await tester.pumpAndSettle();
+
+    // Both recalled trays carry the banner with the recall reason.
+    expect(find.textContaining('RECALLED — do not serve'), findsNWidgets(2));
+    expect(find.textContaining('patient made nil by mouth'), findsOneWidget);
+
+    // The dispatched tray cannot be delivered; the ward acknowledges via
+    // Cancel ticket. The delivered tray keeps its collect-back action.
+    expect(find.text('Mark Delivered'), findsNothing);
+    expect(find.text('Cancel ticket'), findsOneWidget);
+    expect(find.text('Mark Tray collected'), findsOneWidget);
   });
 }

@@ -139,6 +139,23 @@ export const schemas = {
       cancelled_at: { type: 'string', format: 'date-time', nullable: true },
       cancelled_by: { type: 'string', format: 'uuid', nullable: true },
       cancel_reason: { type: 'string', nullable: true },
+      recalled_at: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+        description:
+          'Do-not-serve recall marker for a tray already out of the kitchen (dispatched/delivered) whose diet order changed/NPO’d or whose admission ended. While set, →dispatched/→delivered transitions are refused (409 DIETARY_TICKET_RECALLED).',
+      },
+      recalled_by: { type: 'string', format: 'uuid', nullable: true },
+      recall_reason: { type: 'string', nullable: true },
+      recall_ack_at: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+        description:
+          'Ward acknowledgement of the recall — stamped when the recalled tray is cancelled (dispatched) or collected back (delivered).',
+      },
+      recall_ack_by: { type: 'string', format: 'uuid', nullable: true },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
     },
@@ -263,7 +280,7 @@ export const operations = {
   },
   'POST /api/v1/dietary/kitchen/tickets/{id}/status': {
     description:
-      "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction.",
+      "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction. →dispatched/→delivered re-check the live diet order + admission and refuse 409 when the ticket is recalled (DIETARY_TICKET_RECALLED) or stale — order changed/NPO'd/on hold or admission ended (DIETARY_TICKET_STALE with details.reason). Cancelling a recalled dispatched tray, or collecting back a recalled delivered one, stamps the ward's recall acknowledgement.",
     request: 'DietaryMealTicketStatusRequest',
     response: 'DietaryMealTicketResponse',
   },

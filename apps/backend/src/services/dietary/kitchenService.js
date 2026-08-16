@@ -11,11 +11,16 @@
 //     same-day churn is handled by the two re-sync paths below rather than by
 //     more cron ticks.
 //   - Same-day diet-order changes re-sync synchronously (best-effort Phase
-//     1.5 from dietaryService create/update): still-pending tickets for the
-//     changed order are cancelled ('diet order changed') and the day is
-//     re-cut for whatever meals lack a live ticket. Tickets already
-//     preparing/ready/dispatched are left alone — the tray is already in
-//     flight; the kitchen cancels manually if needed.
+//     1.5 from dietaryService create/update): tickets whose snapshot no
+//     longer matches the order (diet type / restrictions / allergies /
+//     eligibility) are recalled — kitchen-side tickets (pending/preparing/
+//     ready: the tray has not left the kitchen) are cancelled with a reason,
+//     while trays already out (dispatched/delivered) get a flagged
+//     "do not serve" recall marker the ward leg must acknowledge (see
+//     migration 687) — and the day is re-cut for whatever meals lack a live
+//     ticket. Discharge (admissionService.dischargePatient and the
+//     bed-management direct-bed discharge) calls recallTicketsForPatient the
+//     same way.
 //   - Allergen screening (migration 687): menu selection screens against the
 //     UNION of the platform's canonical allergy answer
 //     (getUnifiedActiveAllergiesDetailed — all four allergy stores) and the
@@ -35,15 +40,16 @@
 //     order — diabetic/renal days include snacks; the kitchen cancels a
 //     window it will not serve.
 //
-// Canonical timeline: exactly one clinical_timeline_events +
-// clinical_audit_events pair per ticket, emitted at 'delivered' (the
-// patient-facing fact: this meal reached this admitted patient) in the same
-// transaction as the transition, fixed key
-// dietary_meal_tickets:<id>:delivered (insert-once — delivered is reachable
-// once per ticket). Bulk generation deliberately does not write per-ticket
+// Canonical timeline: one clinical_timeline_events + clinical_audit_events
+// pair per ticket at 'delivered' (the patient-facing fact: this meal reached
+// this admitted patient), and one pair at recall of an out-of-kitchen tray
+// ('dietary.meal_recalled' — the do-not-serve safety fact), each in the same
+// transaction as its write, fixed keys dietary_meal_tickets:<id>:delivered /
+// :<id>:recalled (insert-once — each is reachable once per ticket). Bulk
+// generation and kitchen-side cancels deliberately do not write per-ticket
 // timeline rows (aggregate-noise class); the ticket row itself is the
-// generation evidence. No workflow_sla_instances: no meal-service SLA rule
-// class exists and this wave does not invent one.
+// evidence. No workflow_sla_instances: no meal-service SLA rule class exists
+// and this wave does not invent one.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -96,7 +102,9 @@ const TICKET_SELECT = `
   restrictions, allergies, calories_target, menu_selections, diet_spec,
   special_instructions, allergy_screen, status, generated_source, generated_by,
   preparing_at, ready_at, dispatched_at, delivered_at, collected_at,
-  cancelled_at, cancelled_by, cancel_reason, created_at, updated_at`;
+  cancelled_at, cancelled_by, cancel_reason,
+  recalled_at, recalled_by, recall_reason, recall_ack_at, recall_ack_by,
+  created_at, updated_at`;
 
 const MENU_ITEM_SELECT = `
   id::text AS id, tenant_id, name, meal_type, diet_types, is_veg,
@@ -589,11 +597,90 @@ export async function generateMealTickets({
   return { serviceDate: date, considered: orders.length, created, byMeal };
 }
 
+// Kitchen-side statuses: the tray has not left the kitchen, so a stale
+// ticket can be cancelled outright. Out-of-kitchen live statuses need the
+// flagged recall instead — someone on a ward is holding that tray.
+const KITCHEN_SIDE_STATUSES = ['pending', 'preparing', 'ready'];
+const OUT_OF_KITCHEN_LIVE_STATUSES = ['dispatched', 'delivered'];
+
+const sameCiSet = (a, b) => {
+  const setA = lowerSet(a);
+  const setB = lowerSet(b);
+  if (setA.size !== setB.size) return false;
+  for (const value of setA) if (!setB.has(value)) return false;
+  return true;
+};
+const numOrNull = (value) => (value == null ? null : Number(value));
+
 /**
- * Same-day re-sync after a diet-order create/change: cancel today's
- * still-pending tickets for the order (the kitchen has not started them),
- * then re-cut whatever meals lack a live ticket if the order is still
- * eligible. Tickets already preparing or later are left in flight.
+ * Flag out-of-kitchen trays (dispatched/delivered) with the do-not-serve
+ * recall marker, writing the canonical 'dietary.meal_recalled' timeline +
+ * audit pair per tray in the same transaction (per-ticket clinical safety
+ * fact, not the aggregate-noise class). Idempotent per ticket — a recall is
+ * set once and never overwritten.
+ */
+async function applyTrayRecalls({ tenantId, ticketIds, actorUid, actorRole = null, reason }) {
+  if (!ticketIds.length) return [];
+  if (!actorUid) throw AppError.badRequest('Recall requires an acting user');
+  return setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id::text AS id, patient_uid, meal_type, diet_type, status,
+              service_date::text AS service_date, ward, bed_number
+         FROM dietary_meal_tickets
+        WHERE tenant_id = $1::uuid AND id = ANY($2::bigint[])
+          AND status = ANY($3::text[]) AND recalled_at IS NULL
+        FOR UPDATE`,
+      tenantId, ticketIds, OUT_OF_KITCHEN_LIVE_STATUSES,
+    );
+    if (!rows.length) return [];
+    await tx.$executeRawUnsafe(
+      `UPDATE dietary_meal_tickets
+          SET recalled_at = NOW(), recalled_by = $3::uuid, recall_reason = $4,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = ANY($2::bigint[])`,
+      tenantId, rows.map((r) => Number(r.id)), actorUid, reason,
+    );
+    for (const ticket of rows) {
+      const mealLabel = ticket.meal_type.charAt(0).toUpperCase() + ticket.meal_type.slice(1);
+      await recordCanonicalClinicalEvent({
+        tenantId,
+        patientUid: ticket.patient_uid,
+        eventType: 'dietary.meal_recalled',
+        eventStatus: 'recalled',
+        sourceTable: 'dietary_meal_tickets',
+        sourceId: ticket.id,
+        resourceType: 'dietary_meal_ticket',
+        resourceId: ticket.id,
+        actorUid,
+        actorRole,
+        summary: `${mealLabel} tray recalled — do not serve (${reason})`,
+        payload: {
+          ticket_id: Number(ticket.id),
+          service_date: ticket.service_date,
+          meal_type: ticket.meal_type,
+          diet_type: ticket.diet_type,
+          ward: ticket.ward || null,
+          bed_number: ticket.bed_number || null,
+          status_at_recall: ticket.status,
+          reason,
+        },
+        tags: ['dietary'],
+        timelineIdempotencyKey: `dietary_meal_tickets:${ticket.id}:recalled`,
+        auditIdempotencyKey: `dietary_meal_tickets:${ticket.id}:audit:recalled`,
+      }, { db: tx });
+    }
+    return rows.map((r) => Number(r.id));
+  });
+}
+
+/**
+ * Same-day re-sync after a diet-order create/change: every live ticket whose
+ * snapshot no longer matches the order (diet type, restrictions, the unified
+ * allergy union, calories, special instructions — or the order going
+ * inactive/npo) is recalled — kitchen-side tickets are cancelled with a
+ * reason, out-of-kitchen trays get the flagged do-not-serve recall marker —
+ * then the day is re-cut for whatever meals lack a live ticket. Unchanged
+ * tickets are left alone, so a no-op order update is a no-op here too.
  */
 export async function syncTicketsForOrder({
   tenantId: rawTenantId,
@@ -608,21 +695,126 @@ export async function syncTicketsForOrder({
   }
   const date = istDateString();
 
-  const cancelled = await prisma.$queryRawUnsafe(
-    `UPDATE dietary_meal_tickets
-        SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $3::uuid,
-            cancel_reason = $4, updated_at = NOW()
-      WHERE tenant_id = $1::uuid AND diet_order_id = $2::int
-        AND service_date = $5::date AND status = 'pending'
-      RETURNING id::text AS id`,
-    tenantId, orderId, actorUid || null, reason, date,
+  const orderRows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, status, diet_type, restrictions, allergies,
+            calories_target, special_instructions, ordered_by
+       FROM diet_orders
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantId, orderId,
   );
+  if (!orderRows.length) throw AppError.notFound('Diet order not found');
+  const order = orderRows[0];
+  const orderLive = order.status === 'active' && order.diet_type !== 'npo';
+  const allergyCtx = await loadOrderAllergyContext(order);
+
+  const tickets = await prisma.$queryRawUnsafe(
+    `SELECT id::text AS id, status, diet_type, restrictions, allergies,
+            calories_target, special_instructions, recalled_at
+       FROM dietary_meal_tickets
+      WHERE tenant_id = $1::uuid AND diet_order_id = $2::int
+        AND service_date = $3::date
+        AND status <> ALL(ARRAY['cancelled', 'collected']::text[])`,
+    tenantId, orderId, date,
+  );
+
+  const stale = (ticket) => !orderLive
+    || ticket.diet_type !== order.diet_type
+    || !sameCiSet(ticket.restrictions, order.restrictions)
+    || !sameCiSet(ticket.allergies, allergyCtx.allergyNames)
+    || numOrNull(ticket.calories_target) !== numOrNull(order.calories_target)
+    || String(ticket.special_instructions || '') !== String(order.special_instructions || '');
+
+  // ordered_by is NOT NULL on diet_orders — a null actor (defensive) still
+  // satisfies the cancel/recall evidence CHECKs via this fallback.
+  const effectiveActor = actorUid || order.ordered_by;
+
+  const cancelIds = tickets
+    .filter((t) => KITCHEN_SIDE_STATUSES.includes(t.status) && stale(t))
+    .map((t) => Number(t.id));
+  let cancelled = [];
+  if (cancelIds.length) {
+    cancelled = await prisma.$queryRawUnsafe(
+      `UPDATE dietary_meal_tickets
+          SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $3::uuid,
+              cancel_reason = $4, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = ANY($2::bigint[])
+          AND status = ANY($5::text[])
+        RETURNING id::text AS id`,
+      tenantId, cancelIds, effectiveActor, reason, KITCHEN_SIDE_STATUSES,
+    );
+  }
+
+  const recallIds = tickets
+    .filter((t) => OUT_OF_KITCHEN_LIVE_STATUSES.includes(t.status) && !t.recalled_at && stale(t))
+    .map((t) => Number(t.id));
+  const recalled = await applyTrayRecalls({
+    tenantId, ticketIds: recallIds, actorUid: effectiveActor, reason,
+  });
 
   const generation = await generateMealTickets({
     tenantId, serviceDate: date, source: 'order_change', generatedBy: actorUid, dietOrderId: orderId,
   });
 
-  return { serviceDate: date, cancelled: cancelled.length, created: generation.created };
+  return {
+    serviceDate: date,
+    cancelled: cancelled.length,
+    recalled: recalled.length,
+    created: generation.created,
+  };
+}
+
+/**
+ * Discharge hook: recall every future-or-today live ticket for a patient —
+ * kitchen-side tickets are cancelled, out-of-kitchen trays get the flagged
+ * do-not-serve recall marker. Called best-effort (Phase 1.5) from
+ * admissionService.dischargePatient and the bed-management direct-bed
+ * discharge, mirroring how discharge dispatches housekeeping.
+ */
+export async function recallTicketsForPatient({
+  tenantId: rawTenantId,
+  patientUid,
+  actorUid = null,
+  actorRole = null,
+  reason = 'admission ended',
+} = {}) {
+  const tenantId = tenantOr(rawTenantId);
+  if (!patientUid) throw AppError.badRequest('Missing patient_uid');
+  if (!actorUid) throw AppError.badRequest('Recall requires an acting user');
+  const date = istDateString();
+
+  const cancelled = await prisma.$queryRawUnsafe(
+    `UPDATE dietary_meal_tickets
+        SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $2::uuid,
+            cancel_reason = $3, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND patient_uid = $4::uuid
+        AND service_date >= $5::date AND status = ANY($6::text[])
+      RETURNING id::text AS id`,
+    tenantId, actorUid, reason, patientUid, date, KITCHEN_SIDE_STATUSES,
+  );
+
+  const outRows = await prisma.$queryRawUnsafe(
+    `SELECT id::text AS id
+       FROM dietary_meal_tickets
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+        AND service_date >= $3::date AND status = ANY($4::text[])
+        AND recalled_at IS NULL`,
+    tenantId, patientUid, date, OUT_OF_KITCHEN_LIVE_STATUSES,
+  );
+  const recalled = await applyTrayRecalls({
+    tenantId,
+    ticketIds: outRows.map((r) => Number(r.id)),
+    actorUid,
+    actorRole,
+    reason,
+  });
+
+  if (cancelled.length || recalled.length) {
+    logger.info('Dietary meal tickets recalled for patient', {
+      tenantId, patientUid, reason, cancelled: cancelled.length, recalled: recalled.length,
+    });
+  }
+  return { cancelled: cancelled.length, recalled: recalled.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -752,7 +944,8 @@ export async function transitionTicket({
   return setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT id::text AS id, status, patient_uid, meal_type, diet_type,
-              service_date::text AS service_date, ward, bed_number, patient_name
+              service_date::text AS service_date, ward, bed_number, patient_name,
+              diet_order_id, admission_id, recalled_at, recall_ack_at, recall_reason
          FROM dietary_meal_tickets
         WHERE tenant_id = $1::uuid AND id = $2::bigint
         FOR UPDATE`,
@@ -772,6 +965,45 @@ export async function transitionTicket({
       throw AppError.forbidden('Kitchen (dietary) role required for this transition');
     }
 
+    // Do-not-serve gate (migration 687): a tray never moves toward the
+    // patient once the diet order or admission stopped matching the ticket.
+    // Re-checked live at the two transitions that put food in front of the
+    // patient — kitchen prep of a stale ticket wastes food; serving it harms.
+    if (toStatus === 'dispatched' || toStatus === 'delivered') {
+      if (ticket.recalled_at) {
+        throw AppError.conflict(
+          'Meal ticket has been recalled — do not serve this tray',
+          'DIETARY_TICKET_RECALLED',
+          { recall_reason: ticket.recall_reason },
+        );
+      }
+      const liveRows = await tx.$queryRawUnsafe(
+        `SELECT o.status AS order_status, o.diet_type AS order_diet_type,
+                a.status AS admission_status, a.discharged_at
+           FROM diet_orders o
+      LEFT JOIN admissions a
+             ON a.id = $3::int AND a.tenant_id = o.tenant_id
+          WHERE o.tenant_id = $1::uuid AND o.id = $2::int`,
+        tenantId, Number(ticket.diet_order_id),
+        ticket.admission_id == null ? null : Number(ticket.admission_id),
+      );
+      const live = liveRows[0] || null;
+      let staleReason = null;
+      if (!live) staleReason = 'diet_order_missing';
+      else if (live.order_diet_type === 'npo') staleReason = 'patient_npo';
+      else if (live.order_status !== 'active') staleReason = `diet_order_${live.order_status}`;
+      else if (live.order_diet_type !== ticket.diet_type) staleReason = 'diet_changed';
+      else if (!live.admission_status || live.admission_status !== 'admitted'
+        || live.discharged_at) staleReason = 'admission_ended';
+      if (staleReason) {
+        throw AppError.conflict(
+          'Meal ticket is stale — the diet order or admission changed since it was cut. Cancel the ticket and regenerate.',
+          'DIETARY_TICKET_STALE',
+          { reason: staleReason, ticket_diet_type: ticket.diet_type },
+        );
+      }
+    }
+
     const sets = ['status = $3', 'updated_at = NOW()'];
     const params = [tenantId, id, toStatus, actorUid];
     if (toStatus === 'cancelled') {
@@ -780,6 +1012,12 @@ export async function transitionTicket({
     } else {
       const [atCol, byCol] = STAMPED[toStatus];
       sets.push(`${atCol} = NOW()`, `${byCol} = $4::uuid`);
+    }
+    // The ward leg acknowledges a recall by taking the tray out of play:
+    // cancelling a dispatched tray, or collecting back a delivered one.
+    if (ticket.recalled_at && !ticket.recall_ack_at
+      && (toStatus === 'cancelled' || toStatus === 'collected')) {
+      sets.push('recall_ack_at = NOW()', 'recall_ack_by = $4::uuid');
     }
 
     const updated = await tx.$queryRawUnsafe(
@@ -840,6 +1078,7 @@ export default {
   listMenuItems,
   generateMealTickets,
   syncTicketsForOrder,
+  recallTicketsForPatient,
   listMealTickets,
   getProductionSummary,
   transitionTicket,

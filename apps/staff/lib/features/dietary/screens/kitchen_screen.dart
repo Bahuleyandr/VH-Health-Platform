@@ -469,9 +469,14 @@ class _KitchenScreenState extends State<KitchenScreen>
         : '';
     final allergies = ticket['allergies'];
     final allergyText = allergies is List ? allergies.join(', ') : '';
-    final next = kitchen
+    final recalled = ticket['recalled_at'] != null;
+    final rawNext = kitchen
         ? _kKitchenNextAction[status]
         : _kTrayNextAction[status];
+    // A recalled tray must never be marked delivered (the backend refuses
+    // with 409 anyway); collecting a recalled delivered tray back is the
+    // ward's acknowledgement and stays available.
+    final next = (recalled && rawNext == 'delivered') ? null : rawNext;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -534,6 +539,47 @@ class _KitchenScreenState extends State<KitchenScreen>
                 ),
               ],
             ),
+            if (recalled) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: ValueKey('kitchen-recall-${ticket['id']}'),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.errorRed.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppTheme.errorRed.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.report,
+                      size: 16,
+                      color: AppTheme.errorRed,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        s.format('s4.lib.kitchen.recalled_banner', {
+                          'reason': '${ticket['recall_reason'] ?? ''}',
+                        }),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.errorRed,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (menuNames.isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
@@ -601,7 +647,9 @@ class _KitchenScreenState extends State<KitchenScreen>
             const SizedBox(height: 8),
             Row(
               children: [
-                if (kitchen)
+                // Ward leg: cancelling a recalled dispatched tray is the
+                // recall acknowledgement (backend stamps recall_ack_*).
+                if (kitchen || (recalled && status == 'dispatched'))
                   TextButton.icon(
                     onPressed: _acting ? null : () => _cancelTicket(ticket),
                     icon: const Icon(Icons.cancel_outlined, size: 16),

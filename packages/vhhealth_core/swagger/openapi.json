@@ -16649,6 +16649,69 @@
             "type": "string",
             "nullable": true
           },
+          "allergy_screen": {
+            "type": "object",
+            "nullable": true,
+            "description": "Generation-time allergen screen evidence: the unified four-store allergy union plus order free-text screened against menu allergen tags. degraded=true means an allergy source failed and the screen failed closed (every allergen-tagged item excluded).",
+            "properties": {
+              "screened_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "degraded": {
+                "type": "boolean"
+              },
+              "sources_failed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "patient_allergies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "order_allergies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "order_restrictions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excluded": {
+                "type": "array",
+                "description": "Menu items withheld on allergen match: { id, name, tag, matched, via }.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string"
+                    },
+                    "matched": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "via": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -16711,6 +16774,32 @@
           },
           "cancel_reason": {
             "type": "string",
+            "nullable": true
+          },
+          "recalled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Do-not-serve recall marker for a tray already out of the kitchen (dispatched/delivered) whose diet order changed/NPO’d or whose admission ended. While set, →dispatched/→delivered transitions are refused (409 DIETARY_TICKET_RECALLED)."
+          },
+          "recalled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recall_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "recall_ack_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Ward acknowledgement of the recall — stamped when the recalled tray is cancelled (dispatched) or collected back (delivered)."
+          },
+          "recall_ack_by": {
+            "type": "string",
+            "format": "uuid",
             "nullable": true
           },
           "created_at": {
@@ -92299,7 +92388,7 @@
             }
           }
         },
-        "description": "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction.",
+        "description": "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction. →dispatched/→delivered re-check the live diet order + admission and refuse 409 when the ticket is recalled (DIETARY_TICKET_RECALLED) or stale — order changed/NPO'd/on hold or admission ended (DIETARY_TICKET_STALE with details.reason). Cancelling a recalled dispatched tray, or collecting back a recalled delivered one, stamps the ward's recall acknowledgement.",
         "parameters": [
           {
             "name": "id",
