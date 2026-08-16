@@ -8406,33 +8406,34 @@ model pharmacy_goods_receipts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model pharmacy_inventory_batches {
-  id                                                                                                             Int                            @id @default(autoincrement())
-  tenant_id                                                                                                      String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                                                                                                             Int                                 @id @default(autoincrement())
+  tenant_id                                                                                                      String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   inventory_item_id                                                                                              Int
   facility_id                                                                                                    Int?
-  batch_number                                                                                                   String                         @db.VarChar(120)
-  lot_number                                                                                                     String?                        @db.VarChar(120)
-  manufacture_date                                                                                               DateTime?                      @db.Date
-  expiry_date                                                                                                    DateTime                       @db.Date
-  received_quantity                                                                                              Decimal                        @db.Decimal(14, 4)
-  remaining_quantity                                                                                             Decimal                        @db.Decimal(14, 4)
+  batch_number                                                                                                   String                              @db.VarChar(120)
+  lot_number                                                                                                     String?                             @db.VarChar(120)
+  manufacture_date                                                                                               DateTime?                           @db.Date
+  expiry_date                                                                                                    DateTime                            @db.Date
+  received_quantity                                                                                              Decimal                             @db.Decimal(14, 4)
+  remaining_quantity                                                                                             Decimal                             @db.Decimal(14, 4)
   unit_cost_minor                                                                                                BigInt?
   mrp_minor                                                                                                      BigInt?
   supplier_id                                                                                                    Int?
   goods_receipt_id                                                                                               Int?
   storage_location_id                                                                                            Int?
-  status                                                                                                         String                         @default("in_stock") @db.VarChar(20)
-  recall_reference                                                                                               String?                        @db.VarChar(255)
-  metadata                                                                                                       Json                           @default("{}")
-  created_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
-  updated_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
-  cath_case_consumable_usage_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches           cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches")
-  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches")
+  status                                                                                                         String                              @default("in_stock") @db.VarChar(20)
+  recall_reference                                                                                               String?                             @db.VarChar(255)
+  metadata                                                                                                       Json                                @default("{}")
+  created_at                                                                                                     DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                     DateTime                            @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches           cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches")
+  pharmacy_counter_sale_allocations                                                                              pharmacy_counter_sale_allocations[]
   pharmacy_expiry_alerts                                                                                         pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                                                                                   pharmacy_goods_receipt_items[]
-  pharmacy_inventory_items                                                                                       pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pharmacy_suppliers                                                                                             pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
-  tenants                                                                                                        tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items                                                                                       pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_suppliers                                                                                             pharmacy_suppliers?                 @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                                        tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   pharmacy_stock_movements                                                                                       pharmacy_stock_movements[]
 
   @@unique([inventory_item_id, batch_number])
@@ -8472,6 +8473,7 @@ model pharmacy_inventory_items {
   catalog_id                                                                                            Int?
   cath_consumable_catalog_cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items           cath_consumable_catalog[]       @relation("cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items")
   cath_consumable_catalog_cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items cath_consumable_catalog[]       @relation("cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items")
+  pharmacy_counter_sale_lines                                                                           pharmacy_counter_sale_lines[]
   pharmacy_expiry_alerts                                                                                pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                                                                          pharmacy_goods_receipt_items[]
   pharmacy_inventory_batches                                                                            pharmacy_inventory_batches[]
@@ -8654,23 +8656,25 @@ model pharmacy_purchase_orders {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model pharmacy_stock_movements {
-  id                                                                                                              Int                          @id @default(autoincrement())
-  tenant_id                                                                                                       String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  inventory_item_id                                                                                               Int
-  inventory_batch_id                                                                                              Int?
-  movement_kind                                                                                                   String                       @db.VarChar(40)
-  quantity_delta                                                                                                  Decimal                      @db.Decimal(14, 4)
-  reference_type                                                                                                  String?                      @db.VarChar(60)
-  reference_id                                                                                                    String?                      @db.VarChar(120)
-  performed_by                                                                                                    String?                      @db.Uuid
-  notes                                                                                                           String?
-  metadata                                                                                                        Json                         @default("{}")
-  created_at                                                                                                      DateTime                     @default(now()) @db.Timestamptz(6)
-  cath_case_consumable_usage_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements           cath_case_consumable_usage[] @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements")
-  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements cath_case_consumable_usage[] @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements")
-  pharmacy_inventory_batches                                                                                      pharmacy_inventory_batches?  @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
-  pharmacy_inventory_items                                                                                        pharmacy_inventory_items     @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                                                                                                         tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                               Int                                 @id @default(autoincrement())
+  tenant_id                                                                                                        String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  inventory_item_id                                                                                                Int
+  inventory_batch_id                                                                                               Int?
+  movement_kind                                                                                                    String                              @db.VarChar(40)
+  quantity_delta                                                                                                   Decimal                             @db.Decimal(14, 4)
+  reference_type                                                                                                   String?                             @db.VarChar(60)
+  reference_id                                                                                                     String?                             @db.VarChar(120)
+  performed_by                                                                                                     String?                             @db.Uuid
+  notes                                                                                                            String?
+  metadata                                                                                                         Json                                @default("{}")
+  created_at                                                                                                       DateTime                            @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements            cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements  cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements")
+  pharmacy_counter_sale_allocations_pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements        pharmacy_counter_sale_allocations[] @relation("pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements")
+  pharmacy_counter_sale_allocations_pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements pharmacy_counter_sale_allocations[] @relation("pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements")
+  pharmacy_inventory_batches                                                                                       pharmacy_inventory_batches?         @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items                                                                                         pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                                          tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, id], map: "ux_pharmacy_stock_movements_tenant_id_for_cath")
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_item_time")
@@ -10972,6 +10976,9 @@ model tenants {
   perfusion_signoffs                                   perfusion_signoffs[]
   pharmacy_activity_logs                               pharmacy_activity_logs[]
   pharmacy_catalog                                     pharmacy_catalog[]
+  pharmacy_counter_sale_allocations                    pharmacy_counter_sale_allocations[]
+  pharmacy_counter_sale_lines                          pharmacy_counter_sale_lines[]
+  pharmacy_counter_sales                               pharmacy_counter_sales[]
   pharmacy_expiry_alerts                               pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                         pharmacy_goods_receipt_items[]
   pharmacy_goods_receipts                              pharmacy_goods_receipts[]
@@ -11875,6 +11882,7 @@ model users {
   perfusion_signoffs_perfusion_signoffs_patient_uidTousers                                                                         perfusion_signoffs[]                                   @relation("perfusion_signoffs_patient_uidTousers")
   perfusion_signoffs_perfusion_signoffs_perfusionist_signed_byTousers                                                              perfusion_signoffs[]                                   @relation("perfusion_signoffs_perfusionist_signed_byTousers")
   perfusion_signoffs_perfusion_signoffs_surgeon_reviewed_byTousers                                                                 perfusion_signoffs[]                                   @relation("perfusion_signoffs_surgeon_reviewed_byTousers")
+  pharmacy_counter_sales                                                                                                           pharmacy_counter_sales[]
   pharmacy_order_history                                                                                                           pharmacy_order_history[]
   pharmacy_orders_pharmacy_orders_dispensed_byTousers                                                                              pharmacy_orders[]                                      @relation("pharmacy_orders_dispensed_byTousers")
   pharmacy_orders_pharmacy_orders_patient_idTousers                                                                                pharmacy_orders[]                                      @relation("pharmacy_orders_patient_idTousers")
@@ -12937,6 +12945,7 @@ model billing_invoices {
   billing_payments            billing_payments[]
   billing_refunds             billing_refunds[]
   patient_message_threads     patient_message_threads[]
+  pharmacy_counter_sales      pharmacy_counter_sales[]
   tpa_claims                  tpa_claims[]
 
   @@unique([tenant_id, invoice_number], map: "uniq_billing_invoices_tenant_invoice_number", where: raw("(invoice_number IS NOT NULL)"))
@@ -13018,29 +13027,30 @@ model billing_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model billing_refunds {
-  id               Int               @id @default(autoincrement())
-  patient_uid      String            @db.Uuid
-  invoice_id       Int?
-  advance_id       Int?
-  amount           Decimal           @db.Decimal(12, 2)
-  reason           String            @db.VarChar(500)
-  mode             String            @db.VarChar(20)
-  reference        String?           @db.VarChar(255)
-  approval_status  String            @default("PENDING") @db.VarChar(20)
-  raised_by        String?           @db.Uuid
-  raised_at        DateTime?         @default(now()) @db.Timestamptz(6)
-  approved_by      String?           @db.Uuid
-  approved_at      DateTime?         @db.Timestamptz(6)
-  rejected_by      String?           @db.Uuid
-  rejected_at      DateTime?         @db.Timestamptz(6)
-  rejection_reason String?           @db.VarChar(255)
-  paid_at          DateTime?         @db.Timestamptz(6)
-  paid_by          String?           @db.Uuid
-  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at       DateTime?         @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime?         @default(now()) @db.Timestamptz(6)
-  billing_advances billing_advances? @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
-  billing_invoices billing_invoices? @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  id                     Int                      @id @default(autoincrement())
+  patient_uid            String                   @db.Uuid
+  invoice_id             Int?
+  advance_id             Int?
+  amount                 Decimal                  @db.Decimal(12, 2)
+  reason                 String                   @db.VarChar(500)
+  mode                   String                   @db.VarChar(20)
+  reference              String?                  @db.VarChar(255)
+  approval_status        String                   @default("PENDING") @db.VarChar(20)
+  raised_by              String?                  @db.Uuid
+  raised_at              DateTime?                @default(now()) @db.Timestamptz(6)
+  approved_by            String?                  @db.Uuid
+  approved_at            DateTime?                @db.Timestamptz(6)
+  rejected_by            String?                  @db.Uuid
+  rejected_at            DateTime?                @db.Timestamptz(6)
+  rejection_reason       String?                  @db.VarChar(255)
+  paid_at                DateTime?                @db.Timestamptz(6)
+  paid_by                String?                  @db.Uuid
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  billing_advances       billing_advances?        @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
+  billing_invoices       billing_invoices?        @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  pharmacy_counter_sales pharmacy_counter_sales[]
 
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
@@ -27831,6 +27841,94 @@ model ambulance_position_events {
 
   @@index([received_at], map: "idx_ambulance_position_received")
   @@index([tenant_id, ambulance_request_id, recorded_at(sort: Desc), id(sort: Desc)], map: "idx_ambulance_position_request_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sale_allocations {
+  id                                                                                                      BigInt                      @id @default(autoincrement())
+  tenant_id                                                                                               String                      @db.Uuid
+  counter_sale_line_id                                                                                    BigInt
+  inventory_batch_id                                                                                      Int
+  batch_number                                                                                            String                      @db.VarChar(120)
+  expiry_date                                                                                             DateTime                    @db.Date
+  quantity                                                                                                Decimal                     @db.Decimal(14, 4)
+  unit_price                                                                                              Decimal                     @db.Decimal(12, 2)
+  movement_id                                                                                             Int
+  return_movement_id                                                                                      Int?
+  created_at                                                                                              DateTime                    @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_lines                                                                             pharmacy_counter_sale_lines @relation(fields: [counter_sale_line_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_batches                                                                              pharmacy_inventory_batches  @relation(fields: [inventory_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_stock_movements_pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements        pharmacy_stock_movements    @relation("pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements", fields: [movement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_stock_movements_pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements pharmacy_stock_movements?   @relation("pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements", fields: [return_movement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                                                                                                 tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([inventory_batch_id], map: "idx_pharmacy_counter_sale_allocations_batch")
+  @@index([counter_sale_line_id], map: "idx_pharmacy_counter_sale_allocations_line")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sale_lines {
+  id                                BigInt                              @id @default(autoincrement())
+  tenant_id                         String                              @db.Uuid
+  counter_sale_id                   BigInt
+  inventory_item_id                 Int
+  item_name                         String                              @db.VarChar(255)
+  schedule_class                    String?                             @db.VarChar(20)
+  is_narcotic                       Boolean                             @default(false)
+  quantity                          Decimal                             @db.Decimal(14, 4)
+  unit_price                        Decimal                             @db.Decimal(12, 2)
+  gst_rate                          Decimal                             @default(0) @db.Decimal(5, 2)
+  line_total                        Decimal                             @default(0) @db.Decimal(12, 2)
+  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_allocations pharmacy_counter_sale_allocations[]
+  pharmacy_counter_sales            pharmacy_counter_sales              @relation(fields: [counter_sale_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items          pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, inventory_item_id], map: "idx_pharmacy_counter_sale_lines_item")
+  @@index([counter_sale_id], map: "idx_pharmacy_counter_sale_lines_sale")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sales {
+  id                          BigInt                        @id @default(autoincrement())
+  tenant_id                   String                        @db.Uuid
+  patient_uid                 String?                       @db.Uuid
+  customer_name               String?                       @db.VarChar(255)
+  customer_phone              String?                       @db.VarChar(20)
+  rx_doctor_name              String?                       @db.VarChar(255)
+  rx_reference                String?                       @db.VarChar(255)
+  rx_upload_id                BigInt?
+  status                      String                        @default("IN_PROGRESS") @db.VarChar(20)
+  invoice_id                  Int?
+  payment_mode                String?                       @db.VarChar(20)
+  payment_reference           String?                       @db.VarChar(120)
+  cash_shift                  String?                       @db.VarChar(20)
+  total_amount                Decimal                       @default(0) @db.Decimal(12, 2)
+  sold_by                     String                        @db.Uuid
+  sold_by_name                String?                       @db.VarChar(255)
+  notes                       String?
+  voided_at                   DateTime?                     @db.Timestamptz(6)
+  voided_by                   String?                       @db.Uuid
+  void_reason                 String?                       @db.VarChar(255)
+  void_refund_id              Int?
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_lines pharmacy_counter_sale_lines[]
+  billing_invoices            billing_invoices?             @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                       users?                        @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  billing_refunds             billing_refunds?              @relation(fields: [void_refund_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([invoice_id], map: "idx_pharmacy_counter_sales_invoice", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([patient_uid], map: "idx_pharmacy_counter_sales_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, status], map: "idx_pharmacy_counter_sales_tenant_status")
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_pharmacy_counter_sales_tenant_time")
 }
 
 enum transplant_organ_type {

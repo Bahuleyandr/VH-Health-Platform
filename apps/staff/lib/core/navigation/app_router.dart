@@ -23,6 +23,7 @@ import '../../features/appointments/screens/appointments_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
 import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/investigations/screens/specimen_scan_screen.dart';
+import '../../features/pharmacy/screens/counter_sale_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
@@ -414,6 +415,12 @@ final GoRouter appRouter = GoRouter(
           name: 'pharmacy',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: PharmacyScreen()),
+        ),
+        GoRoute(
+          path: '/pharmacy/counter-sale',
+          name: 'pharmacy-counter-sale',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: CounterSaleScreen()),
         ),
         GoRoute(
           path: '/profile',

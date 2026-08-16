@@ -1,0 +1,112 @@
+// src/routes/pharmacy/counterSaleRoutes.js
+//
+// Walk-in pharmacy point-of-sale (migration 684). Mounted at
+// /api/v1/pharmacy-orders/counter-sales (and the /api/v1/pharmacy alias).
+// Role gates mirror inventoryV2Routes: selling requires a dispensing role
+// (ADMIN / PHARMACY_STAFF / PHARMACY_INCHARGE — Schedule X flows through the
+// witnessed controlled-dispense path), voiding is incharge/admin-only, reads
+// use the wider inventory-read roster.
+
+import { Router } from 'express';
+import * as counterSales from '../../services/pharmacy/counterSaleService.js';
+import { tenantOf } from '../../services/pharmacy/inventoryV2Service.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
+import {
+  ADMIN,
+  PHARMACY_INCHARGE,
+  PHARMACY_STAFF,
+  STORES_PURCHASE_INCHARGE,
+  hasRole,
+} from '../../utils/roles.js';
+
+const router = Router();
+
+export const COUNTER_SALE_SELL_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
+export const COUNTER_SALE_VOID_ROLES = [ADMIN, PHARMACY_INCHARGE];
+export const COUNTER_SALE_READ_ROLES = [
+  ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE,
+];
+
+function wrap(handler) {
+  return async (req, res, _next) => {
+    try {
+      const data = await handler(req, res);
+      if (res.headersSent) return;
+      return success(res, data);
+    } catch (err) {
+      return relayAppError(res, err, 'Counter sale error');
+    }
+  };
+}
+
+function requireCounterSaleRole(allowedRoles, message) {
+  return (req, res, next) => {
+    if (!hasRole(req.user, allowedRoles) && !hasRole(req.user?.rawRole, allowedRoles)) {
+      return error(res, message, 403);
+    }
+    return next();
+  };
+}
+
+const requireSell = requireCounterSaleRole(
+  COUNTER_SALE_SELL_ROLES, 'Pharmacy dispensing role required',
+);
+const requireVoid = requireCounterSaleRole(
+  COUNTER_SALE_VOID_ROLES, 'Pharmacy incharge role required',
+);
+const requireRead = requireCounterSaleRole(
+  COUNTER_SALE_READ_ROLES, 'Pharmacy role required',
+);
+
+// POS pick list: sellable items with usable stock + FEFO head batch/price.
+router.get('/items', requireRead, wrap(async (req) => ({
+  items: await counterSales.searchSellableItems({
+    tenantId: tenantOf(req),
+    search: req.query.q,
+    limit: req.query.limit,
+  }),
+})));
+
+// Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.
+router.post('/', requireSell, wrap(async (req) => counterSales.createCounterSale({
+  tenantId: tenantOf(req),
+  lines: req.body.lines,
+  patient_uid: req.body.patient_uid,
+  customer_name: req.body.customer_name,
+  customer_phone: req.body.customer_phone,
+  rx: req.body.rx,
+  witness: req.body.witness,
+  payment_mode: req.body.payment_mode,
+  payment_reference: req.body.payment_reference,
+  notes: req.body.notes,
+  sold_by: req.user?.uid,
+  sold_by_name: req.body.sold_by_name || req.user?.name || null,
+  request_id: req.id,
+})));
+
+router.get('/', requireRead, wrap(async (req) => ({
+  sales: await counterSales.listCounterSales({
+    tenantId: tenantOf(req),
+    status: req.query.status,
+    date: req.query.date,
+    limit: req.query.limit,
+  }),
+})));
+
+router.get('/:id', requireRead, wrap(async (req) => counterSales.getCounterSale({
+  tenantId: tenantOf(req),
+  id: req.params.id,
+})));
+
+// Same-day void: billing refund + exact per-batch restock (controlled lines
+// re-enter the statutory register in the return direction).
+router.post('/:id/void', requireVoid, wrap(async (req) => counterSales.voidCounterSale({
+  tenantId: tenantOf(req),
+  id: req.params.id,
+  reason: req.body.reason,
+  voided_by: req.user?.uid,
+  voided_by_name: req.body.voided_by_name || req.user?.name || null,
+  request_id: req.id,
+})));
+
+export default router;

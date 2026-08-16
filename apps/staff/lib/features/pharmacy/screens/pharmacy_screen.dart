@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
@@ -1676,6 +1677,21 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                   },
                 ),
                 if (_canWorkPharmacyOrders) ...[
+                  const SizedBox(width: 4),
+                  ElevatedButton.icon(
+                    onPressed: () => context.push('/pharmacy/counter-sale'),
+                    icon: const Icon(
+                      Icons.point_of_sale,
+                      color: Color(0xFFE65100),
+                    ),
+                    label: const AppText('s4.lib.counter_sale.open'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.cardSurface,
+                      foregroundColor: const Color(0xFFE65100),
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
                   const SizedBox(width: 4),
                   ElevatedButton.icon(
                     onPressed: _createOrder,

@@ -102,6 +102,12 @@ class StaffRoutePolicy {
       anyFeatureIds: {'pharmacy_orders'},
       externalEntry: true,
     ),
+    // Walk-in counter point-of-sale: same holders as the pharmacy workspace
+    // (selling is further gated server-side to dispensing roles).
+    StaffRouteMetadata(
+      '/pharmacy/counter-sale',
+      anyFeatureIds: {'pharmacy_orders'},
+    ),
     StaffRouteMetadata('/profile', anyFeatureIds: {'profile'}),
     StaffRouteMetadata('/settings', anyFeatureIds: {'settings'}),
     StaffRouteMetadata('/phone/more', anyGates: _signedIn),

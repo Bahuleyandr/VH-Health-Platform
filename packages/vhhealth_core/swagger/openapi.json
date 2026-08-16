@@ -34769,6 +34769,559 @@
           }
         }
       },
+      "PharmacyCounterSale": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "customer_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "customer_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_upload_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "IN_PROGRESS",
+              "COMPLETED",
+              "VOIDED",
+              "FAILED"
+            ]
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "cash_shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "number"
+          },
+          "sold_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sold_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "void_refund_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleLine"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleAllocation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "inventory_batch_id": {
+            "type": "integer"
+          },
+          "batch_number": {
+            "type": "string"
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "movement_id": {
+            "type": "integer",
+            "description": "The pharmacy_stock_movements issue row this allocation committed with."
+          },
+          "return_movement_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Set once a void restocked this allocation."
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateRequest": {
+        "type": "object",
+        "required": [
+          "lines",
+          "payment_mode"
+        ],
+        "properties": {
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleLineInput"
+            }
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Registered patient. Omit for an anonymous walk-in (customer_name then required)."
+          },
+          "customer_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "customer_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PharmacyCounterSaleRxInput"
+              }
+            ],
+            "nullable": true
+          },
+          "witness": {
+            "type": "object",
+            "nullable": true,
+            "description": "Witness for Schedule X / narcotic lines (required then).",
+            "properties": {
+              "uid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "payment_mode": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "CARD",
+              "UPI",
+              "NETBANKING",
+              "CHEQUE",
+              "DD",
+              "WALLET"
+            ]
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "sold_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleCreateResult"
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateResult": {
+        "type": "object",
+        "required": [
+          "sale"
+        ],
+        "properties": {
+          "sale": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          },
+          "invoice": {
+            "type": "object",
+            "description": "The billingV2 PHARMACY invoice (issued + paid) backing the sale."
+          },
+          "payment": {
+            "type": "object",
+            "description": "The billing_payments row collected at the counter."
+          }
+        }
+      },
+      "PharmacyCounterSaleLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "inventory_item_id": {
+            "type": "integer"
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "schedule_class": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "H",
+              "H1",
+              "X",
+              "OTC",
+              null
+            ]
+          },
+          "is_narcotic": {
+            "type": "boolean"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "line_total": {
+            "type": "number"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleAllocation"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleLineInput": {
+        "type": "object",
+        "required": [
+          "inventory_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "inventory_item_id": {
+            "type": "integer"
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        }
+      },
+      "PharmacyCounterSaleList": {
+        "type": "object",
+        "required": [
+          "sales"
+        ],
+        "properties": {
+          "sales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSale"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleList"
+          }
+        }
+      },
+      "PharmacyCounterSaleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          }
+        }
+      },
+      "PharmacyCounterSaleRxInput": {
+        "type": "object",
+        "description": "Prescription reference — REQUIRED (doctor_name plus reference or upload_id) when any line is Schedule H/H1/X or narcotic.",
+        "properties": {
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true,
+            "description": "Rx number / free reference."
+          },
+          "upload_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Pointer into the tenant upload store (e.g. a photographed paper Rx)."
+          },
+          "id_proof_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "id_proof_last4": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sku_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "generic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "brand_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "schedule_class": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_narcotic": {
+            "type": "boolean"
+          },
+          "hsn_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "in_stock_quantity": {
+            "type": "number",
+            "description": "Total usable (in_stock, non-expired) quantity."
+          },
+          "fefo_batch_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fefo_batch_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "fefo_expiry_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "fefo_unit_price": {
+            "type": "number",
+            "nullable": true,
+            "description": "MRP of the FEFO head batch (the price the next unit sells at)."
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItemList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleSellableItem"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItemsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemList"
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "voided_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleVoidResult"
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidResult": {
+        "type": "object",
+        "required": [
+          "sale"
+        ],
+        "properties": {
+          "sale": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          },
+          "refund": {
+            "type": "object",
+            "description": "The billing_refunds row (raised, approved, and paid) for the void."
+          }
+        }
+      },
       "PortalDischargePendingResult": {
         "type": "object",
         "additionalProperties": false,
@@ -113660,6 +114213,149 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/counter-sales": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date."
+      },
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/items": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales_items",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/{id}": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales_by_id",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales_by_id_void",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleVoidRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pharmacy-orders/dispense": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_dispense",
@@ -116068,6 +116764,149 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/pharmacy/counter-sales": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date."
+      },
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/items": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales_items",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/{id}": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales_by_id",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales_by_id_void",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleVoidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/dispense": {

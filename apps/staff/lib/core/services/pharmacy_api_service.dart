@@ -308,4 +308,71 @@ class PharmacyApiService {
       'batches',
     ]).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
+
+  // ─── Walk-in Counter Point-of-Sale ───────────────────────────────────────
+
+  /// GET /pharmacy-orders/counter-sales/items — sellable items with usable
+  /// stock and the FEFO head batch (number, expiry, MRP unit price).
+  static Future<List<Map<String, dynamic>>> getCounterSaleItems({
+    String? search,
+  }) async {
+    final resp = await _get(
+      '/pharmacy-orders/counter-sales/items',
+      query: {
+        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
+      },
+    );
+    return _listFrom(resp, const [
+      'items',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy-orders/counter-sales — sell: FEFO dispense + schedule
+  /// enforcement + billingV2 PHARMACY invoice + pay-at-counter payment.
+  static Future<Map<String, dynamic>> createCounterSale({
+    required List<Map<String, dynamic>> lines,
+    String? patientUid,
+    String? customerName,
+    String? customerPhone,
+    Map<String, dynamic>? rx,
+    Map<String, dynamic>? witness,
+    required String paymentMode,
+    String? paymentReference,
+    String? notes,
+  }) async {
+    return _post('/pharmacy-orders/counter-sales', {
+      'lines': lines,
+      'patient_uid': ?patientUid,
+      'customer_name': ?customerName,
+      'customer_phone': ?customerPhone,
+      'rx': ?rx,
+      'witness': ?witness,
+      'payment_mode': paymentMode,
+      'payment_reference': ?paymentReference,
+      'notes': ?notes,
+    });
+  }
+
+  /// GET /pharmacy-orders/counter-sales — recent sales (newest first).
+  static Future<List<Map<String, dynamic>>> listCounterSales({
+    String? status,
+    String? date,
+  }) async {
+    final resp = await _get(
+      '/pharmacy-orders/counter-sales',
+      query: {'status': ?status, 'date': ?date},
+    );
+    return _listFrom(resp, const [
+      'sales',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy-orders/counter-sales/:id/void — same-day void: billing
+  /// refund + exact per-batch restock (register returns for scheduled lines).
+  static Future<Map<String, dynamic>> voidCounterSale(
+    String id,
+    String reason,
+  ) async {
+    return _post('/pharmacy-orders/counter-sales/$id/void', {'reason': reason});
+  }
 }
