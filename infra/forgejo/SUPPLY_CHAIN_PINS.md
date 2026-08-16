@@ -15,9 +15,13 @@ security stage runs this check on every provider. Credential-bearing workflow
 tools must also use exact versions; `@latest` package execution and movable
 `version` channels are rejected. The checker also rejects implicit, movable, or
 expression-driven Docker-container BuildKit images. It decodes direct inline,
-literal, and folded `run` scalars before inspecting shell commands, and rejects
-indirect or unsupported `run` forms rather than allowing them to bypass the pin
-check.
+literal, and folded `run` scalars, tokenizes their shell commands, and accepts
+Buildx only as an unquoted literal `docker buildx <subcommand>` invocation.
+Quoted or concatenated command words, continuations between those command
+words, dynamic subcommands, command substitutions, repeated `--driver`
+options, and indirect or unsupported `run` forms fail closed rather than
+bypassing the pin check. Arguments unrelated to driver selection may remain
+dynamic.
 
 To update a pin:
 
@@ -26,13 +30,22 @@ To update a pin:
 2. Review the upstream delta and record the release tag beside the immutable
    commit or digest.
 3. Update every occurrence in one change.
-4. For a BuildKit image update, increment `builder_generation`. The workflow
-   verifies the current builder's image identity, worker, garbage-collection,
-   and log controls before retiring the unsuffixed builder and numbered
-   generations older than the immediately preceding rollback. The current and
-   one explicitly named rollback generation are the complete retained set; do
-   not add a second rollback or a broad Docker prune.
-5. Run the pin unit tests, the security stage, and the affected Forgejo workflow
+4. For a BuildKit image or config update, increment `builder_generation` and
+   update the expected image digest, config SHA-256, and literal create options
+   together. A reused current builder is checked without `--bootstrap` for its
+   image digest, bounded log driver, and creation-time config marker before it
+   may start; the live worker garbage-collection policy is checked after start.
+   The immediately preceding generation is retained only when its expected
+   image and config values are explicitly recorded and that pre-bootstrap proof
+   passes. Otherwise it is retired. The current v3 rollout deliberately leaves
+   the v2 expectations empty because v2 predates the marker, so v2 is not
+   claimed as rollback state.
+5. Cleanup enumerates and removes only the exact unsuffixed and obsolete
+   generation names after the current builder is healthy. Absence is accepted,
+   but enumeration failure, corrupt/unreachable state, or an exact builder or
+   backing-container name that remains after removal fails the workflow. Never
+   replace this allowlist with a broad Docker prune.
+6. Run the pin unit tests, the security stage, and the affected Forgejo workflow
    syntax checks before publication.
 
 The pins prove immutable fetch identity. They do not make third-party code

@@ -205,55 +205,169 @@ function workflowRunScalars(content, file) {
   return { scripts, violations };
 }
 
-function shellCommandAt(script, start) {
+function shellCommands(script) {
+  const commands = [];
+  let words = [];
+  let continuationBoundaries = [];
+  let word = null;
   let quote = null;
-  for (let index = start; index < script.length; index += 1) {
+
+  const startWord = () => {
+    if (!word) word = { value: '', simple: true, dynamic: false };
+  };
+  const finishWord = () => {
+    if (!word) return;
+    words.push(word);
+    word = null;
+  };
+  const finishCommand = () => {
+    finishWord();
+    if (words.length > 0) commands.push({ words, continuationBoundaries });
+    words = [];
+    continuationBoundaries = [];
+  };
+
+  for (let index = 0; index < script.length; index += 1) {
     const character = script[index];
-    if (quote) {
-      if (character === quote) quote = null;
-      else if (character === '\\' && quote === '"') index += 1;
+
+    if (quote === "'") {
+      if (character === "'") {
+        quote = null;
+      } else {
+        word.value += character;
+      }
       continue;
     }
+
+    if (quote === '"') {
+      if (character === '"') {
+        quote = null;
+      } else if (character === '\\') {
+        word.simple = false;
+        if (script[index + 1] === '\r' && script[index + 2] === '\n') {
+          index += 2;
+        } else if (script[index + 1] === '\n') {
+          index += 1;
+        } else if (index + 1 < script.length) {
+          word.value += script[index + 1];
+          index += 1;
+        }
+      } else {
+        if (character === '$' || character === '`') word.dynamic = true;
+        word.value += character;
+      }
+      continue;
+    }
+
     if (character === '"' || character === "'") {
+      startWord();
+      word.simple = false;
       quote = character;
       continue;
     }
+
     if (character === '\\') {
-      index += 1;
+      const hasCrLf = script[index + 1] === '\r' && script[index + 2] === '\n';
+      const hasLf = script[index + 1] === '\n';
+      if (hasCrLf || hasLf) {
+        if (word) word.simple = false;
+        else continuationBoundaries.push(words.length);
+        index += hasCrLf ? 2 : 1;
+      } else {
+        startWord();
+        word.simple = false;
+        if (index + 1 < script.length) {
+          word.value += script[index + 1];
+          index += 1;
+        }
+      }
       continue;
     }
-    if (
-      character === '\n' ||
-      character === '\r' ||
-      character === ';' ||
-      character === '|' ||
-      character === '&' ||
-      (character === '#' && (index === start || /\s/.test(script[index - 1])))
-    ) {
-      return script.slice(start, index);
+
+    if (character === '#' && !word) {
+      while (index + 1 < script.length && !/[\r\n]/.test(script[index + 1])) index += 1;
+      finishCommand();
+      continue;
     }
+    if (/\s/.test(character)) {
+      finishWord();
+      if (character === '\n' || character === '\r') finishCommand();
+      continue;
+    }
+    if (character === ';' || character === '|' || character === '&') {
+      finishCommand();
+      continue;
+    }
+
+    startWord();
+    if (character === '$' || character === '`') word.dynamic = true;
+    word.value += character;
   }
-  return script.slice(start);
+  finishCommand();
+  return commands;
 }
 
-function buildxCreateCommands(script, line) {
-  const normalized = script.replace(/\\\r?\n[ \t]*/g, ' ');
-  const subcommand = '(?:"buildx"|\'buildx\'|buildx)\\s+(?:"create"|\'create\'|create)';
-  const pattern = new RegExp(`(?<![A-Za-z0-9_./$-])${subcommand}(?=\\s|$|[;&|])`, 'gi');
-  const literalDocker = /(?<![A-Za-z0-9_./$-])(?:"docker"|'docker'|docker)\s+$/i;
-  const commands = [];
+function canonicalDockerIndex(words, buildxIndex) {
+  const prefixes = [
+    [],
+    ['if'],
+    ['elif'],
+    ['while'],
+    ['until'],
+    ['!'],
+    ['if', '!'],
+    ['elif', '!'],
+    ['while', '!'],
+    ['until', '!'],
+  ];
 
-  for (const match of normalized.matchAll(pattern)) {
-    const prefix = normalized.slice(0, match.index);
-    const dockerMatch = prefix.match(literalDocker);
-    if (!dockerMatch) {
-      commands.push({ command: null, line });
-      continue;
+  for (const prefix of prefixes) {
+    const dockerIndex = prefix.length;
+    if (buildxIndex !== dockerIndex + 1) continue;
+    if (prefix.every((value, index) => words[index]?.simple && words[index].value === value)) {
+      return dockerIndex;
     }
-    const commandStart = prefix.length - dockerMatch[0].length;
-    commands.push({ command: shellCommandAt(normalized, commandStart), line });
   }
+  return -1;
+}
 
+function buildxCommands(script, line) {
+  const commands = [];
+  const supportedSubcommands = new Set(['build', 'create', 'inspect', 'rm', 'use']);
+
+  for (const command of shellCommands(script)) {
+    const { words, continuationBoundaries } = command;
+    for (let buildxIndex = 0; buildxIndex < words.length; buildxIndex += 1) {
+      const buildxWord = words[buildxIndex];
+      const normalizedWord = buildxWord.value.toLowerCase();
+      const embeddedDockerBuildx = /(?:^|=)docker\s+buildx(?:\s|$)/.test(normalizedWord);
+      if (normalizedWord !== 'buildx' && !embeddedDockerBuildx) continue;
+
+      const dockerIndex = canonicalDockerIndex(words, buildxIndex);
+      const dockerWord = words[dockerIndex];
+      const subcommand = words[buildxIndex + 1];
+      const splitCoreToken = continuationBoundaries.some(
+        (boundary) => boundary > dockerIndex && boundary <= buildxIndex + 1,
+      );
+      const canonical =
+        dockerIndex >= 0 &&
+        dockerWord?.simple &&
+        dockerWord.value === 'docker' &&
+        buildxWord.simple &&
+        buildxWord.value === 'buildx' &&
+        subcommand?.simple &&
+        !subcommand.dynamic &&
+        supportedSubcommands.has(subcommand.value) &&
+        !splitCoreToken;
+
+      commands.push({
+        canonical,
+        line,
+        subcommand: canonical ? subcommand.value : null,
+        words: canonical ? words.slice(buildxIndex + 2) : [],
+      });
+    }
+  }
   return commands;
 }
 
@@ -261,27 +375,86 @@ function buildkitDriverImageViolations(content, file) {
   const { scripts, violations } = workflowRunScalars(content, file);
 
   for (const run of scripts) {
-    for (const { command, line } of buildxCreateCommands(run.script, run.line)) {
-      if (command === null) {
+    for (const command of buildxCommands(run.script, run.line)) {
+      if (!command.canonical) {
         violations.push({
           file,
-          line,
-          message: 'BuildKit create commands must invoke a literal docker executable',
+          line: command.line,
+          message: 'Buildx commands must use a canonical literal docker buildx invocation',
         });
         continue;
       }
-      const createCommand = command;
-      const driverMatch = createCommand.match(
-        /(?:^|\s)--driver(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i,
-      );
-      const driver = driverMatch?.slice(1).find(Boolean)?.toLowerCase();
+      if (command.subcommand !== 'create') continue;
+
+      const drivers = [];
+      const driverOptions = [];
+      let invalidControlOption = false;
+      let unsupportedArgument = false;
+      const positionals = [];
+      for (let index = 0; index < command.words.length; index += 1) {
+        const option = command.words[index];
+        const optionName = option.value.toLowerCase();
+        if (optionName === '--driver') {
+          const value = command.words[index + 1];
+          if (!option.simple || !value || value.dynamic) invalidControlOption = true;
+          else drivers.push(value.value);
+          index += 1;
+        } else if (optionName.startsWith('--driver=')) {
+          if (!option.simple || option.dynamic) invalidControlOption = true;
+          else drivers.push(option.value.slice('--driver='.length));
+        } else if (optionName === '--driver-opt') {
+          const value = command.words[index + 1];
+          if (!option.simple || !value || value.dynamic) invalidControlOption = true;
+          else driverOptions.push(value.value);
+          index += 1;
+        } else if (optionName.startsWith('--driver-opt=')) {
+          if (!option.simple || option.dynamic) invalidControlOption = true;
+          else driverOptions.push(option.value.slice('--driver-opt='.length));
+        } else if (['--name', '--buildkitd-config'].includes(optionName)) {
+          if (!command.words[index + 1]) unsupportedArgument = true;
+          index += 1;
+        } else if (optionName.startsWith('--name=') || optionName.startsWith('--buildkitd-config=')) {
+          if (option.dynamic) unsupportedArgument = true;
+        } else if (optionName === '--use') {
+          if (!option.simple) unsupportedArgument = true;
+        } else if (optionName.startsWith('-') || option.dynamic) {
+          unsupportedArgument = true;
+        } else {
+          positionals.push(option.value);
+        }
+      }
+
+      if (invalidControlOption) {
+        violations.push({
+          file,
+          line: command.line,
+          message: 'docker-container BuildKit image must use a direct literal sha256 digest option value',
+        });
+        continue;
+      }
+      if (drivers.length > 1) {
+        violations.push({
+          file,
+          line: command.line,
+          message: 'docker buildx create must set --driver at most once',
+        });
+        continue;
+      }
+
+      const driver = drivers[0]?.toLowerCase();
+      if (
+        unsupportedArgument ||
+        (positionals.length > 0 && !['cloud', 'kubernetes', 'remote'].includes(driver))
+      ) {
+        violations.push({
+          file,
+          line: command.line,
+          message: 'docker buildx create must use only the supported direct argument form',
+        });
+        continue;
+      }
       if (driver && ['cloud', 'docker', 'kubernetes', 'remote'].includes(driver)) continue;
 
-      const driverOptions = [
-        ...createCommand.matchAll(
-          /(?:^|\s)--driver-opt(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/gi,
-        ),
-      ].map((match) => match.slice(1).find(Boolean));
       const driverImages = driverOptions.flatMap((option) =>
         option
           .split(',')
@@ -291,7 +464,7 @@ function buildkitDriverImageViolations(content, file) {
       if (driverImages.length === 0) {
         violations.push({
           file,
-          line,
+          line: command.line,
           message: 'docker-container BuildKit image must be explicit and use a sha256 digest',
         });
         continue;
@@ -299,7 +472,7 @@ function buildkitDriverImageViolations(content, file) {
       if (driverImages.length !== 1 || !literalImageDigestPattern.test(driverImages[0])) {
         violations.push({
           file,
-          line,
+          line: command.line,
           message: `docker-container BuildKit image must use a sha256 digest: ${driverImages.join(', ')}`,
         });
       }

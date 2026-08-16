@@ -243,28 +243,58 @@ jobs:
           esac
 
           # buildx-stable-1 multi-arch index, resolved from Docker Hub on
-          # 2026-08-17. The v2 builder remains for operator-directed rollback.
+          # 2026-08-17. An older generation is retained only after it passes
+          # the same pre-bootstrap identity and configuration proof.
+          source scripts/ci/forgejo-buildkit-lifecycle.sh
           builder_prefix="vh-release-builder"
           builder_generation=3
           builder_name="${builder_prefix}-v${builder_generation}"
+          builder_container="buildx_buildkit_${builder_name}0"
           rollback_builder="${builder_prefix}-v$((builder_generation - 1))"
+          rollback_container="buildx_buildkit_${rollback_builder}0"
           expected_builder_image="moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
-          if docker buildx inspect "$builder_name" >/dev/null 2>&1; then
-            docker buildx use "$builder_name"
-          else
-            docker buildx create \
-              --name "$builder_name" \
-              --driver docker-container \
-              --driver-opt "image=moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8" \
-              --buildkitd-config .forgejo/buildkitd-dalekdefender.toml \
-              --use
-          fi
+          expected_builder_config_sha256="9afae8ba39dc9b85585081146e29a5ee0ad6ae56c63dd6df99686c06a7258365"
+          # v2 predates the verifiable configuration marker, so it is not a
+          # rollback candidate. A later generation bump must set both values.
+          rollback_builder_image=""
+          rollback_builder_config_sha256=""
+
+          builder_status=0
+          vh_builder_known "$builder_name" || builder_status=$?
+          case "$builder_status" in
+            0)
+              if ! vh_builder_prebootstrap_matches \
+                "$builder_name" \
+                "$builder_container" \
+                "$expected_builder_image" \
+                "$expected_builder_config_sha256"; then
+                echo "::error::Refusing to bootstrap an unverified existing BuildKit builder"
+                exit 1
+              fi
+              docker buildx use "$builder_name"
+              ;;
+            1)
+              docker buildx create \
+                --name "$builder_name" \
+                --driver docker-container \
+                --driver-opt "image=moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8" \
+                --driver-opt "env.VH_BUILDKIT_CONFIG_SHA256=9afae8ba39dc9b85585081146e29a5ee0ad6ae56c63dd6df99686c06a7258365" \
+                --buildkitd-config .forgejo/buildkitd-dalekdefender.toml \
+                --use
+              ;;
+            *)
+              echo "::error::Unable to determine the current BuildKit builder state"
+              exit 1
+              ;;
+          esac
           docker buildx inspect "$builder_name" --bootstrap
 
-          builder_container="buildx_buildkit_${builder_name}0"
-          actual_builder_image="$(docker inspect -f '{{.Config.Image}}' "$builder_container")"
-          if [ "$actual_builder_image" != "$expected_builder_image" ]; then
-            echo "::error::BuildKit builder image does not match the reviewed digest"
+          if ! vh_builder_prebootstrap_matches \
+            "$builder_name" \
+            "$builder_container" \
+            "$expected_builder_image" \
+            "$expected_builder_config_sha256"; then
+            echo "::error::Bootstrapped BuildKit builder no longer matches its trusted identity"
             exit 1
           fi
           worker_json="$(docker exec "$builder_container" buildctl debug workers --format '{{json .}}')"
@@ -287,26 +317,20 @@ jobs:
             echo "::error::Pinned BuildKit builder is not using the bounded local log driver"
             exit 1
           fi
-          # Keep only the verified current generation and its immediate rollback.
-          # Cleanup is exact-name only and runs after image, worker, GC, and log checks.
-          remove_stale_builder() {
-            stale_builder="$1"
-            if docker buildx inspect "$stale_builder" >/dev/null 2>&1; then
-              if ! docker buildx rm --force "$stale_builder"; then
-                if docker buildx inspect "$stale_builder" >/dev/null 2>&1; then
-                  echo "::error::Failed to retire stale BuildKit builder $stale_builder"
-                  return 1
-                fi
-              fi
-            fi
-          }
-          remove_stale_builder "$builder_prefix"
+          # Keep the healthy current generation plus at most one rollback that
+          # independently passes the pre-bootstrap proof. Cleanup is exact-name
+          # only and begins after the current builder is fully verified.
+          vh_retain_or_retire_rollback \
+            "$rollback_builder" \
+            "$rollback_container" \
+            "$rollback_builder_image" \
+            "$rollback_builder_config_sha256"
+          vh_retire_builder "$builder_prefix"
           stale_generation=1
           while [ "$stale_generation" -lt "$((builder_generation - 1))" ]; do
-            remove_stale_builder "${builder_prefix}-v${stale_generation}"
+            vh_retire_builder "${builder_prefix}-v${stale_generation}"
             stale_generation=$((stale_generation + 1))
           done
-          echo "Retaining $rollback_builder as the sole rollback generation"
 
           # staff-web is amd64-only regardless of RELEASE_PLATFORMS:
           # Dockerfile.web installs the official Flutter linux tarball, which
