@@ -54,7 +54,10 @@ import { recordMovementTx, dispenseControlledTx } from './inventoryV2Service.js'
 import {
   createDraftInvoice, addInvoiceItem, issueInvoice, voidInvoice,
   collectPayment, raiseRefund, approveRefund, markRefundPaid, getInvoice,
+  deriveInvoicePaymentStateFromLedgerTx,
 } from '../billing/billingV2Service.js';
+import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
+import { postPaymentEntry } from '../billing/ledger/ledgerPostings.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 // POS is pay-at-counter: every billingV2 mode except INSURANCE (which requires
@@ -526,6 +529,16 @@ export async function createCounterSale({
   }
 
   // ── Phase 3: finalize (stock + register + payment + COMPLETED), atomic ─
+  //
+  // Ledger wiring: collectPayment SKIPS its own ledger posting when handed a
+  // caller tx ("that caller is responsible for its own ledger posting"), so
+  // this path must post the PAYMENT leg itself exactly like billing's cashier
+  // flow — otherwise every counter sale leaves PATIENT_AR debited by the
+  // INVOICE_ISSUE leg and never credited. Same per-tenant mode contract:
+  // enforce → post inside the finalize tx (a ledger failure rolls the sale
+  // back) + derive the invoice cache columns from the ledger; shadow → post
+  // after commit, best-effort; off → skip.
+  const wiring = await resolveLedgerWiring(tenant);
   try {
     const result = await setTenantTx(tenant, async (tx) => {
       const totalAmount = Number(invoice.total_amount);
@@ -591,6 +604,11 @@ export async function createCounterSale({
         tenantId: tenant,
       }, { tx });
 
+      if (wiring.sameTx) {
+        await postPaymentEntry({ payment, tenantId: tenant, tx });
+        await deriveInvoicePaymentStateFromLedgerTx(tx, Number(invoice.id));
+      }
+
       const updated = await tx.$queryRawUnsafe(
         `UPDATE pharmacy_counter_sales
             SET status = 'COMPLETED', invoice_id = $1::int, total_amount = $2::numeric,
@@ -632,6 +650,19 @@ export async function createCounterSale({
 
       return { sale: updated[0], payment };
     });
+
+    // Shadow mode: post the PAYMENT leg after commit, best-effort — identical
+    // to collectPayment's own postCommit branch (a ledger problem must never
+    // roll back the real sale).
+    if (wiring.postCommit) {
+      try {
+        await postPaymentEntry({ payment: result.payment, tenantId: tenant });
+      } catch (ledgerErr) {
+        logger.error('Ledger PAYMENT post failed (non-blocking)', {
+          payment_id: result.payment?.id, counter_sale_id: sale.id, error: ledgerErr.message,
+        });
+      }
+    }
 
     return {
       sale: result.sale,
