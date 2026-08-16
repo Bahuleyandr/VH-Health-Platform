@@ -260,18 +260,55 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
   });
 
   test('RLS proof: the 609 receipt store rejects a write without explicit tenant context', async () => {
+    // The superuser test connection bypasses RLS, so — like
+    // audit-logs-tenant-rls.deep.test.js — the proof runs as the sealed
+    // non-superuser app role with the GUC left UNSET. The RESTRICTIVE
+    // notification_delivery_explicit_context policy must fail the write
+    // closed. Self-skips when the role is not provisioned.
+    const APP_ROLE = process.env.AUDIT_APPEND_ONLY_TEST_ROLE || 'rls_test_app';
+    const roleRows = await prisma.$queryRawUnsafe(
+      `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1`, APP_ROLE,
+    );
+    if (!roleRows.length || roleRows[0].rolsuper || roleRows[0].rolbypassrls) {
+      console.warn(`RLS proof skipped: role ${APP_ROLE} unavailable`);
+      return;
+    }
+
     const receipts = await readReceipts(sentOutboxId);
     const attemptId = receipts[0].attempt_id;
-    // Same insert shape the DLR path uses, but on the bare client (GUC
-    // unset). The RESTRICTIVE notification_delivery_explicit_context policy
-    // must fail it closed.
-    await expect(prisma.$executeRawUnsafe(
-      `INSERT INTO notification_provider_receipts
-         (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
-          receipt_source, provider_reference, provider_code, evidence)
-       VALUES ($1::uuid, $2::uuid, $3::integer, 'sms', 'rejected',
-               'provider_status_callback', $4::text, 'dlr_failed', '{}'::jsonb)`,
-      TENANT_ID, attemptId, sentOutboxId, `bypass-${SUFFIX}`,
-    )).rejects.toThrow();
+    // A DIFFERENT receipt source than test 3 used, so the one-per-(attempt,
+    // source) unique cannot be what rejects the row — only RLS can.
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+      await tx.$executeRawUnsafe(
+        `INSERT INTO notification_provider_receipts
+           (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
+            receipt_source, provider_reference, provider_code, evidence)
+         VALUES ($1::uuid, $2::uuid, $3::integer, 'sms', 'uncertain',
+                 'transport_failure', $4::text, 'rls_probe', '{}'::jsonb)`,
+        TENANT_ID, attemptId, sentOutboxId, `rls-probe-${SUFFIX}`,
+      );
+    })).rejects.toThrow(/row-level security/i);
+
+    // Same insert WITH the tenant GUC set succeeds for the same sealed role
+    // (then rolls back nothing — it is a real receipt append, remove it to
+    // keep the receipt set stable for reruns on a reused DB… receipts are
+    // append-only evidence, so instead use a throwaway probe transaction
+    // that raises after proving insertability).
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+      await tx.$queryRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1, true)`, TENANT_ID,
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO notification_provider_receipts
+           (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
+            receipt_source, provider_reference, provider_code, evidence)
+         VALUES ($1::uuid, $2::uuid, $3::integer, 'sms', 'uncertain',
+                 'transport_failure', $4::text, 'rls_probe', '{}'::jsonb)`,
+        TENANT_ID, attemptId, sentOutboxId, `rls-probe-${SUFFIX}`,
+      );
+      throw new Error('PROBE_ROLLBACK');
+    })).rejects.toThrow('PROBE_ROLLBACK');
   });
 });
