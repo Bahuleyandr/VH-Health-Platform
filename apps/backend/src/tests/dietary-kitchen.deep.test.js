@@ -30,6 +30,9 @@ const P_UNIFIED = 'd1e76666-6666-4666-8666-666666666666'; // allergy only in pat
 const P_RECALL = 'd1e77777-7777-4777-8777-777777777777'; // NPO-change recall flow
 const P_STALE = 'd1e78888-8888-4888-8888-888888888888'; // stale transition refusal
 const P_DISCHG = 'd1e79999-9999-4999-8999-999999999999'; // discharge recall hook
+const P_XFER = 'd1e7bbb1-bbb1-4bb1-8bb1-bbb1bbb1bbb1'; // ward transfer keeps eating
+const P_LATE = 'd1e7ccc1-ccc1-4cc1-8cc1-ccc1ccc1ccc1'; // allergy charted after the cut
+const P_SUPER = 'd1e7ddd1-ddd1-4dd1-8dd1-ddd1ddd1ddd1'; // new order supersedes the old
 
 const DIETITIAN_ACTOR = { uid: 'd1e7aaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'DIETITIAN' };
 const KITCHEN_ACTOR = { uid: 'd1e7bbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', role: 'DIETARY_STAFF' };
@@ -83,6 +86,7 @@ async function ticketsFor(orderId) {
 const ALL_PATIENTS = [
   P_ADMITTED, P_DISCHARGED, P_NPO, P_ONHOLD, P_FOREIGN,
   P_UNIFIED, P_RECALL, P_STALE, P_DISCHG,
+  P_XFER, P_LATE, P_SUPER,
 ];
 
 async function cleanup() {
@@ -150,6 +154,9 @@ beforeAll(async () => {
   await seedPatient(P_RECALL, 'Kitchen Recall', '9821000007', TENANT);
   await seedPatient(P_STALE, 'Kitchen Stale', '9821000008', TENANT);
   await seedPatient(P_DISCHG, 'Kitchen Discharge Hook', '9821000009', TENANT);
+  await seedPatient(P_XFER, 'Kitchen Transfer', '9821000010', TENANT);
+  await seedPatient(P_LATE, 'Kitchen Late Allergy', '9821000011', TENANT);
+  await seedPatient(P_SUPER, 'Kitchen Supersede', '9821000012', TENANT);
 
   await insertAdmission(TENANT, P_ADMITTED, { ward: 'Ward A', bed: 'A-101' });
   await insertAdmission(TENANT, P_DISCHARGED, { status: 'discharged', dischargedAt: true });
@@ -793,5 +800,158 @@ describe('discharge recalls the patient\'s live tickets', () => {
       actorUid: DIETITIAN_ACTOR.uid, reason: 'admission ended (lama)',
     });
     expect(rerun).toEqual({ cancelled: 0, recalled: 0 });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Post-remediation regressions (PR #875 round-2 review).
+//
+// Placed last, each on its own patient, so the exact generation-count
+// assertions in the earlier describes stay valid.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('a ward transfer does not starve the patient', () => {
+  let orderXfer;
+
+  beforeAll(async () => {
+    await insertAdmission(TENANT, P_XFER, { ward: 'Ward C', bed: 'C-301' });
+    orderXfer = await insertDietOrder(TENANT, P_XFER, { dietType: 'regular' });
+  });
+
+  test('tickets are still CUT for a transferred inpatient', async () => {
+    // The in-hospital move. admissions.status becomes 'transferred' and NOTHING
+    // in the platform ever sets it back to 'admitted', so gating on 'admitted'
+    // alone silently stops this patient's meals for the rest of their stay.
+    await prisma.$executeRawUnsafe(
+      `UPDATE admissions SET status = 'transferred', ward = 'Ward D', bed_number = 'D-401'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT, P_XFER,
+    );
+
+    await generateMealTickets({ tenantId: TENANT, source: 'manual' });
+    const tickets = await ticketsFor(orderXfer);
+    const live = tickets.filter((t) => t.status !== 'cancelled');
+    expect(live.length).toBe(MEAL_TYPES.length);
+  });
+
+  test('and a transferred patient\'s tray still reaches them', async () => {
+    const tickets = await ticketsFor(orderXfer);
+    const lunch = tickets.find((t) => t.meal_type === 'lunch' && t.status !== 'cancelled');
+    for (const step of ['preparing', 'ready', 'dispatched']) {
+      await transitionTicket({
+        tenantId: TENANT, ticketId: lunch.id, toStatus: step, actor: KITCHEN_ACTOR,
+      });
+    }
+    // The serve gate must NOT read 'transferred' as admission_ended.
+    const delivered = await transitionTicket({
+      tenantId: TENANT, ticketId: lunch.id, toStatus: 'delivered', actor: NURSE_ACTOR,
+    });
+    expect(delivered.status).toBe('delivered');
+  });
+
+  test('but a real discharge still stops the tray', async () => {
+    // Tray leaves the kitchen first — then the patient is discharged. This is
+    // the ordering that matters: the gate has to catch it on the way to the
+    // bed, not merely refuse to dispatch.
+    const tickets = await ticketsFor(orderXfer);
+    const dinner = tickets.find((t) => t.meal_type === 'dinner' && t.status !== 'cancelled');
+    for (const step of ['preparing', 'ready', 'dispatched']) {
+      await transitionTicket({
+        tenantId: TENANT, ticketId: dinner.id, toStatus: step, actor: KITCHEN_ACTOR,
+      });
+    }
+    await prisma.$executeRawUnsafe(
+      `UPDATE admissions SET status = 'discharged', discharged_at = NOW()
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT, P_XFER,
+    );
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: dinner.id, toStatus: 'delivered', actor: NURSE_ACTOR,
+    })).rejects.toMatchObject({
+      code: 'DIETARY_TICKET_STALE',
+      details: expect.objectContaining({ reason: 'admission_ended' }),
+    });
+  });
+});
+
+describe('an allergy charted AFTER the cut stops the tray', () => {
+  let orderLate;
+
+  beforeAll(async () => {
+    await insertAdmission(TENANT, P_LATE, { ward: 'Ward E', bed: 'E-501' });
+    orderLate = await insertDietOrder(TENANT, P_LATE, { dietType: 'regular' });
+    await generateMealTickets({ tenantId: TENANT, source: 'manual' });
+  });
+
+  test('the ticket was cut clean, then a new allergy blocks serving it', async () => {
+    const before = await ticketsFor(orderLate);
+    const lunch = before.find((t) => t.meal_type === 'lunch' && t.status !== 'cancelled');
+    expect(lunch.allergies).toEqual([]);
+
+    for (const step of ['preparing', 'ready', 'dispatched']) {
+      await transitionTicket({
+        tenantId: TENANT, ticketId: lunch.id, toStatus: step, actor: KITCHEN_ACTOR,
+      });
+    }
+
+    // Charted at 09:00 — after the 05:00 cut, with no diet-order write to
+    // trigger a re-sync. Nothing in the allergy write paths notifies dietary,
+    // so only a re-screen at the serve gate can catch this.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (tenant_id, patient_uid, allergy_name, severity, is_active)
+       VALUES ($1::uuid, $2::uuid, 'Shellfish', 'ANAPHYLAXIS', TRUE)`,
+      TENANT, P_LATE,
+    );
+
+    await expect(transitionTicket({
+      tenantId: TENANT, ticketId: lunch.id, toStatus: 'delivered', actor: NURSE_ACTOR,
+    })).rejects.toMatchObject({
+      code: 'DIETARY_TICKET_STALE',
+      details: expect.objectContaining({
+        reason: 'allergies_changed',
+        new_allergens: ['Shellfish'],
+      }),
+    });
+  });
+});
+
+describe('a new diet order supersedes the previous active one', () => {
+  test('the old order is discontinued and its trays are recalled', async () => {
+    const { default: dietaryService } = await import('../services/dietary/dietaryService.js');
+    await insertAdmission(TENANT, P_SUPER, { ward: 'Ward F', bed: 'F-601' });
+
+    const first = await dietaryService.createDietOrder({
+      tenant_id: TENANT, patient_uid: P_SUPER, diet_type: 'regular',
+      ordered_by: DIETITIAN_ACTOR.uid,
+    });
+    await generateMealTickets({ tenantId: TENANT, source: 'manual' });
+    expect((await ticketsFor(first.id)).filter((t) => t.status !== 'cancelled').length)
+      .toBe(MEAL_TYPES.length);
+
+    // Neither shipped client can EDIT a diet — both change it by POSTing a new
+    // order. Without supersession the old one stays active and keeps cutting
+    // trays every day, and an npo replacement never stops the food.
+    const second = await dietaryService.createDietOrder({
+      tenant_id: TENANT, patient_uid: P_SUPER, diet_type: 'npo',
+      ordered_by: DIETITIAN_ACTOR.uid,
+    });
+
+    const olderRows = await prisma.$queryRawUnsafe(
+      `SELECT status FROM diet_orders WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT, first.id,
+    );
+    expect(olderRows[0].status).toBe('discontinued');
+
+    // Exactly one active order survives for this patient.
+    const activeRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM diet_orders
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'`,
+      TENANT, P_SUPER,
+    );
+    expect(activeRows.map((r) => Number(r.id))).toEqual([Number(second.id)]);
+
+    // And the superseded order's trays are no longer live.
+    const stale = await ticketsFor(first.id);
+    expect(stale.filter((t) => t.status !== 'cancelled' && !t.recalled_at)).toEqual([]);
   });
 });

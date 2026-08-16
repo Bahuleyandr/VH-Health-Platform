@@ -34,8 +34,9 @@
 //   - POST /dietary/kitchen/generate re-runs generation manually (new
 //     admissions after the morning cut, or a missed scheduler tick).
 //     Generation is idempotent: the live-uniqueness index absorbs re-runs.
-//   - Eligibility: ACTIVE diet orders of currently admitted patients
-//     (admissions.status = 'admitted' AND discharged_at IS NULL), excluding
+//   - Eligibility: ACTIVE diet orders of current inpatients
+//     (admissions.status IN ('admitted','transferred') AND discharged_at IS
+//     NULL — a ward/bed move must not stop meals), excluding
 //     'npo' (nil by mouth). All four meal windows are cut for every eligible
 //     order — diabetic/renal days include snacks; the kitchen cancels a
 //     window it will not serve.
@@ -63,6 +64,23 @@ import {
 } from '../../utils/roles.js';
 
 export const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+// ★ A patient moved between wards or beds is STILL AN INPATIENT and still has
+// to be fed. `admissions.status` becomes 'transferred' on every in-hospital
+// move (admissionService.transferPatient, bedManagementService's direct-bed
+// path) and NOTHING anywhere in the platform ever sets it back to 'admitted' —
+// the only writes of that value are the two admission-CREATE paths. Gating a
+// tray on `status = 'admitted'` alone therefore starves a transferred patient
+// for the remainder of their stay: no ticket is cut for them, and any ticket
+// already in flight 409s on the way to the ward.
+//
+// The house predicate for "currently an inpatient" is
+// `status IN ('admitted','transferred') AND discharged_at IS NULL`; it appears
+// inline in 20+ places across the bed and admission services. Discharge is
+// signalled by `discharged_at`, which every gate here checks separately, so
+// widening the status set does not weaken the do-not-serve guarantee.
+export const LIVE_ADMISSION_STATUSES = ['admitted', 'transferred'];
+const LIVE_ADMISSION_STATUS_SET = new Set(LIVE_ADMISSION_STATUSES);
 
 // diet_orders.diet_type vocabulary minus 'npo' — nothing by mouth gets no
 // menu item and no ticket.
@@ -500,10 +518,10 @@ export async function generateMealTickets({
     params.push(orderScope);
     scopeClause = `AND o.id = $${params.length}`;
   }
-
-  // Eligible orders joined honestly to a live admission: status 'admitted'
-  // AND not discharged (the house "currently admitted" predicate). DISTINCT
-  // ON keeps the newest live admission if data ever holds more than one.
+  // Eligible orders joined honestly to a live admission: an inpatient status
+  // (admitted OR transferred — an in-hospital move must not stop meals; see
+  // LIVE_ADMISSION_STATUSES) AND not discharged. DISTINCT ON keeps the newest
+  // live admission if data ever holds more than one.
   const orders = await prisma.$queryRawUnsafe(
     `SELECT DISTINCT ON (o.id)
             o.id, o.patient_uid, o.diet_type, o.restrictions, o.allergies,
@@ -514,7 +532,7 @@ export async function generateMealTickets({
        JOIN admissions a
          ON a.patient_uid = o.patient_uid
         AND a.tenant_id = o.tenant_id
-        AND a.status = 'admitted'
+        AND a.status IN ('admitted', 'transferred')
         AND a.discharged_at IS NULL
        JOIN users u ON u.uid = o.patient_uid AND u.tenant_id = o.tenant_id
       WHERE o.tenant_id = $1::uuid
@@ -945,7 +963,8 @@ export async function transitionTicket({
     const rows = await tx.$queryRawUnsafe(
       `SELECT id::text AS id, status, patient_uid, meal_type, diet_type,
               service_date::text AS service_date, ward, bed_number, patient_name,
-              diet_order_id, admission_id, recalled_at, recall_ack_at, recall_reason
+              diet_order_id, admission_id, recalled_at, recall_ack_at, recall_reason,
+              allergies
          FROM dietary_meal_tickets
         WHERE tenant_id = $1::uuid AND id = $2::bigint
         FOR UPDATE`,
@@ -978,7 +997,8 @@ export async function transitionTicket({
         );
       }
       const liveRows = await tx.$queryRawUnsafe(
-        `SELECT o.status AS order_status, o.diet_type AS order_diet_type,
+        `SELECT o.id, o.patient_uid, o.allergies, o.restrictions,
+                o.status AS order_status, o.diet_type AS order_diet_type,
                 a.status AS admission_status, a.discharged_at
            FROM diet_orders o
       LEFT JOIN admissions a
@@ -989,17 +1009,48 @@ export async function transitionTicket({
       );
       const live = liveRows[0] || null;
       let staleReason = null;
+      let newAllergens = [];
       if (!live) staleReason = 'diet_order_missing';
       else if (live.order_diet_type === 'npo') staleReason = 'patient_npo';
       else if (live.order_status !== 'active') staleReason = `diet_order_${live.order_status}`;
       else if (live.order_diet_type !== ticket.diet_type) staleReason = 'diet_changed';
-      else if (!live.admission_status || live.admission_status !== 'admitted'
+      // 'transferred' is a LIVE inpatient state — a ward/bed move must not
+      // stop the tray. Discharge is carried by discharged_at, checked here.
+      else if (!live.admission_status || !LIVE_ADMISSION_STATUS_SET.has(live.admission_status)
         || live.discharged_at) staleReason = 'admission_ended';
+
+      // ★ Allergens are re-screened HERE, not only at the 05:00 cut.
+      //
+      // Menu selection happens once when the ticket is cut; nothing in the
+      // allergy write paths (FHIR patient_allergies, users.allergies, admission
+      // intake) notifies dietary. Without this, an allergy charted at 09:00 —
+      // exactly when a reaction or a relative's account prompts one — leaves
+      // every remaining tray that day selected against the pre-breakfast
+      // picture, and the serve gate waves it through.
+      //
+      // Asymmetric on purpose: only an allergen present LIVE but absent from
+      // the ticket snapshot blocks the tray. A REMOVED allergy is not a safety
+      // risk, and a degraded lookup can only ever return FEWER allergens — so
+      // this cannot halt every tray in the hospital when an allergy source is
+      // down, which a strict set-equality check would.
+      if (!staleReason) {
+        const liveAllergyCtx = await loadOrderAllergyContext(live, { db: tx });
+        const ticketAllergyKeys = new Set((ticket.allergies || []).map(lower).filter(Boolean));
+        newAllergens = (liveAllergyCtx.allergyNames || [])
+          .filter((name) => lower(name) && !ticketAllergyKeys.has(lower(name)));
+        if (newAllergens.length) staleReason = 'allergies_changed';
+      }
       if (staleReason) {
         throw AppError.conflict(
-          'Meal ticket is stale — the diet order or admission changed since it was cut. Cancel the ticket and regenerate.',
+          staleReason === 'allergies_changed'
+            ? 'Meal ticket is stale — an allergy was recorded for this patient after the tray was selected. Cancel the ticket and regenerate.'
+            : 'Meal ticket is stale — the diet order or admission changed since it was cut. Cancel the ticket and regenerate.',
           'DIETARY_TICKET_STALE',
-          { reason: staleReason, ticket_diet_type: ticket.diet_type },
+          {
+            reason: staleReason,
+            ticket_diet_type: ticket.diet_type,
+            ...(newAllergens.length ? { new_allergens: newAllergens } : {}),
+          },
         );
       }
     }

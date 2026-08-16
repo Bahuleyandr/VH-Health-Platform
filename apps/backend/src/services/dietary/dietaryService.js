@@ -123,24 +123,63 @@ class DietaryService {
     await assertPatientInTenant(tenantId, patient_uid);
     const linkedEncounterId = await assertEncounterLink(tenantId, patient_uid, encounter_id);
 
-    const order = await prisma.diet_orders.create({
-      data: {
-        tenant_id: tenantId,
-        patient_uid,
-        encounter_id: linkedEncounterId,
-        diet_type,
-        restrictions: normalizedRestrictions,
-        allergies: normalizedAllergies,
-        meal_preferences: meal_preferences || null,
-        calories_target: calories_target || null,
-        special_instructions: special_instructions || null,
-        status: 'active',
-        ordered_by,
-      },
-      select: DIET_ORDER_SELECT,
+    // ★ A new order SUPERSEDES the patient's previous active one, atomically.
+    //
+    // diet_orders carries no per-patient uniqueness, and neither shipped client
+    // can edit a diet — the staff dialog and the admin console both change a
+    // patient's diet by POSTing a NEW order. Without this, the previous order
+    // stays `active` forever: the 05:00 cut keeps generating trays from it
+    // every day alongside the new one (duplicate trays), and — the dangerous
+    // case — an order superseded by an `npo` one keeps producing food for a
+    // patient who must not eat. Ticket sync is scoped to a single order id, so
+    // nothing else would ever retire the old row.
+    //
+    // Phase 1: supersede + insert in ONE transaction, so a patient can never be
+    // left with two active orders or none. Explicit tenant_id predicates (not
+    // setTenant) because scoping must hold in every environment — a bare
+    // $transaction callback is not auto-tenant-wrapped.
+    const { order, supersededIds } = await prisma.$transaction(async (tx) => {
+      const superseded = await tx.$queryRawUnsafe(
+        `UPDATE diet_orders
+            SET status = 'discontinued', updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND status = 'active'
+          RETURNING id`,
+        tenantId, patient_uid,
+      );
+      const created = await tx.diet_orders.create({
+        data: {
+          tenant_id: tenantId,
+          patient_uid,
+          encounter_id: linkedEncounterId,
+          diet_type,
+          restrictions: normalizedRestrictions,
+          allergies: normalizedAllergies,
+          meal_preferences: meal_preferences || null,
+          calories_target: calories_target || null,
+          special_instructions: special_instructions || null,
+          status: 'active',
+          ordered_by,
+        },
+        select: DIET_ORDER_SELECT,
+      });
+      return { order: created, supersededIds: superseded.map((r) => Number(r.id)) };
     });
 
-    logger.info('Diet order created', { orderId: order.id, diet_type, patient_uid });
+    logger.info('Diet order created', {
+      orderId: order.id, diet_type, patient_uid, supersededOrderIds: supersededIds,
+    });
+
+    // Phase 1.5: recall the superseded orders' in-flight trays BEFORE syncing
+    // the new one. Each is independently best-effort — a sync failure must not
+    // fail an order write that already committed.
+    for (const supersededId of supersededIds) {
+      await bestEffortTicketSync(
+        tenantId, supersededId, ordered_by,
+        `diet order superseded by order ${order.id}`,
+      );
+    }
     await bestEffortTicketSync(tenantId, order.id, ordered_by, 'diet order created');
     return order;
   }
