@@ -9594,6 +9594,7 @@ model sos_alerts {
   response_message  String?
   resolution_notes  String?
   last_escalated_at DateTime? @db.Timestamp(6)
+  is_test_alert     Boolean   @default(false)
   tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
 
   @@index([alert_type])

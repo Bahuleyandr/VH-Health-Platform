@@ -164,7 +164,7 @@ describe('createAlert response honesty (BE-M3)', () => {
     }));
   });
 
-  it('test alerts skip fan-out entirely and say so', async () => {
+  it('test alerts skip fan-out entirely, say so, and persist the drill marker', async () => {
     const res = await createAlert({ ...baseInput, isTestAlert: true });
 
     expect(notifyEmergencyTeamMock).not.toHaveBeenCalled();
@@ -172,6 +172,24 @@ describe('createAlert response honesty (BE-M3)', () => {
     expect(res.teams_notified).toBe(false);
     expect(res.responders_notified_count).toBe(0);
     expect(res.message).toMatch(/No notifications were sent/);
+
+    // Migration 692: the INSERT persists is_test_alert so the
+    // sos-alert-age-escalation sweep can skip the drill too. $queryRaw is a
+    // tagged template — calls[0] is (strings, ...boundValues).
+    const [insertStrings, ...insertValues] = queryRawMock.mock.calls[0];
+    expect(insertStrings.join('$n')).toContain('is_test_alert');
+    expect(insertValues).toContain(true);
+  });
+
+  it('a real alert persists is_test_alert=false (fail-real default direction)', async () => {
+    notifyEmergencyTeamMock.mockResolvedValue({ success: true, notified_count: 1 });
+
+    await createAlert(baseInput);
+
+    const [insertStrings, ...insertValues] = queryRawMock.mock.calls[0];
+    expect(insertStrings.join('$n')).toContain('is_test_alert');
+    expect(insertValues).toContain(false);
+    expect(insertValues).not.toContain(true);
   });
 });
 

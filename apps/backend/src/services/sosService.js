@@ -164,10 +164,13 @@ export const createAlert = async (alertData) => {
 };
 
 const insertAlert = async (data) => {
+  // is_test_alert (migration 692) persists the drill marker so the
+  // sos-alert-age-escalation sweep can skip test alerts; anything other than
+  // an explicit true is stored FALSE (fail-real direction).
   const rows = await prisma.$queryRaw`
     INSERT INTO sos_alerts (
       phone, uid, latitude, longitude, severity, message,
-      alert_type, ip_address,
+      alert_type, ip_address, is_test_alert,
       status, raised_at, created_at, updated_at
     ) VALUES (
       ${data.phone}, ${data.user.uid ?? null}::uuid,
@@ -175,6 +178,7 @@ const insertAlert = async (data) => {
       ${data.severity}, ${data.message ?? null},
       ${data.emergencyType},
       ${data.ip_address ?? null},
+      ${data.isTestAlert === true},
       'ACTIVE', NOW(), NOW(), NOW()
     )
     RETURNING id, created_at, tenant_id
