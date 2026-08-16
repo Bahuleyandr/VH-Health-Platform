@@ -21,7 +21,7 @@ const EVENT_TYPES = [
 export const schemas = {
   FacilityAsset: {
     type: 'object',
-    required: ['id', 'assetTag', 'name', 'category', 'condition', 'status'],
+    required: ['id', 'assetTag', 'name', 'category', 'condition', 'status', 'version'],
     properties: {
       id: { type: 'integer' },
       assetTag: { type: 'string', maxLength: 64 },
@@ -30,7 +30,10 @@ export const schemas = {
       description: { type: 'string', maxLength: 4000, nullable: true },
       locationDepartment: { type: 'string', maxLength: 120, nullable: true },
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
-      custodianUid: { type: 'string', format: 'uuid', nullable: true },
+      custodianUid: {
+        type: 'string', format: 'uuid', nullable: true,
+        description: 'Current custodian user UID; when set, the user must belong to the asset tenant.',
+      },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
       purchaseCost: { type: 'number', minimum: 0, nullable: true },
@@ -40,6 +43,11 @@ export const schemas = {
         type: 'string',
         enum: STATUSES,
         description: 'State machine: active ⇄ under_repair → condemned → disposed (direct disposal allowed; disposed is terminal and evidence-pinned).',
+      },
+      version: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Optimistic-concurrency token advanced by master edits and status transitions.',
       },
       disposalReason: { type: 'string', maxLength: 500, nullable: true },
       disposedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -122,7 +130,10 @@ export const schemas = {
       description: { type: 'string', maxLength: 4000, nullable: true },
       locationDepartment: { type: 'string', maxLength: 120, nullable: true },
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
-      custodianUid: { type: 'string', format: 'uuid', nullable: true },
+      custodianUid: {
+        type: 'string', format: 'uuid', nullable: true,
+        description: 'Must identify a user in the asset tenant.',
+      },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
       purchaseCost: { type: 'number', minimum: 0, nullable: true },
@@ -134,15 +145,20 @@ export const schemas = {
 
   FacilityAssetUpdateRequest: {
     type: 'object',
-    description: 'Master-field update; omitted fields keep their current values. Status is deliberately excluded — use the status transition endpoint.',
+    required: ['expectedVersion'],
+    description: 'Master-field update; omitted fields keep their current values. expectedVersion must match the latest asset version or the server returns 409. Status is deliberately excluded — use the status transition endpoint.',
     properties: {
+      expectedVersion: { type: 'integer', minimum: 1 },
       assetTag: { type: 'string', maxLength: 64 },
       name: { type: 'string', maxLength: 200 },
       category: { type: 'string', enum: CATEGORIES },
       description: { type: 'string', maxLength: 4000, nullable: true },
       locationDepartment: { type: 'string', maxLength: 120, nullable: true },
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
-      custodianUid: { type: 'string', format: 'uuid', nullable: true },
+      custodianUid: {
+        type: 'string', format: 'uuid', nullable: true,
+        description: 'Must identify a user in the asset tenant.',
+      },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
       purchaseCost: { type: 'number', minimum: 0, nullable: true },
@@ -211,7 +227,7 @@ export const operations = {
   },
   'PATCH /api/v1/facility/assets/{id}': {
     description:
-      'Updates master fields; location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.',
+      'Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. Custodians must be users in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.',
     request: 'FacilityAssetUpdateRequest',
     response: 'FacilityAssetResponse',
   },

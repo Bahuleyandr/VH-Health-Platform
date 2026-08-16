@@ -1,11 +1,11 @@
 // src/app/api/proxy/[...path]/route.ts
 import { API_BASE_URL } from "@/lib/api-config";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import {
   requiredProxyPermission,
   checkProxyPermission,
 } from "@/lib/proxyPermissions";
 import { getVerifiedTokenRole, isSuperAdminRole } from "@/lib/serverTokenRole";
-import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +94,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/staff-messaging",
   "api/v1/stemi-pathway",
   "api/v1/stroke-pathway",
+  "api/v1/facility/assets",
   "api/v1/downtime/reconciliation/",
   "api/v1/debug/",
 ];

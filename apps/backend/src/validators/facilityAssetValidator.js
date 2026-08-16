@@ -51,6 +51,11 @@ export const createFacilityAssetValidators = [
 ];
 
 export const updateFacilityAssetValidators = [
+  body('expectedVersion')
+    .exists().withMessage('expectedVersion is required')
+    .bail()
+    .isInt({ min: 1 }).withMessage('expectedVersion must be a positive integer')
+    .toInt(),
   optionalString('assetTag', 64),
   optionalString('name', 200),
   body('category').optional({ nullable: true })

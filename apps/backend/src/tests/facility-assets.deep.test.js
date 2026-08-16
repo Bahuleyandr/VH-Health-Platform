@@ -28,10 +28,12 @@ const TENANT_ID = randomUUID();
 const OTHER_TENANT_ID = randomUUID();
 const ADMIN_UID = randomUUID();
 const CUSTODIAN_UID = randomUUID();
+const OTHER_CUSTODIAN_UID = randomUUID();
 
 async function cleanupTenant(tenantId) {
   await prisma.$executeRawUnsafe(`DELETE FROM facility_asset_events WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM facility_assets WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, tenantId).catch(() => {});
 }
 
@@ -62,6 +64,15 @@ d('Facility asset register (migration 704)', () => {
         name,
       );
     }
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'Tenant custodian', 'MAINTENANCE', TRUE, NOW()),
+              ($3::uuid, $4::uuid, 'Other tenant custodian', 'MAINTENANCE', TRUE, NOW())`,
+      CUSTODIAN_UID,
+      TENANT_ID,
+      OTHER_CUSTODIAN_UID,
+      OTHER_TENANT_ID,
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -92,6 +103,7 @@ d('Facility asset register (migration 704)', () => {
       status: 'active',
       purchaseCost: 1250000.5,
       createdBy: ADMIN_UID,
+      version: 1,
     });
     expect(await eventTypes(TENANT_ID, assetId)).toEqual(['created']);
   });
@@ -114,7 +126,7 @@ d('Facility asset register (migration 704)', () => {
       statusCode: 404,
       code: 'FACILITY_ASSET_NOT_FOUND',
     });
-    await expect(updateFacilityAsset(OTHER_TENANT_ID, assetId, { name: 'Hijack' }))
+    await expect(updateFacilityAsset(OTHER_TENANT_ID, assetId, { name: 'Hijack', expectedVersion: 1 }))
       .rejects.toMatchObject({ statusCode: 404, code: 'FACILITY_ASSET_NOT_FOUND' });
     await expect(transitionFacilityAssetStatus(OTHER_TENANT_ID, assetId, {
       toStatus: 'condemned',
@@ -125,7 +137,9 @@ d('Facility asset register (migration 704)', () => {
   });
 
   it('records moves, custodian assignment and condition changes as typed events', async () => {
+    const before = await getFacilityAsset(TENANT_ID, assetId);
     const updated = await updateFacilityAsset(TENANT_ID, assetId, {
+      expectedVersion: before.version,
       locationDepartment: 'Basement plant room',
       custodianUid: CUSTODIAN_UID,
       condition: 'fair',
@@ -134,6 +148,7 @@ d('Facility asset register (migration 704)', () => {
       locationDepartment: 'Basement plant room',
       custodianUid: CUSTODIAN_UID,
       condition: 'fair',
+      version: before.version + 1,
     });
     expect(await eventTypes(TENANT_ID, assetId)).toEqual([
       'created', 'moved', 'custodian_assigned', 'condition_changed',
@@ -142,6 +157,58 @@ d('Facility asset register (migration 704)', () => {
     const moved = events.events.find((e) => e.eventType === 'moved');
     expect(moved.details.from_location.department).toBe('Plant room');
     expect(moved.details.to_location.department).toBe('Basement plant room');
+  });
+
+  it('rejects cross-tenant custodians in the service and composite FK backstop', async () => {
+    const before = await getFacilityAsset(TENANT_ID, assetId);
+    await expect(updateFacilityAsset(TENANT_ID, assetId, {
+      expectedVersion: before.version,
+      custodianUid: OTHER_CUSTODIAN_UID,
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' })).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'FACILITY_ASSET_CUSTODIAN_INVALID',
+    });
+
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE facility_assets
+          SET custodian_uid = $3::uuid
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_ID,
+      assetId,
+      OTHER_CUSTODIAN_UID,
+    )).rejects.toThrow(/fk_facility_assets_custodian|foreign key constraint/i);
+  });
+
+  it('rejects a stale full-form edit without overwriting the winning update', async () => {
+    const staleAsset = await createFacilityAsset(TENANT_ID, {
+      assetTag: 'STALE-01', name: 'Stale-session asset', category: 'other',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
+    const firstSession = await getFacilityAsset(TENANT_ID, staleAsset.id);
+    const secondSession = await getFacilityAsset(TENANT_ID, staleAsset.id);
+    const winner = await updateFacilityAsset(TENANT_ID, staleAsset.id, {
+      expectedVersion: firstSession.version,
+      vendor: 'Winning vendor',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
+
+    await expect(updateFacilityAsset(TENANT_ID, staleAsset.id, {
+      expectedVersion: secondSession.version,
+      vendor: 'Stale vendor',
+      name: 'Stale full form',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FACILITY_ASSET_STALE_WRITE',
+      details: {
+        expectedVersion: secondSession.version,
+        currentVersion: winner.version,
+      },
+    });
+
+    const after = await getFacilityAsset(TENANT_ID, staleAsset.id);
+    expect(after).toMatchObject({
+      name: firstSession.name,
+      vendor: 'Winning vendor',
+      version: winner.version,
+    });
   });
 
   it('walks the repair lifecycle: repair_opened → maintenance → repair_closed', async () => {
@@ -202,7 +269,9 @@ d('Facility asset register (migration 704)', () => {
       code: 'INVALID_STATE_TRANSITION',
       details: { from: 'disposed', allowed: [] },
     });
-    await expect(updateFacilityAsset(TENANT_ID, assetId, { name: 'Zombie edit' }))
+    await expect(updateFacilityAsset(TENANT_ID, assetId, {
+      name: 'Zombie edit', expectedVersion: disposed.version,
+    }))
       .rejects.toMatchObject({ statusCode: 409, code: 'FACILITY_ASSET_DISPOSED' });
     await expect(recordFacilityAssetMaintenance(TENANT_ID, assetId, { notes: 'Too late' }))
       .rejects.toMatchObject({ statusCode: 409, code: 'FACILITY_ASSET_DISPOSED' });

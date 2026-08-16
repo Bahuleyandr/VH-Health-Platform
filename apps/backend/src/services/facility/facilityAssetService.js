@@ -125,6 +125,14 @@ function assetId(value) {
   return id;
 }
 
+function normalizeExpectedVersion(value) {
+  const version = Number(value);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw badRequest('expectedVersion must be a positive integer');
+  }
+  return version;
+}
+
 function normalizePayload(payload = {}, existing = null) {
   return {
     assetTag: normalizeAssetTag(payload.assetTag ?? existing?.assetTag),
@@ -145,7 +153,7 @@ function normalizePayload(payload = {}, existing = null) {
 const ASSET_COLUMNS = `id, tenant_id, asset_tag, name, category, description,
        location_department, location_room, custodian_uid, vendor,
        purchase_date::text AS purchase_date, purchase_cost::text AS purchase_cost,
-       warranty_until::text AS warranty_until, condition, status,
+       warranty_until::text AS warranty_until, condition, status, version,
        disposal_reason, disposed_at, disposed_by,
        created_by, updated_by, created_at, updated_at`;
 
@@ -174,6 +182,7 @@ export function toAsset(row) {
     warrantyUntil: row.warranty_until ?? null,
     condition: row.condition,
     status: row.status,
+    version: Number(row.version),
     disposalReason: row.disposal_reason ?? null,
     disposedAt: toIso(row.disposed_at),
     disposedBy: row.disposed_by ?? null,
@@ -211,6 +220,44 @@ function rethrowDuplicateTag(err) {
     );
   }
   throw err;
+}
+
+function rethrowWriteConstraint(err) {
+  const constraint = err?.constraint ?? err?.meta?.constraint ?? '';
+  if (constraint === 'fk_facility_assets_custodian'
+      || /fk_facility_assets_custodian/.test(String(err?.message))) {
+    throw AppError.unprocessable(
+      'custodianUid must identify a user in the asset tenant',
+      'FACILITY_ASSET_CUSTODIAN_INVALID',
+    );
+  }
+  rethrowDuplicateTag(err);
+}
+
+function staleWrite(expectedVersion, currentVersion) {
+  return AppError.conflict(
+    'Facility asset changed since it was loaded',
+    'FACILITY_ASSET_STALE_WRITE',
+    { expectedVersion, currentVersion },
+  );
+}
+
+async function assertCustodianInTenantTx(tx, tenantId, custodianUid) {
+  if (!custodianUid) return;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid
+      LIMIT 1`,
+    tenantId,
+    custodianUid,
+  );
+  if (!rows[0]) {
+    throw AppError.unprocessable(
+      'custodianUid must identify a user in the asset tenant',
+      'FACILITY_ASSET_CUSTODIAN_INVALID',
+    );
+  }
 }
 
 async function insertEventTx(tx, tenantId, asset, {
@@ -350,6 +397,7 @@ export async function createFacilityAsset(tenantId, payload = {}, {
   const next = normalizePayload(payload);
   try {
     return await setTenantTx(scopedTenantId, async (tx) => {
+      await assertCustodianInTenantTx(tx, scopedTenantId, next.custodianUid);
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO facility_assets (
            tenant_id, asset_tag, name, category, description,
@@ -392,7 +440,7 @@ export async function createFacilityAsset(tenantId, payload = {}, {
       return toAsset(created);
     });
   } catch (err) {
-    rethrowDuplicateTag(err);
+    rethrowWriteConstraint(err);
   }
 }
 
@@ -409,6 +457,7 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
   if (payload.status !== undefined) {
     throw badRequest('status cannot be changed here — use the status transition endpoint');
   }
+  const expectedVersion = normalizeExpectedVersion(payload.expectedVersion);
   try {
     return await setTenantTx(scopedTenantId, async (tx) => {
       const currentRow = await lockAssetTx(tx, scopedTenantId, id);
@@ -419,7 +468,13 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
           'FACILITY_ASSET_DISPOSED',
         );
       }
+      if (current.version !== expectedVersion) {
+        throw staleWrite(expectedVersion, current.version);
+      }
       const next = normalizePayload(payload, current);
+      if (next.custodianUid !== current.custodianUid) {
+        await assertCustodianInTenantTx(tx, scopedTenantId, next.custodianUid);
+      }
 
       const rows = await tx.$queryRawUnsafe(
         `UPDATE facility_assets
@@ -428,8 +483,9 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
                 location_room = $8::text, custodian_uid = $9::uuid,
                 vendor = $10::text, purchase_date = $11::date,
                 purchase_cost = $12::numeric, warranty_until = $13::date,
-                condition = $14::text, updated_by = $15::uuid, updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND id = $2::int
+                condition = $14::text, updated_by = $15::uuid,
+                version = version + 1, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int AND version = $16::int
           RETURNING ${ASSET_COLUMNS}`,
         scopedTenantId,
         current.id,
@@ -446,8 +502,12 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
         next.warrantyUntil,
         next.condition,
         actorUid,
+        expectedVersion,
       );
       const updated = rows[0];
+      if (!updated) {
+        throw staleWrite(expectedVersion, current.version);
+      }
 
       const moved = next.locationDepartment !== current.locationDepartment
         || next.locationRoom !== current.locationRoom;
@@ -509,7 +569,7 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
       return toAsset(updated);
     });
   } catch (err) {
-    rethrowDuplicateTag(err);
+    rethrowWriteConstraint(err);
   }
 }
 
@@ -561,6 +621,7 @@ export async function transitionFacilityAssetStatus(tenantId, id, {
               disposed_at = CASE WHEN $3::text = 'disposed' THEN NOW() ELSE NULL END,
               disposed_by = $5::uuid,
               updated_by = $6::uuid,
+              version = version + 1,
               updated_at = NOW()
         WHERE tenant_id = $1::uuid AND id = $2::int
         RETURNING ${ASSET_COLUMNS}`,

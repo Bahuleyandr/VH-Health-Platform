@@ -26,8 +26,9 @@ beforeAll(async () => {
 function makeReq(
   method: string,
   headers: Record<string, string> = {},
+  path = "users",
 ): NextRequest {
-  return new NextRequest("http://localhost:3001/api/proxy/api/v1/users", {
+  return new NextRequest(`http://localhost:3001/api/proxy/api/v1/${path}`, {
     method,
     headers,
   });
@@ -39,6 +40,13 @@ describe("proxy CSRF mutation-origin validation (SEC-8)", () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.message).toMatch(/cross-origin/i);
+  });
+
+  it("keeps facility asset mutations behind the same-origin CSRF gate", async () => {
+    const res = await POST(makeReq("POST", {}, "facility/assets"));
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).message).toMatch(/cross-origin/i);
   });
 
   it("rejects PUT with a mismatched Origin", async () => {

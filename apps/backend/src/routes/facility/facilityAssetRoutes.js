@@ -78,7 +78,10 @@ function tenantOf(req) {
 }
 
 function actorOf(req) {
-  return { actorUid: req.user?.uid ?? null, actorRole: req.user?.role ?? null };
+  return {
+    actorUid: req.user?.uid ?? null,
+    actorRole: req.user?.rawRole ?? req.user?.role ?? null,
+  };
 }
 
 const router = Router();

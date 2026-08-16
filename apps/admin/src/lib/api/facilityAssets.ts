@@ -62,6 +62,7 @@ export interface FacilityAsset {
   warrantyUntil: string | null;
   condition: FacilityAssetCondition;
   status: FacilityAssetStatus;
+  version: number;
   disposalReason: string | null;
   disposedAt: string | null;
   disposedBy: string | null;
@@ -144,10 +145,11 @@ export async function createFacilityAsset(payload: FacilityAssetWrite) {
 export async function updateFacilityAsset(
   id: number,
   payload: FacilityAssetWrite,
+  expectedVersion: number,
 ) {
   return fetchAdminAPI<FacilityAsset>(`/facility/assets/${id}`, {
     method: "PATCH",
-    body: payload,
+    body: { ...payload, expectedVersion },
   });
 }
 

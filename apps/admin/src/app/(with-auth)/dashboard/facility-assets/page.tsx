@@ -1,6 +1,7 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { APIError } from "@/lib/api/core";
 import {
   createFacilityAsset,
   FACILITY_ASSET_CATEGORIES,
@@ -581,10 +582,12 @@ export default function FacilityAssetsPage() {
     mutationFn: ({
       id,
       payload,
+      expectedVersion,
     }: {
       id: number;
       payload: FacilityAssetWrite;
-    }) => updateFacilityAsset(id, payload),
+      expectedVersion: number;
+    }) => updateFacilityAsset(id, payload, expectedVersion),
     onSuccess: () => {
       toast.success("Asset updated");
       setEditing(null);
@@ -596,10 +599,26 @@ export default function FacilityAssetsPage() {
         });
       }
     },
-    onError: (err: unknown) =>
+    onError: (err: unknown) => {
+      const payload =
+        err instanceof APIError && typeof err.data === "object"
+          ? (err.data as { code?: unknown })
+          : null;
+      if (
+        err instanceof APIError &&
+        err.status === 409 &&
+        payload?.code === "FACILITY_ASSET_STALE_WRITE"
+      ) {
+        toast.error(
+          "This asset changed after you opened it. Review the latest values before saving again.",
+        );
+        invalidate();
+        return;
+      }
       toast.error(
         err instanceof Error ? err.message : "Could not update asset",
-      ),
+      );
+    },
   });
 
   const assets = useMemo(() => {
@@ -666,7 +685,11 @@ export default function FacilityAssetsPage() {
             setForm(EMPTY_FORM);
           }}
           onSubmit={() =>
-            updateMutation.mutate({ id: editing.id, payload: toPayload(form) })
+            updateMutation.mutate({
+              id: editing.id,
+              payload: toPayload(form),
+              expectedVersion: editing.version,
+            })
           }
         />
       )}

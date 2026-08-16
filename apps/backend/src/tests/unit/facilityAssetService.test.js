@@ -51,6 +51,7 @@ function assetRow(overrides = {}) {
     warranty_until: null,
     condition: 'good',
     status: 'active',
+    version: 1,
     disposal_reason: null,
     disposed_at: null,
     disposed_by: null,
@@ -109,6 +110,22 @@ describe('facilityAssetService — vocabulary + creation', () => {
     await expect(service.createFacilityAsset(TENANT_ID, {
       assetTag: 'GEN-02', name: 'Duplicate', category: 'generator',
     })).rejects.toMatchObject({ statusCode: 409, code: 'FACILITY_ASSET_TAG_EXISTS' });
+  });
+
+  it('rejects an unscoped custodian before inserting an asset', async () => {
+    const otherTenantCustodian = '44444444-4444-4444-8444-444444444444';
+    mockTx.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+    await expect(service.createFacilityAsset(TENANT_ID, {
+      assetTag: 'GEN-03',
+      name: 'Standby generator',
+      category: 'generator',
+      custodianUid: otherTenantCustodian,
+    })).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'FACILITY_ASSET_CUSTODIAN_INVALID',
+    });
+    expect(mockTx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -213,7 +230,7 @@ describe('facilityAssetService — update + maintenance guards', () => {
       disposed_by: ACTOR_UID,
     });
     mockTx.$queryRawUnsafe.mockResolvedValueOnce([disposed]);
-    await expect(service.updateFacilityAsset(TENANT_ID, 7, { name: 'Renamed' }))
+    await expect(service.updateFacilityAsset(TENANT_ID, 7, { name: 'Renamed', expectedVersion: 1 }))
       .rejects.toMatchObject({ statusCode: 409, code: 'FACILITY_ASSET_DISPOSED' });
 
     mockTx.$queryRawUnsafe.mockReset();
@@ -233,17 +250,54 @@ describe('facilityAssetService — update + maintenance guards', () => {
     });
     mockTx.$queryRawUnsafe
       .mockResolvedValueOnce([current]) // lock
+      .mockResolvedValueOnce([{ uid: custodian }]) // tenant-scoped custodian validation
       .mockResolvedValueOnce([updated]) // update
       .mockResolvedValue([]); // event inserts
     await service.updateFacilityAsset(TENANT_ID, 7, {
+      expectedVersion: 1,
       locationDepartment: 'Ward A',
       locationRoom: 'A-01',
       custodianUid: custodian,
       condition: 'fair',
     }, { actorUid: ACTOR_UID, actorRole: 'ADMIN' });
     const eventTypes = mockTx.$queryRawUnsafe.mock.calls
-      .slice(2)
+      .slice(3)
       .map((call) => call[5]);
     expect(eventTypes).toEqual(['moved', 'custodian_assigned', 'condition_changed']);
+  });
+
+  it('rejects a custodian that is not a user in the asset tenant', async () => {
+    const otherTenantCustodian = '44444444-4444-4444-8444-444444444444';
+    mockTx.$queryRawUnsafe
+      .mockResolvedValueOnce([assetRow()])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.updateFacilityAsset(TENANT_ID, 7, {
+      expectedVersion: 1,
+      custodianUid: otherTenantCustodian,
+    })).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'FACILITY_ASSET_CUSTODIAN_INVALID',
+    });
+    expect(mockTx.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    expect(mockTx.$queryRawUnsafe.mock.calls[1][0]).toContain('tenant_id = $1::uuid');
+    expect(mockTx.$queryRawUnsafe.mock.calls[1].slice(1)).toEqual([
+      TENANT_ID,
+      otherTenantCustodian,
+    ]);
+  });
+
+  it('rejects a stale edit without updating the master row or appending events', async () => {
+    mockTx.$queryRawUnsafe.mockResolvedValueOnce([assetRow({ version: 4 })]);
+
+    await expect(service.updateFacilityAsset(TENANT_ID, 7, {
+      expectedVersion: 3,
+      name: 'Stale full-form name',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FACILITY_ASSET_STALE_WRITE',
+      details: { expectedVersion: 3, currentVersion: 4 },
+    });
+    expect(mockTx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
