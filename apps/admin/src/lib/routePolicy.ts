@@ -155,6 +155,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   analytics: { minRank: ADMIN_ONLY },
   operations: { minRank: ADMIN_ONLY },
   dashboards: { minRank: ADMIN_ONLY },
+  "mis-report-schedules": { minRank: ADMIN_ONLY },
   insurance: { minRank: ADMIN_ONLY },
   pmjay: { minRank: ADMIN_ONLY },
   billing: { minRank: ADMIN_ONLY },

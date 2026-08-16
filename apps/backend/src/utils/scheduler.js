@@ -996,6 +996,25 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }));
 
+  // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
+  // Per-tenant fan-out; runDueMisReportSchedules evaluates each enabled
+  // schedule against the tenant's local clock (settings.timezone, defaulting
+  // Asia/Kolkata), claims due occurrences with a compare-and-set on
+  // last_occurrence_key (so a failed tick's survivors catch up later the same
+  // day without double-sending), renders the snapshot reports and emails them
+  // with per-recipient delivery evidence in mis_report_deliveries. Individual
+  // schedule failures are recorded on their own rows and never abort the
+  // sweep. Lazy import keeps the email/report graph out of the scheduler's
+  // boot path.
+  registerCron('10 * * * *', withJobLock('mis-report-schedule-dispatch', async () => {
+    const { runDueMisReportSchedules } = await import(
+      '../services/dashboards/misReportScheduleService.js'
+    );
+    await runForEachTenant('mis-report-schedule-dispatch', (tenantId) => (
+      runDueMisReportSchedules({ tenantId })
+    ));
+  }));
+
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.

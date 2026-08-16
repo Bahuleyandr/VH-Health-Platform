@@ -123,6 +123,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
       { name: 'Daily Ops Snapshot', href: '/dashboard/operations', requiredRole: 'ADMIN' },
       { name: 'BI Dashboards', href: '/dashboard/dashboards', requiredRole: 'ADMIN' },
+      { name: 'MIS Report Emails', href: '/dashboard/mis-report-schedules', requiredRole: 'ADMIN' },
       { name: 'Devices', href: '/dashboard/devices', minRole: 'STAFF' },
     ],
   },
