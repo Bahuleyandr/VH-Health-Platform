@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import * as counterSales from '../../services/pharmacy/counterSaleService.js';
 import { tenantOf } from '../../services/pharmacy/inventoryV2Service.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
   ADMIN,
@@ -68,7 +69,17 @@ router.get('/items', requireRead, wrap(async (req) => ({
 })));
 
 // Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.
-router.post('/', requireSell, wrap(async (req) => counterSales.createCounterSale({
+//
+// Idempotency-Key is REQUIRED (billingV2 /payments convention): the shared
+// Flutter transport auto-mints the header and replays the identical body up
+// to 3x on timeout/socket-drop/5xx, and this handler moves stock AND money in
+// one shot — an unguarded replay is a second dispense + second charge. The
+// durable idempotency_keys claim (unique on tenant/user/key/path) makes a
+// replay return the cached original sale and a concurrent duplicate a 409,
+// never a second sale.
+router.post('/', requireSell, requireIdempotencyKey({
+  required: true, scope: 'pharmacy_counter_sale',
+}), wrap(async (req) => counterSales.createCounterSale({
   tenantId: tenantOf(req),
   lines: req.body.lines,
   patient_uid: req.body.patient_uid,
@@ -99,8 +110,13 @@ router.get('/:id', requireRead, wrap(async (req) => counterSales.getCounterSale(
 })));
 
 // Same-day void: billing refund + exact per-batch restock (controlled lines
-// re-enter the statutory register in the return direction).
-router.post('/:id/void', requireVoid, wrap(async (req) => counterSales.voidCounterSale({
+// re-enter the statutory register in the return direction). Idempotency-Key
+// required for the same reason as the sale: a void moves money (refund) and
+// stock (restock); a transport replay must return the original void result,
+// not race a second attempt.
+router.post('/:id/void', requireVoid, requireIdempotencyKey({
+  required: true, scope: 'pharmacy_counter_sale_void',
+}), wrap(async (req) => counterSales.voidCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
   reason: req.body.reason,
