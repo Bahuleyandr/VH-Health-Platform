@@ -112,6 +112,7 @@ jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', (
 }));
 const recordClinicalAuditEvent = jest.fn(async () => ({ id: 'audit' }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordClinicalAuditEvent,
 }));
 

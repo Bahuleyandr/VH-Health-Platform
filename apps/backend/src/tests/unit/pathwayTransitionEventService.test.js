@@ -7,6 +7,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   isTenantTransactionClient: value => tenantTransactionClients.has(value)
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({

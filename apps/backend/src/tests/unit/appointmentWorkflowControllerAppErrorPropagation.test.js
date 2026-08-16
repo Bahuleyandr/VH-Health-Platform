@@ -89,6 +89,7 @@ jest.unstable_mockModule('../../services/maternity/maternityService.js', () => (
   computeGestationalAge: jest.fn(() => null),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   currentCanonicalTransactionRevision: jest.fn(async () => 1),
   recordCanonicalClinicalEvent: jest.fn(async () => null),
   recordClinicalAuditEvent: jest.fn(async () => null),
