@@ -8,6 +8,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AskADoubtScreen extends StatefulWidget {
@@ -93,15 +94,11 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
     }
   }
 
-  void _triggerSOS() {
-    final loc = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(
-      LiveRegionSnackBar.build(
-        message: loc.authSosTriggered,
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  Future<void> _triggerSOS() async {
+    // This FAB used to only SHOW the "triggered" toast without triggering
+    // anything at all. Route it through the real flow: dialer + throwing
+    // backend POST + honest outcome feedback.
+    await SOSService.triggerWithFeedback(context);
   }
 
   @override

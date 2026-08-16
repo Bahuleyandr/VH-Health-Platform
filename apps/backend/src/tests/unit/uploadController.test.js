@@ -148,9 +148,12 @@ describe('uploadController.getFileByKey', () => {
 
     await getFileByKey(req, res);
 
+    // TTL pin (871-F6): servability is checked only at URL-issue time, so the
+    // signed-URL TTL is exactly how long an already-issued URL outlives a later
+    // quarantine or policy flip. 300s, not the old 3600s.
     expect(getSignedFileUrlMock).toHaveBeenCalledWith(
       `uploads/${PATIENT_UID}/result.pdf`,
-      3600,
+      300,
       { baseUrl: 'https://api.test' },
     );
     expect(res.status).toHaveBeenCalledWith(200);

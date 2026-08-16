@@ -27,14 +27,26 @@
 //
 //   fail_open_unmetered
 //     While the store is unreachable, requests through this profile are
-//     ADMITTED without metering, and counted. For post-auth / API-key-gated
-//     capacity-shaping profiles the limiter protects throughput, not
-//     credentials — failing closed there would convert a cache outage into a
-//     hospital-wide API outage (every patient, staff and admin request 429ing
-//     because Redis died). The DB circuit breaker in lib/prisma.js still
-//     guards capacity. This is the same "the permissive branch must never be
-//     the accident" doctrine as FILE_SCAN_POLICY (#871): fail-open exists,
-//     but only as an explicit, per-profile, documented choice.
+//     ADMITTED without metering, and counted. For capacity-shaping profiles
+//     the limiter protects throughput, not credentials — failing closed there
+//     would convert a cache outage into a hospital-wide API outage (every
+//     patient, staff and admin request 429ing because Redis died). Most such
+//     traffic is authenticated; the few deliberately pre-auth fail-open
+//     surfaces carry their rationale inline in the table below. The DB
+//     circuit breaker in lib/prisma.js still guards capacity. This is the
+//     same "the permissive branch must never be the accident" doctrine as
+//     FILE_SCAN_POLICY (#871): fail-open exists, but only as an explicit,
+//     per-profile, documented choice.
+//
+//     READINESS COHERENCE (873-F2, 2026-08-15): for this rationale to hold,
+//     /health/ready must keep an initialized pod IN the Service through a
+//     store outage. It does: REDIS_REQUIRE_SENTINEL is a boot-only gate
+//     (uptimeRoutes.js reports run-time Redis loss in a `degraded` block
+//     without flipping the HTTP status). Before that fix, strict prod
+//     readiness 503'd on any Redis loss and kubelet pulled every pod in
+//     ~15s — nullifying this table entirely: the fail-open postures were
+//     live only in the ≤15s pre-NotReady window. Do not re-add Redis
+//     reachability to the readiness gate.
 //
 // INVARIANTS — pinned by src/tests/unit/rateLimitStoreLossPolicy.test.js
 //   * auth, otp and sos are fail_closed, always. Not configurable. An
@@ -79,6 +91,13 @@ export const RATE_LIMIT_STORE_LOSS_RETRY_AFTER_SECONDS = 30;
 export const RATE_LIMIT_STORE_LOSS_POLICY = Object.freeze({
   // ── Abuse guards: the limiter is the security control. FAIL CLOSED. ──────
   // Pre-auth brute-force guard on every login surface (5/15min/IP+account).
+  //
+  // DOCUMENTED TRADEOFF (2026-08-15, 873-F5): /auth/refresh-token and /auth/
+  // token ride this profile, so during a store outage refresh is refused and
+  // live sessions die as their access tokens expire. That is deliberate: a
+  // captured refresh token mints real sessions, and "Redis is down" must not
+  // mean it can be ground unmetered. Self-revocation stays available through
+  // the separate fail-open `logout` profile below.
   auth: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   // Per-phone OTP request cap (3/10min) — unmetered = SMS bombing + cost burn.
   otp: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
@@ -91,15 +110,44 @@ export const RATE_LIMIT_STORE_LOSS_POLICY = Object.freeze({
   dashboard: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   // Public-by-design SMART-on-FHIR token/authorize endpoints (30/min).
   smartFhirOAuth: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  // Pre-auth SCIM provisioning bearer ingress (120/min/IP, keyed by source
+  // IP — never by the presented token, which a guesser mints freely). The
+  // limiter is the online-guessing brake on a provisioning credential that can
+  // deactivate/delete users; IdPs retry, so a 429 window during an outage is
+  // recoverable (873-F3).
+  scimProvisioning: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  // Pre-auth HMAC connector ingress (300/min/IP). Signature verification CPU
+  // must not become unmetered during an outage; sending engines spool and
+  // retry by design, so an honest 429 loses nothing (873-F3).
+  interfaceEngineIngress: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
 
-  // ── Capacity shaping on authenticated / API-key-gated traffic. FAIL OPEN. ─
+  // ── Capacity shaping. FAIL OPEN. ──────────────────────────────────────────
   // Denying these during a Redis outage would take the whole hospital API
-  // down with the cache; auth and RBAC still gate every one of them.
+  // down with the cache. patient/staff/admin/patientInvestigation traffic is
+  // authenticated (auth and RBAC still gate every request). `default` is the
+  // generic bucket; after the 2026-08-15 873-F3 remediation its pre-auth
+  // riders are, deliberately: /api/v1/storage (HMAC-signed download URLs —
+  // the token is unforgeable, the limiter is only DoS shaping);
+  // /api/v1/health and the non-probe /health/* surfaces (monitoring reads);
+  // the ABDM + NHCX gateway callback routers (partner-signed webhooks —
+  // signature verification rejects forgeries, and refusing a partner
+  // gateway's callbacks during an outage would strand in-flight consent/claim
+  // flows); and the terminal 404 fallback (no resource behind it — denying
+  // unmatched paths during an outage buys nothing). Every pre-auth surface
+  // where the limiter IS the security control carries its own fail-closed
+  // profile above; do NOT mount `default` on a new credential-bearing
+  // surface.
   patient: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
   patientInvestigation: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
   staff: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
   admin: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
   default: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  // Self-revocation must stay available while the store is down: blacklisting
+  // is DB-authoritative (tokenBlacklist.js R12 — the Redis write is a caught
+  // best-effort cache fill), so a logout has no Redis dependency to protect.
+  // Refusing it would block a security action to guard nothing (873-F5).
+  // Post-auth, keyed per uid, 30/15min in normal operation.
+  logout: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
 
   // ── Operability surfaces: blinding these DURING an incident is the worst
   //    possible time. FAIL OPEN. ─────────────────────────────────────────────
@@ -116,6 +164,10 @@ export const RATE_LIMIT_STORE_LOSS_POLICY = Object.freeze({
  * Resolve the store-loss posture for a profile. Unknown names fail CLOSED —
  * the permissive branch must never be the accident — and the pinning test
  * additionally requires every real profile to carry an explicit entry.
+ * (873-F8: getRateLimiter also THROWS on an unknown profile name at
+ * construction time, so in production this fail-closed branch is a true
+ * backstop rather than a dead one contradicted by a silent `default`
+ * fallback.)
  *
  * @param {string} profileName
  * @returns {string} one of RATE_LIMIT_STORE_LOSS_POSTURE

@@ -215,7 +215,7 @@ export const getResponderDashboard = async (req, res) => {
     const alerts = await prisma.$queryRawUnsafe(`
       SELECT sa.id, sa.phone, sa.latitude, sa.longitude, sa.alert_type,
              sa.severity, sa.status, sa.message, sa.raised_at,
-             sa.responded_by, sa.responded_at
+             sa.responded_by, sa.responded_at, sa.response_message
       FROM sos_alerts sa
       ${SOS_USER_JOIN}
       WHERE ${SOS_TENANT_FILTER}
@@ -253,23 +253,23 @@ export const getResponderAnalytics = async (req, res) => {
 };
 
 export const respondToAlert = async (req, res) => {
-  try {
-    const { alertId } = req.params;
-    const uid = req.user?.uid;
+  // Enforce the validator chain (responseMessage is required — previously the
+  // chain ran but nothing checked its result, and the message was discarded).
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return error(res, 'Validation failed', HTTP_STATUS.BAD_REQUEST, errors.array());
+  }
 
-    const rows = await prisma.$queryRawUnsafe(`
-      UPDATE sos_alerts
-      SET status = 'RESPONDING', responded_by = $1::uuid, responded_at = NOW(), updated_at = NOW()
-      WHERE id = $2::int AND status = 'ACTIVE'
-        AND EXISTS (
-          SELECT 1 FROM users u
-           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
-             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $3::uuid
-        )
-      RETURNING id, status, responded_at
-    `, uid, parseInt(alertId, 10), tenantOf(req));
-    if (rows.length === 0) return error(res, 'Alert not found or already responded', HTTP_STATUS.NOT_FOUND);
-    success(res, rows[0], 'Alert marked as responding');
+  try {
+    const row = await sosService.respondToAlert({
+      tenantId: tenantOf(req),
+      alertId: req.params.alertId,
+      responderUid: req.user?.uid,
+      responderRole: req.user?.role || null,
+      responseMessage: req.body?.responseMessage,
+    });
+    if (!row) return error(res, 'Alert not found or already responded', HTTP_STATUS.NOT_FOUND);
+    success(res, row, 'Alert marked as responding');
   } catch (err) {
     logger.error('Respond to Alert Error:', err);
     error(res, 'Failed to respond to alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -277,21 +277,21 @@ export const respondToAlert = async (req, res) => {
 };
 
 export const resolveAlert = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return error(res, 'Validation failed', HTTP_STATUS.BAD_REQUEST, errors.array());
+  }
+
   try {
-    const { alertId } = req.params;
-    const rows = await prisma.$queryRawUnsafe(`
-      UPDATE sos_alerts
-      SET status = 'RESOLVED', resolved_at = NOW(), updated_at = NOW()
-      WHERE id = $1::int AND status IN ('ACTIVE', 'RESPONDING')
-        AND EXISTS (
-          SELECT 1 FROM users u
-           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
-             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
-        )
-      RETURNING id, status, resolved_at
-    `, parseInt(alertId, 10), tenantOf(req));
-    if (rows.length === 0) return error(res, 'Alert not found or already resolved', HTTP_STATUS.NOT_FOUND);
-    success(res, rows[0], 'Alert resolved');
+    const row = await sosService.resolveAlert({
+      tenantId: tenantOf(req),
+      alertId: req.params.alertId,
+      actorUid: req.user?.uid ?? null,
+      actorRole: req.user?.role || null,
+      resolutionNotes: req.body?.resolutionNotes ?? null,
+    });
+    if (!row) return error(res, 'Alert not found or already resolved', HTTP_STATUS.NOT_FOUND);
+    success(res, row, 'Alert resolved');
   } catch (err) {
     logger.error('Resolve Alert Error:', err);
     error(res, 'Failed to resolve alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);

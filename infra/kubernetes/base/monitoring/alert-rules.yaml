@@ -133,6 +133,39 @@ spec:
           annotations:
             summary: "Postgres primary connection usage > 85%"
 
+        # Gap-audit 2026-08 (HIGH-2): continuous WAL archiving had no alert.
+        # The Barman Cloud plugin (cnpg/cluster.yaml, isWALArchiver: true) could
+        # wedge and the first signal was CnpgBackupVerifyStale ~30 hours later —
+        # a silent PITR-degradation window in which every unarchived WAL segment
+        # is recovery the hospital does not have. CNPG's default queries export
+        # cnpg_pg_stat_archiver_* via the enabled PodMonitor.
+        #
+        # Three arms:
+        #   1. Staleness — CNPG pins archive_timeout to 5m, so a healthy primary
+        #      archives at least every 5 minutes; 900s (= 3 missed cycles) is
+        #      comfortably above one archiver cycle yet ≪ the 30h verify window.
+        #      The `>= 0` inner filter drops the NaN the exporter emits for
+        #      replicas (NULL last_archived_time — replicas do not archive).
+        #   2. Failure — the failed counter rising over 15m means archive
+        #      attempts are erroring right now, even if an older success keeps
+        #      the staleness arm quiet.
+        #   3. absent() guard per the CanaryHealthCheckStale precedent: a scrape
+        #      gap must not read as healthy while archiving is unobserved.
+        - alert: CnpgWalArchivingStalled
+          expr: >
+            max(cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="vhhealth-platform"} >= 0) > 900
+            or (max_over_time(cnpg_pg_stat_archiver_failed_count{namespace="vhhealth-platform"}[15m])
+                - min_over_time(cnpg_pg_stat_archiver_failed_count{namespace="vhhealth-platform"}[15m])) > 0
+            or absent(cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="vhhealth-platform"})
+          for: 15m
+          labels:
+            severity: critical
+            team: database
+          annotations:
+            summary: "CNPG WAL archiving is stalled or failing — PITR coverage is degrading now"
+            description: "The primary has not archived a WAL segment for >15 minutes, the archiver failure counter is rising, or the archiver metric is absent. Every unarchived segment widens the point-in-time-recovery gap; do not wait for the daily backup verify (~30h) to notice. Check the Barman Cloud plugin sidecar logs, the ObjectStore status, and pg_stat_archiver on the primary in ns vhhealth-platform."
+            runbook: "docs/DR_RESTORE_DRILL.md"
+
     - name: certificates
       interval: 300s
       rules:

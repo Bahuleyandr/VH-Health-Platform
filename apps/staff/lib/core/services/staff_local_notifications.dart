@@ -11,6 +11,19 @@ import 'windows_window_control.dart';
 
 const String codeBlueNotificationPayload = 'code_blue';
 const String staffMessageNotificationPayload = 'staff_message';
+const String sosAlertNotificationPayload = 'sos_alert';
+
+/// Payload for an SOS responder toast: `sos_alert:<alertId>` when the FCM
+/// data carries the durable alert id (`sos_alert_id`, set by the backend
+/// emergency fan-out), else the bare [sosAlertNotificationPayload]. Mirrors
+/// [codeBluePayloadFromData].
+@visibleForTesting
+String sosAlertPayloadFromData(Map<String, dynamic> data) {
+  final raw = _text(data['sos_alert_id'] ?? data['sosAlertId']);
+  final alertId = int.tryParse(raw);
+  if (alertId == null || alertId <= 0) return sosAlertNotificationPayload;
+  return '$sosAlertNotificationPayload:$alertId';
+}
 
 /// Payload for a Code Blue toast: `code_blue:<eventId>` when the event data
 /// carries a usable durable-event id, else the bare [codeBlueNotificationPayload].
@@ -53,7 +66,17 @@ String? routeForNotificationPayload(String? payload) {
     if (eventId != null && eventId > 0) return '/safety/resus/$eventId';
     return null;
   }
+  // SOS tap deep-links to the responder surface (alert-focused when the
+  // payload carries the id) — same policy note as Code Blue above: the
+  // router's StaffRoutePolicy redirect still authorizes /sos-response.
+  final sosPrefix = '$sosAlertNotificationPayload:';
+  if (payload.startsWith(sosPrefix)) {
+    final alertId = int.tryParse(payload.substring(sosPrefix.length));
+    if (alertId != null && alertId > 0) return '/sos-response/$alertId';
+    return '/sos-response';
+  }
   return switch (payload) {
+    sosAlertNotificationPayload => '/sos-response',
     staffMessageNotificationPayload => '/messaging',
     _ => null,
   };
@@ -75,7 +98,9 @@ class StaffLocalNotifications {
   static final StaffLocalNotifications instance = StaffLocalNotifications._();
 
   static const String _codeBlueChannelId = 'code_blue';
+  static const String _sosChannelId = 'sos_alert';
   static const int _codeBlueNotificationId = 9001;
+  static const int _sosNotificationId = 9002;
   static const int _messageFallbackNotificationId = 9101;
 
   final FlutterLocalNotificationsPlugin _plugin =
@@ -144,6 +169,17 @@ class StaffLocalNotifications {
         showBadge: true,
       ),
     );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _sosChannelId,
+        'SOS Alerts',
+        description: 'Patient SOS emergency alerts for responders',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      ),
+    );
     await androidPlugin?.requestNotificationsPermission();
     await androidPlugin?.requestFullScreenIntentPermission();
   }
@@ -199,6 +235,65 @@ class StaffLocalNotifications {
         ),
       ),
       payload: codeBluePayloadFromData(data),
+    );
+  }
+
+  /// SOS responder alert (HIGH-1). Urgent but not the looping full-screen
+  /// alarm reserved for Code Blue — responders get a max-importance toast
+  /// whose tap deep-links to the alert on the responder surface.
+  Future<void> showSosAlertFromData(
+    Map<String, dynamic> data, {
+    bool force = false,
+  }) async {
+    if (!_acceptsSessionNotifications) return;
+    if (!force &&
+        !shouldShowDesktopToast(
+          isWindows: _isWindows,
+          windowFocused: _windowFocused,
+        )) {
+      return;
+    }
+    if (!_initialized) await initialize();
+    if (!_acceptsSessionNotifications) return;
+
+    final body = <String>[
+      if (_text(data['severity']).isNotEmpty)
+        _text(data['severity']).toUpperCase(),
+      if (_text(data['user_phone']).isNotEmpty) _text(data['user_phone']),
+      if (_text(data['message']).isNotEmpty) _text(data['message']),
+    ];
+    await _plugin.show(
+      id: _sosNotificationId,
+      title: 'SOS ALERT',
+      body: body.isNotEmpty ? body.join(' · ') : 'Open the SOS responder list',
+      notificationDetails: NotificationDetails(
+        android: const AndroidNotificationDetails(
+          _sosChannelId,
+          'SOS Alerts',
+          channelDescription: 'Patient SOS emergency alerts for responders',
+          importance: Importance.max,
+          priority: Priority.max,
+          category: AndroidNotificationCategory.alarm,
+          visibility: NotificationVisibility.public,
+          color: Color(0xFFB71C1C),
+          colorized: true,
+        ),
+        iOS: const DarwinNotificationDetails(
+          interruptionLevel: InterruptionLevel.timeSensitive,
+          presentAlert: true,
+          presentSound: true,
+          presentBanner: true,
+        ),
+        windows: WindowsNotificationDetails(
+          duration: WindowsNotificationDuration.long,
+          scenario: WindowsNotificationScenario.urgent,
+          audio: WindowsNotificationAudio.preset(
+            sound: WindowsNotificationSound.alarm1,
+          ),
+          subtitle: 'Respond or resolve from the SOS list',
+        ),
+      ),
+      payload: sosAlertPayloadFromData(data),
     );
   }
 

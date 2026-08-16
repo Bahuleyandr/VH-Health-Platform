@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/config/role_config.dart';
 import '../../../core/providers/notification_provider.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/resus_api_service.dart';
@@ -89,6 +91,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   final _dateFmt = DateFormat('dd MMM, HH:mm');
   bool _loading = true;
   String? _error;
+  bool _canRespondSos = false;
   List<NotificationItem> _criticalAlerts = const [];
   List<Map<String, dynamic>> _dischargeItems = const [];
   List<Map<String, dynamic>> _housekeepingTasks = const [];
@@ -97,7 +100,19 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   @override
   void initState() {
     super.initState();
+    _loadSosEntitlement();
     _load();
+  }
+
+  /// SOS response is role-gated (generated sos_response contract group —
+  /// backend emergencyResponderRoutes RBAC), unlike the all-staff Safety
+  /// Center itself, so the entry point only renders for authorized roles.
+  Future<void> _loadSosEntitlement() async {
+    final role = await AuthService.getRole();
+    final allowed = RoleFeatures.getFeaturesForRawRole(
+      role,
+    ).any((feature) => feature.id == 'sos_response');
+    if (mounted) setState(() => _canRespondSos = allowed);
   }
 
   Future<void> _load() async {
@@ -238,6 +253,13 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         leading: const NavigationBackAction(),
         title: Text(s.safetyCenterTitle),
         actions: [
+          if (_canRespondSos)
+            IconButton(
+              tooltip: s.lookup('sos.title'),
+              onPressed: () =>
+                  context.push('/sos-response').then((_) => _load()),
+              icon: const Icon(Icons.sos),
+            ),
           IconButton(
             tooltip: s.safetyCenterRefreshTooltip,
             onPressed: _loading ? null : _load,

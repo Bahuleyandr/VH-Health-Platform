@@ -31,6 +31,7 @@ import {
   findRegistrationDuplicateCandidates,
   recordRegistrationDuplicateOverride,
 } from '../../services/patient/patientDedupeService.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
@@ -118,6 +119,12 @@ async function uploadPatientProfilePhoto({ file, tenantId }) {
     err.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw err;
   }
+  // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+  // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+  await screenUploadBuffer(file.buffer, {
+    subject: 'Profile photo',
+    context: { tenantId, route: 'patient-profile-photo' },
+  });
   const storageKey = [
     'patient-profile-photos',
     tenantId,

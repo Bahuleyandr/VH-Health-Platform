@@ -22,7 +22,14 @@ import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { getSignedFileUrl, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { error, relayAppError, success } from '../../utils/responseHelper.js';
 
-const SIGNED_URL_TTL_SECONDS = 3600;
+// Signed-URL lifetime for the by-key download path. Deliberately SHORT (was
+// 3600): servability is checked at URL-issue time only, so the TTL is exactly
+// how long an already-issued URL keeps serving after a row is quarantined or
+// the policy flips. The patient app redeems the URL immediately after the
+// by-key lookup (inline render / download start), so 5 minutes is generous
+// for slow links without leaving an hour-long post-quarantine window.
+// Pinned by src/tests/unit/uploadController.test.js.
+const SIGNED_URL_TTL_SECONDS = 300;
 const DOWNLOAD_BLOCKED_STATUS = 423;
 const INTERNAL_ADMIN_ROLES = new Set([
   'ADMIN',

@@ -13,10 +13,39 @@ import {
   storeLossPostureFor,
 } from '../../config/rateLimitStoreLossPolicy.js';
 
+// FULL-COVERAGE pin (873-F6: patientInvestigation used to be missing from the
+// spot lists, so its posture could flip without failing a test). Every profile
+// appears here exactly once with its decided posture; the toEqual below is
+// exhaustive in both directions, so adding a profile without extending this
+// table — or flipping any posture — fails.
+const EXPECTED_POSTURES = {
+  auth: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  otp: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  sos: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  dataExport: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  dashboard: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  smartFhirOAuth: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  scimProvisioning: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  interfaceEngineIngress: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  patient: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  patientInvestigation: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  staff: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  admin: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  default: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  logout: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  probe: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  clientReadiness: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+  clinicalContinuityPolicyDelivery: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED,
+};
+
 describe('rate-limit store-loss policy', () => {
   it('declares an explicit posture for EVERY profile — set equality, no accidents', () => {
     expect(Object.keys(RATE_LIMIT_STORE_LOSS_POLICY).sort())
       .toEqual(Object.keys(RATE_LIMIT_PROFILES).sort());
+  });
+
+  it('pins the WHOLE decision table — every profile, both directions', () => {
+    expect({ ...RATE_LIMIT_STORE_LOSS_POLICY }).toEqual(EXPECTED_POSTURES);
   });
 
   it.each(['auth', 'otp', 'sos'])(
@@ -26,19 +55,16 @@ describe('rate-limit store-loss policy', () => {
     },
   );
 
-  it.each(['dataExport', 'dashboard', 'smartFhirOAuth'])(
+  it.each(['dataExport', 'dashboard', 'smartFhirOAuth', 'scimProvisioning', 'interfaceEngineIngress'])(
     '%s fails closed — the limiter is the security control on this surface',
     (profile) => {
       expect(storeLossPostureFor(profile)).toBe(RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED);
     },
   );
 
-  it.each(['patient', 'staff', 'admin', 'default', 'probe', 'clientReadiness', 'clinicalContinuityPolicyDelivery'])(
-    '%s fails open by explicit decision — a cache outage must not become an API outage',
-    (profile) => {
-      expect(storeLossPostureFor(profile)).toBe(RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED);
-    },
-  );
+  it('logout fails open — blacklisting is DB-authoritative, self-revocation must survive store loss', () => {
+    expect(storeLossPostureFor('logout')).toBe(RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_OPEN_UNMETERED);
+  });
 
   it('resolves an UNKNOWN profile fail-closed — the permissive branch is never the accident', () => {
     expect(storeLossPostureFor('some-future-profile')).toBe(RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED);

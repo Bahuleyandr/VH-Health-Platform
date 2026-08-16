@@ -329,6 +329,14 @@ export function buildStaffRoleContract() {
     safety_center: selfServiceStaffRoles,
     schedule: staffRosterRoles,
     settings: staffRoleCodes,
+    // SOS responder loop (HIGH-1): mirror the backend emergencyResponderRoutes
+    // RBAC group exactly (EMERGENCY_RESPONDER, SECURITY, DRIVER, ADMIN, CMO,
+    // MEDICAL_SUPERINTENDENT), plus SUPER_ADMIN because requireRole grants it
+    // an un-scoped bypass of every role gate (rbacMiddleware.js).
+    sos_response: mergeRoles(
+      rbacConfig.emergencyResponderRoutes,
+      ['SUPER_ADMIN'],
+    ),
     staff_diagnostics: ADMIN_ROUTE_ROLES,
     staff_directory: selfServiceStaffRoles,
     staff_management: PEOPLE_OPERATIONS_ROUTE_ROLES,

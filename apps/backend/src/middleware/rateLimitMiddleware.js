@@ -241,6 +241,13 @@ const defaultHandler = (req, res, _next, options) => {
  * ✅ Generate a rate limiter from a named profile.
  * Profiles live in ../config/rateLimitProfiles.js
  * Ensures IPv6 compliance by providing both keyGenerator and keyGeneratorIpFallback.
+ *
+ * THROWS on an unknown profile name (873-F8). It used to fall back silently to
+ * the generic `default` profile, which meant a typo'd name swapped the intended
+ * limiter for a fail-OPEN bucket while storeLossPostureFor() simultaneously
+ * promised unknown ⇒ fail_closed — two opposite postures for the same mistake.
+ * Every call site passes a literal name, so a typo now fails at boot instead
+ * of shipping the wrong posture.
  */
 export const getRateLimiter = (profileName = 'default', {
   keyMode = 'default',
@@ -249,11 +256,13 @@ export const getRateLimiter = (profileName = 'default', {
   storePrefix = null,
   enforceOnMatchedPath = false,
 } = {}) => {
-  const profile = RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
-  // Store-loss posture follows the profile that actually governs the limiter:
-  // an unknown name falls back to the `default` profile above, so its posture
-  // must be `default`'s too (the key namespace keeps the caller's name).
-  const effectiveProfileName = RATE_LIMIT_PROFILES[profileName] ? profileName : 'default';
+  const profile = RATE_LIMIT_PROFILES[profileName];
+  if (!profile) {
+    throw new Error(
+      `Unknown rate-limit profile "${profileName}" — add it to RATE_LIMIT_PROFILES `
+        + 'and declare its store-loss posture in rateLimitStoreLossPolicy.js'
+    );
+  }
 
   const baseKeyGen =
     keyMode === 'ip'
@@ -309,12 +318,45 @@ export const getRateLimiter = (profileName = 'default', {
     // W3: replica-safe shared counter (per-profile namespace); MemoryStore when
     // Redis is unset. Wrapped with the declared store-loss posture — see
     // resilientStore above.
-    store: resilientStore(effectiveProfileName, storePrefix || `rl:${profileName}:`),
+    store: resilientStore(profileName, storePrefix || `rl:${profileName}:`),
 
     handler: handlerFn,
     skip: skipFn
   });
 };
+
+/**
+ * Kubernetes probe paths under the `/health` mount, MOUNT-RELATIVE.
+ *
+ * TRAP (finding 2026-08-15, P1 873-F1): Express strips the mount prefix for
+ * `app.use('/health', ...)` middleware, so inside a limiter mounted there the
+ * probes read `req.path === '/ready'` / `'/live'` — the default profile's
+ * built-in skip list (`startsWith('/health')`) matches NOTHING, and the k8s
+ * probes (loopback exec readiness + kubelet httpGet liveness,
+ * infra/kubernetes/apps/backend/deployment.yaml) were metered in the shared
+ * `t:default:127.0.0.1` bucket: 3 replicas x 12 hits/min against prod's
+ * 100/15min cap saturated the window in ~3 minutes, turning every pod
+ * NotReady for ~12 of every 15 minutes once synced. These entries are
+ * consumed by healthMountRateLimiter below, which routes them through the
+ * per-pod fail-open `probe` profile instead.
+ */
+export const HEALTH_MOUNT_PROBE_PATHS = Object.freeze(['/ready', '/live']);
+
+/**
+ * Limiter selector for the `/health` mount: k8s probe paths go through the
+ * given probe limiter (per-pod `probe` profile — bounded, fail-open under
+ * store loss), everything else stays on the general limiter. Deliberately NOT
+ * a skip: the probe surfaces remain metered, just in the bucket whose sizing
+ * (rateLimitProfiles.js `probe`) actually accounts for probe cadence. The
+ * non-probe /health surfaces (/metrics, /deep, /version, /ping) keep their
+ * existing metering unchanged.
+ */
+export const healthMountRateLimiter = (probeLimiterMw, generalLimiterMw) =>
+  (req, res, next) => (
+    HEALTH_MOUNT_PROBE_PATHS.includes(req.path)
+      ? probeLimiterMw(req, res, next)
+      : generalLimiterMw(req, res, next)
+  );
 
 /** ✅ Pre-configured Limiters (from profiles) */
 export const genericLimiter = getRateLimiter('default');
@@ -347,6 +389,17 @@ const authRateLimiterConfig = {
 };
 
 export const authRateLimiter = expressRateLimit(authRateLimiterConfig);
+
+/**
+ * ✅ Logout rate limiter — POST /auth/logout self-revocation (873-F5).
+ * Runs after jwtAuth, so defaultKeyGenerator buckets per uid. Split from
+ * authRateLimiter because logout is DB-authoritative (tokenBlacklist.js R12)
+ * and must stay available under rate-limit store loss: the `logout` profile
+ * is fail_open_unmetered where `auth` is fail_closed — see
+ * rateLimitStoreLossPolicy.js. Login/refresh keep the fail-closed auth
+ * limiter untouched.
+ */
+export const logoutRateLimiter = getRateLimiter('logout');
 
 const otpKeyGenerator = (req) => {
   // Hash the contact identifier so a persistent Redis key never exposes the

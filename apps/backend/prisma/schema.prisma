@@ -5741,7 +5741,7 @@ model file_metadata {
   storage_url   String
   file_size     BigInt
   uploaded_by   String?  @db.Uuid
-  scan_status   String?  @default("PENDING") @db.VarChar(50)
+  scan_status   String   @db.VarChar(50)
   scan_result   String?
   privacy_level String   @default("RESTRICTED") @db.VarChar(20)
   is_active     Boolean  @default(true)
@@ -6511,6 +6511,8 @@ model investigation_bookings {
   sla_confirm_target                                  DateTime?                       @db.Timestamptz(6)
   appointment_id                                      Int?
   tenant_id                                           String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  slip_photo_scan_status                              String?                         @db.VarChar(30)
+  result_file_scan_status                             String?                         @db.VarChar(30)
   investigation_booking_history                       investigation_booking_history[]
   tenants                                             tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_bookings_tenant")
   appointments                                        appointments?                   @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_appointment_fk")
@@ -6539,6 +6541,7 @@ model investigation_files {
   uploaded_by      String?  @db.Uuid
   created_at       DateTime @default(now()) @db.Timestamp(6)
   tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  scan_status      String   @default("not_scanned") @db.VarChar(30)
   tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_files_tenant")
 
   @@index([investigation_id])
@@ -7702,6 +7705,7 @@ model consent_signatures {
   captured_at      DateTime         @default(now()) @db.Timestamptz(6)
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   metadata         Json             @default("{}")
+  scan_status      String           @default("not_scanned") @db.VarChar(30)
   patient_consents patient_consents @relation(fields: [consent_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_consent_signatures_consent")
   tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_consent_signatures_tenant")
 
@@ -9543,26 +9547,29 @@ model smart_authz_codes {
 }
 
 model sos_alerts {
-  id            Int       @id @default(autoincrement())
-  uid           String?   @db.Uuid
-  phone         String    @db.VarChar(15)
-  latitude      Float?
-  longitude     Float?
-  location_name String?   @db.VarChar(255)
-  alert_type    String?   @default("GENERAL") @db.VarChar(50)
-  severity      String    @default("MEDIUM") @db.VarChar(20)
-  message       String?
-  status        String    @default("ACTIVE") @db.VarChar(50)
-  responded_by  String?   @db.Uuid
-  ip_address    String?   @db.VarChar(45)
-  device_info   String?
-  raised_at     DateTime  @default(now()) @db.Timestamp(6)
-  responded_at  DateTime? @db.Timestamp(6)
-  resolved_at   DateTime? @db.Timestamp(6)
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-  updated_at    DateTime  @db.Timestamp(6)
-  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
+  id                Int       @id @default(autoincrement())
+  uid               String?   @db.Uuid
+  phone             String    @db.VarChar(15)
+  latitude          Float?
+  longitude         Float?
+  location_name     String?   @db.VarChar(255)
+  alert_type        String?   @default("GENERAL") @db.VarChar(50)
+  severity          String    @default("MEDIUM") @db.VarChar(20)
+  message           String?
+  status            String    @default("ACTIVE") @db.VarChar(50)
+  responded_by      String?   @db.Uuid
+  ip_address        String?   @db.VarChar(45)
+  device_info       String?
+  raised_at         DateTime  @default(now()) @db.Timestamp(6)
+  responded_at      DateTime? @db.Timestamp(6)
+  resolved_at       DateTime? @db.Timestamp(6)
+  created_at        DateTime  @default(now()) @db.Timestamp(6)
+  updated_at        DateTime  @db.Timestamp(6)
+  tenant_id         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  response_message  String?
+  resolution_notes  String?
+  last_escalated_at DateTime? @db.Timestamp(6)
+  tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
 
   @@index([alert_type])
   @@index([phone])
@@ -9902,7 +9909,7 @@ model staff_message_attachments {
   content_type          String                @db.VarChar(120)
   file_size             Int
   storage_key           String
-  scan_status           String                @default("pending") @db.VarChar(30)
+  scan_status           String                @db.VarChar(30)
   metadata              Json                  @default("{}")
   created_at            DateTime              @default(now()) @db.Timestamptz(6)
   updated_at            DateTime              @default(now()) @db.Timestamptz(6)

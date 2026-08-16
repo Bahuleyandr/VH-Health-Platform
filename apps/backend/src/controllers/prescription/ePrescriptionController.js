@@ -19,6 +19,7 @@ import { createPrescriptionReminders } from '../../services/patient/medicationRe
 import { createFollowUp } from '../../services/carePlan/carePlanService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { boundedInteger } from '../../utils/pagination.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import {
   formatTemperatureForDisplay,
@@ -1081,6 +1082,13 @@ export const createPrescription = async (req, res) => {
     // Upload handwritten photo if present (multer file)
     let handwritten_photo_key = null;
     if (req.file) {
+      // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+      // ingest path). Refusals throw 422/503 AppErrors — relayed by the outer
+      // catch — and nothing is written.
+      await screenUploadBuffer(req.file.buffer, {
+        subject: 'Prescription photo',
+        context: { route: 'eprescription-handwritten-photo' },
+      });
       const key = `prescriptions/handwritten/${Date.now()}-${req.file.originalname || 'photo.jpg'}`;
       await uploadFileToR2(req.file.buffer, key, req.file.mimetype);
       handwritten_photo_key = key;

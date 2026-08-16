@@ -703,6 +703,16 @@ class RoleFeatures {
     route: '/safety-center',
     color: Color(0xFFC62828),
   );
+  // SOS responder loop (HIGH-1). Role gating comes from the generated
+  // sos_response contract group, which mirrors backend
+  // emergencyResponderRoutes RBAC exactly.
+  static const DashboardFeature _sosResponse = DashboardFeature(
+    id: 'sos_response',
+    titleKey: 'role.feature.sos_response',
+    icon: Icons.sos,
+    route: '/sos-response',
+    color: Color(0xFFB71C1C),
+  );
   static const DashboardFeature _auditLogs = DashboardFeature(
     id: 'audit_logs',
     titleKey: 'role.feature.audit_logs',
@@ -1103,6 +1113,7 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent => [
         _attendance,
         _schedule,
+        _sosResponse,
         _staffRosterHub,
         _frontOfficeWorkbench,
         _edTraumaWorkbench,
@@ -1143,6 +1154,7 @@ class RoleFeatures {
       StaffRole.admin || StaffRole.superAdmin => [
         _attendance,
         _schedule,
+        _sosResponse,
         _staffRosterHub,
         _frontOfficeWorkbench,
         _edTraumaWorkbench,
@@ -1358,6 +1370,7 @@ class RoleFeatures {
       StaffRole.driver ||
       StaffRole.security ||
       StaffRole.emergencyResponder => [
+        _sosResponse,
         _schedule,
         _dutyPreference,
         if (role == StaffRole.emergencyResponder) _edTraumaWorkbench,

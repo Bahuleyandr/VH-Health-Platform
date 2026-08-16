@@ -69,6 +69,16 @@ jest.unstable_mockModule('../../services/locationService.js', () => ({
   findNearbyEmergencyServices: findNearbyMock,
 }));
 
+// HIGH-1: createAlert now emits the canonical timeline/audit pair and arms
+// the sos_response_ack SLA clock (best-effort). Out of scope for this suite —
+// mock the canonical platform so its real module (which imports setTenantTx
+// from lib/prisma) stays outside the mocked-prisma import graph.
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: jest.fn().mockResolvedValue(null),
+  startWorkflowSla: jest.fn().mockResolvedValue(null),
+  completeWorkflowSla: jest.fn().mockResolvedValue(null),
+}));
+
 // sosService gets a mocked notification module so createAlert's honesty can be
 // tested against controlled notified_count outcomes; notifyEmergencyTeam
 // itself is imported REAL (separate module instance) further down.

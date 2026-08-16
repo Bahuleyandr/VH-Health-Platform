@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jest } from '@jest/globals';
@@ -71,6 +71,38 @@ describe('NdjsonSpool mutation mutex (GW-L1)', () => {
       spool.entries = originalEntries;
       const remaining = await spool.entries();
       expect(remaining.map((entry) => entry.message)).toEqual(['kept']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('quarantines a torn dead-letter tail before appending the next dead-letter entry', async () => {
+    const { dir, spool } = await tempSpool();
+    try {
+      const doomed = await spool.append({ message: 'doomed' });
+      // Simulate a crash mid-append to the dead-letter file: a partial JSON
+      // line with no terminating newline. Before the fix deadLetter appended
+      // straight onto the torn bytes, corrupting both evidence records.
+      const tornBytes = '{"id":"dead-partial","reason":"trunc';
+      await writeFile(spool.deadFile, tornBytes, { flag: 'a' });
+
+      await spool.deadLetter(doomed, 'test_reason');
+
+      // The new dead-letter entry is a clean, parseable line.
+      const raw = await readFile(spool.deadFile, 'utf8');
+      expect(raw.endsWith('\n')).toBe(true);
+      const lines = raw.split('\n').filter(Boolean);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toMatchObject({ id: doomed.id, reason: 'test_reason' });
+      expect(await spool.entries()).toHaveLength(0);
+
+      // The torn bytes were preserved verbatim as a sidecar evidence file,
+      // exactly like the live spool's torn-tail handling.
+      const evidenceNames = (await readdir(dir))
+        .filter((name) => name.includes('.torn-tail.') && name.endsWith('.evidence'));
+      expect(evidenceNames).toHaveLength(1);
+      expect(evidenceNames[0].startsWith('test-source.dead.')).toBe(true);
+      expect(await readFile(join(dir, evidenceNames[0]), 'utf8')).toBe(tornBytes);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -7,7 +7,12 @@ import {
   normalizeBrandKit,
 } from './brandKitSchema.js';
 
-const SIGNED_URL_TTL_SECONDS = 3600;
+// Deliberately SHORT (was 3600): asset servability is re-validated on every
+// read (attachSignedAssetUrls), but an already-issued URL keeps working for
+// its whole TTL — so the TTL bounds how long a later quarantine or policy
+// flip is still being honoured. Brand assets are re-fetched with their page,
+// so 5 minutes costs nothing. Pinned by src/tests/unit/brandKitSignedUrlTtl.test.js.
+const SIGNED_URL_TTL_SECONDS = 300;
 
 function settingsObject(settings) {
   return settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};

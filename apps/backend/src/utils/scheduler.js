@@ -837,6 +837,35 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('unread-critical-notification-escalation', () => runUnreadCriticalEscalation());
   }));
 
+  // 🆘 Every 2 minutes - escalate never-acknowledged ACTIVE SOS alerts
+  // (HIGH-1): one severity-ladder step per 5-minute window + responder
+  // re-fan-out; stalled-at-CRITICAL alerts page ops and mark the
+  // sos_response_ack SLA instance escalated. Complements (does not replace)
+  // the unread-critical cron above, which watches notification rows — this
+  // watches the alert row itself.
+  //
+  // ★ KILL SWITCH, and it is deliberately DEFAULT-ON (unset === enabled).
+  // This sweep is the HIGH-1 remediation, so an opt-in flag would ship the
+  // fix disabled — the failure mode the flag exists to prevent. But it is
+  // also the one cron that pages the emergency team on a timer, so an
+  // operator must be able to stop it without a revert commit and a second
+  // ArgoCD sync (production sync is manual; a code-only kill is hours).
+  // Set SOS_ALERT_AGE_ESCALATION_ENABLED=false to silence it; alerts still
+  // fan out at creation and remain visible on the SOS dashboard.
+  if (String(process.env.SOS_ALERT_AGE_ESCALATION_ENABLED ?? 'true').toLowerCase() !== 'false') {
+    registerCron('*/2 * * * *', withJobLock('sos-alert-age-escalation', async () => {
+      const { runSosAlertAgeEscalationSweep } = await import('../services/sosEscalationService.js');
+      await runForEachTenant('sos-alert-age-escalation', (tenantId) => (
+        runSosAlertAgeEscalationSweep({ tenantId })
+      ));
+    }));
+  } else {
+    logger.warn(
+      'SOS alert-age escalation sweep DISABLED by SOS_ALERT_AGE_ESCALATION_ENABLED=false — '
+        + 'never-acknowledged SOS alerts will not auto-escalate or re-page responders.',
+    );
+  }
+
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
   registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', () => runForEachTenant('escalate-stuck-orders', () => escalateStuckOrders())));
 

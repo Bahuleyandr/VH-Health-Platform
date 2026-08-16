@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import { recordResultManual, signOffResults } from '../services/lab/labResultsService.js';
 
-const DB_CONFIGURED = !!process.env.TEST_DATABASE_URL;
+const DB_CONFIGURED = !!(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT = '00000000-0000-4000-8000-000000000001';

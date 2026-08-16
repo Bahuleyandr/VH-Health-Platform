@@ -469,7 +469,10 @@ async function initDB() {
         related_type        VARCHAR(100),
         compression_applied BOOLEAN DEFAULT false,
         processing_time_ms  INTEGER,
-        scan_status         VARCHAR(50) DEFAULT 'pending',
+        -- No DEFAULT on purpose (mirrors migration 676): a writer that omits the
+        -- status must fail loudly instead of minting a permanently-blocked
+        -- 'pending' row. Every ingest path stores the fileScanService verdict.
+        scan_status         VARCHAR(50) NOT NULL,
         retention_date      TIMESTAMP,
         urgency_level       VARCHAR(50),
         upload_ip           VARCHAR(50),

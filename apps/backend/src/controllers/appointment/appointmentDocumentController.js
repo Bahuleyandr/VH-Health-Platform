@@ -11,6 +11,7 @@ import {
   authorizePatientAccessRequest,
   SAFE_PATIENT_ACCESS_DENIAL_MESSAGE,
 } from '../../services/security/accessDecisionService.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -384,6 +385,13 @@ export const uploadAppointmentDocument = async (req, res) => {
     if (!appt.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt[0];
 
+    // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+    // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+    await screenUploadBuffer(req.file.buffer, {
+      subject: 'Document',
+      context: { appointmentId: appointment_id, uploadedById, route: 'appointment-document' },
+    });
+
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop();
     const fileKey = `records/appointments/${appointment_id}/${timestamp}.${ext}`;
@@ -435,6 +443,8 @@ export const uploadAppointmentDocument = async (req, res) => {
     success(res, result[0], 'Document uploaded');
   } catch (err) {
     logger.error('Upload Appointment Doc Error:', err);
+    // Screening refusals (422/503) are deliberate caller-facing answers.
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to upload document', { safe: true });
     error(res, 'Failed to upload document', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -630,6 +640,13 @@ export const uploadPatientRecord = async (req, res) => {
     const normalizedTitle = String(title || '').trim() || null;
 
     if (!req.file) return error(res, 'file is required', HTTP_STATUS.BAD_REQUEST);
+
+    // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+    // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+    await screenUploadBuffer(req.file.buffer, {
+      subject: 'Record file',
+      context: { patientId, route: 'patient-record-upload' },
+    });
 
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop();

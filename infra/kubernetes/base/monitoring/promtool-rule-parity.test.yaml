@@ -519,6 +519,129 @@ tests:
               description: "The output snapshot is absent or stale. Do not infer healthy offsets, inboxes, or late-critical awareness from backend liveness."
               runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
 
+  # Rate-limit store posture (#873 follow-up). One pod degraded is enough for
+  # RateLimitStoreDegraded (max()), and one deaf pod is enough for
+  # WsFanoutSubscriberDown (min()) even while a sibling stays subscribed.
+  - interval: 1m
+    input_series:
+      - series: 'vh_rate_limit_store_degraded{pod="backend-0"}'
+        values: '1x30'
+      - series: 'vh_rate_limit_store_degraded{pod="backend-1"}'
+        values: '0x30'
+      - series: 'vh_redis_ws_fanout_ready{pod="backend-0"}'
+        values: '0x30'
+      - series: 'vh_redis_ws_fanout_ready{pod="backend-1"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: RateLimitStoreDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Redis rate-limit store degraded for 5m — fail-closed profiles (auth/otp/sos) are answering 429, fail-open profiles pass unmetered"
+              runbook: "docs/RUNBOOK_ONCALL.md#ratelimitstoredegraded"
+      - eval_time: 11m
+        alertname: WsFanoutSubscriberDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Cross-pod WS fan-out subscriber is down — realtime broadcasts (vitals/code-blue) are single-process only on at least one pod"
+              runbook: "docs/RUNBOOK_ONCALL.md#wsfanoutsubscriberdown"
+
+  # Healthy posture on every pod stays silent for both rules.
+  - interval: 1m
+    input_series:
+      - series: 'vh_rate_limit_store_degraded{pod="backend-0"}'
+        values: '0x30'
+      - series: 'vh_redis_ws_fanout_ready{pod="backend-0"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: RateLimitStoreDegraded
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: WsFanoutSubscriberDown
+        exp_alerts: []
+
+  # CNPG WAL archiving (gap-audit HIGH-2). Arm 1: the primary's
+  # seconds-since-last-archival grows past 900 while the failure counter stays
+  # flat — the archiver is wedged without erroring. The aggregated max() drops
+  # instance labels, so the alert carries only severity/team.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '1000x40'
+      - series: 'cnpg_pg_stat_archiver_failed_count{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: CnpgWalArchivingStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "CNPG WAL archiving is stalled or failing — PITR coverage is degrading now"
+              description: "The primary has not archived a WAL segment for >15 minutes, the archiver failure counter is rising, or the archiver metric is absent. Every unarchived segment widens the point-in-time-recovery gap; do not wait for the daily backup verify (~30h) to notice. Check the Barman Cloud plugin sidecar logs, the ObjectStore status, and pg_stat_archiver on the primary in ns vhhealth-platform."
+              runbook: "docs/DR_RESTORE_DRILL.md"
+
+  # Arm 2: archive attempts are actively failing (counter rising) even though a
+  # recent success keeps the staleness arm quiet. Per-series labels survive.
+  # A healthy flat counter with fresh archival must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '60x40'
+      - series: 'cnpg_pg_stat_archiver_failed_count{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: CnpgWalArchivingStalled
+        exp_alerts:
+          - exp_labels:
+              namespace: vhhealth-platform
+              pod: vhhealth-pg-1
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "CNPG WAL archiving is stalled or failing — PITR coverage is degrading now"
+              description: "The primary has not archived a WAL segment for >15 minutes, the archiver failure counter is rising, or the archiver metric is absent. Every unarchived segment widens the point-in-time-recovery gap; do not wait for the daily backup verify (~30h) to notice. Check the Barman Cloud plugin sidecar logs, the ObjectStore status, and pg_stat_archiver on the primary in ns vhhealth-platform."
+              runbook: "docs/DR_RESTORE_DRILL.md"
+
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '60x40'
+      - series: 'cnpg_pg_stat_archiver_failed_count{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '5x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CnpgWalArchivingStalled
+        exp_alerts: []
+
+  # Arm 3: no archiver series at all — a scrape gap must not read as healthy
+  # while archiving is unobserved (CanaryHealthCheckStale precedent).
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="node-b"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: CnpgWalArchivingStalled
+        exp_alerts:
+          - exp_labels:
+              namespace: vhhealth-platform
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "CNPG WAL archiving is stalled or failing — PITR coverage is degrading now"
+              description: "The primary has not archived a WAL segment for >15 minutes, the archiver failure counter is rising, or the archiver metric is absent. Every unarchived segment widens the point-in-time-recovery gap; do not wait for the daily backup verify (~30h) to notice. Check the Barman Cloud plugin sidecar logs, the ObjectStore status, and pg_stat_archiver on the primary in ns vhhealth-platform."
+              runbook: "docs/DR_RESTORE_DRILL.md"
+
   # The continuity page clears only when the acknowledgement output becomes 0.
   - interval: 1m
     input_series:

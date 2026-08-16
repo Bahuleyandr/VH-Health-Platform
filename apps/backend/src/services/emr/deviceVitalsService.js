@@ -160,7 +160,16 @@ export function extractVitalsFromOru(parsed) {
     const codeField = String(f[3] ?? '');
     const code = codeField.split('^')[0].trim();
     const value = String(f[5] ?? '').trim();
-    return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value };
+    // OBX-6 (units) may be a CE (`identifier^text^system`) — take the
+    // identifier. An absent/empty OBX-6 yields '' and downstream
+    // (obxResultsToVitals) keeps today's behavior: the value is assumed to
+    // already be in the vitals_chart canonical unit (mg/dL, °C, mmHg, /min…)
+    // because many bedside monitors omit units entirely. A known unit is
+    // converted to canonical; an unknown non-empty unit REJECTS the message
+    // (DEVICE_VITALS_UNSUPPORTED_UNIT, 400 → gateway dead-letter) rather than
+    // storing a guess.
+    const units = String(f[6] ?? '').split('^')[0].trim();
+    return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value, units };
   }).filter((o) => o.loinc_code);
 
   let observedAt = null;

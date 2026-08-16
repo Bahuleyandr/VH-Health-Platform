@@ -65,7 +65,9 @@ jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
 // mock is set.
 const MONITORING_TOKEN = 'test-monitoring-token';
 process.env.MONITORING_TOKEN = MONITORING_TOKEN;
-const { default: uptimeRouter } = await import('../../routes/health/uptimeRoutes.js');
+const { default: uptimeRouter, __resetReadinessDegradedSinceForTests } = await import(
+  '../../routes/health/uptimeRoutes.js'
+);
 
 function makeApp() {
   const app = express();
@@ -76,6 +78,7 @@ function makeApp() {
 const withToken = (req) => req.set('x-monitoring-token', MONITORING_TOKEN);
 
 beforeEach(() => {
+  __resetReadinessDegradedSinceForTests();
   queryRawMock.mockReset();
   tenantRlsRolePostureMock.mockReset();
   readMigrationStateMock.mockReset();
@@ -186,27 +189,44 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
     expect(assertRedisWritableMock).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 503 when strict Redis is writable but its WS subscriber is unavailable', async () => {
+  // 873-F2: a RUN-TIME subscriber/store loss on an initialized strict pod is
+  // reported as degraded (200), never converted into a fleet-wide NotReady —
+  // see readinessRedisDegraded.test.js for the full degraded-block contract.
+  it('stays ready (200, degraded) when strict Redis is writable but its WS subscriber is unavailable', async () => {
     redisIsRequiredMock.mockReturnValue(true);
     isWsFanoutReadyMock.mockReturnValue(false);
 
     const res = await withToken(request(makeApp()).get('/health/ready'));
 
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
     expect(res.body.checks.redis.status).toBe('ok');
-    expect(res.body.checks.redis_websocket_subscriber.status).toBe('error');
+    expect(res.body.checks.redis_websocket_subscriber.status).toBe('degraded');
+    expect(res.body.degraded.redis_websocket_subscriber).toMatchObject({
+      state: 'subscriber_unavailable',
+    });
   });
 
-  it('returns 503 when the strict Sentinel primary is not writable', async () => {
+  it('stays ready (200, degraded) when the initialized strict primary stops being writable', async () => {
     redisIsRequiredMock.mockReturnValue(true);
     assertRedisWritableMock.mockRejectedValueOnce(new Error('NOREPLICAS'));
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.checks.redis).toMatchObject({ status: 'degraded' });
+    expect(res.body.degraded.redis).toMatchObject({ state: 'store_unwritable' });
+  });
+
+  it('still returns 503 when strict mode has NO Redis client at all (never initialized)', async () => {
+    redisIsRequiredMock.mockReturnValue(true);
+    getRedisClientMock.mockReturnValue(null);
 
     const res = await withToken(request(makeApp()).get('/health/ready'));
 
     expect(res.status).toBe(503);
     expect(res.body.checks.redis).toEqual({
       status: 'error',
-      message: 'Required Redis check failed',
+      message: 'Required Redis client was never initialized',
     });
   });
 });

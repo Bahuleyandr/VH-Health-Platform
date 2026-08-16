@@ -95,6 +95,7 @@ import '../../features/audit/screens/audit_logs_screen.dart';
 import '../../features/safety/screens/resus_documentation_screen.dart';
 import '../../features/emergency/screens/ed_trauma_workbench_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
+import '../../features/safety/screens/sos_response_screen.dart';
 import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 
 // Schedule
@@ -937,6 +938,22 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) => NoTransitionPage(
             child: ResusDocumentationScreen(
               eventId: int.tryParse(state.pathParameters['eventId'] ?? '') ?? 0,
+            ),
+          ),
+        ),
+        // SOS responder loop (HIGH-1) — list + push-deep-linked alert focus.
+        GoRoute(
+          path: '/sos-response',
+          name: 'sos-response',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: SosResponseScreen()),
+        ),
+        GoRoute(
+          path: '/sos-response/:alertId',
+          name: 'sos-response-alert',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: SosResponseScreen(
+              focusAlertId: int.tryParse(state.pathParameters['alertId'] ?? ''),
             ),
           ),
         ),

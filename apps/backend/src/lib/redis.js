@@ -300,25 +300,31 @@ export function hasRedisInitFailed() {
  * deadline — until Redis returns, then stops. The timer is unref'd so it never
  * holds the process open. Idempotent; a no-op when Redis is already up.
  *
- * NOTE: this restores the shared cache, token-blacklist fast path, and the
- * rate-limit store. The WebSocket fan-out subscriber is boot-wired only and
- * stays single-process until the pod restarts (pre-existing behaviour).
+ * This restores the shared cache, token-blacklist fast path, and the
+ * rate-limit store through the singleton automatically. Consumers whose
+ * wiring is boot-time-only (the WebSocket fan-out subscriber — a dedicated
+ * duplicate connection, 873-F10) pass `onReconnect` so they are re-wired on
+ * the SAME recovery instead of staying degraded until a pod restart. The
+ * hook also fires when another path (e.g. the rate-limit store's lazy
+ * initRedis on the request path) restored the singleton first — the timer's
+ * job is "run the recovery wiring once Redis is back", however it came back.
  */
-export function scheduleRedisReinit({ intervalMs = REINIT_INTERVAL_MS } = {}) {
+export function scheduleRedisReinit({ intervalMs = REINIT_INTERVAL_MS, onReconnect = null } = {}) {
   if (reinitTimer || redis) return false;
   logger.warn(`Redis unavailable — retrying connection in the background every ${intervalMs}ms`);
   reinitTimer = setInterval(async () => {
-    if (redis) {
-      clearInterval(reinitTimer);
-      reinitTimer = null;
-      return;
-    }
     try {
-      const client = await initRedis();
+      const client = redis ?? await initRedis();
       clearInterval(reinitTimer);
       reinitTimer = null;
-      if (client) {
-        logger.info('Redis background reconnect succeeded — shared cache and rate-limit store restored');
+      if (!client) return; // not configured — nothing to restore
+      logger.info('Redis background reconnect succeeded — shared cache and rate-limit store restored');
+      if (onReconnect) {
+        try {
+          await onReconnect(client);
+        } catch (err) {
+          logger.error('Redis reinit onReconnect hook failed:', err.message);
+        }
       }
     } catch (err) {
       logger.warn('Redis background reconnect attempt failed:', err.message);

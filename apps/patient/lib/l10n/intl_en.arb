@@ -77,6 +77,14 @@
   "@authSosTriggered": {
     "description": "Snack-bar message after SOS is successfully sent"
   },
+  "authSosBackendFailed": "Couldn't send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.",
+  "@authSosBackendFailed": {
+    "description": "Honest failure snack-bar when the SOS backend POST fails; the dialer call remains the safety net"
+  },
+  "authSosGuestSkipped": "Emergency call opened. Sign in to also send an SOS alert to the hospital.",
+  "@authSosGuestSkipped": {
+    "description": "Snack-bar when no SOS alert was sent because the user is a guest / has no stored phone; must not claim the alert was triggered"
+  },
   "authGuestUserSOS": "guest_user_sos",
   "@authGuestUserSOS": {
     "description": "Identifier used when SOS is triggered without a signed-in phone"

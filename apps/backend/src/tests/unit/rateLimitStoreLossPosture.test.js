@@ -74,7 +74,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getRateLimitOverride: jest.fn(async () => null),
 }));
 
-const { authRateLimiter, otpRateLimiter, sosRateLimiter } = await import(
+const { authRateLimiter, otpRateLimiter, sosRateLimiter, getRateLimiter } = await import(
   '../../middleware/rateLimitMiddleware.js'
 );
 const {
@@ -160,6 +160,48 @@ describe('fail-open profiles under store loss', () => {
   });
 });
 
+describe('logout under store loss (873-F5)', () => {
+  // Regression: /auth/logout used to ride the fail-closed `auth` limiter, so a
+  // Redis outage 429'd self-revocation — a security action whose blacklist
+  // write is DB-authoritative and needs no Redis at all. The dedicated
+  // `logout` profile fails open: the request passes, and the pass is counted.
+  it('an authenticated logout passes (not 429, not 500) while the store is down', async () => {
+    // getRateLimiter's built-in skip disables enforcement under jest; build
+    // the limiter with a non-test env snapshot so it behaves as in production.
+    const savedNodeEnv = process.env.NODE_ENV;
+    const savedWorker = process.env.JEST_WORKER_ID;
+    process.env.NODE_ENV = 'development';
+    delete process.env.JEST_WORKER_ID;
+    let logoutLimiter;
+    try {
+      logoutLimiter = getRateLimiter('logout');
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+      if (savedWorker !== undefined) process.env.JEST_WORKER_ID = savedWorker;
+    }
+
+    redisConnected = false; // full store outage
+
+    const app = express();
+    app.use(express.json());
+    app.post(
+      '/auth/logout',
+      (req, _res, next) => {
+        req.user = { uid: 'patient-1' }; // jwtAuth runs before the limiter on the real route
+        next();
+      },
+      logoutLimiter,
+      (_req, res) => res.status(200).json({ ok: true })
+    );
+
+    const res = await request(app).post('/auth/logout').send({});
+
+    expect(res.status).toBe(200);
+    expect(incrementMock).not.toHaveBeenCalled(); // dead store never asked
+    expect(rateLimitStoreStatus().counters.passedUnmeteredWhileDown).toBe(1);
+  });
+});
+
 describe('operator signal', () => {
   it('logs ONE down transition for many requests, and reports degraded state', async () => {
     redisConnected = false;
@@ -226,6 +268,53 @@ describe('silent loss (command failure with connection nominally up)', () => {
       res = await request(app).post('/hit').send({ username: 'dr.c' });
       expect(res.status).toBe(200);
       expect(incrementMock).toHaveBeenCalledTimes(2);
+      expect(rateLimitStoreStatus().state).toBe('ok');
+    } finally {
+      Date.now.mockRestore();
+    }
+  });
+
+  // 873-F7: decrement()/resetKey() used to call the MUTATING
+  // evaluateStoreAccess(), so with the breaker half-open a decrement (e.g.
+  // authRateLimiter's skipSuccessfulRequests after a successful login)
+  // consumed the probe token on an operation that can never close the breaker
+  // (only increment() calls markStoreCommandOk) — holding fail-closed
+  // profiles at 429 for another 15s interval after Redis had recovered. They
+  // now route through the read-only peekStoreAccess().
+  test('decrement neither consumes the half-open probe token nor blocks the next increment probe (873-F7)', async () => {
+    const innerDecrement = jest.fn();
+    const innerIncrement = jest.fn(async () => ({
+      totalHits: 1,
+      resetTime: new Date(Date.now() + 60000),
+    }));
+    const store = new ResilientRateLimitStore({
+      inner: {
+        init() {},
+        increment: innerIncrement,
+        decrement: innerDecrement,
+        resetKey: jest.fn(),
+      },
+      profileName: 'auth',
+      posture: storeLossPostureFor('auth'),
+    });
+    await store.init({ windowMs: 15 * 60 * 1000 });
+
+    markStoreCommandFailed(new Error('boom')); // breaker opens
+
+    const realNow = Date.now;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 16000); // half-open
+    try {
+      // Best-effort cleanup while half-open: skipped entirely — no store
+      // round-trip, no probe token spent.
+      await store.decrement('t:default:auth:k');
+      expect(innerDecrement).not.toHaveBeenCalled();
+      expect(rateLimitStoreStatus().counters.probes).toBe(0);
+
+      // The NEXT increment still gets the probe grant, succeeds, and closes
+      // the breaker.
+      const result = await store.increment('t:default:auth:k');
+      expect(innerIncrement).toHaveBeenCalledTimes(1);
+      expect(result.totalHits).toBe(1);
       expect(rateLimitStoreStatus().state).toBe('ok');
     } finally {
       Date.now.mockRestore();

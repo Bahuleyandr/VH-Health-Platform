@@ -12,6 +12,7 @@ import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
+import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class ProfileEditScreen extends StatefulWidget {
@@ -275,20 +276,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   // ────────────────────────────────── SOS ───────────────────────────────────
-  void _triggerSOS() {
-    final messenger = ScaffoldMessenger.of(context);
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-
-    messenger.showSnackBar(
-      LiveRegionSnackBar.build(
-        message: l10n.authSosTriggered,
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    if (kDebugMode) debugPrint('ProfileEdit: SOS triggered');
+  Future<void> _triggerSOS() async {
+    // This FAB used to only SHOW the "triggered" toast without triggering
+    // anything at all. Route it through the real flow: dialer + throwing
+    // backend POST + honest outcome feedback.
+    await SOSService.triggerWithFeedback(context);
   }
 
   // ─────────────────────────── Gender display label ─────────────────────────

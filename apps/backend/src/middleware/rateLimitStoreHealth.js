@@ -250,8 +250,19 @@ export class ResilientRateLimitStore {
     }
   }
 
+  // 873-F7: decrement/resetKey are best-effort cleanup, NOT the operation a
+  // half-open probe should pay for — only increment() calls
+  // markStoreCommandOk(), so only increment() can CLOSE the breaker and only
+  // increment() may consume the probe token. These two used to call the
+  // mutating evaluateStoreAccess(): with the breaker half-open, a decrement
+  // spent the token on an operation that could never close the breaker,
+  // holding fail-closed profiles at 429 for another probe interval after
+  // Redis had already recovered. peekStoreAccess() gives the same
+  // short-circuit decision read-only (while the breaker is open it reports
+  // short_circuit even inside a matured probe window, so these calls skip
+  // the store entirely and leave the token for the next increment).
   async decrement(key) {
-    if (evaluateStoreAccess().mode === 'short_circuit') return;
+    if (peekStoreAccess().mode === 'short_circuit') return;
     try {
       await this.inner.decrement(key);
     } catch (err) {
@@ -260,7 +271,7 @@ export class ResilientRateLimitStore {
   }
 
   async resetKey(key) {
-    if (evaluateStoreAccess().mode === 'short_circuit') return;
+    if (peekStoreAccess().mode === 'short_circuit') return;
     try {
       await this.inner.resetKey(key);
     } catch (err) {

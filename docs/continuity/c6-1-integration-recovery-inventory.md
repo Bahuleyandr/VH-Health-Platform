@@ -355,7 +355,7 @@ The census found 30 interface families. Consolidated families enumerate every pr
 
 ### I27 — R2-compatible object storage and malware scanning
 
-- **Direction and transport:** outbound S3/R2-compatible object operations with local-storage fallback, plus synchronous HTTP malware scanning (`apps/backend/src/utils/r2Storage.js:70-119`, `apps/backend/src/utils/r2Storage.js:215-264`; `apps/backend/src/utils/clamavScanHelper.js:1-28`).
+- **Direction and transport:** outbound S3/R2-compatible object operations with local-storage fallback, plus loopback clamd malware scanning declared by `FILE_SCAN_POLICY` (`apps/backend/src/utils/r2Storage.js:70-119`, `apps/backend/src/utils/r2Storage.js:215-264`; `apps/backend/src/utils/virusScanner.js`).
 - **Queue or buffer:** none in the provider adapters.
 - **Acknowledgement and unacknowledged behavior:** provider upload/read success or scanner HTTP response completes the request. Storage has bounded inline retry; scanner failure returns an error. Failed work is not queued by these adapters.
 - **Idempotency:** object key gives overwrite identity at the provider but is not a local command receipt. No scan-request replay guard was found.

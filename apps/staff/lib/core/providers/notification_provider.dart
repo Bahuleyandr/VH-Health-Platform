@@ -144,6 +144,22 @@ class NotificationItem {
     if (explicit != null && explicit.isNotEmpty) {
       return StaffRoutePolicy.sanitizeExternalRoute(explicit);
     }
+    // SOS/EMERGENCY deep-links straight to the alert when the backend fan-out
+    // carried data.sos_alert_id (mirrors the Code Blue /safety/resus/:eventId
+    // deep-link precedent); StaffRoutePolicy still authorizes the role.
+    // SOS_BROADCAST is an all-staff informational blast, not a responder
+    // work item — it keeps no action route.
+    final type = normalizedType;
+    if (_isSosResponderType(type)) {
+      final alertId = int.tryParse(
+        (data['sos_alert_id'] ?? data['sosAlertId'] ?? '').toString(),
+      );
+      return StaffRoutePolicy.sanitizeExternalRoute(
+        alertId != null && alertId > 0
+            ? '/sos-response/$alertId'
+            : '/sos-response',
+      );
+    }
     return StaffRoutePolicy.sanitizeExternalRoute(
       _defaultRouteForType(normalizedType),
     );
@@ -152,6 +168,7 @@ class NotificationItem {
   String get actionLabel {
     final explicit = data['action_label']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
+    if (_isSosResponderType(normalizedType)) return 'Open SOS alert';
     if (isAppointmentAlert) return 'Open appointment';
     if (isAdmissionAlert) return 'Open admission';
     if (isHousekeepingAlert) return 'Open housekeeping task';
@@ -657,8 +674,18 @@ Map<String, dynamic> _parseDataMap(dynamic raw) {
   return <String, dynamic>{};
 }
 
+bool _isSosResponderType(String type) {
+  final t = type.toUpperCase();
+  return (t.contains('SOS') || t.contains('EMERGENCY')) &&
+      !t.contains('BROADCAST');
+}
+
 String? _defaultRouteForType(String type) {
   final t = type.toUpperCase();
+  // EMERGENCY/SOS previously fell through to null: the push was flagged
+  // high-priority but had NO action route (HIGH-1). The alert-id deep-link
+  // variant is handled in NotificationItem.actionRoute, which has the data.
+  if (_isSosResponderType(t)) return '/sos-response';
   if (t.contains('APPOINTMENT') || t == 'BOOKING') return '/appointments';
   if (t.contains('ADMISSION')) return '/emr/admissions';
   if (t.contains('HOUSEKEEPING')) return '/housekeeping-tasks';

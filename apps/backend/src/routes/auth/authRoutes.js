@@ -7,7 +7,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as authController from '../../controllers/auth/authController.js';
-import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { otpRateLimiter, authRateLimiter, logoutRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
 import { phoneValidator, phoneOtpValidator } from '../../validators/auth/authValidator.js';
@@ -64,8 +64,12 @@ wrapRoutesWithValidation(
       // is 5 attempts / 15 min, keyed by IP (refresh carries no account body).
       ['/refresh-token', authRateLimiter, authController.refreshToken],
 
-      // Logout (works for all auth methods)
-      ['/logout', jwtAuth, authRateLimiter, authController.logout],
+      // Logout (works for all auth methods). Deliberately NOT authRateLimiter
+      // (873-F5): blacklisting is DB-authoritative, so self-revocation must
+      // stay available while the rate-limit store is down — the `logout`
+      // profile fails open where `auth` fails closed. Login/refresh above
+      // keep the fail-closed limiter.
+      ['/logout', jwtAuth, logoutRateLimiter, authController.logout],
       
       // Legacy routes (backward compatibility - deprecated)
       [
