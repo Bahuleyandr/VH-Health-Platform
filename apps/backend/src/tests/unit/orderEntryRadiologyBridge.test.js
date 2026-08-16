@@ -42,6 +42,7 @@ const {
 } = await import('../../services/emr/orderEntryService.js');
 
 const PATIENT = '7b3a1111-2222-4333-8444-555566667777';
+const DOCTOR = '8c4b2222-3333-4444-8555-666677778888';
 
 describe('resolveRadiologyModality', () => {
   it('honours explicit modality fields, alias-normalised', () => {
@@ -113,10 +114,24 @@ describe('deriveCpoeContrastIntent (parseContrastIntent parity)', () => {
     }
   });
 
-  it('explicit negation wins over the presumption', () => {
+  it('allows explicit negation for a genuinely non-contrast CT study', () => {
     expect(deriveCpoeContrastIntent({ contrast_planned: false }, 'ct')).toEqual({
       contrastPlanned: false, contrastAgent: null, intentSource: 'explicitly_negated',
     });
+  });
+
+  it.each([
+    'CECT Abdomen',
+    'CT abdomen with contrast',
+    'MRI brain contrast-enhanced',
+  ])('rejects explicit false when the named study requires contrast: %s', (testName) => {
+    expect(() => deriveCpoeContrastIntent({
+      test_name: testName,
+      contrast_planned: false,
+    }, 'ct')).toThrow(expect.objectContaining({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    }));
   });
 
   it('a named agent implies contrast on any modality', () => {
@@ -138,14 +153,14 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
   it('rejects a radiology order whose modality cannot be resolved (400, before any DB write)', async () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
-      details: { test_name: 'radiology' }, ordered_by: 'd',
+      details: { test_name: 'radiology' }, ordered_by: DOCTOR,
     })).rejects.toMatchObject({ statusCode: 400, code: 'RADIOLOGY_ORDER_MODALITY_REQUIRED' });
   });
 
   it('accepts the imaging alias and applies the same gate', async () => {
     await expect(createOrder({
       order_type: 'imaging', patient_uid: PATIENT,
-      details: { description: 'no modality anywhere' }, ordered_by: 'd',
+      details: { description: 'no modality anywhere' }, ordered_by: DOCTOR,
     })).rejects.toMatchObject({ code: 'RADIOLOGY_ORDER_MODALITY_REQUIRED' });
   });
 
@@ -155,7 +170,7 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
     // acknowledged override. "We could not check" must never order contrast.
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
-      details: { test_name: 'CT Brain plain' }, ordered_by: 'd',
+      details: { test_name: 'CT Brain plain' }, ordered_by: DOCTOR,
     })).rejects.toMatchObject({ statusCode: 409, code: 'RADIOLOGY_CONTRAST_ALLERGY_BLOCKED' });
   });
 
@@ -166,21 +181,31 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
         test_name: 'CT Brain plain',
         contrast_override_reason: 'Allergy record verified manually on paper chart',
       },
-      ordered_by: 'd',
+      ordered_by: DOCTOR,
     })).rejects.toThrow(/prisma must not be reached/);
   });
 
   it('explicit contrast negation skips the screen entirely and proceeds to the write phase', async () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
-      details: { test_name: 'CT Brain plain', contrast_planned: false }, ordered_by: 'd',
+      details: { test_name: 'CT Brain plain', contrast_planned: false }, ordered_by: DOCTOR,
     })).rejects.toThrow(/prisma must not be reached/);
+  });
+
+  it('rejects a CECT order whose caller tries to negate contrast explicitly', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: { test_name: 'CECT Abdomen', contrast_planned: false }, ordered_by: DOCTOR,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
   });
 
   it('a plain film is not contrast-presumed and proceeds to the write phase unscreened', async () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
-      details: { test_name: 'X-Ray Chest PA' }, ordered_by: 'd',
+      details: { test_name: 'X-Ray Chest PA' }, ordered_by: DOCTOR,
     })).rejects.toThrow(/prisma must not be reached/);
   });
 });

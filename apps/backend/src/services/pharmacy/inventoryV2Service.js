@@ -25,20 +25,15 @@ import logger from '../../logging/logger.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { AppError } from '../../utils/AppError.js';
 import {
-  ADMIN,
-  DOCTOR,
-  DUTY_DOCTOR,
-  IP_INCHARGE,
-  IP_STAFF_NURSE,
-  MEDICAL_SUPERINTENDENT,
-  NURSING_INCHARGE,
-  NURSING_STAFF,
-  OP_INCHARGE,
-  OP_STAFF_NURSE,
-  PHARMACY_INCHARGE,
-  PHARMACY_STAFF,
-  normalizeRole,
-} from '../../utils/roles.js';
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  CONTROLLED_DISPENSE_WITNESS_ROLES,
+  approveControlledDispenseWitnessApproval,
+  consumeControlledDispenseWitnessApproval,
+  createControlledDispenseWitnessApproval,
+  isControlledDispenseWitnessEvidence,
+} from './controlledDispenseWitnessService.js';
+
+export { CONTROLLED_DISPENSE_WITNESS_ROLES };
 
 const ALLOWED_SCHEDULES = ['H', 'H1', 'X', 'OTC', null];
 const VALID_MOVEMENTS = [
@@ -393,95 +388,66 @@ export async function recordMovementTx(tx, {
  * evidence row; `require_usable_batch` adds recordMovementTx's expired/
  * non-in-stock batch rejection.
  */
-// ── Controlled-dispense witness validation (PR #875 follow-up) ────────────
-//
-// witness_uid/witness_name were previously stored as UNVALIDATED client text:
-// any uid (or garbage) landed on the statutory Schedule X / narcotic register
-// as the legally-required second signature. The witness must be a real,
-// active, clinically-appropriate staff identity of the SAME tenant, and a
-// different person than the dispenser — validated at dispense time, the same
-// posture as marService's retrospective MAR witness check (tenant + active +
-// role + FOR KEY SHARE) and taskService's requireAssignableTaskRole.
-//
-// Eligible roles: the pharmacy dispensing roster (a second pharmacist is the
-// normal counter witness) plus doctors and the nursing roster (the ward
-// controlled-dispense flow is witnessed at the bedside). Non-clinical
-// identities (reception, housekeeping, PATIENT, the PHARMACY_WALKIN anchor…)
-// can never witness a controlled dispense.
-export const CONTROLLED_DISPENSE_WITNESS_ROLES = [
-  ADMIN,
-  PHARMACY_STAFF,
-  PHARMACY_INCHARGE,
-  DOCTOR,
-  DUTY_DOCTOR,
-  MEDICAL_SUPERINTENDENT,
-  NURSING_STAFF,
-  NURSING_INCHARGE,
-  IP_STAFF_NURSE,
-  IP_INCHARGE,
-  OP_STAFF_NURSE,
-  OP_INCHARGE,
-];
+export function controlledDispenseWitnessPayload(params = {}) {
+  return {
+    inventory_item_id: Number(params.inventory_item_id),
+    inventory_batch_id: params.inventory_batch_id == null
+      ? null
+      : Number(params.inventory_batch_id),
+    quantity: Number(params.quantity),
+    patient_uid: params.patient_uid ? String(params.patient_uid) : null,
+    patient_name: params.patient_name ? String(params.patient_name).trim() : null,
+    patient_phone: params.patient_phone ? String(params.patient_phone).trim() : null,
+    prescription_id: params.prescription_id == null ? null : Number(params.prescription_id),
+    prescription_number: params.prescription_number || null,
+    prescriber_uid: params.prescriber_uid ? String(params.prescriber_uid) : null,
+    prescriber_name: params.prescriber_name || null,
+    prescriber_registration: params.prescriber_registration || null,
+    patient_id_proof_type: params.patient_id_proof_type || null,
+    patient_id_proof_last4: params.patient_id_proof_last4
+      ? String(params.patient_id_proof_last4).slice(-4)
+      : null,
+  };
+}
 
-const WITNESS_ELIGIBLE_ROLE_SET = new Set(CONTROLLED_DISPENSE_WITNESS_ROLES);
-const WITNESS_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Validate a controlled-dispense witness identity against the live staff
- * roster. Runs on the caller's client (`db` may be a transaction client or
- * plain prisma — the counter-sale Phase-0 pre-flight uses the latter so an
- * invalid witness rejects before any invoice is issued). Throws AppError 400
- * with a machine-readable code; returns the validated witness row.
- */
-export async function assertControlledDispenseWitness(db, {
-  tenantId, witnessUid, witnessName, performedBy,
-}) {
-  const uid = witnessUid == null ? '' : String(witnessUid).trim();
-  if (!WITNESS_UUID_RE.test(uid)) {
-    throw AppError.badRequest(
-      'witness.uid must be the staff uid (UUID) of the witnessing staff member',
-      'CONTROLLED_DISPENSE_WITNESS_INVALID',
-    );
-  }
-  if (performedBy && String(performedBy).trim() === uid) {
-    throw AppError.badRequest(
-      'The dispensing staff member cannot witness their own controlled dispense — name a second staff member',
-      'CONTROLLED_DISPENSE_WITNESS_SELF',
-    );
-  }
-  // FOR KEY SHARE (marService MAR-witness idiom): pin the witness row for the
-  // duration of the dispense transaction so a concurrent deactivation cannot
-  // race the register write.
+async function requireWitnessedInventoryItem(db, { tenantId, inventoryItemId }) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT uid::text AS uid, name, role
-       FROM users
+    `SELECT id, schedule_class, is_narcotic
+       FROM pharmacy_inventory_items
       WHERE tenant_id = $1::uuid
-        AND uid = $2::uuid
-        AND is_active = true
-        AND status = 'active'
-        AND COALESCE(is_deleted, false) = false
-      LIMIT 1
-      FOR KEY SHARE`,
+        AND id = $2::int`,
     tenantId,
-    uid,
+    Number(inventoryItemId),
   );
-  if (!rows.length) {
+  if (!rows[0]) throw AppError.notFound('Inventory item not found');
+  if (rows[0].schedule_class !== 'X' && rows[0].is_narcotic !== true) {
     throw AppError.badRequest(
-      'Witness is not an active staff member of this facility',
-      'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND',
+      'A witness approval is only available for Schedule X / narcotic dispensing',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
     );
   }
-  const witness = rows[0];
-  const role = normalizeRole(witness.role);
-  if (!role || !WITNESS_ELIGIBLE_ROLE_SET.has(role)) {
-    throw AppError.badRequest(
-      'Witness must hold a pharmacy, medical, or nursing role to witness a controlled dispense',
-      'CONTROLLED_DISPENSE_WITNESS_ROLE_INELIGIBLE',
-      { witness_role: witness.role || null },
-    );
-  }
-  void witnessName; // display name stays a caller-supplied snapshot; identity is the uid
-  return witness;
+}
+
+export async function requestControlledDispenseWitnessApproval(params) {
+  await requireWitnessedInventoryItem(prisma, {
+    tenantId: params.tenantId,
+    inventoryItemId: params.inventory_item_id,
+  });
+  return createControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+    payload: controlledDispenseWitnessPayload(params),
+    requestedBy: params.requested_by,
+  });
+}
+
+export async function approveInventoryDispenseWitnessApproval(params) {
+  return approveControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    approvalId: params.approvalId,
+    actorUid: params.actorUid,
+    payload: controlledDispenseWitnessPayload(params.dispense),
+  });
 }
 
 export async function dispenseControlledTx(tx, {
@@ -492,7 +458,7 @@ export async function dispenseControlledTx(tx, {
   prescriber_uid, prescriber_name, prescriber_registration,
   patient_id_proof_type, patient_id_proof_last4,
   performed_by, performed_by_name,
-  witness_uid, witness_name, notes,
+  witness_approval_id, witness_evidence = null, notes,
   reference_id = null,
   require_usable_batch = false,
 }) {
@@ -509,22 +475,36 @@ export async function dispenseControlledTx(tx, {
     throw AppError.badRequest('Item is not a controlled substance — use the regular issue path');
   }
   // Witness required for Schedule X / narcotic.
-  if ((item.schedule_class === 'X' || item.is_narcotic) && (!witness_uid || !witness_name)) {
-    throw AppError.badRequest('Witness (witness_uid + witness_name) is required for Schedule X / narcotic dispense');
-  }
   if (!performed_by || !performed_by_name) {
     throw AppError.badRequest('performed_by + performed_by_name are required');
   }
-  // Whenever a witness identity is supplied (mandatory for X/narcotic,
-  // optional evidence on H/H1), it must be a real, active, appropriately
-  // rolled staff member of THIS tenant and not the dispenser — never
-  // unvalidated client text on the statutory register (PR #875 follow-up).
-  if (witness_uid) {
-    await assertControlledDispenseWitness(tx, {
+
+  const needsWitness = item.schedule_class === 'X' || item.is_narcotic;
+  let witness = isControlledDispenseWitnessEvidence(witness_evidence)
+    ? witness_evidence
+    : null;
+  if (needsWitness && !witness) {
+    witness = await consumeControlledDispenseWitnessApproval({
+      tx,
       tenantId,
-      witnessUid: witness_uid,
-      witnessName: witness_name,
-      performedBy: performed_by,
+      approvalId: witness_approval_id,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      payload: controlledDispenseWitnessPayload({
+        inventory_item_id,
+        inventory_batch_id,
+        quantity,
+        patient_uid,
+        patient_name,
+        patient_phone,
+        prescription_id,
+        prescription_number,
+        prescriber_uid,
+        prescriber_name,
+        prescriber_registration,
+        patient_id_proof_type,
+        patient_id_proof_last4,
+      }),
+      requestedBy: performed_by,
     });
   }
 
@@ -539,7 +519,7 @@ export async function dispenseControlledTx(tx, {
       reference_type: 'controlled_dispense',
       reference_id: reference_id || prescription_number || `pres-${prescription_id || ''}`,
       performed_by,
-      notes: `Schedule ${item.schedule_class} dispense; witness ${witness_name || 'n/a'}`,
+      notes: `Schedule ${item.schedule_class} dispense; witness ${witness?.name || 'n/a'}`,
       require_usable_batch,
     });
 
@@ -585,8 +565,8 @@ export async function dispenseControlledTx(tx, {
       patient_id_proof_last4 ? String(patient_id_proof_last4).slice(-4) : null,
       String(performed_by),
       performed_by_name,
-      witness_uid ? String(witness_uid) : null,
-      witness_name || null,
+      witness?.uid || null,
+      witness?.name || null,
       movement.id,
       notes || null,
     );

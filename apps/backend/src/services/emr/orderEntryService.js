@@ -23,6 +23,7 @@ import {
 } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import {
   assertContrastOrderAllowed,
+  hasExplicitContrastStudySignal,
   isContrastPresumedModality,
   validateRadiologyContrastSafety,
 } from '../../utils/clinical/contrastAllergyCheck.js';
@@ -239,9 +240,9 @@ export function deriveCpoeContrastIntent(details = {}, modality = null) {
   const contrastAgent = firstText(details.contrast_agent, details.contrastAgent);
   const rawPlanned = details.contrast_planned ?? details.contrastPlanned;
   if (rawPlanned === false || rawPlanned === 'false') {
-    if (contrastAgent) {
+    if (contrastAgent || hasExplicitContrastStudySignal(details)) {
       throw AppError.badRequest(
-        'contrast_agent cannot be set when contrast_planned is explicitly false',
+        'contrast_planned cannot be false when the order names a contrast agent or contrast-enhanced study',
         'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
       );
     }
@@ -252,6 +253,9 @@ export function deriveCpoeContrastIntent(details = {}, modality = null) {
   }
   if (contrastAgent) {
     return { contrastPlanned: true, contrastAgent, intentSource: 'agent_named' };
+  }
+  if (hasExplicitContrastStudySignal(details)) {
+    return { contrastPlanned: true, contrastAgent: null, intentSource: 'study_text' };
   }
   if (isContrastPresumedModality(modality)) {
     return { contrastPlanned: true, contrastAgent: null, intentSource: 'modality_presumed' };
@@ -288,9 +292,8 @@ async function runRadiologyContrastGate(n, data = {}) {
       modality: fields.modality,
       contrastAgent: intent.contrastAgent,
     });
-    // Same override resolution radiologyService.createOrder accepts —
-    // data.override.{reason,approved_by} (the CPOE override convention) or the
-    // radiology-native details.contrast_override_reason/by keys.
+    // Same override resolution radiologyService.createOrder accepts. Only the
+    // reason is caller input; attribution is always the authenticated orderer.
     const overrideInput = data?.override?.reason
       ? { reason: data.override.reason, approvedBy: data.override.approvedBy ?? data.override.approved_by }
       : (firstText(n.details?.contrast_override_reason)
@@ -962,10 +965,10 @@ async function dispatchPostCreateSideEffects(order) {
     });
   }
 
-  // Dispatch integrations. Investigation and radiology materialization are
-  // awaited so a freshly-saved order is present on the receiving worklist
-  // (lab / radiology) by the time the doctor sees the create response; other
-  // integrations stay best-effort.
+  // Dispatch integrations. Investigation materialization is awaited so a
+  // freshly-saved order is present on the lab worklist by the time the doctor
+  // sees the response. Radiology materialization is already part of the
+  // clinical-order transaction; other integrations stay best-effort.
   // BE-H1: a dispatch failure that reaches this catch (the MAR-scheduling
   // failure is escalated by its own inner catch and does not re-throw) is
   // escalated durably — never just a log line.
@@ -973,7 +976,7 @@ async function dispatchPostCreateSideEffects(order) {
     logger.error(`Order integration dispatch failed for order ${order.order_number}: ${err.message}`);
     await escalateOrderIntegrationFailure({ order, stage: 'integration_dispatch', err });
   });
-  if (order.order_type === 'investigation' || order.order_type === 'radiology') {
+  if (order.order_type === 'investigation') {
     await integrationDispatch;
   }
 
@@ -1074,10 +1077,10 @@ export async function createOrder(data) {
 
   // Atomic clinical write (canonical timeline invariant): the order detail
   // row + its canonical timeline/audit events (+ medication safety reviews)
-  // persist together or not at all. The downstream side effects (MAR
-  // schedule, ward indent, lab-worklist materialization, STAT push) are
-  // best-effort and run post-commit — they write other tables / call other
-  // services and must never roll back the recorded order.
+  // persist together or not at all. A radiology order also materializes its
+  // receiving worklist row here: success must never expose a clinical order
+  // that radiology cannot see. Other downstream side effects remain
+  // post-commit best-effort.
   // `details` is a Json column — pass the object directly (Prisma serialises).
   // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it
   // explicitly, so we preserve that for clarity.
@@ -1111,6 +1114,9 @@ export async function createOrder(data) {
       safety: cdsResult,
       override: overrideApplied ? { reason: cdsOverrideReason } : null,
     });
+    if (row.order_type === 'radiology') {
+      await materializeRadiologyOrderForClinicalOrder(row, { db: tx });
+    }
     await publishOpChildResourceLinkedFromEncounterTx(tx, {
       tenantId: requireTenantId(tenantId),
       encounterId: row.encounter_id,
@@ -1290,6 +1296,9 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
           : null,
         override: prepared[i].override,
       });
+      if (row.order_type === 'radiology') {
+        await materializeRadiologyOrderForClinicalOrder(row, { db: tx });
+      }
       await publishOpChildResourceLinkedFromEncounterTx(tx, {
         tenantId: requireTenantId(tenantId),
         encounterId: row.encounter_id,
@@ -1304,7 +1313,8 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
   });
 
   // Phase 1.5 — post-commit best-effort side effects per order (MAR schedule,
-  // ward indent, lab-worklist materialization, STAT push). Failure here is
+  // ward indent, lab-worklist materialization, STAT push). Radiology was
+  // materialized atomically above. Failure here is
   // logged, never rolls back the committed orders + canonical events.
   for (let i = 0; i < createdRows.length; i += 1) {
     await dispatchPostCreateSideEffects(createdRows[i]);
@@ -1474,22 +1484,18 @@ async function dispatchOrderIntegrations(order) {
     await materializeInvestigationForClinicalOrder(order);
   }
 
-  if (order.order_type === 'radiology') {
-    await materializeRadiologyOrderForClinicalOrder(order);
-  }
 }
 
 /**
- * Materialize a committed CPOE radiology order onto the radiology worklist
- * (radiology_orders) through radiologyService.createOrder — which re-runs the
- * contrast/allergy screen inside its own tenant transaction and persists the
- * screen evidence, safety reviews, and canonical events on the detail row.
+ * Materialize a CPOE radiology order onto the radiology worklist inside the
+ * caller's clinical-order transaction. radiologyService re-runs the screen on
+ * that transaction client and persists its detail/canonical evidence there.
  * Idempotent via the same notes back-reference idiom the lab materializer
  * uses (`clinical_order_id:<id>`). radiologyService is imported dynamically to
  * keep its graph out of this module's static imports (admissionService
  * dietary-recall precedent).
  */
-async function materializeRadiologyOrderForClinicalOrder(order) {
+async function materializeRadiologyOrderForClinicalOrder(order, { db = prisma } = {}) {
   const details = parseOrderDetails(order.details);
   const fields = resolveRadiologyOrderFields(details, { notes: order.notes });
   if (!fields.modality) {
@@ -1499,7 +1505,7 @@ async function materializeRadiologyOrderForClinicalOrder(order) {
     return null;
   }
 
-  const existing = await prisma.$queryRawUnsafe(
+  const existing = await db.$queryRawUnsafe(
     `SELECT id
        FROM radiology_orders
       WHERE tenant_id = $1::uuid
@@ -1533,12 +1539,15 @@ async function materializeRadiologyOrderForClinicalOrder(order) {
     ...(details.contrast_override_reason
       ? {
         contrast_override_reason: details.contrast_override_reason,
-        contrast_override_by: details.contrast_override_by || order.ordered_by,
+        contrast_override_by: order.ordered_by,
       }
       : {}),
   };
 
-  const row = await radiologyService.createOrder(payload, { tenantId: order.tenant_id });
+  const row = await radiologyService.createOrder(payload, {
+    tenantId: order.tenant_id,
+    ...(db === prisma ? {} : { tx: db }),
+  });
   logger.info(
     `Radiology order ${order.order_number} materialized on the radiology worklist as radiology_orders #${row.id}`,
   );

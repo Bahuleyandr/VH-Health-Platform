@@ -78,6 +78,19 @@ const MODALITY_CONTRAST_CLASS = {
   ultrasound: 'microbubble',
 };
 
+const CONTRAST_STUDY_TEXT_FIELDS = [
+  'test_name', 'testName', 'study', 'name', 'test', 'investigation',
+  'procedure', 'body_part', 'bodyPart', 'clinical_indication', 'clinicalIndication',
+];
+const CONTRAST_STUDY_TEXT_PATTERN = /\bcect\b|\bce[-\s]?(?:ct|mri)\b|\bcontrast[-\s]+enhanced\b|\bwith(?:\s+and\s+without)?\s+(?:(?:iv|oral)\s+)?contrast\b|\b(?:iv|oral|post|delayed)[-\s]?contrast\b|\bcontrast[-\s]+(?:ct|mri|study|phase)\b/i;
+
+export function hasExplicitContrastStudySignal(data = {}) {
+  return CONTRAST_STUDY_TEXT_FIELDS
+    .map((field) => data?.[field])
+    .filter((value) => typeof value === 'string' && value.trim())
+    .some((value) => CONTRAST_STUDY_TEXT_PATTERN.test(value));
+}
+
 // Modalities whose routine protocols administer contrast often enough that an
 // OMITTED contrast_planned cannot be read as "no contrast": CT and MRI
 // frequently run contrast phases and fluoroscopy's contrast (barium/
@@ -332,16 +345,15 @@ export async function validateRadiologyContrastSafety({ patientUid, modality, co
  * 5 trimmed characters, recorded against a named user.
  *
  * @param {object} screen   result of validateRadiologyContrastSafety
- * @param {object|null} overrideInput { reason, approvedBy? } (accepts
- *   snake_case approved_by; contrast_override_reason handled by callers)
- * @param {string|null} fallbackActorUid used as the overriding user when the
- *   override payload does not name one (the ordering clinician).
+ * @param {object|null} overrideInput { reason }; caller-selected approver ids
+ *   are ignored because approval attribution is an authentication fact.
+ * @param {string|null} authenticatedActorUid the authenticated ordering actor.
  * @returns {{ reason: string, approvedBy: string|null }|null} normalized
  *   override when the screen is blocked and a valid override was supplied;
  *   null when the screen is safe. Throws AppError 409 when blocked without a
  *   valid override.
  */
-export function assertContrastOrderAllowed(screen, overrideInput, fallbackActorUid = null) {
+export function assertContrastOrderAllowed(screen, overrideInput, authenticatedActorUid = null) {
   if (!screen || screen.safe) return null;
   const reason = typeof overrideInput?.reason === 'string' ? overrideInput.reason.trim() : '';
   if (reason.length < 5) {
@@ -355,20 +367,25 @@ export function assertContrastOrderAllowed(screen, overrideInput, fallbackActorU
       },
     );
   }
-  // The approver is persisted into a uuid column; a non-uuid client value
-  // must degrade to the authenticated actor, not 500 on the cast.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const candidate = overrideInput.approvedBy || overrideInput.approved_by || null;
+  const actorUid = typeof authenticatedActorUid === 'string'
+    ? authenticatedActorUid.trim()
+    : '';
+  if (!UUID_RE.test(actorUid)) {
+    throw AppError.forbidden(
+      'A same-tenant authenticated clinical actor must authorize the contrast override',
+      'RADIOLOGY_CONTRAST_OVERRIDE_ACTOR_REQUIRED',
+    );
+  }
   return {
     reason,
-    approvedBy: (typeof candidate === 'string' && UUID_RE.test(candidate.trim()))
-      ? candidate.trim()
-      : fallbackActorUid || null,
+    approvedBy: actorUid,
   };
 }
 
 export default {
   CONTRAST_PRESUMED_MODALITIES,
+  hasExplicitContrastStudySignal,
   isContrastPresumedModality,
   resolveContrastAgentClass,
   screenContrastAllergies,

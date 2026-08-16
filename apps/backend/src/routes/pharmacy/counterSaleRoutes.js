@@ -19,6 +19,7 @@ import {
   STORES_PURCHASE_INCHARGE,
   hasRole,
 } from '../../utils/roles.js';
+import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
 
 const router = Router();
 
@@ -58,6 +59,9 @@ const requireVoid = requireCounterSaleRole(
 const requireRead = requireCounterSaleRole(
   COUNTER_SALE_READ_ROLES, 'Pharmacy role required',
 );
+const requireWitness = requireCounterSaleRole(
+  CONTROLLED_DISPENSE_WITNESS_ROLES, 'Clinical or pharmacy witness role required',
+);
 
 // POS pick list: sellable items with usable stock + FEFO head batch/price.
 router.get('/items', requireRead, wrap(async (req) => ({
@@ -67,6 +71,25 @@ router.get('/items', requireRead, wrap(async (req) => ({
     limit: req.query.limit,
   }),
 })));
+
+router.post('/witness-approvals', requireSell, wrap(async (req) => (
+  counterSales.requestCounterSaleWitnessApproval({
+    ...req.body,
+    tenantId: tenantOf(req),
+    requested_by: req.user?.uid,
+  })
+)));
+
+router.post('/witness-approvals/:id/approve', requireWitness, wrap(async (req) => (
+  counterSales.approveCounterSaleWitnessApproval({
+    approvalId: req.params.id,
+    actorUid: req.user?.uid,
+    sale: {
+      ...(req.body.sale || {}),
+      tenantId: tenantOf(req),
+    },
+  })
+)));
 
 // Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.
 //
@@ -90,7 +113,7 @@ router.post('/', requireSell, requireIdempotencyKey({
   customer_name: req.body.customer_name,
   customer_phone: req.body.customer_phone,
   rx: req.body.rx,
-  witness: req.body.witness,
+  witness_approval_id: req.body.witness_approval_id,
   payment_mode: req.body.payment_mode,
   payment_reference: req.body.payment_reference,
   notes: req.body.notes,

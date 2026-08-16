@@ -92,6 +92,13 @@ function requireControlledDispense(req, res, next) {
   )(req, res, next);
 }
 
+function requireControlledDispenseWitness(req, res, next) {
+  return requireInventoryRole(
+    inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
+    'Clinical or pharmacy witness role required',
+  )(req, res, next);
+}
+
 // ── Drug master / items ───────────────────────────────────────────────
 router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   tenantId: inv.tenantOf(req),
@@ -123,6 +130,22 @@ router.post('/movements', requireInventoryMaintain, wrap(async (req) => inv.reco
 })));
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
+router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
+  wrap(async (req) => inv.requestControlledDispenseWitnessApproval({
+    ...req.body,
+    tenantId: inv.tenantOf(req),
+    requested_by: req.user?.uid,
+  })));
+
+router.post('/controlled-dispense/witness-approvals/:id/approve',
+  requireControlledDispenseWitness,
+  wrap(async (req) => inv.approveInventoryDispenseWitnessApproval({
+    tenantId: inv.tenantOf(req),
+    approvalId: req.params.id,
+    actorUid: req.user?.uid,
+    dispense: req.body.dispense || {},
+  })));
+
 router.post('/controlled-dispense', requireControlledDispense, wrap(async (req) => inv.dispenseControlled({
   ...req.body,
   tenantId: inv.tenantOf(req),

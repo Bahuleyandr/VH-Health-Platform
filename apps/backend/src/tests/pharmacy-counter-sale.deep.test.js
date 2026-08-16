@@ -6,8 +6,9 @@
 // batch rejection, and cross-tenant isolation.
 import prisma from '../lib/prisma.js';
 import {
+  approveCounterSaleWitnessApproval,
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
-  searchSellableItems, ensureWalkInAnchorUid,
+  requestCounterSaleWitnessApproval, searchSellableItems, ensureWalkInAnchorUid,
 } from '../services/pharmacy/counterSaleService.js';
 import { authClient } from './testClient.js';
 
@@ -25,7 +26,6 @@ const INACTIVE_WITNESS = 'c0577777-7777-4777-8777-777777777777'; // deactivated
 const FOREIGN_WITNESS = 'c0588888-8888-4888-8888-888888888888'; // other tenant
 
 const RX = { doctor_name: 'Dr. Test Prescriber', reference: 'RX-POS-001' };
-const WITNESS_ARG = { uid: WITNESS, name: 'Witness Pharmacist' };
 
 let otcItem; let otcNear; let otcFar;
 let h1Item; let h1Batch;
@@ -92,6 +92,10 @@ async function cleanup() {
   ).catch(() => {});
   for (const tid of [TENANT, OTHER]) {
     await prisma.$executeRawUnsafe(
+      `DELETE FROM approvals
+        WHERE tenant_id = $1::uuid AND approval_kind = 'controlled_dispense_witness'`, tid,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM pharmacy_counter_sale_allocations WHERE tenant_id = $1::uuid`, tid,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
@@ -147,6 +151,10 @@ async function cleanup() {
   // form is the sanctioned array-binding idiom, mirroring cleanupTenantIds).
   const witnessFixtureUids = [WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS];
   await prisma.$executeRawUnsafe(
+    `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`,
+    witnessFixtureUids,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
     witnessFixtureUids,
   ).catch(() => {});
@@ -188,6 +196,17 @@ beforeAll(async () => {
      ON CONFLICT (uid) DO NOTHING`,
     INACTIVE_WITNESS, TENANT,
   );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO staff
+       (user_id, employee_id, name, is_active, archived, tenant_id, updated_at)
+     VALUES
+       ($1::uuid, 'POS-WITNESS', 'Roster Witness Pharmacist', true, false, $6::uuid, NOW()),
+       ($2::uuid, 'POS-CASHIER', 'Roster Counter Pharmacist', true, false, $6::uuid, NOW()),
+       ($3::uuid, 'POS-CLERK', 'Roster Front Desk Clerk', true, false, $6::uuid, NOW()),
+       ($4::uuid, 'POS-INACTIVE', 'Roster Departed Pharmacist', false, false, $6::uuid, NOW()),
+       ($5::uuid, 'POS-FOREIGN', 'Roster Foreign Pharmacist', true, false, $7::uuid, NOW())`,
+    WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS, TENANT, OTHER,
+  );
 
   otcItem = await insertItem(TENANT, 'POS-OTC-1', { hsn: '3004' });
   otcNear = await insertBatch(TENANT, otcItem, 'POS-OTC-NEAR', { expiryDays: 30, qty: 50, mrpMinor: 1000 });
@@ -225,7 +244,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await cleanup();
   if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
-});
+}, 30_000);
 
 describe('walk-in counter sale — FEFO + billing + drawer', () => {
   let saleId;
@@ -443,16 +462,29 @@ describe('schedule-class enforcement', () => {
       sold_by: CASHIER,
     })).rejects.toMatchObject({ code: 'COUNTER_SALE_WITNESS_REQUIRED' });
 
-    const result = await createCounterSale({
+    const saleArgs = {
       tenantId: TENANT,
       lines: [{ inventory_item_id: xItem, quantity: 1 }],
       customer_name: 'X Buyer',
       customer_phone: '9800000042',
       rx: RX,
-      witness: WITNESS_ARG,
       payment_mode: 'CARD',
       sold_by: CASHIER,
       sold_by_name: 'Counter Pharmacist',
+    };
+    const approval = await requestCounterSaleWitnessApproval({
+      ...saleArgs,
+      requested_by: CASHIER,
+    });
+    await approveCounterSaleWitnessApproval({
+      approvalId: approval.id,
+      actorUid: WITNESS,
+      sale: saleArgs,
+    });
+    const result = await createCounterSale({
+      ...saleArgs,
+      witness_approval_id: approval.id,
+      witness: { uid: CASHIER, name: 'Caller-selected fake witness' },
     });
     expect(result.sale.status).toBe('COMPLETED');
     expect((await remaining(xBatch)).qty).toBe(29);
@@ -465,29 +497,54 @@ describe('schedule-class enforcement', () => {
     );
     expect(register).toHaveLength(1);
     expect(register[0].schedule_class).toBe('X');
-    expect(register[0].witness_name).toBe('Witness Pharmacist');
+    expect(register[0].witness_name).toBe('Roster Witness Pharmacist');
     expect(String(register[0].witness_uid)).toBe(WITNESS);
     // Anonymous walk-in: the captured identity lands on the statutory row.
     expect(register[0].patient_uid).toBeNull();
     expect(register[0].patient_name).toBe('X Buyer');
     expect(register[0].patient_phone).toBe('9800000042');
+
+    const approvalRows = await prisma.$queryRawUnsafe(
+      `SELECT status, decided_by, metadata
+         FROM approvals
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, approval.id,
+    );
+    expect(approvalRows[0].status).toBe('approved');
+    expect(String(approvalRows[0].decided_by)).toBe(WITNESS);
+    expect(approvalRows[0].metadata).toMatchObject({
+      consumed_by: CASHIER,
+      canonical_witness_name: 'Roster Witness Pharmacist',
+    });
+
+    await expect(createCounterSale({
+      ...saleArgs,
+      witness_approval_id: approval.id,
+    })).rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_CONSUMED' });
   });
 
-  // PR #875 follow-up: witness.uid used to be stored unvalidated — any uid
-  // (or garbage) became the statutory register's second signature. Every
-  // rejection must fire in Phase 0, before any invoice/stock/register write.
-  describe('witness identity validation', () => {
-    const xSale = (witness) => createCounterSale({
-      tenantId: TENANT,
-      lines: [{ inventory_item_id: xItem, quantity: 1 }],
-      customer_name: 'X Buyer',
-      customer_phone: '9800000042',
-      rx: RX,
-      witness,
-      payment_mode: 'CARD',
-      sold_by: CASHIER,
-      sold_by_name: 'Counter Pharmacist',
-    });
+  describe('independent witness identity validation', () => {
+    const xSale = async (actorUid) => {
+      const sale = {
+        tenantId: TENANT,
+        lines: [{ inventory_item_id: xItem, quantity: 1 }],
+        customer_name: 'X Buyer',
+        customer_phone: '9800000042',
+        rx: RX,
+        payment_mode: 'CARD',
+        sold_by: CASHIER,
+        sold_by_name: 'Counter Pharmacist',
+      };
+      const approval = await requestCounterSaleWitnessApproval({
+        ...sale,
+        requested_by: CASHIER,
+      });
+      return approveCounterSaleWitnessApproval({
+        approvalId: approval.id,
+        actorUid,
+        sale,
+      });
+    };
 
     async function expectNoSideEffects(before) {
       // Phase-0 rejection: no stock moved and no sale header was written
@@ -503,33 +560,33 @@ describe('schedule-class enforcement', () => {
 
     test('rejects a witness uid with no staff row (ghost uid)', async () => {
       const before = (await remaining(xBatch)).qty;
-      await expect(xSale({ uid: GHOST_WITNESS, name: 'Ghost' }))
+      await expect(xSale(GHOST_WITNESS))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
       await expectNoSideEffects(before);
     });
 
     test('rejects a non-uuid witness uid without 500ing on the cast', async () => {
-      await expect(xSale({ uid: 'not-a-uuid', name: 'Garbage' }))
+      await expect(xSale('not-a-uuid'))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_INVALID' });
     });
 
     test('rejects a witness whose role cannot witness a controlled dispense', async () => {
-      await expect(xSale({ uid: CLERK_WITNESS, name: 'Front Desk Clerk' }))
+      await expect(xSale(CLERK_WITNESS))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_ROLE_INELIGIBLE' });
     });
 
     test('rejects a deactivated staff member as witness', async () => {
-      await expect(xSale({ uid: INACTIVE_WITNESS, name: 'Departed Pharmacist' }))
+      await expect(xSale(INACTIVE_WITNESS))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
     });
 
     test('rejects a witness from another tenant (tenant isolation)', async () => {
-      await expect(xSale({ uid: FOREIGN_WITNESS, name: 'Foreign Pharmacist' }))
+      await expect(xSale(FOREIGN_WITNESS))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
     });
 
     test('rejects the seller witnessing their own dispense', async () => {
-      await expect(xSale({ uid: CASHIER, name: 'Counter Pharmacist' }))
+      await expect(xSale(CASHIER))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_SELF' });
     });
   });

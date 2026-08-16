@@ -62,13 +62,12 @@ router.post('/orders', ...radiologyOrderValidator, validate, async (req, res, ne
       priority: req.body.priority,
       ordered_by: req.user?.uid || null,
       notes: req.body.notes,
-      // Contrast intent + acknowledged allergy-override payload (mirrors the
-      // prescription CDS override shape: { reason, approvedBy }).
+      // Contrast intent + acknowledged allergy-override reason. Attribution
+      // always comes from req.user.uid; caller-selected actor ids are ignored.
       contrast_planned: req.body.contrast_planned ?? req.body.contrastPlanned,
       contrast_agent: req.body.contrast_agent ?? req.body.contrastAgent,
       override: req.body.override,
       contrast_override_reason: req.body.contrast_override_reason,
-      contrast_override_by: req.body.contrast_override_by,
     };
 
     const order = await radiologyService.createOrder(orderData, {

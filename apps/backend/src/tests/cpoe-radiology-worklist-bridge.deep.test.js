@@ -27,6 +27,12 @@ const CLEAN_PATIENT_UID = 'cb000000-0000-4000-8000-000000000c02';
 const DOCTOR_UID = 'cb000000-0000-4000-8000-000000000c03';
 
 async function cleanupRows() {
+  await prisma.$executeRawUnsafe(
+    'DROP TRIGGER IF EXISTS trg_cpoe_radiology_atomic_failure ON radiology_orders',
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DROP FUNCTION IF EXISTS cpoe_radiology_atomic_failure()',
+  ).catch(() => {});
   const patientUids = [ALLERGIC_PATIENT_UID, CLEAN_PATIENT_UID];
   await prisma.$executeRawUnsafe(
     `DELETE FROM medication_safety_reviews WHERE patient_uid = ANY($1::uuid[])`,
@@ -122,7 +128,7 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     expect(rows[0].contrast_planned).toBe(true);
     expect(rows[0].contrast_allergy_screen).toMatchObject({
       status: 'completed',
-      intent_source: 'modality_presumed',
+      intent_source: 'study_text',
     });
     expect(rows[0].notes).toContain(`clinical_order_id:${order.id};`);
 
@@ -177,6 +183,7 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
         test_name: 'CT Brain with contrast',
         reason: 'Staging — benefit outweighs risk',
         contrast_override_reason: 'Premedicated per ACR protocol; radiologist informed',
+        contrast_override_by: CLEAN_PATIENT_UID,
       },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
@@ -186,6 +193,8 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     const rows = await radiologyRowsFor(ALLERGIC_PATIENT_UID);
     expect(rows).toHaveLength(1);
     expect(rows[0].contrast_override_reason).toBe('Premedicated per ACR protocol; radiologist informed');
+    // Caller-selected attribution is ignored; the authenticated orderer is
+    // always the accountable override actor.
     expect(String(rows[0].contrast_override_by)).toBe(DOCTOR_UID);
     expect(rows[0].contrast_allergy_screen).toMatchObject({ status: 'completed' });
     expect(rows[0].contrast_allergy_screen.override).toMatchObject({
@@ -248,5 +257,73 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
       });
     } catch (e) { err = e; }
     expect(err).toMatchObject({ statusCode: 400, code: 'RADIOLOGY_ORDER_MODALITY_REQUIRED' });
+  });
+
+  test('a contrast-named study cannot be downgraded with contrast_planned=false', async () => {
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      CLEAN_PATIENT_UID,
+    );
+    await expect(createOrder({
+      patient_uid: CLEAN_PATIENT_UID,
+      order_type: 'radiology',
+      details: { test_name: 'CECT Abdomen', contrast_planned: false },
+      ordered_by: DOCTOR_UID,
+      tenantId: TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      CLEAN_PATIENT_UID,
+    );
+    expect(after[0].count).toBe(before[0].count);
+  });
+
+  test('a worklist materialization failure rolls back the clinical order', async () => {
+    const clinicalBefore = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      CLEAN_PATIENT_UID,
+    );
+    const worklistBefore = await radiologyRowsFor(CLEAN_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION cpoe_radiology_atomic_failure()
+       RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         IF NEW.notes LIKE '%atomic-worklist-failure%' THEN
+           RAISE EXCEPTION 'forced radiology worklist failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER trg_cpoe_radiology_atomic_failure
+       BEFORE INSERT ON radiology_orders
+       FOR EACH ROW EXECUTE FUNCTION cpoe_radiology_atomic_failure()`,
+    );
+    try {
+      await expect(createOrder({
+        patient_uid: CLEAN_PATIENT_UID,
+        order_type: 'radiology',
+        details: { test_name: 'X-Ray Foot', reason: 'atomic-worklist-failure' },
+        ordered_by: DOCTOR_UID,
+        tenantId: TENANT_ID,
+      })).rejects.toThrow(/forced radiology worklist failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER IF EXISTS trg_cpoe_radiology_atomic_failure ON radiology_orders',
+      );
+      await prisma.$executeRawUnsafe(
+        'DROP FUNCTION IF EXISTS cpoe_radiology_atomic_failure()',
+      );
+    }
+    const clinicalAfter = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      CLEAN_PATIENT_UID,
+    );
+    expect(clinicalAfter[0].count).toBe(clinicalBefore[0].count);
+    expect(await radiologyRowsFor(CLEAN_PATIENT_UID)).toHaveLength(worklistBefore.length);
   });
 });
