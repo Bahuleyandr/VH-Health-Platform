@@ -81,3 +81,36 @@ the next Prisma change rather than assumed to be harmless.
    and testing the repository-specific patches.
 
 <!-- vh:historical-end -->
+
+## 2026-08-16 execution pass
+
+<!-- vh:historical-start 2026-08-16 upgrade-order execution pass -->
+
+Item 1 of the upgrade order was executed: the pinned Flutter toolchain moved
+from 3.44.0 to stable 3.47.0 (Dart 3.13.0) across the workspace pubspecs, the
+GitHub and Forgejo workflow pins, and `apps/staff/Dockerfile.web`. The resolver
+required no plugin cohort movement — only SDK-held transitives advanced — and
+the full workspace gate (codegen, format, analyze, tests, staff web build) is
+green on the new SDK. Because `ghcr.io/cirruslabs/flutter` publishes no stable
+tag past 3.44.0, the staff web image now installs the official sha256-pinned
+Flutter tarball on a digest-pinned `debian:12-slim` base.
+
+Items re-checked against the npm registry on 2026-08-16 and still blocked, in
+each case by the exact precondition this document states:
+
+- **ESLint 10** — `eslint-plugin-import` latest (2.32.0) still declares
+  `eslint: ^2 || ^3 || ^4 || ^5 || ^6 || ^7.2.0 || ^8 || ^9`; no ESLint-10
+  compatible release exists (its `next` dist-tag is a stale 2.0.0 beta). Every
+  other plugin in both lint graphs already admits ESLint 10.
+- **TypeScript 7** — `@typescript-eslint` latest (8.67.0) still declares
+  `typescript: >=4.8.4 <6.1.0` and no 9.x line exists. TypeScript's last 6.x
+  release is 6.0.3, which Admin already uses, so there is nothing newer to
+  adopt inside the supported range.
+- **AGP 9** — Flutter 3.47.0 provides the built-in Kotlin prerequisite, but the
+  migration remains unvalidated: it requires a live Android Gradle build
+  (Android SDK + platform 37), which the hosted verification environment does
+  not provide. Do not bump AGP without building both Android apps.
+- **Win32 plugin cohort, Prisma re-profile, vendored Android forks** — not
+  re-attempted this pass; their recorded preconditions are unchanged.
+
+<!-- vh:historical-end -->
