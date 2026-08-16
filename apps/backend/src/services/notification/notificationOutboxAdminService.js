@@ -26,10 +26,19 @@
 //                         cursor is paused ON this row, it is resumed in the
 //                         same transaction.
 import { setTenantTx } from '../../lib/prisma.js';
-import { recordOutboxOperatorRedrive } from '../../observability/reliabilityMetrics.js';
+import logger from '../../logging/logger.js';
+import {
+  recordNotificationOutboxAutoReplay,
+  recordOutboxOperatorRedrive,
+} from '../../observability/reliabilityMetrics.js';
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
-import { OPERATOR_REPLAY_SUPERSEDED_REASON } from '../../utils/notifications/terminalRejectionCodes.js';
+import {
+  AUTO_REPLAY_EXHAUSTED_REASON,
+  AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+  NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+} from '../../utils/notifications/terminalRejectionCodes.js';
 import {
   applyProviderReceiptToCursorTx,
   recordProviderReceiptTx,
@@ -317,6 +326,56 @@ export async function reconcileNotificationOutboxAttempt({
 }
 
 /**
+ * Requeue a RECONCILIATION_REQUIRED row as a NEW outbox intent inside an open
+ * tenant transaction. Shared by the operator replay endpoint and the
+ * auto-replay sweep — both accept duplicate-delivery risk explicitly (the
+ * provider state of the ORIGINAL send is unknowable, mig-609 contract):
+ *   1. queue a new intent whose source_event_key carries a
+ *      `:<marker>:<originalId>` suffix (dedup-idempotent per original row via
+ *      ux_notification_outbox_delivery_intent) and replay_generation + 1;
+ *   2. stamp the original failure_reason = OPERATOR_REPLAY_SUPERSEDED_REASON
+ *      (exact string — four ordering predicates hardcode it);
+ *   3. resume the channel cursor if it was paused ON the original row.
+ * Returns `{ replacementId, updated }`.
+ */
+async function requeueSupersededIntentTx(tx, tid, row, { sourceMarker }) {
+  const replacement = await notificationOutbox.queue({
+    type: row.type,
+    channel: row.channel,
+    recipientId: row.recipient_id,
+    recipientPhone: row.recipient_phone,
+    tenantId: tid,
+    title: row.title,
+    body: row.body,
+    templateVersion: row.template_version,
+    sourceEventKey: `${String(row.source_event_key)}:${sourceMarker}:${row.id}`.slice(0, 255),
+    data: row.payload && typeof row.payload === 'object' ? row.payload : {},
+  }, { tx, strict: true, replayGeneration: Number(row.replay_generation ?? 0) + 1 });
+  const replacementId = replacement?.id ?? null;
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE notification_outbox
+        SET failure_reason = $3::text
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+        AND status = 'RECONCILIATION_REQUIRED'
+      RETURNING id, status, retry_count, failure_reason`,
+    tid, row.id, OPERATOR_REPLAY_SUPERSEDED_REASON,
+  );
+  if (rows.length !== 1) throw AppError.conflict('Notification outbox replay lost its state fence');
+  // If the channel cursor is paused ON this row, resume it in the same
+  // transaction — the superseded row no longer blocks ordering.
+  await tx.$executeRawUnsafe(
+    `UPDATE notification_delivery_cursors
+        SET state = 'ready', blocked_outbox_id = NULL,
+            inflight_outbox_id = NULL, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND channel = $2::text
+        AND state IN ('paused_rejected', 'paused_uncertain')
+        AND blocked_outbox_id = $3::integer`,
+    tid, row.channel, row.id,
+  );
+  return { replacementId, updated: rows[0] };
+}
+
+/**
  * Operator replay of a dead-lettered notification_outbox row. See the module
  * header for the two per-status mechanisms. Returns
  * `{ mode, row, replacement_id }`.
@@ -338,7 +397,7 @@ export async function replayNotificationOutboxRow({
     const current = await tx.$queryRawUnsafe(
       `SELECT id, type, channel, status, recipient_id, recipient_phone, title,
               body, payload, source_event_key, template_version, retry_count,
-              failure_reason
+              failure_reason, replay_generation
          FROM notification_outbox
         WHERE tenant_id = $1::uuid AND id = $2::integer
         LIMIT 1
@@ -381,40 +440,11 @@ export async function replayNotificationOutboxRow({
         throw AppError.conflict('Notification outbox row was already replayed by an operator');
       }
       mode = 'requeued_new_intent';
-      const replacement = await notificationOutbox.queue({
-        type: row.type,
-        channel: row.channel,
-        recipientId: row.recipient_id,
-        recipientPhone: row.recipient_phone,
-        tenantId: tid,
-        title: row.title,
-        body: row.body,
-        templateVersion: row.template_version,
-        sourceEventKey: `${String(row.source_event_key)}:operator-replay:${outboxId}`.slice(0, 255),
-        data: row.payload && typeof row.payload === 'object' ? row.payload : {},
-      }, { tx, strict: true });
-      replacementId = replacement?.id ?? null;
-      const rows = await tx.$queryRawUnsafe(
-        `UPDATE notification_outbox
-            SET failure_reason = $3::text
-          WHERE tenant_id = $1::uuid AND id = $2::integer
-            AND status = 'RECONCILIATION_REQUIRED'
-          RETURNING id, status, retry_count, failure_reason`,
-        tid, outboxId, OPERATOR_REPLAY_SUPERSEDED_REASON,
-      );
-      if (rows.length !== 1) throw AppError.conflict('Notification outbox replay lost its state fence');
-      updated = rows[0];
-      // If the channel cursor is paused ON this row, resume it in the same
-      // transaction — the superseded row no longer blocks ordering.
-      await tx.$executeRawUnsafe(
-        `UPDATE notification_delivery_cursors
-            SET state = 'ready', blocked_outbox_id = NULL,
-                inflight_outbox_id = NULL, updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND channel = $2::text
-            AND state IN ('paused_rejected', 'paused_uncertain')
-            AND blocked_outbox_id = $3::integer`,
-        tid, row.channel, outboxId,
-      );
+      const requeued = await requeueSupersededIntentTx(tx, tid, row, {
+        sourceMarker: 'operator-replay',
+      });
+      replacementId = requeued.replacementId;
+      updated = requeued.updated;
     }
 
     await tx.$queryRawUnsafe(
@@ -440,10 +470,135 @@ export async function replayNotificationOutboxRow({
   return result;
 }
 
+const AUTO_REPLAY_DEFAULT_LIMIT = 25;
+const AUTO_REPLAY_ACTOR = 'system:auto-replay-sweep';
+
+/**
+ * Bounded auto-replay sweep over RECONCILIATION_REQUIRED dead letters
+ * (notification-outbox-auto-replay cron). Reuses the audited operator
+ * requeue-as-new-intent mechanism per selected row; the sweep differs from
+ * the operator path only in selection and provenance:
+ *
+ *   - fail-closed failure_reason allowlist (the two provider-uncertainty
+ *     reasons only) — already-superseded, exhausted, and operator-stamped
+ *     rows are never touched;
+ *   - >= 30-minute backoff since the last attempt (operator grace window)
+ *     and a 24-hour age ceiling (sos-alert-age-escalation idiom);
+ *   - replay_generation bound: at most NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS
+ *     auto requeues per intent chain — rows at the bound are stamped
+ *     AUTO_REPLAY_EXHAUSTED_REASON exactly once (the idempotence marker for
+ *     terminal alerting) and left for the operator endpoints;
+ *   - audit_logs provenance uses action NOTIFICATION_OUTBOX_AUTO_REPLAYED
+ *     with a NULL uid and metadata.actor = 'system:auto-replay-sweep'
+ *     (requireOperator demands a human UUID; the sweep is not a human);
+ *   - metrics go to notification_outbox_auto_replay_total{outcome}, never to
+ *     outbox_operator_redrive_total (that counter means "a human acted").
+ *
+ * SUPPRESSED is deliberately NOT handled here: every production SUPPRESSED
+ * row is an intentional "never send" (payroll attempt/payslip superseded), the
+ * state machine has no transition out of SUPPRESSED, and re-sending would
+ * deliver stale or wrong payslip notices. Visibility comes from the
+ * notification_outbox_suppressed_rows gauge instead.
+ *
+ * Coordination note: this sweep only reads/writes notification_outbox,
+ * notification_delivery_cursors, and audit_logs (plus queueing through
+ * notificationOutbox.queue). It stays off channel/transport code
+ * (notificationOutboxDelivery.js, dispatcher) by design.
+ */
+export async function autoReplayReconciliationRequiredRows({
+  tenantId,
+  limit = AUTO_REPLAY_DEFAULT_LIMIT,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const safeLimit = boundedInteger(limit, AUTO_REPLAY_DEFAULT_LIMIT, 1, MAX_LIMIT, 'limit');
+
+  const result = await setTenantTx(tid, async (tx) => {
+    // Newly-terminal chains: a replacement re-entered RECONCILIATION_REQUIRED
+    // at the generation bound. Stamp the exhausted marker exactly once so the
+    // alert fires once per chain; the row stays operator-replayable.
+    const exhaustedRows = await tx.$queryRawUnsafe(
+      `UPDATE notification_outbox
+          SET failure_reason = $2::text
+        WHERE tenant_id = $1::uuid
+          AND status = 'RECONCILIATION_REQUIRED'
+          AND replay_generation >= $3::smallint
+          AND failure_reason = ANY($4::text[])
+        RETURNING id, replay_generation`,
+      tid, AUTO_REPLAY_EXHAUSTED_REASON, NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+      AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+    );
+
+    const candidates = await tx.$queryRawUnsafe(
+      `SELECT id, type, channel, recipient_id, recipient_phone, title, body,
+              payload, source_event_key, template_version, retry_count,
+              failure_reason, replay_generation
+         FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND status = 'RECONCILIATION_REQUIRED'
+          AND failure_reason = ANY($2::text[])
+          AND replay_generation < $3::smallint
+          AND COALESCE(last_attempt_at, created_at) < NOW() - INTERVAL '30 minutes'
+          AND created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY id
+        LIMIT $4::integer
+        FOR UPDATE SKIP LOCKED`,
+      tid, AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+      NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS, safeLimit,
+    );
+
+    const requeued = [];
+    for (const row of candidates) {
+      const { replacementId } = await requeueSupersededIntentTx(tx, tid, row, {
+        sourceMarker: 'auto-replay',
+      });
+      await tx.$queryRawUnsafe(
+        `INSERT INTO audit_logs
+           (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+         VALUES ($1::uuid, NULL, 'system', 'NOTIFICATION_OUTBOX_AUTO_REPLAYED',
+                 'notification_outbox', $2::text, $3::jsonb, NOW())`,
+        tid, String(row.id),
+        JSON.stringify({
+          actor: AUTO_REPLAY_ACTOR,
+          prior_status: 'RECONCILIATION_REQUIRED',
+          prior_failure_reason: row.failure_reason || null,
+          replacement_outbox_id: replacementId,
+          replay_generation: Number(row.replay_generation ?? 0) + 1,
+          duplicate_delivery_risk_accepted: true,
+        }),
+      );
+      requeued.push({ id: row.id, replacement_id: replacementId });
+    }
+    return {
+      requeued,
+      exhausted: exhaustedRows.map(row => ({
+        id: row.id,
+        replay_generation: Number(row.replay_generation),
+      })),
+    };
+  }, { isolationLevel: 'Serializable' });
+
+  recordNotificationOutboxAutoReplay('requeued', result.requeued.length);
+  recordNotificationOutboxAutoReplay('exhausted', result.exhausted.length);
+  for (const row of result.exhausted) {
+    logger.error(
+      `notification-outbox-auto-replay: chain terminal — outbox row ${row.id} `
+        + `(replay generation ${row.replay_generation}) has no automatic path left; `
+        + 'operator replay or reconciliation required',
+    );
+  }
+  return {
+    tenant_id: tid,
+    requeued: result.requeued.length,
+    exhausted: result.exhausted.length,
+    replacements: result.requeued,
+  };
+}
+
 export const notificationOutboxAdminService = Object.freeze({
   listNotificationOutboxRows,
   reconcileNotificationOutboxAttempt,
   replayNotificationOutboxRow,
+  autoReplayReconciliationRequiredRows,
 });
 
 export default notificationOutboxAdminService;
