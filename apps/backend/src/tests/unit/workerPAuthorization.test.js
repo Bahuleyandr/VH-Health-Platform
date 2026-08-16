@@ -87,6 +87,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  // kitchenService (statically imported by dietaryService) also pulls the
+  // detailed variant; shape mirrors allergySourceService's empty result.
+  getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
+    allergies: [], sourcesFailed: [], patientResolved: true,
+  })),
 }));
 jest.unstable_mockModule('../../services/clinical/marService.js', () => ({
   scheduleMedications: scheduleMedicationsMock,
