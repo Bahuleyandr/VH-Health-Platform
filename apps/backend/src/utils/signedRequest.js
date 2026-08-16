@@ -2,8 +2,9 @@
 //
 // Callers sign the canonical string:
 //   <timestamp>.<requestId>.<payload>
-// where payload is either the parsed JSON body re-serialized with
-// JSON.stringify, or a raw protocol payload string such as HL7v2.
+// where payload is either the exact captured request bytes, a raw protocol
+// payload string such as HL7v2, or (for trusted internal callers only) parsed
+// JSON serialized with JSON.stringify.
 
 import crypto from 'crypto';
 
@@ -33,7 +34,12 @@ function normalizeSignature(value) {
 }
 
 function canonicalPayload(payload) {
-  return typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+  if (Buffer.isBuffer(payload)) return payload;
+  if (payload instanceof Uint8Array) {
+    return Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  }
+  if (typeof payload === 'string') return Buffer.from(payload, 'utf8');
+  return Buffer.from(JSON.stringify(payload || {}), 'utf8');
 }
 
 function timestampMs(timestamp) {
@@ -103,8 +109,10 @@ export function verifySignedRequest({
     throw AppError.unauthorized(`${context} signature is required`, `${codePrefix}_SIGNATURE_REQUIRED`);
   }
 
-  const signedPayload = `${ts}.${rid}.${canonicalPayload(payload)}`;
-  const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+  const expected = crypto.createHmac('sha256', secret)
+    .update(`${ts}.${rid}.`, 'utf8')
+    .update(canonicalPayload(payload))
+    .digest('hex');
   const expectedBuf = Buffer.from(expected, 'hex');
   const providedBuf = Buffer.from(provided, 'hex');
   if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {

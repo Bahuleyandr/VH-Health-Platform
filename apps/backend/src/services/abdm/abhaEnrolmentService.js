@@ -119,6 +119,14 @@ function requireValidMobile(mobile) {
   return clean;
 }
 
+function requirePatientUid(patientUid) {
+  const clean = String(patientUid || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean)) {
+    throw AppError.badRequest('A valid patient UID is required', 'INVALID_PATIENT_UID');
+  }
+  return clean;
+}
+
 /** Render 14 ABHA digits in the canonical 2-4-4-4 hyphenated spelling. */
 function hyphenateAbhaNumber(cleanAbha) {
   return `${cleanAbha.slice(0, 2)}-${cleanAbha.slice(2, 6)}-${cleanAbha.slice(6, 10)}-${cleanAbha.slice(10)}`;
@@ -270,13 +278,14 @@ function extractEnrolmentResult(gatewayResponse) {
   };
 }
 
-async function loadSession(tenantId, sessionId) {
+async function loadSession(tenantId, sessionId, patientUid) {
+  const expectedPatientUid = requirePatientUid(patientUid);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${SESSION_RETURNING}, txn_id, metadata
        FROM abha_enrolment_sessions
-      WHERE id = $1::integer AND tenant_id = $2::uuid
+      WHERE id = $1::integer AND tenant_id = $2::uuid AND patient_uid = $3::uuid
       LIMIT 1`,
-    Number(sessionId), tenantId,
+    Number(sessionId), tenantId, expectedPatientUid,
   );
   if (!rows[0]) {
     throw AppError.notFound('Enrolment session not found', 'ABHA_ENROLMENT_SESSION_NOT_FOUND');
@@ -457,6 +466,7 @@ export async function startEnrolment({
 export async function verifyEnrolmentOtp({
   tenantId = null,
   sessionId,
+  patientUid,
   otp,
   actorUid = null,
   actorRole = null,
@@ -467,7 +477,7 @@ export async function verifyEnrolmentOtp({
   const tid = requireTenantId(tenantId);
   await assertEnrolmentEnabled(tid);
   const cleanOtp = requireValidOtp(otp);
-  const session = await loadSession(tid, sessionId);
+  const session = await loadSession(tid, sessionId, patientUid);
 
   if (session.status !== 'otp_sent') {
     throw AppError.invalidTransition(session.status, 'otp_verified', ['otp_sent']);
@@ -657,12 +667,13 @@ export async function verifyEnrolmentOtp({
 export async function resendEnrolmentOtp({
   tenantId = null,
   sessionId,
+  patientUid,
   aadhaarNumber = null,
   mobile = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
   await assertEnrolmentEnabled(tid);
-  const session = await loadSession(tid, sessionId);
+  const session = await loadSession(tid, sessionId, patientUid);
   if (session.status !== 'otp_sent') {
     throw AppError.invalidTransition(session.status, 'otp_sent', ['otp_sent']);
   }
@@ -702,15 +713,17 @@ export async function resendEnrolmentOtp({
 }
 
 /** Cancel a live enrolment session. */
-export async function cancelEnrolment({ tenantId = null, sessionId } = {}) {
+export async function cancelEnrolment({ tenantId = null, sessionId, patientUid } = {}) {
   const tid = requireTenantId(tenantId);
+  const expectedPatientUid = requirePatientUid(patientUid);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE abha_enrolment_sessions
         SET status = 'cancelled', updated_at = NOW()
       WHERE id = $1::integer AND tenant_id = $2::uuid
+        AND patient_uid = $3::uuid
         AND status IN ('initiated', 'otp_sent', 'otp_verified')
       RETURNING ${SESSION_RETURNING}`,
-    Number(sessionId), tid,
+    Number(sessionId), tid, expectedPatientUid,
   );
   if (!rows[0]) {
     throw AppError.notFound(

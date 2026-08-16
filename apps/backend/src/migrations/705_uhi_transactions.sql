@@ -14,8 +14,9 @@
 -- a parallel booking store.
 --
 -- One row per protocol message leg (inbound intent or outbound callback):
---   * Dedupe identity: UNIQUE (tenant_id, environment, transaction_id,
---     message_id, action). `action` is part of the key because beckn-style
+--   * Dedupe identity: UNIQUE (tenant_id, environment, counterparty,
+--     transaction_id, message_id, action, direction, signature outcome).
+--     `action` is part of the key because beckn-style
 --     callbacks REUSE the originating message_id — an inbound `search` and
 --     our outbound `on_search` share (transaction_id, message_id) and must
 --     both be recorded; a gateway REDELIVERY of the same leg collapses onto
@@ -69,7 +70,9 @@ CREATE TABLE IF NOT EXISTS uhi_transactions (
       CHECK (direction IN ('inbound', 'outbound')),
   -- The counterparty subscriber (EUA/gateway id from context.consumer_id /
   -- context.consumer_uri) — evidence, not an FK.
-  counterparty_subscriber_id  VARCHAR(200),
+  counterparty_subscriber_id  VARCHAR(200) NOT NULL
+    CONSTRAINT chk_uhi_txn_counterparty
+      CHECK (NULLIF(BTRIM(counterparty_subscriber_id), '') IS NOT NULL),
   -- Raw message body (context + message) as received/sent — the evidence.
   payload                     JSONB NOT NULL DEFAULT '{}'::jsonb,
   -- Signature outcome for inbound legs (outbound rows record our own signing
@@ -96,7 +99,8 @@ CREATE TABLE IF NOT EXISTS uhi_transactions (
   updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   -- Replay dedupe: gateway redelivery of the same leg collapses here.
   CONSTRAINT uq_uhi_txn_leg
-    UNIQUE (tenant_id, environment, transaction_id, message_id, action),
+    UNIQUE (tenant_id, environment, counterparty_subscriber_id,
+            transaction_id, message_id, action, direction, signature_verified),
   -- rejected ⇒ a recorded reason (failed signature / disabled / bad shape).
   CONSTRAINT chk_uhi_txn_rejected_reason
     CHECK (
@@ -133,7 +137,7 @@ CREATE POLICY tenant_isolation ON uhi_transactions
   );
 
 COMMENT ON TABLE uhi_transactions IS
-  'UHI (DHP/beckn) adapter evidence + replay-dedupe ledger: one row per protocol message leg (search/init/confirm intents and on_* callbacks), provider-side, sandbox default. UNIQUE (tenant_id, environment, transaction_id, message_id, action) — action is in the key because beckn callbacks reuse the originating message_id. Bookings land in the EXISTING appointments tables via the existing booking service; this table never stores a parallel booking. Written from a pre-RLS mount — tenant_id always resolved and written explicitly.';
+  'UHI (DHP/beckn) adapter evidence + replay-dedupe ledger: one row per protocol message leg (search/init/confirm intents and on_* callbacks), provider-side, sandbox default. Replay identity is bound to tenant, environment, counterparty subscriber, transaction, message, action, direction, and signature-verification state. Bookings land in the EXISTING appointments tables via the existing booking service; this table never stores a parallel booking. Written from a pre-RLS mount — tenant_id always resolved and written explicitly.';
 COMMENT ON COLUMN uhi_transactions.transaction_id IS
   'DHP context.transaction_id — spans the whole search→init→confirm journey; correlate legs via idx_uhi_txn_tenant_transaction.';
 COMMENT ON COLUMN uhi_transactions.booking_snapshot IS

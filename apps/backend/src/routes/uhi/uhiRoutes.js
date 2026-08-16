@@ -21,8 +21,7 @@ import { markRouterDomain } from '../../config/openapiDomain.js';
 import logger from '../../logging/logger.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import {
-  getInteropSecret,
-  resolveTenantBySender,
+  resolveInteropCredentialSnapshot,
 } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { getUhiSettings } from '../../services/tenant/tenantSettingsService.js';
@@ -106,8 +105,9 @@ async function validateUhiRequest(req, res, next) {
   // misconfiguration that must fail for THAT tenant, never be silently
   // re-attributed to the default tenant. Unknown provider id → 401, nothing
   // stored.
-  let tenantId = await resolveTenantBySender('uhi_callback', context.providerId);
-  let verificationKey = tenantId ? await getInteropSecret(tenantId, 'uhi_callback') : null;
+  const credential = await resolveInteropCredentialSnapshot('uhi_callback', context.providerId);
+  let tenantId = credential?.tenant_id ?? null;
+  let verificationKey = credential?.secret ?? null;
   if (!tenantId && UHI_CONFIG.subscriberId && context.providerId === UHI_CONFIG.subscriberId) {
     tenantId = DEFAULT_TENANT_ID;
     verificationKey = UHI_CONFIG.gatewayPublicKey;
@@ -145,6 +145,7 @@ async function validateUhiRequest(req, res, next) {
       authorizationHeader: req.headers.authorization,
       rawBody: req.uhiRawBody,
       publicKeyBase64: verificationKey,
+      expectedSignerId: context.consumerId,
     });
   } catch (err) {
     // Store the failed-signature message as evidence (705: rejected requires

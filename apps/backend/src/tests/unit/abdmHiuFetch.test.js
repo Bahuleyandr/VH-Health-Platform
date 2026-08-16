@@ -39,6 +39,7 @@ const hipHiuMock = {
 };
 const uploadFileToR2 = jest.fn();
 const getFileFromR2 = jest.fn();
+const deleteObject = jest.fn();
 const getAbdmHiuSettings = jest.fn();
 const verifyConsentArtefactMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
@@ -62,7 +63,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/abdm/abdmGateway.js', () => ({ default: gatewayMock }));
 jest.unstable_mockModule('../../services/abdmFull/abdmHipHiuService.js', () => hipHiuMock);
-jest.unstable_mockModule('../../utils/r2Storage.js', () => ({ uploadFileToR2, getFileFromR2 }));
+jest.unstable_mockModule('../../utils/r2Storage.js', () => ({ uploadFileToR2, getFileFromR2, deleteObject }));
 jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
   encryptField: (plaintext) => `enc:${plaintext}`,
   decryptField: (ciphertext) => {
@@ -121,13 +122,14 @@ beforeEach(() => {
   });
   hipHiuMock.markWebhookProcessed.mockResolvedValue({ id: '61' });
   uploadFileToR2.mockResolvedValue('https://r2/ok');
+  deleteObject.mockResolvedValue(undefined);
 });
 
 describe('startHiuFetch — key persistence', () => {
   const ARTIFACT = {
     id: 41, artifact_id: 'cm-artifact-1', patient_uid: PATIENT_UID,
     hi_types: ['Prescription'], data_from: new Date('2026-01-01'),
-    data_to: new Date('2026-06-01'), status: 'active',
+    data_to: new Date('2026-06-01'), expiry_at: new Date('2027-01-01'), status: 'active',
   };
 
   it('persists the private key encryptField-encrypted, sends the PUBLIC envelope', async () => {
@@ -197,9 +199,9 @@ describe('startHiuFetch — key persistence', () => {
   });
 
   it('refuses inactive artifacts', async () => {
-    route('FROM abdm_consent_artifacts', () => [{ ...ARTIFACT, status: 'revoked' }]);
+    route('FROM abdm_consent_artifacts', () => []);
     await expect(hiuService.startHiuFetch({ tenantId: TENANT_ID, artifactId: 41 }))
-      .rejects.toMatchObject({ code: 'ABDM_ARTIFACT_INACTIVE', statusCode: 409 });
+      .rejects.toMatchObject({ code: 'ABDM_ARTIFACT_NOT_FOUND', statusCode: 404 });
   });
 });
 
@@ -219,7 +221,8 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       id: 71, tenant_id: TENANT_ID, environment: 'sandbox',
       consent_artifact_id: 41, data_transfer_id: 51, patient_uid: PATIENT_UID,
       transaction_id: 'txn-71', request_id: 'req-71', status: 'acknowledged',
-      parts_expected: null, parts_received: 0,
+      parts_expected: null, parts_received: 0, pages_expected: null, next_page_number: 1,
+      artifact_id: 'cm-artifact-1', hi_types: ['Prescription'],
       key_material_private_ciphertext: `enc:${privB64}`,
       key_material_nonce: receiver.nonce,
       key_material_expires_at: new Date(Date.now() + 10 * 60 * 1000),
@@ -229,7 +232,11 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
 
   it('decrypts, uploads to R2, records the reference row, completes, NULLs the key', async () => {
     const { session, encrypted } = buildSessionAndEntry();
-    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    let sessionSelectSql;
+    route('FROM abdm_hiu_fetch_sessions', (sql) => {
+      sessionSelectSql = sql;
+      return [session];
+    });
     let bundleInsertArgs;
     route('INSERT INTO abdm_hiu_received_bundles', (sql, args) => {
       bundleInsertArgs = args;
@@ -239,7 +246,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     let completeSql;
     route('completed_at = NOW()', (sql, args) => {
       completeSql = sql;
-      expect(args[2]).toBe('completed');
+      expect(args[2]).toBe(1);
       return [{ ...session, status: 'completed', key_material_private_ciphertext: undefined }];
     });
 
@@ -250,24 +257,28 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
+        consent: { id: 'cm-artifact-1' },
         keyMaterial: encrypted.senderKeyMaterial,
         entries: [{
           content: encrypted.content,
           checksum: encrypted.checksum,
           media: 'application/fhir+json',
           careContextReference: 'cc-1',
-          hiType: 'OPConsultation',
+          hiType: 'Prescription',
         }],
       },
     });
 
     expect(result.stored).toBe(1);
     expect(result.failed).toBe(0);
+    expect(sessionSelectSql).toContain('key_material_expires_at');
+    expect(sessionSelectSql).toContain("u.abha_verification_status = 'verified'");
+    expect(sessionSelectSql).toContain('s.patient_uid = a.patient_uid');
     // The DECRYPTED bundle (and only the decrypted bundle) went to R2.
     expect(uploadFileToR2).toHaveBeenCalledTimes(1);
     const [bytes, storageKey, mime] = uploadFileToR2.mock.calls[0];
     expect(JSON.parse(bytes.toString('utf8'))).toEqual(FHIR_BUNDLE);
-    expect(storageKey).toBe(`abdm-hiu/${TENANT_ID}/71/0.json`);
+    expect(storageKey).toMatch(new RegExp(`^abdm-hiu/${TENANT_ID}/71/1-0-[0-9a-f-]+\\.json$`));
     expect(mime).toBe('application/fhir+json');
     // Reference row: explicit tenant + sha256 of the decrypted bytes.
     expect(bundleInsertArgs[0]).toBe(TENANT_ID);
@@ -286,34 +297,75 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     );
   });
 
-  it('rejects a checksum-failed part (no upload, no row) and finishes partial', async () => {
+  it('deletes the uploaded R2 object when the reference insert fails', async () => {
     const { session, encrypted } = buildSessionAndEntry();
     route('FROM abdm_hiu_fetch_sessions', () => [session]);
-    route('completed_at = NOW()', (sql, args) => {
-      expect(args[2]).toBe('partial');
-      return [{ ...session, status: 'partial' }];
-    });
+    route('INSERT INTO abdm_hiu_received_bundles', () => { throw new Error('db unavailable'); });
 
-    const result = await hiuService.handleHiuDataPush({
+    await expect(hiuService.handleHiuDataPush({
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body: {
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
+        consent: { id: 'cm-artifact-1' },
         keyMaterial: encrypted.senderKeyMaterial,
-        entries: [{ content: encrypted.content, checksum: 'f'.repeat(32) }],
+        entries: [{
+          content: encrypted.content,
+          checksum: encrypted.checksum,
+          careContextReference: 'cc-1',
+          hiType: 'Prescription',
+        }],
       },
-    });
+    })).rejects.toThrow('db unavailable');
+    expect(deleteObject).toHaveBeenCalledWith(uploadFileToR2.mock.calls[0][1]);
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+    }));
+  });
 
-    expect(result.stored).toBe(0);
-    expect(result.failed).toBe(1);
+  it('rejects out-of-order or page-count-changing pushes before decrypting', async () => {
+    const { session } = buildSessionAndEntry();
+    route('FROM abdm_hiu_fetch_sessions', () => [{
+      ...session, pages_expected: 3, next_page_number: 2,
+    }]);
+    await expect(hiuService.handleHiuDataPush({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        transactionId: 'txn-71', pageNumber: 3, pageCount: 4,
+        consent: { id: 'cm-artifact-1' }, entries: [],
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_PAGE_OUT_OF_ORDER' });
+    expect(uploadFileToR2).not.toHaveBeenCalled();
+  });
+
+  it('rejects a checksum-failed page without advancing the session', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    await expect(hiuService.handleHiuDataPush({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        transactionId: 'txn-71',
+        pageNumber: 1,
+        pageCount: 1,
+        consent: { id: 'cm-artifact-1' },
+        keyMaterial: encrypted.senderKeyMaterial,
+        entries: [{
+          content: encrypted.content,
+          checksum: 'f'.repeat(32),
+          careContextReference: 'cc-1',
+          hiType: 'Prescription',
+        }],
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_CHECKSUM_INVALID' });
+
     expect(uploadFileToR2).not.toHaveBeenCalled();
     const bundleInsert = prismaQuery.mock.calls.find((c) => c[0].includes('INSERT INTO abdm_hiu_received_bundles'));
     expect(bundleInsert).toBeUndefined();
-    expect(hipHiuMock.transitionDataTransfer).toHaveBeenCalledWith(
-      expect.objectContaining({ nextStatus: 'partial' }),
-    );
+    expect(hipHiuMock.transitionDataTransfer).not.toHaveBeenCalled();
   });
 
   it('a tampered ciphertext fails authentication and the part is rejected', async () => {
@@ -322,25 +374,24 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     tampered[tampered.length - 1] ^= 0xff;
     const tamperedB64 = tampered.toString('base64');
     route('FROM abdm_hiu_fetch_sessions', () => [session]);
-    route('completed_at = NOW()', () => [{ ...session, status: 'partial' }]);
-
-    const result = await hiuService.handleHiuDataPush({
+    await expect(hiuService.handleHiuDataPush({
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body: {
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
+        consent: { id: 'cm-artifact-1' },
         keyMaterial: encrypted.senderKeyMaterial,
         entries: [{
           content: tamperedB64,
           checksum: crypto.createHash('md5').update(tamperedB64).digest('hex'),
+          careContextReference: 'cc-1',
+          hiType: 'Prescription',
         }],
       },
-    });
+    })).rejects.toThrow();
 
-    expect(result.stored).toBe(0);
-    expect(result.failed).toBe(1);
     expect(uploadFileToR2).not.toHaveBeenCalled();
   });
 
@@ -350,7 +401,10 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     });
     const result = await hiuService.handleHiuDataPush({
       tenantId: TENANT_ID, environment: 'sandbox',
-      body: { transactionId: 'txn-71', pageNumber: 1, pageCount: 1, entries: [] },
+      body: {
+        transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+        consent: { id: 'cm-artifact-1' }, entries: [],
+      },
     });
     expect(result.duplicate).toBe(true);
     expect(prismaQuery).not.toHaveBeenCalled();
@@ -361,7 +415,10 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     route('FROM abdm_hiu_fetch_sessions', () => [{ ...session, key_material_private_ciphertext: null }]);
     await expect(hiuService.handleHiuDataPush({
       tenantId: TENANT_ID, environment: 'sandbox',
-      body: { transactionId: 'txn-71', pageNumber: 1, pageCount: 1, entries: [] },
+      body: {
+        transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+        consent: { id: 'cm-artifact-1' }, entries: [],
+      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_KEY_UNAVAILABLE' });
 
     hipHiuMock.recordWebhookEvent.mockResolvedValue({
@@ -372,13 +429,31 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     }]);
     await expect(hiuService.handleHiuDataPush({
       tenantId: TENANT_ID, environment: 'sandbox',
-      body: { transactionId: 'txn-71', pageNumber: 1, pageCount: 1, entries: [] },
+      body: {
+        transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+        consent: { id: 'cm-artifact-1' }, entries: [],
+      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_KEY_EXPIRED' });
   });
 });
 
 describe('consent request leg + acks', () => {
+  it('requires the requested ABHA address to be verified on the target patient', async () => {
+    route('SELECT uid FROM users', () => []);
+    await expect(hiuService.createHiuConsentRequest({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      abhaAddress: 'someone-else@sbx',
+      hiTypes: ['Prescription'],
+      dataFrom: '2026-01-01T00:00:00Z',
+      dataTo: '2026-06-01T00:00:00Z',
+      expiryAt: '2027-01-01T00:00:00Z',
+    })).rejects.toMatchObject({ code: 'ABDM_PATIENT_ABHA_MISMATCH' });
+    expect(hipHiuMock.createConsentRequest).not.toHaveBeenCalled();
+  });
+
   it('persists the consent request BEFORE the gateway call; refusal fails the row', async () => {
+    route('SELECT uid FROM users', () => [{ uid: PATIENT_UID }]);
     hipHiuMock.createConsentRequest.mockResolvedValue({ id: 91, request_id: 'r-91' });
     gatewayMock.initHiuConsentRequest.mockRejectedValue(Object.assign(
       new Error('gateway down'), { isOperational: true, statusCode: 500 },
@@ -386,10 +461,12 @@ describe('consent request leg + acks', () => {
 
     await expect(hiuService.createHiuConsentRequest({
       tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
       abhaAddress: 'asha@sbx',
       hiTypes: ['Prescription'],
       dataFrom: '2026-01-01T00:00:00Z',
       dataTo: '2026-06-01T00:00:00Z',
+      expiryAt: '2027-01-01T00:00:00Z',
     })).rejects.toMatchObject({ message: 'gateway down' });
 
     expect(hipHiuMock.createConsentRequest.mock.invocationCallOrder[0])
@@ -420,10 +497,35 @@ describe('consent request leg + acks', () => {
   });
 
   it('consent notify GRANTED verifies + records artefacts through the existing machinery', async () => {
+    const detail = {
+      consentId: 'cm-artifact-1',
+      patient: { id: 'asha@sbx' },
+      hip: { id: 'SOURCE_HIP' },
+      hiu: { id: 'TEST_HIU' },
+      consentManager: { id: 'sbx' },
+      purpose: { code: 'CAREMGT' },
+      hiTypes: ['Prescription'],
+      permission: {
+        dateRange: {
+          from: '2026-01-01T00:00:00.000Z',
+          to: '2026-06-01T00:00:00.000Z',
+        },
+        dataEraseAt: '2027-01-01T00:00:00.000Z',
+      },
+    };
     route('FROM abdm_consent_requests', () => [{
-      id: 91, status: 'requested', hi_types: ['Prescription'],
-      patient_uid: PATIENT_UID, data_from: null, data_to: null, expiry_at: null,
+      id: 91, request_id: 'req-91', flow_kind: 'hiu', status: 'requested',
+      hi_types: ['Prescription'], patient_uid: PATIENT_UID,
+      data_from: new Date('2026-01-01T00:00:00.000Z'),
+      data_to: new Date('2026-06-01T00:00:00.000Z'),
+      expiry_at: new Date('2027-01-01T00:00:00.000Z'),
+      purpose_code: 'CAREMGT', metadata: { abha_address: 'asha@sbx' },
     }]);
+    verifyConsentArtefactMock.mockReturnValue({
+      payload: detail,
+      rawPayload: JSON.stringify(detail),
+      sha256: 'a'.repeat(64),
+    });
     hipHiuMock.recordConsentArtifact.mockResolvedValue({ id: 41 });
     hipHiuMock.transitionConsentRequest.mockResolvedValue({ id: 91, status: 'granted' });
 
@@ -435,9 +537,10 @@ describe('consent request leg + acks', () => {
         notification: {
           consentRequestId: 'cm-cr-1',
           status: 'GRANTED',
+          hip: { id: 'SOURCE_HIP' },
           consentArtefacts: [{
             id: 'cm-artifact-1',
-            consentDetail: { consentId: 'cm-artifact-1' },
+            consentDetail: detail,
             signature: 'sig-b64',
           }],
         },
@@ -446,8 +549,9 @@ describe('consent request leg + acks', () => {
 
     expect(result.artifacts).toBe(1);
     expect(verifyConsentArtefactMock).toHaveBeenCalledWith(expect.objectContaining({
-      consentRequestId: 'cm-cr-1',
+      consentRequestId: 'cm-artifact-1',
       signature: 'sig-b64',
+      required: true,
     }));
     expect(hipHiuMock.transitionConsentRequest).toHaveBeenCalledWith(expect.objectContaining({
       id: 91, nextStatus: 'granted',
@@ -455,6 +559,86 @@ describe('consent request leg + acks', () => {
     expect(hipHiuMock.recordConsentArtifact).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT_ID, artifactId: 'cm-artifact-1', consentRequestId: 91,
     }));
+    expect(hipHiuMock.recordConsentArtifact.mock.invocationCallOrder[0])
+      .toBeLessThan(hipHiuMock.transitionConsentRequest.mock.invocationCallOrder[0]);
+  });
+
+  it('fails a grant closed when signed consent evidence is absent or mismatched', async () => {
+    const requestRow = {
+      id: 91, request_id: 'req-91', flow_kind: 'hiu', status: 'requested',
+      hi_types: ['Prescription'], patient_uid: PATIENT_UID,
+      data_from: new Date('2026-01-01T00:00:00.000Z'),
+      data_to: new Date('2026-06-01T00:00:00.000Z'),
+      expiry_at: new Date('2027-01-01T00:00:00.000Z'),
+      purpose_code: 'CAREMGT', metadata: { abha_address: 'asha@sbx' },
+    };
+    route('FROM abdm_consent_requests', () => [requestRow]);
+    await expect(hiuService.handleHiuConsentNotify({
+      tenantId: TENANT_ID,
+      body: {
+        requestId: 'notify-unsigned',
+        notification: { consentRequestId: 'cm-cr-1', status: 'GRANTED', consentArtefacts: [] },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_CONSENT_UNSIGNED' });
+    expect(hipHiuMock.transitionConsentRequest).not.toHaveBeenCalled();
+
+    hipHiuMock.recordWebhookEvent.mockResolvedValueOnce({
+      event: { id: '62', status: 'pending' }, duplicate: false,
+    });
+    const mismatched = {
+      consentId: 'cm-artifact-1', patient: { id: 'asha@sbx' },
+      hip: { id: 'SOURCE_HIP' }, hiu: { id: 'OTHER_HIU' },
+      consentManager: { id: 'sbx' }, purpose: { code: 'CAREMGT' },
+      hiTypes: ['Prescription'],
+      permission: {
+        dateRange: {
+          from: '2026-01-01T00:00:00.000Z', to: '2026-06-01T00:00:00.000Z',
+        },
+        dataEraseAt: '2027-01-01T00:00:00.000Z',
+      },
+    };
+    verifyConsentArtefactMock.mockReturnValueOnce({
+      payload: mismatched, rawPayload: JSON.stringify(mismatched), sha256: 'b'.repeat(64),
+    });
+    await expect(hiuService.handleHiuConsentNotify({
+      tenantId: TENANT_ID,
+      body: {
+        requestId: 'notify-mismatch',
+        notification: {
+          consentRequestId: 'cm-cr-1', status: 'GRANTED', hip: { id: 'SOURCE_HIP' },
+          consentArtefacts: [{ id: 'cm-artifact-1', consentDetail: mismatched, signature: 'sig' }],
+        },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_CONSENT_BINDING_MISMATCH' });
+    expect(hipHiuMock.recordConsentArtifact).not.toHaveBeenCalled();
+  });
+
+  it('revokes every active artifact linked to the revoked request', async () => {
+    route('FROM abdm_consent_requests', () => [{
+      id: 91, request_id: 'req-91', flow_kind: 'hiu', status: 'granted',
+      hi_types: ['Prescription'], patient_uid: PATIENT_UID,
+      purpose_code: 'CAREMGT', metadata: { abha_address: 'asha@sbx' },
+    }]);
+    route('UPDATE abdm_consent_artifacts', () => []);
+    route('UPDATE abdm_hiu_fetch_sessions s', () => []);
+    await hiuService.handleHiuConsentNotify({
+      tenantId: TENANT_ID,
+      body: {
+        requestId: 'notify-revoked',
+        notification: { consentRequestId: 'cm-cr-1', status: 'REVOKED' },
+      },
+    });
+    const artifactUpdate = prismaExecute.mock.calls.find(
+      (call) => call[0].includes('UPDATE abdm_consent_artifacts'),
+    );
+    expect(artifactUpdate[0]).toContain("AND status = 'active'");
+    expect(artifactUpdate.slice(1)).toEqual([TENANT_ID, 91, 'revoked', 'sandbox']);
+    const sessionUpdate = prismaExecute.mock.calls.find(
+      (call) => call[0].includes('UPDATE abdm_hiu_fetch_sessions s'),
+    );
+    expect(sessionUpdate[0]).toContain('key_material_private_ciphertext = NULL');
+    expect(sessionUpdate[0]).toContain("s.status IN ('requested', 'acknowledged', 'receiving')");
+    expect(sessionUpdate.slice(1)).toEqual([TENANT_ID, 91, 'consent revoked', 'sandbox']);
   });
 });
 

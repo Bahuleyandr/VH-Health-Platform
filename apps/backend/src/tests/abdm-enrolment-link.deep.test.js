@@ -155,7 +155,7 @@ d('ABHA enrolment deep (701 + 653 verified gate)', () => {
     expect(rsaDecrypt(otpArg.encryptedValue)).toBe(VALID_AADHAAR);
 
     const linked = await enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: started.id, otp: '123456',
+      tenantId: TENANT_ID, sessionId: started.id, patientUid: PATIENT_A, otp: '123456',
     });
     expect(linked.status).toBe('linked');
     expect(linked.abha_number).toBe(ISSUED_ABHA);
@@ -207,7 +207,7 @@ d('ABHA enrolment deep (701 + 653 verified gate)', () => {
     });
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: started.id, otp: '654321',
+      tenantId: TENANT_ID, sessionId: started.id, patientUid: PATIENT_B, otp: '654321',
     })).rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
 
     const sessions = await prisma.$queryRawUnsafe(

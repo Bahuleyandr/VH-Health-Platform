@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS abdm_hiu_fetch_sessions (
   parts_received                  INTEGER NOT NULL DEFAULT 0
     CONSTRAINT chk_abdm_hiu_fetch_parts_received
       CHECK (parts_received >= 0),
+  pages_expected                 INTEGER
+    CONSTRAINT chk_abdm_hiu_fetch_pages_expected
+      CHECK (pages_expected IS NULL OR pages_expected >= 1),
+  next_page_number               INTEGER NOT NULL DEFAULT 1
+    CONSTRAINT chk_abdm_hiu_fetch_next_page
+      CHECK (next_page_number >= 1),
   initiated_by_uid                UUID,
   requested_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   acknowledged_at                 TIMESTAMPTZ,

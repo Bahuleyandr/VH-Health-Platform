@@ -43,6 +43,9 @@ jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   genericLimiter: (_req, _res, next) => next(),
 }));
+jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
+  resolveInteropCredentialSnapshot: jest.fn().mockResolvedValue(null),
+}));
 // abdmService pulls these in transitively; the route test spies the handler,
 // so stub them to keep the import side-effect-free (no real DB / crypto / SSRF).
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -144,6 +147,16 @@ function postValidCallback(app) {
 }
 
 describe('ABDM callback cross-replica replay protection', () => {
+  it('fails closed when exact raw-body capture is missing', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(callbackRouter);
+    const res = await postValidCallback(app);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ABDM_RAW_BODY_MISSING');
+    expect(verifySignedRequest).not.toHaveBeenCalled();
+  });
+
   it('invokes assertSharedReplayOnce with the abdm-callback replay key on a valid callback', async () => {
     const spy = jest.spyOn(abdmService, 'handleConsentRequest')
       .mockResolvedValue({ consent_id: 'test-consent' });
@@ -152,6 +165,7 @@ describe('ABDM callback cross-replica replay protection', () => {
 
     expect(res.status).toBe(202);
     expect(spy).toHaveBeenCalledTimes(1);
+    expect(Buffer.isBuffer(verifySignedRequest.mock.calls[0][0].payload)).toBe(true);
     expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
     const arg = assertSharedReplayOnce.mock.calls[0][0];
     expect(arg.replayNamespace).toBe('abdm-callback');

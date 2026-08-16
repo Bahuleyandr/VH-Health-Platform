@@ -72,7 +72,7 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
   });
 
   it('rejects a tampered body (digest binds the exact raw bytes)', () => {
-    const header = signBecknRequest({ rawBody, privateKeyBase64, keyId: 'k' });
+    const header = signBecknRequest({ rawBody, privateKeyBase64, keyId: 'eua.example|k|ed25519' });
     expect(() => verifyBecknSignature({
       authorizationHeader: header,
       rawBody: rawBody.replace('msg-1', 'msg-2'),
@@ -85,7 +85,7 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
     const header = signBecknRequest({
       rawBody,
       privateKeyBase64: other.privateKeyBase64,
-      keyId: 'k',
+      keyId: 'eua.example|k|ed25519',
     });
     expect(() => verifyBecknSignature({
       authorizationHeader: header,
@@ -98,7 +98,7 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
     const header = signBecknRequest({
       rawBody,
       privateKeyBase64,
-      keyId: 'k',
+      keyId: 'eua.example|k|ed25519',
       validitySeconds: 600,
       nowMs: Date.now() - 60 * 60 * 1000, // signed an hour ago, 10-min validity
     });
@@ -111,7 +111,7 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
     const oversized = signBecknRequest({
       rawBody,
       privateKeyBase64,
-      keyId: 'k',
+      keyId: 'eua.example|k|ed25519',
       validitySeconds: 7 * 24 * 3600, // a week — sender cannot mint long-lived replays
     });
     expect(() => verifyBecknSignature({
@@ -128,7 +128,7 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
       publicKeyBase64,
     })).toThrow(expect.objectContaining({ code: 'UHI_SIGNATURE_REQUIRED' }));
 
-    const header = signBecknRequest({ rawBody, privateKeyBase64, keyId: 'k' });
+    const header = signBecknRequest({ rawBody, privateKeyBase64, keyId: 'eua.example|k|ed25519' });
     expect(() => verifyBecknSignature({
       authorizationHeader: header,
       rawBody,
@@ -139,5 +139,25 @@ describe('uhiSignature (beckn ed25519 over BLAKE-512 digest)', () => {
       rawBody,
       publicKeyBase64: Buffer.from('short').toString('base64'),
     })).toThrow(expect.objectContaining({ code: 'UHI_SIGNATURE_KEY_INVALID' }));
+  });
+
+  it('binds keyId signer identity to the authenticated counterparty', () => {
+    const header = signBecknRequest({
+      rawBody,
+      privateKeyBase64,
+      keyId: 'eua.example|key1|ed25519',
+    });
+    expect(() => verifyBecknSignature({
+      authorizationHeader: header,
+      rawBody,
+      publicKeyBase64,
+      expectedSignerId: 'attacker.example',
+    })).toThrow(expect.objectContaining({ code: 'UHI_SIGNATURE_SENDER_MISMATCH' }));
+    expect(verifyBecknSignature({
+      authorizationHeader: header,
+      rawBody,
+      publicKeyBase64,
+      expectedSignerId: 'eua.example',
+    })).toMatchObject({ keyId: 'eua.example|key1|ed25519' });
   });
 });

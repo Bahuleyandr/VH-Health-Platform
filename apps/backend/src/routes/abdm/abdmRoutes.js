@@ -13,7 +13,7 @@ import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
-import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import { resolveInteropCredentialSnapshot } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import {
   markAuthenticatedAbdmCallback,
@@ -81,12 +81,13 @@ async function validateABDMRequest(req, res, next) {
   // aimed at another. A per-tenant row (tenant_interop_secrets) wins; the
   // configured global HIP id is the env-backed DEFAULT tenant (single-tenant
   // unchanged). An unrecognized HIP id is rejected — no blanket global fallback.
-  let tenantId = await resolveTenantBySender('abdm_callback', hipId);
-  let callbackSecret = tenantId ? await getInteropSecret(tenantId, 'abdm_callback') : null;
+  const credential = await resolveInteropCredentialSnapshot('abdm_callback', hipId);
+  let tenantId = credential?.tenant_id ?? null;
+  let callbackSecret = credential?.secret ?? null;
   // CAN-007: a per-tenant callback secret authenticates a SPECIFIC tenant's HIP,
   // so a consent it later names must belong to that tenant (strict). The
   // shared-secret/default fallback is the legacy single-tenant path (not strict).
-  let strictTenant = !!(tenantId && callbackSecret);
+  let strictTenant = !!credential;
   if (!callbackSecret && ABDM_CONFIG.hipId && hipId === ABDM_CONFIG.hipId) {
     tenantId = DEFAULT_TENANT_ID;
     callbackSecret = ABDM_CONFIG.callbackSecret;
@@ -103,6 +104,13 @@ async function validateABDMRequest(req, res, next) {
   const timestamp = req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp;
   const requestId = req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id;
 
+  if (!req.abdmRawBody || !req.abdmRawBody.length) {
+    logger.error('ABDM callback missing raw body capture — check the app.js captureJsonRawBody list');
+    return error(res, 'Unable to verify message signature', 400, {
+      topLevel: { code: 'ABDM_RAW_BODY_MISSING' },
+    });
+  }
+
   try {
     // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
@@ -110,7 +118,7 @@ async function validateABDMRequest(req, res, next) {
       signature,
       timestamp,
       requestId,
-      payload: req.body || {},
+      payload: req.abdmRawBody,
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
       replayNamespace: 'abdm-callback',

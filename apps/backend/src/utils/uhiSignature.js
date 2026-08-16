@@ -104,6 +104,7 @@ export function verifyBecknSignature({
   authorizationHeader,
   rawBody,
   publicKeyBase64,
+  expectedSignerId = null,
   nowMs = Date.now(),
 } = {}) {
   const params = parseBecknAuthorizationHeader(authorizationHeader);
@@ -116,6 +117,13 @@ export function verifyBecknSignature({
       503,
       'UHI_SIGNATURE_KEY_NOT_CONFIGURED',
     );
+  }
+  const keyIdParts = String(params.keyId).split('|');
+  if (keyIdParts.length !== 3 || !keyIdParts.every((part) => part.trim())) {
+    throw unauthorized('UHI signature key id is invalid', 'UHI_SIGNATURE_KEY_ID_INVALID');
+  }
+  if (expectedSignerId && keyIdParts[0] !== String(expectedSignerId).trim()) {
+    throw unauthorized('UHI signature key id does not match the sender', 'UHI_SIGNATURE_SENDER_MISMATCH');
   }
   const created = Number.parseInt(params.created, 10);
   const expires = Number.parseInt(params.expires, 10);

@@ -28065,6 +28065,8 @@ model abdm_hiu_fetch_sessions {
   status                          String                      @default("requested") @db.VarChar(24)
   parts_expected                  Int?
   parts_received                  Int                         @default(0)
+  pages_expected                  Int?
+  next_page_number                Int                         @default(1)
   initiated_by_uid                String?                     @db.Uuid
   requested_at                    DateTime                    @default(now()) @db.Timestamptz(6)
   acknowledged_at                 DateTime?                   @db.Timestamptz(6)
@@ -28436,7 +28438,7 @@ model uhi_transactions {
   message_id                  String        @db.VarChar(120)
   action                      String        @db.VarChar(20)
   direction                   String        @db.VarChar(10)
-  counterparty_subscriber_id  String?       @db.VarChar(200)
+  counterparty_subscriber_id  String        @db.VarChar(200)
   payload                     Json          @default("{}")
   signature_verified          Boolean       @default(false)
   verification_failure_reason String?       @db.VarChar(300)
@@ -28453,7 +28455,7 @@ model uhi_transactions {
   appointments                appointments? @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
   tenants                     tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([tenant_id, environment, transaction_id, message_id, action], map: "uq_uhi_txn_leg")
+  @@unique([tenant_id, environment, counterparty_subscriber_id, transaction_id, message_id, action, direction, signature_verified], map: "uq_uhi_txn_leg")
   @@index([appointment_id], map: "idx_uhi_txn_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_uhi_txn_tenant_received")
   @@index([tenant_id, transaction_id, received_at, id], map: "idx_uhi_txn_tenant_transaction")

@@ -87,9 +87,12 @@ function buildEnrolmentRoutes(router, resolveTargetUid) {
     if (!Number.isFinite(sessionId) || sessionId <= 0) {
       return error(res, 'session_id is required', 400);
     }
+    const patientUid = resolveTargetUid(req);
+    if (!patientUid) return error(res, 'Patient UID is required', 400);
     const session = await verifyEnrolmentOtp({
       tenantId: req.tenantId,
       sessionId,
+      patientUid,
       otp: req.body?.otp,
       ...actorContext(req),
     });
@@ -103,9 +106,12 @@ function buildEnrolmentRoutes(router, resolveTargetUid) {
     if (!Number.isFinite(sessionId) || sessionId <= 0) {
       return error(res, 'session_id is required', 400);
     }
+    const patientUid = resolveTargetUid(req);
+    if (!patientUid) return error(res, 'Patient UID is required', 400);
     const session = await resendEnrolmentOtp({
       tenantId: req.tenantId,
       sessionId,
+      patientUid,
       aadhaarNumber: req.body?.aadhaar_number ?? req.body?.aadhaarNumber ?? null,
       mobile: req.body?.mobile ?? null,
     });
@@ -117,7 +123,9 @@ function buildEnrolmentRoutes(router, resolveTargetUid) {
     if (!Number.isFinite(sessionId) || sessionId <= 0) {
       return error(res, 'session_id is required', 400);
     }
-    const session = await cancelEnrolment({ tenantId: req.tenantId, sessionId });
+    const patientUid = resolveTargetUid(req);
+    if (!patientUid) return error(res, 'Patient UID is required', 400);
+    const session = await cancelEnrolment({ tenantId: req.tenantId, sessionId, patientUid });
     return success(res, { session }, 'Enrolment cancelled', 200);
   }));
 

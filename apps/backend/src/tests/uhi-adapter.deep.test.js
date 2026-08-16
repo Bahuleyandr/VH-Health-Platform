@@ -3,9 +3,8 @@
 // Covers (service level; the public-route pipeline is pinned in
 // unit/uhiCallbackPipeline.test.js and the beckn crypto in
 // unit/uhiSignature.test.js):
-//   - uq_uhi_txn_leg replay dedupe: a redelivered leg collapses onto one row;
-//     an inbound `search` and outbound `on_search` sharing (txn, msg) coexist
-//     because `action` is in the key;
+//   - uq_uhi_txn_leg replay dedupe is bound to tenant, environment, sender,
+//     transaction, message, action, direction, and signature outcome;
 //   - rejected evidence rows: signature failures persist with
 //     signature_verified=false + reason, and the DB CHECK
 //     (chk_uhi_txn_rejected_reason) refuses reason-less rejections;
@@ -37,6 +36,7 @@ const {
   handleUhiConfirm,
   handleUhiSearch,
   listUhiTransactions,
+  parseUhiContext,
   recordUhiLeg,
 } = await import('../services/uhi/uhiAdapterService.js');
 const { withAuditBypass } = await import('./helpers/auditBypass.js');
@@ -60,6 +60,22 @@ function context(overrides = {}) {
     consumerUri: 'https://eua.example/callback',
     ...overrides,
   };
+}
+
+async function recordProcessedInit(ctx, body) {
+  return recordUhiLeg({
+    tenantId: TENANT_ID,
+    environment: 'sandbox',
+    transactionId: ctx.transactionId,
+    messageId: `init-${ctx.messageId}`,
+    action: 'init',
+    direction: 'inbound',
+    counterpartySubscriberId: ctx.consumerId,
+    payload: body,
+    signatureVerified: true,
+    status: 'processed',
+    ack: 'ACK',
+  });
 }
 
 async function cleanupTenant(tenantId) {
@@ -132,10 +148,22 @@ d('UHI adapter (migration 705)', () => {
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   beforeEach(() => {
     sendUhiCallback.mockClear();
+  });
+
+  it('requires an explicit counterparty subscriber identity in every context', () => {
+    let thrown;
+    try {
+      parseUhiContext({
+        context: { transaction_id: 'txn-missing-sender', message_id: 'msg-missing-sender' },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({ code: 'UHI_COUNTERPARTY_REQUIRED' });
   });
 
   it('dedupes a redelivered leg on uq_uhi_txn_leg while letting inbound/outbound share (txn, msg)', async () => {
@@ -146,6 +174,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: ctx.messageId,
       action: 'search',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: { context: { transaction_id: ctx.transactionId } },
       signatureVerified: true,
     });
@@ -158,6 +187,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: ctx.messageId,
       action: 'search',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: {},
       signatureVerified: true,
     });
@@ -172,6 +202,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: ctx.messageId,
       action: 'on_search',
       direction: 'outbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: {},
       signatureVerified: true,
     });
@@ -191,6 +222,56 @@ d('UHI adapter (migration 705)', () => {
     ]);
   });
 
+  it('does not let an invalid preplay or another counterparty suppress a valid leg', async () => {
+    const base = {
+      tenantId: TENANT_ID,
+      transactionId: 'uhi-txn-preplay',
+      messageId: 'msg-preplay',
+      action: 'confirm',
+      direction: 'inbound',
+      payload: {},
+    };
+    const invalid = await recordUhiLeg({
+      ...base,
+      counterpartySubscriberId: 'attacker.example',
+      signatureVerified: false,
+      verificationFailureReason: 'UHI_SIGNATURE_INVALID',
+      status: 'rejected',
+      errorCode: 'UHI_SIGNATURE_INVALID',
+    });
+    const valid = await recordUhiLeg({
+      ...base,
+      counterpartySubscriberId: 'eua.deep-test',
+      signatureVerified: true,
+    });
+    expect(invalid.duplicate).toBe(false);
+    expect(valid.duplicate).toBe(false);
+    expect(Number(valid.row.id)).not.toBe(Number(invalid.row.id));
+  });
+
+  it('reclaims a failed leg so a genuine delivery retry can complete', async () => {
+    const base = {
+      tenantId: TENANT_ID,
+      transactionId: 'uhi-txn-retry',
+      messageId: 'msg-retry',
+      action: 'search',
+      direction: 'inbound',
+      counterpartySubscriberId: 'eua.deep-test',
+      signatureVerified: true,
+      payload: { attempt: 1 },
+    };
+    const failed = await recordUhiLeg({
+      ...base,
+      status: 'failed',
+      ack: 'NACK',
+      errorCode: 'TEMPORARY',
+    });
+    const retry = await recordUhiLeg({ ...base, payload: { attempt: 2 } });
+    expect(retry).toMatchObject({ duplicate: false, reclaimed: true });
+    expect(Number(retry.row.id)).toBe(Number(failed.row.id));
+    expect(retry.row).toMatchObject({ status: 'received', payload: { attempt: 2 } });
+  });
+
   it('persists signature failures as rejected evidence, and the DB refuses reason-less rejections', async () => {
     const { row } = await recordUhiLeg({
       tenantId: TENANT_ID,
@@ -198,6 +279,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: 'msg-forged',
       action: 'confirm',
       direction: 'inbound',
+      counterpartySubscriberId: 'eua.deep-test',
       payload: { context: {} },
       signatureVerified: false,
       verificationFailureReason: 'UHI_SIGNATURE_INVALID',
@@ -215,8 +297,10 @@ d('UHI adapter (migration 705)', () => {
     // chk_uhi_txn_rejected_reason: rejected must carry a reason or error code.
     await expect(prisma.$executeRawUnsafe(
       `INSERT INTO uhi_transactions
-         (tenant_id, transaction_id, message_id, action, direction, status)
-       VALUES ($1::uuid, 'uhi-txn-reject', 'msg-bare', 'confirm', 'inbound', 'rejected')`,
+         (tenant_id, transaction_id, message_id, action, direction,
+          counterparty_subscriber_id, status)
+       VALUES ($1::uuid, 'uhi-txn-reject', 'msg-bare', 'confirm', 'inbound',
+               'eua.deep-test', 'rejected')`,
       TENANT_ID,
     )).rejects.toThrow(/chk_uhi_txn_rejected_reason|check constraint/i);
   });
@@ -256,6 +340,59 @@ d('UHI adapter (migration 705)', () => {
 
   let confirmedAppointmentId;
 
+  it('rejects confirm when the matching transaction init belongs to another counterparty', async () => {
+    const ctx = context({ transactionId: 'uhi-txn-cross-sender', messageId: 'msg-cross-sender' });
+    const body = {
+      message: {
+        order: {
+          fulfillment: {
+            agent: { id: String(doctorUserId) },
+            start: { time: { timestamp: `${APPT_DATE}T12:00:00` } },
+          },
+          customer: { contact: { phone: PATIENT_PHONE } },
+        },
+      },
+    };
+    await recordUhiLeg({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      transactionId: ctx.transactionId,
+      messageId: `init-${ctx.messageId}`,
+      action: 'init',
+      direction: 'inbound',
+      counterpartySubscriberId: 'different-eua.example',
+      payload: body,
+      signatureVerified: true,
+      status: 'processed',
+      ack: 'ACK',
+    });
+    const intake = await recordUhiLeg({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      transactionId: ctx.transactionId,
+      messageId: ctx.messageId,
+      action: 'confirm',
+      direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
+      payload: body,
+      signatureVerified: true,
+    });
+
+    await expect(handleUhiConfirm({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      context: ctx,
+      body,
+      legId: intake.row.id,
+    })).rejects.toMatchObject({ code: 'UHI_JOURNEY_NOT_INITIALIZED' });
+    const count = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM appointments
+        WHERE tenant_id = $1::uuid AND appointment_time = '12:00'`,
+      TENANT_ID,
+    );
+    expect(count[0].n).toBe(0);
+  });
+
   it('books confirm through createAppointment — canonical timeline + audit inherited, evidence stamped', async () => {
     const ctx = context({ messageId: 'msg-confirm' });
     const body = {
@@ -269,12 +406,14 @@ d('UHI adapter (migration 705)', () => {
         },
       },
     };
+    await recordProcessedInit(ctx, body);
     const intake = await recordUhiLeg({
       tenantId: TENANT_ID,
       transactionId: ctx.transactionId,
       messageId: ctx.messageId,
       action: 'confirm',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: body,
       signatureVerified: true,
     });
@@ -355,12 +494,14 @@ d('UHI adapter (migration 705)', () => {
         },
       },
     };
+    await recordProcessedInit(ctx, body);
     const intake = await recordUhiLeg({
       tenantId: TENANT_ID,
       transactionId: ctx.transactionId,
       messageId: ctx.messageId,
       action: 'confirm',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: body,
       signatureVerified: true,
     });
@@ -404,6 +545,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: ctx.messageId,
       action: 'cancel',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: body,
       signatureVerified: true,
     });
@@ -438,6 +580,7 @@ d('UHI adapter (migration 705)', () => {
       messageId: ctx.messageId,
       action: 'cancel',
       direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
       payload: body,
       signatureVerified: true,
     });

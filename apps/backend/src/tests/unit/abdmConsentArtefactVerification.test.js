@@ -41,6 +41,9 @@ jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   genericLimiter: (_req, _res, next) => next(),
 }));
+jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
+  resolveInteropCredentialSnapshot: jest.fn().mockResolvedValue(null),
+}));
 // abdmService imports these; the verifier doesn't use them and the route test
 // spies handleConsentRequest, so stub them to keep the import side-effect-free.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -137,13 +140,22 @@ describe('abdmService._verifyConsentArtefact', () => {
       consentRequestId: 'c-1', consentArtefact: undefined, signature: undefined,
     }))).toBeNull();
   });
+
+  it('cannot disable verification for a caller that requires signed consent', () => {
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'false';
+    expect(caughtCode(() => abdmService._verifyConsentArtefact({
+      consentRequestId: 'c-1', consentArtefact: undefined, signature: undefined, required: true,
+    }))).toBe('ABDM_CONSENT_UNSIGNED');
+  });
 });
 
 // ===================== route extraction (the C-4b bug) =====================
 describe('POST /abdm/consent/on-notify', () => {
   function buildApp() {
     const app = express();
-    app.use(express.json());
+    app.use(express.json({
+      verify: (req, _res, body) => { req.abdmRawBody = Buffer.from(body); },
+    }));
     app.use(callbackRouter);
     return app;
   }

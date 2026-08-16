@@ -322,7 +322,7 @@ describe('verifyEnrolmentOtp — happy path to linked', () => {
 
   it('links through the 653 verified gate with the same-tx audit row', async () => {
     const session = await enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     });
 
     expect(session.status).toBe('linked');
@@ -359,7 +359,9 @@ describe('verifyEnrolmentOtp — happy path to linked', () => {
       },
     });
 
-    await enrolmentService.verifyEnrolmentOtp({ tenantId: TENANT_ID, sessionId: 11, otp: '123456' });
+    await enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
+    });
 
     const linkedUpdate = prismaQuery.mock.calls.find((c) => c[0].includes("status = 'linked'"));
     const snapshot = JSON.parse(linkedUpdate[5]);
@@ -367,7 +369,9 @@ describe('verifyEnrolmentOtp — happy path to linked', () => {
   });
 
   it('never carries Aadhaar or OTP material into persisted args or logs', async () => {
-    await enrolmentService.verifyEnrolmentOtp({ tenantId: TENANT_ID, sessionId: 11, otp: '123456' });
+    await enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
+    });
     const surfaces = allMockSurfaces();
     expect(surfaces).not.toContain(VALID_AADHAAR);
     // The plaintext OTP appears nowhere except the encrypted gateway field
@@ -384,7 +388,7 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     route('otp_attempts = otp_attempts + 1', () => []); // cap reached — no row updatable
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_OTP_ATTEMPTS_EXCEEDED', statusCode: 429 });
     const failCall = prismaExecute.mock.calls.find((c) => c[0].includes("status = 'failed'"));
     expect(failCall.slice(1)).toContain('otp_attempts_exceeded');
@@ -397,7 +401,7 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     }]);
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_EXPIRED' });
     const expireCall = prismaExecute.mock.calls.find((c) => c[0].includes("status = 'expired'"));
     expect(expireCall).toBeDefined();
@@ -410,7 +414,7 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     }));
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_OTP_REJECTED', statusCode: 400 });
     // No failed-marking below the cap: the patient can retry.
     const failCall = prismaExecute.mock.calls.find((c) => c[0].includes("status = 'failed'"));
@@ -426,7 +430,7 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     });
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
     const failCall = prismaExecute.mock.calls.find((c) => c[0].includes("error_code = 'abha_already_linked'"));
     expect(failCall).toBeDefined();
@@ -438,7 +442,7 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     route('SELECT id, tenant_id, patient_uid, flow', () => [{ ...BASE_SESSION, status: 'linked' }]);
 
     await expect(enrolmentService.verifyEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, otp: '123456',
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ statusCode: 400 });
     expect(enrolByAadhaar).not.toHaveBeenCalled();
   });
@@ -450,7 +454,7 @@ describe('resend / cancel / status / sweep', () => {
     route('otp_attempts = 0', () => [{ ...BASE_SESSION }]);
 
     await enrolmentService.resendEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, aadhaarNumber: VALID_AADHAAR,
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, aadhaarNumber: VALID_AADHAAR,
     });
     const arg = requestEnrolmentOtp.mock.calls[0][0];
     expect(arg.txnId).toBe('txn-001');
@@ -460,18 +464,48 @@ describe('resend / cancel / status / sweep', () => {
     // Cap: resend_count 3 refuses.
     route('SELECT id, tenant_id, patient_uid, flow', () => [{ ...BASE_SESSION, metadata: { resend_count: 3 } }]);
     await expect(enrolmentService.resendEnrolmentOtp({
-      tenantId: TENANT_ID, sessionId: 11, aadhaarNumber: VALID_AADHAAR,
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, aadhaarNumber: VALID_AADHAAR,
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_RESEND_EXCEEDED', statusCode: 429 });
   });
 
   it('cancelEnrolment cancels only live sessions', async () => {
     route("status = 'cancelled'", () => [{ ...BASE_SESSION, status: 'cancelled' }]);
-    const session = await enrolmentService.cancelEnrolment({ tenantId: TENANT_ID, sessionId: 11 });
+    const session = await enrolmentService.cancelEnrolment({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID,
+    });
     expect(session.status).toBe('cancelled');
 
     route("status = 'cancelled'", () => []);
-    await expect(enrolmentService.cancelEnrolment({ tenantId: TENANT_ID, sessionId: 11 }))
+    await expect(enrolmentService.cancelEnrolment({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID,
+    }))
       .rejects.toMatchObject({ code: 'ABHA_ENROLMENT_SESSION_NOT_FOUND' });
+  });
+
+  it('binds OTP, resend and cancel operations to the expected patient UID', async () => {
+    route('SELECT id, tenant_id, patient_uid, flow', () => []);
+    await expect(enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: '70300000-0000-4000-8000-0000000007b4',
+      otp: '123456',
+    })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_SESSION_NOT_FOUND' });
+    expect(prismaQuery.mock.calls.at(-1)[0]).toContain('patient_uid = $3::uuid');
+
+    await expect(enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: '70300000-0000-4000-8000-0000000007b4',
+      aadhaarNumber: VALID_AADHAAR,
+    })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_SESSION_NOT_FOUND' });
+
+    route("status = 'cancelled'", () => []);
+    await expect(enrolmentService.cancelEnrolment({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: '70300000-0000-4000-8000-0000000007b4',
+    })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_SESSION_NOT_FOUND' });
+    expect(prismaQuery.mock.calls.at(-1)[0]).toContain('patient_uid = $3::uuid');
   });
 
   it('getEnrolmentStatus returns the safe projection (or null)', async () => {

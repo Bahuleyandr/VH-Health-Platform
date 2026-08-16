@@ -36,7 +36,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
-import { uploadFileToR2, getFileFromR2 } from '../../utils/r2Storage.js';
+import { uploadFileToR2, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
 import {
   createConsentRequest,
   createDataTransfer,
@@ -58,7 +58,7 @@ const LIVE_SESSION_STATUSES = ['requested', 'acknowledged', 'receiving'];
 const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   data_transfer_id, patient_uid, transaction_id, request_id, hi_types,
   date_range_from, date_range_to, data_push_url, status, parts_expected,
-  parts_received, initiated_by_uid, requested_at, acknowledged_at,
+  parts_received, pages_expected, next_page_number, initiated_by_uid, requested_at, acknowledged_at,
   completed_at, failure_reason, metadata, created_at, updated_at`;
 
 const BUNDLE_RETURNING = `id, tenant_id, fetch_session_id, care_context_reference,
@@ -100,6 +100,83 @@ function hiuDataPushUrl() {
   return `${base}/api/v1/abdm/hiu/health-info/push`;
 }
 
+function normalizeConsentText(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function normalizedHiTypes(value) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const result = [...new Set(value.map((item) => normalizeConsentText(item)).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+  return result.length > 0 ? result : null;
+}
+
+function sameTimestamp(left, right) {
+  if (!left || !right) return false;
+  const leftMs = new Date(left).getTime();
+  const rightMs = new Date(right).getTime();
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs === rightMs;
+}
+
+function assertHiuConsentBinding({ requestRow, artifactId, detail, verification, hipId }) {
+  const payload = verification?.payload;
+  const mismatches = [];
+  if (!requestRow || requestRow.flow_kind !== 'hiu' || requestRow.status !== 'requested') {
+    mismatches.push('consentRequest');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    mismatches.push('artefact');
+  } else {
+    if (normalizeConsentText(payload.consentId) !== artifactId) mismatches.push('consentId');
+    if (normalizeConsentText(payload.patient?.id)?.toLowerCase()
+        !== normalizeConsentText(requestRow?.metadata?.abha_address)?.toLowerCase()) {
+      mismatches.push('patient.id');
+    }
+    if (normalizeConsentText(payload.hip?.id) !== hipId) mismatches.push('hip.id');
+    if (!ABDM_CONFIG.hiuId || normalizeConsentText(payload.hiu?.id) !== ABDM_CONFIG.hiuId) {
+      mismatches.push('hiu.id');
+    }
+    if (normalizeConsentText(payload.purpose?.code ?? payload.purpose)
+        !== normalizeConsentText(requestRow?.purpose_code)) mismatches.push('purpose');
+    const verifiedHiTypes = normalizedHiTypes(payload.hiTypes);
+    const requestedHiTypes = normalizedHiTypes(requestRow?.hi_types);
+    if (!verifiedHiTypes || !requestedHiTypes
+        || JSON.stringify(verifiedHiTypes) !== JSON.stringify(requestedHiTypes)) {
+      mismatches.push('hiTypes');
+    }
+    if (!sameTimestamp(payload.permission?.dateRange?.from, requestRow?.data_from)) {
+      mismatches.push('dateRange.from');
+    }
+    if (!sameTimestamp(payload.permission?.dateRange?.to, requestRow?.data_to)) {
+      mismatches.push('dateRange.to');
+    }
+    if (!sameTimestamp(payload.permission?.dataEraseAt, requestRow?.expiry_at)) {
+      mismatches.push('expiry');
+    }
+  }
+  if (!detail || !verification || mismatches.length > 0) {
+    throw AppError.forbidden(
+      'Consent artefact does not match the HIU request',
+      'ABDM_CONSENT_BINDING_MISMATCH',
+      { fields: [...new Set(mismatches.length > 0 ? mismatches : ['artefact'])] },
+    );
+  }
+}
+
+async function markWebhookFailed(tenantId, event, err) {
+  if (!event?.id) return;
+  await markWebhookProcessed({
+    tenantId,
+    id: Number(event.id),
+    status: 'failed',
+    failureReason: String(err?.message || 'callback processing failed').slice(0, 500),
+  }).catch((markErr) => logger.error('Failed to mark ABDM HIU webhook failed', {
+    eventId: event.id,
+    error: markErr.message,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Consent request leg
 // ---------------------------------------------------------------------------
@@ -130,11 +207,39 @@ export async function createHiuConsentRequest({
       'INVALID_ABHA_ADDRESS',
     );
   }
+  const expectedPatientUid = String(patientUid || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(expectedPatientUid)) {
+    throw AppError.badRequest('A valid patient UID is required', 'INVALID_PATIENT_UID');
+  }
   if (!Array.isArray(hiTypes) || hiTypes.length === 0) {
     throw AppError.badRequest('At least one hiType is required', 'MISSING_HI_TYPES');
   }
-  if (!dataFrom || !dataTo) {
-    throw AppError.badRequest('dataFrom and dataTo are required', 'MISSING_DATE_RANGE');
+  if (!dataFrom || !dataTo || !expiryAt) {
+    throw AppError.badRequest('dataFrom, dataTo and expiryAt are required', 'MISSING_DATE_RANGE');
+  }
+  const fromMs = new Date(dataFrom).getTime();
+  const toMs = new Date(dataTo).getTime();
+  const expiryMs = new Date(expiryAt).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || !Number.isFinite(expiryMs)
+      || fromMs > toMs || expiryMs <= Date.now()) {
+    throw AppError.badRequest('Consent dates are invalid or expired', 'INVALID_CONSENT_DATES');
+  }
+  const patients = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid
+        AND role = 'PATIENT' AND is_active = TRUE AND is_deleted = FALSE
+        AND abha_verification_status = 'verified'
+        AND LOWER(abha_address) = $3::text
+      LIMIT 1`,
+    tid,
+    expectedPatientUid,
+    cleanAddress,
+  );
+  if (!patients[0]) {
+    throw AppError.forbidden(
+      'Patient ABHA address is not verified for this patient',
+      'ABDM_PATIENT_ABHA_MISMATCH',
+    );
   }
 
   const requestId = crypto.randomUUID();
@@ -143,7 +248,7 @@ export async function createHiuConsentRequest({
     requestId,
     flowKind: 'hiu',
     abhaId: null,
-    patientUid,
+    patientUid: expectedPatientUid,
     requesterUid,
     hiTypes,
     permissionKind: 'view',
@@ -202,11 +307,13 @@ export async function handleHiuConsentOnInit({
     signatureVerified: true,
     payload: body,
     environment,
+    retryFailed: true,
   });
   if (eventIntake.duplicate) {
     return { duplicate: true };
   }
 
+  try {
   const cmConsentRequestId = body?.consentRequest?.id || null;
   if (body?.error) {
     const rows = await prisma.$queryRawUnsafe(
@@ -232,17 +339,18 @@ export async function handleHiuConsentOnInit({
       tid, originalRequestId, environment, String(cmConsentRequestId),
     );
   }
-  await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' })
-    .catch(() => {});
+  await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' });
   return { duplicate: false, cmConsentRequestId };
+  } catch (err) {
+    await markWebhookFailed(tid, eventIntake.event, err);
+    throw err;
+  }
 }
 
 /**
  * CM consent notification for the HIU (GRANTED / DENIED / REVOKED / EXPIRED).
- * Artefact signatures are verified through the EXISTING
- * abdmService._verifyConsentArtefact machinery when a signed detail rides the
- * notification (enforcement itself is operator-gated by
- * ABDM_VERIFY_CONSENT_ARTEFACT, same as the HIP side).
+ * This path requires a signed artefact regardless of the optional HIP-side
+ * verification toggle and binds every verified field to the local request.
  */
 export async function handleHiuConsentNotify({
   tenantId = null, environment = 'sandbox', body = {},
@@ -263,82 +371,149 @@ export async function handleHiuConsentNotify({
     signatureVerified: true,
     payload: body,
     environment,
+    retryFailed: true,
   });
   if (eventIntake.duplicate) {
     return { duplicate: true };
   }
 
-  // Locate our request row by our request_id OR the CM id recorded on-init.
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, hi_types, patient_uid, data_from, data_to, expiry_at
-       FROM abdm_consent_requests
-      WHERE tenant_id = $1::uuid AND environment = $2::text
-        AND (request_id = $3::text OR metadata->>'cm_consent_request_id' = $3::text)
-      LIMIT 1`,
-    tid, environment, cmConsentRequestId,
-  );
-  const requestRow = rows[0] || null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, request_id, flow_kind, status, hi_types, patient_uid,
+              data_from, data_to, expiry_at, purpose_code, metadata
+         FROM abdm_consent_requests
+        WHERE tenant_id = $1::uuid AND environment = $2::text
+          AND (request_id = $3::text OR metadata->>'cm_consent_request_id' = $3::text)
+        LIMIT 1`,
+      tid, environment, cmConsentRequestId,
+    );
+    const requestRow = rows[0] || null;
+    if (!requestRow || requestRow.flow_kind !== 'hiu') {
+      throw AppError.notFound('HIU consent request not found', 'ABDM_HIU_CONSENT_REQUEST_NOT_FOUND');
+    }
 
-  const STATUS_MAP = {
-    GRANTED: 'granted', DENIED: 'denied', REVOKED: 'revoked', EXPIRED: 'expired',
-  };
-  const nextStatus = STATUS_MAP[status];
-  if (requestRow && nextStatus && requestRow.status === 'requested') {
-    await transitionConsentRequest({ tenantId: tid, id: requestRow.id, nextStatus });
-  } else if (requestRow && nextStatus === 'revoked' && requestRow.status === 'granted') {
-    await transitionConsentRequest({ tenantId: tid, id: requestRow.id, nextStatus });
-  }
+    const STATUS_MAP = {
+      GRANTED: 'granted', DENIED: 'denied', REVOKED: 'revoked', EXPIRED: 'expired',
+    };
+    const nextStatus = STATUS_MAP[status];
+    if (!nextStatus) {
+      throw AppError.badRequest('Unsupported consent notification status', 'ABDM_HIU_NOTIFY_STATUS');
+    }
 
-  const artifacts = [];
-  if (status === 'GRANTED') {
-    const entries = Array.isArray(notification.consentArtefacts)
-      ? notification.consentArtefacts : [];
-    for (const entry of entries) {
-      const artifactId = String(entry?.id || '').trim();
-      if (!artifactId) continue;
-      const detail = entry.consentDetail || entry.consentArtefact || null;
-      const signature = entry.signature || body.signature || null;
-      let signedPayload = {};
-      if (detail) {
-        // Throws when verification is enabled and the signature is bad/missing;
-        // returns null when the operator has not enabled verification.
-        abdmService._verifyConsentArtefact({
-          consentRequestId: cmConsentRequestId,
+    const verifiedEntries = [];
+    if (status === 'GRANTED') {
+      const entries = Array.isArray(notification.consentArtefacts)
+        ? notification.consentArtefacts : [];
+      if (entries.length === 0) {
+        throw AppError.forbidden('A signed consent artefact is required', 'ABDM_CONSENT_UNSIGNED');
+      }
+      for (const entry of entries) {
+        const artifactId = String(entry?.id || '').trim();
+        const detail = entry?.consentDetail || entry?.consentArtefact || null;
+        const signature = entry?.signature || body.signature || null;
+        const hipId = normalizeConsentText(entry?.hip?.id ?? notification?.hip?.id);
+        if (!artifactId || !detail || !signature || !hipId) {
+          throw AppError.forbidden('Consent protocol evidence is incomplete', 'ABDM_CONSENT_UNSIGNED');
+        }
+        const verification = abdmService._verifyConsentArtefact({
+          consentRequestId: artifactId,
           consentArtefact: detail,
           signature,
+          required: true,
         });
-        signedPayload = typeof detail === 'string' ? { raw: detail } : detail;
+        assertHiuConsentBinding({ requestRow, artifactId, detail, verification, hipId });
+        verifiedEntries.push({ artifactId, verification, hipId });
       }
+    }
+
+    if (status === 'GRANTED' && requestRow.status !== 'requested') {
+      throw AppError.conflict('HIU consent request is not awaiting a grant', 'ABDM_HIU_CONSENT_NOT_REQUESTED');
+    }
+    if (status !== 'GRANTED' && requestRow.status === 'requested'
+        && ['denied', 'expired'].includes(nextStatus)) {
+      await transitionConsentRequest({ tenantId: tid, id: requestRow.id, nextStatus });
+    } else if (requestRow.status === 'granted' && ['revoked', 'expired'].includes(nextStatus)) {
+      await transitionConsentRequest({ tenantId: tid, id: requestRow.id, nextStatus });
+    }
+
+    const artifacts = [];
+    for (const verifiedEntry of verifiedEntries) {
       try {
         const artifact = await recordConsentArtifact({
           tenantId: tid,
-          consentRequestId: requestRow?.id ?? null,
-          artifactId,
-          patientUid: requestRow?.patient_uid ?? null,
-          hiTypes: requestRow?.hi_types ?? [],
+          consentRequestId: requestRow.id,
+          artifactId: verifiedEntry.artifactId,
+          patientUid: requestRow.patient_uid,
+          hiTypes: requestRow.hi_types,
           permissionKind: 'view',
-          dataFrom: requestRow?.data_from ?? null,
-          dataTo: requestRow?.data_to ?? null,
-          expiryAt: requestRow?.expiry_at ?? null,
-          signedPayload,
+          dataFrom: requestRow.data_from,
+          dataTo: requestRow.data_to,
+          expiryAt: requestRow.expiry_at,
+          signedPayload: verifiedEntry.verification.payload,
           environment,
-          metadata: { source: 'hiu_consent_notify' },
+          metadata: {
+            source: 'hiu_consent_notify',
+            signature_verified: true,
+            artefact_sha256: verifiedEntry.verification.sha256,
+            hip_id: verifiedEntry.hipId,
+            hiu_id: ABDM_CONFIG.hiuId,
+          },
         });
         artifacts.push(artifact);
       } catch (err) {
-        if (err.statusCode === 409) continue; // artefact replay — already recorded
+        if (err.statusCode === 409) continue;
         throw err;
       }
     }
-  }
 
-  await markWebhookProcessed({
-    tenantId: tid,
-    id: Number(eventIntake.event.id),
-    status: 'processed',
-    relatedRequestId: requestRow?.id ?? null,
-  }).catch(() => {});
-  return { duplicate: false, status, artifacts: artifacts.length };
+    if (status === 'GRANTED') {
+      await transitionConsentRequest({ tenantId: tid, id: requestRow.id, nextStatus });
+    }
+
+    if (nextStatus === 'revoked' || nextStatus === 'expired') {
+      await prisma.$executeRawUnsafe(
+        `UPDATE abdm_consent_artifacts
+            SET status = $3::text,
+                revoked_at = CASE WHEN $3::text = 'revoked' THEN NOW() ELSE revoked_at END,
+                expired_at = CASE WHEN $3::text = 'expired' THEN NOW() ELSE expired_at END,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND consent_request_id = $2::integer
+            AND environment = $4::text AND status = 'active'`,
+        tid,
+        requestRow.id,
+        nextStatus,
+        environment,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE abdm_hiu_fetch_sessions s
+            SET status = 'expired',
+                key_material_private_ciphertext = NULL,
+                failure_reason = $3::text,
+                updated_at = NOW()
+           FROM abdm_consent_artifacts a
+          WHERE a.id = s.consent_artifact_id
+            AND a.tenant_id = $1::uuid AND s.tenant_id = $1::uuid
+            AND a.consent_request_id = $2::integer
+            AND s.environment = $4::text
+            AND s.status IN ('requested', 'acknowledged', 'receiving')`,
+        tid,
+        requestRow.id,
+        `consent ${nextStatus}`,
+        environment,
+      );
+    }
+
+    await markWebhookProcessed({
+      tenantId: tid,
+      id: Number(eventIntake.event.id),
+      status: 'processed',
+      relatedRequestId: requestRow.id,
+    });
+    return { duplicate: false, status, artifacts: artifacts.length };
+  } catch (err) {
+    await markWebhookFailed(tid, eventIntake.event, err);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,17 +542,27 @@ export async function startHiuFetch({
     throw AppError.badRequest('artifactId must be a positive integer', 'INVALID_ARTIFACT_ID');
   }
   const artifacts = await prisma.$queryRawUnsafe(
-    `SELECT id, artifact_id, patient_uid, hi_types, data_from, data_to, status
-       FROM abdm_consent_artifacts
-      WHERE id = $1::integer AND tenant_id = $2::uuid LIMIT 1`,
-    artId, tid,
+    `SELECT a.id, a.artifact_id, a.patient_uid, a.hi_types, a.data_from,
+            a.data_to, a.expiry_at, a.status
+       FROM abdm_consent_artifacts a
+       JOIN abdm_consent_requests r
+         ON r.id = a.consent_request_id AND r.tenant_id = $2::uuid
+       JOIN users u
+         ON u.uid = a.patient_uid AND u.tenant_id = $2::uuid
+      WHERE a.id = $1::integer AND a.tenant_id = $2::uuid
+        AND a.environment = $3::text AND r.environment = $3::text
+        AND a.status = 'active' AND a.expiry_at > NOW()
+        AND r.flow_kind = 'hiu' AND r.status = 'granted'
+        AND r.expiry_at > NOW() AND r.patient_uid = a.patient_uid
+        AND u.role = 'PATIENT' AND u.is_active = TRUE AND u.is_deleted = FALSE
+        AND u.abha_verification_status = 'verified'
+        AND LOWER(u.abha_address) = LOWER(r.metadata->>'abha_address')
+      LIMIT 1`,
+    artId, tid, ABDM_CONFIG.environment,
   );
   const artifact = artifacts[0];
   if (!artifact) {
     throw AppError.notFound('Consent artifact not found', 'ABDM_ARTIFACT_NOT_FOUND');
-  }
-  if (artifact.status !== 'active') {
-    throw AppError.conflict('Consent artifact is not active', 'ABDM_ARTIFACT_INACTIVE');
   }
 
   const requestId = crypto.randomUUID();
@@ -466,9 +651,11 @@ export async function handleHiuHealthInfoOnRequest({
     signatureVerified: true,
     payload: body,
     environment,
+    retryFailed: true,
   });
   if (eventIntake.duplicate) return { duplicate: true };
 
+  try {
   if (body?.error) {
     await prisma.$executeRawUnsafe(
       `UPDATE abdm_hiu_fetch_sessions
@@ -491,9 +678,12 @@ export async function handleHiuHealthInfoOnRequest({
       );
     }
   }
-  await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' })
-    .catch(() => {});
+  await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' });
   return { duplicate: false };
+  } catch (err) {
+    await markWebhookFailed(tid, eventIntake.event, err);
+    throw err;
+  }
 }
 
 /**
@@ -512,6 +702,11 @@ export async function handleHiuDataPush({
   }
   const pageNumber = Number(body.pageNumber ?? 1);
   const pageCount = Number(body.pageCount ?? 1);
+  if (!Number.isSafeInteger(pageNumber) || !Number.isSafeInteger(pageCount)
+      || pageNumber < 1 || pageCount < 1 || pageNumber > pageCount
+      || !Array.isArray(body.entries)) {
+    throw AppError.badRequest('Data push page contract is invalid', 'ABDM_HIU_PAGE_INVALID');
+  }
 
   const eventIntake = await recordWebhookEvent({
     tenantId: tid,
@@ -521,15 +716,35 @@ export async function handleHiuDataPush({
     signatureVerified: true,
     payload: { transactionId, pageNumber, pageCount, entryCount: (body.entries || []).length },
     environment,
+    retryFailed: true,
   });
   if (eventIntake.duplicate) {
     return { duplicate: true, transactionId };
   }
 
+  try {
   const sessions = await prisma.$queryRawUnsafe(
-    `SELECT ${SESSION_RETURNING}, key_material_private_ciphertext, key_material_nonce
-       FROM abdm_hiu_fetch_sessions
+    `SELECT ${SESSION_RETURNING}, key_material_private_ciphertext, key_material_nonce,
+            key_material_expires_at,
+            (SELECT a.artifact_id FROM abdm_consent_artifacts a
+              WHERE a.id = s.consent_artifact_id AND a.tenant_id = $1::uuid) AS artifact_id
+       FROM abdm_hiu_fetch_sessions s
       WHERE tenant_id = $1::uuid AND transaction_id = $2::text AND environment = $3::text
+        AND EXISTS (
+          SELECT 1 FROM abdm_consent_artifacts a
+          JOIN abdm_consent_requests r
+            ON r.id = a.consent_request_id AND r.tenant_id = $1::uuid
+          JOIN users u
+            ON u.uid = a.patient_uid AND u.tenant_id = $1::uuid
+          WHERE a.id = s.consent_artifact_id AND a.tenant_id = $1::uuid
+            AND a.environment = $3::text AND r.environment = $3::text
+            AND a.status = 'active' AND a.expiry_at > NOW()
+            AND r.flow_kind = 'hiu' AND r.status = 'granted' AND r.expiry_at > NOW()
+            AND r.patient_uid = a.patient_uid AND s.patient_uid = a.patient_uid
+            AND u.role = 'PATIENT' AND u.is_active = TRUE AND u.is_deleted = FALSE
+            AND u.abha_verification_status = 'verified'
+            AND LOWER(u.abha_address) = LOWER(r.metadata->>'abha_address')
+        )
       LIMIT 1`,
     tid, transactionId, environment,
   );
@@ -539,6 +754,13 @@ export async function handleHiuDataPush({
   }
   if (!LIVE_SESSION_STATUSES.includes(session.status)) {
     throw AppError.conflict('Fetch session is not receiving', 'ABDM_HIU_SESSION_NOT_LIVE');
+  }
+  if (Number(session.next_page_number) !== pageNumber
+      || (session.pages_expected != null && Number(session.pages_expected) !== pageCount)) {
+    throw AppError.conflict('Data push page is out of order', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
+  }
+  if (!body?.consent?.id || String(body.consent.id) !== String(session.artifact_id)) {
+    throw AppError.forbidden('Data push consent does not match the fetch session', 'ABDM_HIU_CONSENT_MISMATCH');
   }
   if (!session.key_material_private_ciphertext) {
     throw AppError.conflict('Fetch session key material is gone', 'ABDM_HIU_KEY_UNAVAILABLE');
@@ -563,28 +785,25 @@ export async function handleHiuDataPush({
     throw AppError.internal('Fetch session key material is unreadable', 'ABDM_HIU_KEY_UNREADABLE');
   }
 
-  const entries = Array.isArray(body.entries) ? body.entries : [];
+  const entries = body.entries;
   const senderKeyMaterial = body.keyMaterial || null;
   let stored = 0;
-  let failed = 0;
   for (let i = 0; i < entries.length; i += 1) {
     const entry = entries[i] || {};
     const partNumber = (pageNumber - 1) * 1000 + i;
-    if (!entry.content) {
-      // Link-style entries (deferred fetch) are out of the thin-leg scope.
-      failed += 1;
-      continue;
+    if (!entry.content || !entry.checksum || !entry.careContextReference || !entry.hiType) {
+      throw AppError.badRequest('Data push entry evidence is incomplete', 'ABDM_HIU_ENTRY_INVALID');
     }
+    if (!session.hi_types?.includes(String(entry.hiType))) {
+      throw AppError.forbidden('Data push HI type is outside the granted consent', 'ABDM_HIU_HI_TYPE_MISMATCH');
+    }
+    const checksumOk = crypto.createHash('md5').update(String(entry.content)).digest('hex')
+      === String(entry.checksum).toLowerCase();
+    if (!checksumOk) {
+      throw AppError.badRequest('Data push entry checksum is invalid', 'ABDM_HIU_CHECKSUM_INVALID');
+    }
+    let uploadedStorageKey = null;
     try {
-      const checksumOk = !entry.checksum
-        || crypto.createHash('md5').update(String(entry.content)).digest('hex') === String(entry.checksum);
-      if (!checksumOk) {
-        failed += 1;
-        logger.warn('ABDM HIU entry checksum mismatch — part rejected', {
-          sessionId: session.id, partNumber,
-        });
-        continue;
-      }
       const bundle = decryptFhirBundle({
         content: entry.content,
         senderKeyMaterial,
@@ -595,8 +814,9 @@ export async function handleHiuDataPush({
         typeof bundle === 'string' ? bundle : JSON.stringify(bundle), 'utf8',
       );
       const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-      const storageKey = `abdm-hiu/${tid}/${session.id}/${partNumber}.json`;
+      const storageKey = `abdm-hiu/${tid}/${session.id}/${pageNumber}-${partNumber}-${crypto.randomUUID()}.json`;
       await uploadFileToR2(bytes, storageKey, 'application/fhir+json');
+      uploadedStorageKey = storageKey;
       const insertedBundle = await prisma.$queryRawUnsafe(
         `INSERT INTO abdm_hiu_received_bundles
            (tenant_id, fetch_session_id, care_context_reference, hi_type,
@@ -612,36 +832,49 @@ export async function handleHiuDataPush({
         partNumber, storageKey, sha256,
         String(entry.media || 'application/fhir+json').slice(0, 60),
       );
-      if (insertedBundle[0]) stored += 1;
+      if (!insertedBundle[0]) {
+        await deleteObject(storageKey);
+        uploadedStorageKey = null;
+      } else {
+        stored += 1;
+      }
     } catch (err) {
-      failed += 1;
-      logger.warn('ABDM HIU entry could not be decrypted/stored — part rejected', {
-        sessionId: session.id, partNumber, code: err.code, error: err.message,
-      });
+      if (uploadedStorageKey) {
+        await deleteObject(uploadedStorageKey).catch((cleanupErr) => logger.error(
+          'ABDM HIU orphan cleanup failed',
+          { sessionId: session.id, storageKey: uploadedStorageKey, error: cleanupErr.message },
+        ));
+      }
+      throw err;
     }
   }
 
-  const finalPage = pageNumber >= pageCount;
+  const finalPage = pageNumber === pageCount;
   let updatedSession;
   if (finalPage) {
-    const anyFailed = failed > 0;
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE abdm_hiu_fetch_sessions
-          SET status = $3::text, parts_received = parts_received + $4::int,
-              parts_expected = COALESCE(parts_expected, $5::int),
+          SET status = 'completed', parts_received = parts_received + $3::int,
+              pages_expected = COALESCE(pages_expected, $4::int),
+              next_page_number = next_page_number + 1,
               completed_at = NOW(),
               key_material_private_ciphertext = NULL,
               updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid
+          AND next_page_number = $5::int
+          AND (pages_expected IS NULL OR pages_expected = $4::int)
         RETURNING ${SESSION_RETURNING}`,
-      session.id, tid, anyFailed ? 'partial' : 'completed', stored, pageCount,
+      session.id, tid, stored, pageCount, pageNumber,
     );
     updatedSession = rows[0];
+    if (!updatedSession) {
+      throw AppError.conflict('Data push page lost its ordering claim', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
+    }
     if (session.data_transfer_id) {
       await transitionDataTransfer({
         tenantId: tid,
         id: session.data_transfer_id,
-        nextStatus: anyFailed ? 'partial' : 'succeeded',
+        nextStatus: 'succeeded',
         attemptIncrement: true,
       }).catch(() => {});
     }
@@ -650,7 +883,7 @@ export async function handleHiuDataPush({
       await abdmGateway.notifyHiuHealthInfoStatus({
         transactionId,
         consentId: body?.consent?.id || null,
-        sessionStatus: anyFailed ? 'FAILED' : 'TRANSFERRED',
+        sessionStatus: 'TRANSFERRED',
       });
     } catch (err) {
       logger.warn('ABDM HIU health-information notify failed (non-blocking)', {
@@ -661,41 +894,54 @@ export async function handleHiuDataPush({
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE abdm_hiu_fetch_sessions
           SET status = 'receiving', parts_received = parts_received + $3::int,
-              parts_expected = COALESCE(parts_expected, $4::int), updated_at = NOW()
+              pages_expected = COALESCE(pages_expected, $4::int),
+              next_page_number = next_page_number + 1, updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid
+          AND next_page_number = $5::int
+          AND (pages_expected IS NULL OR pages_expected = $4::int)
         RETURNING ${SESSION_RETURNING}`,
-      session.id, tid, stored, pageCount,
+      session.id, tid, stored, pageCount, pageNumber,
     );
     updatedSession = rows[0];
+    if (!updatedSession) {
+      throw AppError.conflict('Data push page lost its ordering claim', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
+    }
   }
 
   await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' })
     .catch(() => {});
   logger.info('ABDM HIU data push handled', {
-    sessionId: session.id, pageNumber, pageCount, stored, failed,
+    sessionId: session.id, pageNumber, pageCount, stored,
   });
   return {
     duplicate: false,
     transactionId,
     session: publicSession(updatedSession),
     stored,
-    failed,
+    failed: 0,
   };
+  } catch (err) {
+    await markWebhookFailed(tid, eventIntake.event, err);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Reads + sweep
 // ---------------------------------------------------------------------------
 
-export async function listFetchSessions({ tenantId = null, status = null, limit = 50 } = {}) {
+export async function listFetchSessions({
+  tenantId = null, status = null, patientUid = null, limit = 50,
+} = {}) {
   const tid = requireTenantId(tenantId);
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${SESSION_RETURNING} FROM abdm_hiu_fetch_sessions
       WHERE tenant_id = $1::uuid
         AND ($2::text IS NULL OR status = $2::text)
-      ORDER BY requested_at DESC LIMIT $3::int`,
-    tid, status ? String(status).trim().toLowerCase() : null, safeLimit,
+        AND patient_uid = $3::uuid
+      ORDER BY requested_at DESC LIMIT $4::int`,
+    tid, status ? String(status).trim().toLowerCase() : null, patientUid, safeLimit,
   );
   return { sessions: rows.map(publicSession), count: rows.length };
 }

@@ -45,12 +45,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: jest.fn(),
 }));
 
-const resolveTenantBySender = jest.fn();
-const getInteropSecret = jest.fn();
+const resolveInteropCredentialSnapshot = jest.fn();
 jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
-  resolveTenantBySender,
-  getInteropSecret,
-  default: { resolveTenantBySender, getInteropSecret },
+  resolveInteropCredentialSnapshot,
+  default: { resolveInteropCredentialSnapshot },
 }));
 
 const getUhiSettings = jest.fn();
@@ -145,16 +143,18 @@ function envelope(action = 'search', providerId = 'hsp.tenant-a') {
 
 beforeEach(() => {
   UHI_CONFIG.enabled = true;
-  resolveTenantBySender.mockReset();
-  getInteropSecret.mockReset();
+  resolveInteropCredentialSnapshot.mockReset();
   getUhiSettings.mockReset();
   verifyBecknSignature.mockReset();
   recordUhiLeg.mockReset();
   markUhiLeg.mockReset();
   handleUhiSearch.mockReset();
 
-  resolveTenantBySender.mockResolvedValue(TENANT_A);
-  getInteropSecret.mockResolvedValue('tenant-a-public-key');
+  resolveInteropCredentialSnapshot.mockResolvedValue({
+    tenant_id: TENANT_A,
+    sender_identifier: 'hsp.tenant-a',
+    secret: 'tenant-a-public-key',
+  });
   getUhiSettings.mockResolvedValue({ enabled: true, environment: 'sandbox' });
   verifyBecknSignature.mockReturnValue({ keyId: 'k', created: 1, expires: 2 });
   recordUhiLeg.mockResolvedValue({ row: { id: 42 }, duplicate: false });
@@ -171,12 +171,11 @@ describe('UHI webhook pipeline', () => {
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('UHI_DISABLED');
     expect(recordUhiLeg).not.toHaveBeenCalled();
-    expect(resolveTenantBySender).not.toHaveBeenCalled();
+    expect(resolveInteropCredentialSnapshot).not.toHaveBeenCalled();
   });
 
   it('unknown provider id → 401 fail-closed, nothing stored', async () => {
-    resolveTenantBySender.mockResolvedValue(null);
-    getInteropSecret.mockResolvedValue(null);
+    resolveInteropCredentialSnapshot.mockResolvedValue(null);
     const res = await request(buildApp())
       .post('/api/v1/uhi/search')
       .send(envelope('search', 'hsp.unknown'));
@@ -186,8 +185,7 @@ describe('UHI webhook pipeline', () => {
   });
 
   it('env-subscriber fallback maps only the configured subscriber id to the default tenant', async () => {
-    resolveTenantBySender.mockResolvedValue(null);
-    getInteropSecret.mockResolvedValue(null);
+    resolveInteropCredentialSnapshot.mockResolvedValue(null);
     const res = await request(buildApp())
       .post('/api/v1/uhi/search')
       .send(envelope('search', 'hsp.vhhealth'));
@@ -203,8 +201,11 @@ describe('UHI webhook pipeline', () => {
     // no uhi_callback secret. The env fallback applies only when NO tenant
     // resolved; T's misconfiguration must fail for T, not silently bind the
     // message to the default tenant with the env key.
-    resolveTenantBySender.mockResolvedValue(TENANT_A);
-    getInteropSecret.mockResolvedValue(null);
+    resolveInteropCredentialSnapshot.mockResolvedValue({
+      tenant_id: TENANT_A,
+      sender_identifier: 'hsp.vhhealth',
+      secret: null,
+    });
     const res = await request(buildApp())
       .post('/api/v1/uhi/search')
       .send(envelope('search', 'hsp.vhhealth'));
@@ -286,6 +287,11 @@ describe('UHI webhook pipeline', () => {
       signatureVerified: true,
     });
     expect(handleUhiSearch).toHaveBeenCalledTimes(1);
+    expect(verifyBecknSignature).toHaveBeenCalledWith(expect.objectContaining({
+      publicKeyBase64: 'tenant-a-public-key',
+      expectedSignerId: 'eua.example',
+      rawBody: expect.any(Buffer),
+    }));
     expect(handleUhiSearch.mock.calls[0][0].tenantId).toBe(TENANT_A);
     expect(markUhiLeg).toHaveBeenCalledWith(TENANT_A, 42, expect.objectContaining({
       status: 'processed',

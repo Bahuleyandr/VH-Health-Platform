@@ -3,9 +3,12 @@ import crypto from 'crypto';
 import { verifySignedRequest, __testing__ } from '../../utils/signedRequest.js';
 
 function sign({ secret, timestamp, requestId, payload }) {
-  const body = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+  const body = Buffer.isBuffer(payload)
+    ? payload
+    : Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload || {}), 'utf8');
   return crypto.createHmac('sha256', secret)
-    .update(`${timestamp}.${requestId}.${body}`)
+    .update(`${timestamp}.${requestId}.`)
+    .update(body)
     .digest('hex');
 }
 
@@ -98,6 +101,21 @@ describe('verifySignedRequest', () => {
       timestamp,
       requestId,
       payload: { ok: false },
+    })).toThrow(/signature is invalid/);
+  });
+
+  it('binds signatures to the exact captured JSON bytes', () => {
+    const secret = 'signed-request-secret';
+    const timestamp = Math.floor(Date.now() / 1000);
+    const requestId = 'req-raw-json';
+    const raw = Buffer.from('{"a":1, "b":2}', 'utf8');
+    const reserialized = Buffer.from('{"a":1,"b":2}', 'utf8');
+    const signature = sign({ secret, timestamp, requestId, payload: raw });
+    expect(verifySignedRequest({
+      secret, signature, timestamp, requestId, payload: raw, claimLocalReplay: false,
+    })).toBe(true);
+    expect(() => verifySignedRequest({
+      secret, signature, timestamp, requestId, payload: reserialized, claimLocalReplay: false,
     })).toThrow(/signature is invalid/);
   });
 });

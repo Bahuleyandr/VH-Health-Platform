@@ -876,8 +876,8 @@ class ABDMService {
     return { patientUid: rows[0].uid, tenantId: rows[0].tenant_id };
   }
 
-  _verifyConsentArtefact({ consentRequestId, consentArtefact, signature }) {
-    if (!consentArtefactVerificationEnabled()) {
+  _verifyConsentArtefact({ consentRequestId, consentArtefact, signature, required = false }) {
+    if (!required && !consentArtefactVerificationEnabled()) {
       logger.warn(
         'ABDM consent-artefact signature verification is DISABLED — set ABDM_VERIFY_CONSENT_ARTEFACT=true and ABDM_CM_PUBLIC_KEY before production',
         { consentRequestId },

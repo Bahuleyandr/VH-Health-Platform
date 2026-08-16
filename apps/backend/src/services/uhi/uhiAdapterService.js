@@ -14,7 +14,8 @@
 // backend-pre-rls-tenant-model rule; the 705 header documents the same).
 //
 // Replay model: the durable cross-replica dedupe authority is the table's own
-// UNIQUE (tenant_id, environment, transaction_id, message_id, action) —
+// UNIQUE over tenant, environment, counterparty, transaction, message, action,
+// direction and signature outcome —
 // INSERT ... ON CONFLICT DO NOTHING; a conflicting redelivery returns the
 // existing row and the route answers a replay-safe ACK without reprocessing.
 // `action` is in the key deliberately: beckn callbacks REUSE the originating
@@ -38,6 +39,7 @@ const TXN_COLUMNS = `id, tenant_id, environment, transaction_id, message_id, act
        direction, counterparty_subscriber_id, payload, signature_verified,
        verification_failure_reason, status, ack, error_code, error_message,
        appointment_id, booking_snapshot, received_at, processed_at, created_at, updated_at`;
+const LEG_RECLAIM_INTERVAL = '5 minutes';
 
 function clean(value, max) {
   const text = String(value ?? '').trim();
@@ -52,10 +54,17 @@ export function parseUhiContext(body) {
   }
   const transactionId = clean(context.transaction_id, 120);
   const messageId = clean(context.message_id, 120);
+  const consumerId = clean(context.bap_id ?? context.consumer_id, 200);
   if (!transactionId || !messageId) {
     throw AppError.badRequest(
       'UHI context.transaction_id and context.message_id are required',
       'UHI_CONTEXT_IDS_REQUIRED',
+    );
+  }
+  if (!consumerId) {
+    throw AppError.badRequest(
+      'UHI context counterparty subscriber id is required',
+      'UHI_COUNTERPARTY_REQUIRED',
     );
   }
   return {
@@ -65,7 +74,7 @@ export function parseUhiContext(body) {
     // Provider (us / HSP) identity — the tenant-resolution key.
     providerId: clean(context.bpp_id ?? context.provider_id, 200),
     // Counterparty (EUA / gateway) identity + callback base.
-    consumerId: clean(context.bap_id ?? context.consumer_id, 200),
+    consumerId,
     consumerUri: clean(context.bap_uri ?? context.consumer_uri, 500),
   };
 }
@@ -73,8 +82,8 @@ export function parseUhiContext(body) {
 /**
  * Records one message leg with the ON CONFLICT dedupe. Returns
  * { row, duplicate } — duplicate=true means the identical leg
- * (tenant, environment, txn, msg, action) already exists; the caller answers
- * a replay-safe ACK and does NOT reprocess.
+ * replay identity already exists; the caller answers a replay-safe ACK and
+ * does not reprocess unless a failed/stale claim was reclaimed.
  */
 export async function recordUhiLeg({
   tenantId,
@@ -83,7 +92,7 @@ export async function recordUhiLeg({
   messageId,
   action,
   direction,
-  counterpartySubscriberId = null,
+  counterpartySubscriberId,
   payload = {},
   signatureVerified = false,
   verificationFailureReason = null,
@@ -93,6 +102,10 @@ export async function recordUhiLeg({
   errorMessage = null,
 }) {
   if (!tenantId) throw AppError.internal('UHI leg requires a resolved tenant', 'UHI_TENANT_REQUIRED');
+  const counterparty = clean(counterpartySubscriberId, 200);
+  if (!counterparty) {
+    throw AppError.badRequest('UHI counterparty subscriber id is required', 'UHI_COUNTERPARTY_REQUIRED');
+  }
   if (!UHI_ACTIONS.includes(action)) {
     throw AppError.badRequest(`Unsupported UHI action: ${action}`, 'UHI_ACTION_INVALID');
   }
@@ -115,7 +128,7 @@ export async function recordUhiLeg({
     messageId,
     action,
     direction,
-    counterpartySubscriberId,
+    counterparty,
     JSON.stringify(payload ?? {}),
     signatureVerified === true,
     clean(verificationFailureReason, 300),
@@ -128,15 +141,44 @@ export async function recordUhiLeg({
   const existing = await prisma.$queryRawUnsafe(
     `SELECT ${TXN_COLUMNS} FROM uhi_transactions
       WHERE tenant_id = $1::uuid AND environment = $2::text
-        AND transaction_id = $3::text AND message_id = $4::text AND action = $5::text
+        AND counterparty_subscriber_id = $3::text
+        AND transaction_id = $4::text AND message_id = $5::text AND action = $6::text
+        AND direction = $7::text AND signature_verified = $8::boolean
       LIMIT 1`,
     tenantId,
     environment,
+    counterparty,
     transactionId,
     messageId,
     action,
+    direction,
+    signatureVerified === true,
   );
-  return { row: existing[0] ?? null, duplicate: true };
+  const prior = existing[0] ?? null;
+  if (!prior) return { row: null, duplicate: true };
+  if (prior.status === 'failed' || (
+    prior.status === 'received'
+    && new Date(prior.updated_at).getTime() <= Date.now() - 5 * 60 * 1000
+  )) {
+    const reclaimed = await prisma.$queryRawUnsafe(
+      `UPDATE uhi_transactions
+          SET payload = $3::jsonb,
+              status = 'received', ack = NULL, error_code = NULL, error_message = NULL,
+              verification_failure_reason = $4::text,
+              processed_at = NULL, received_at = NOW(), updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int
+          AND (status = 'failed'
+               OR (status = 'received' AND updated_at <= NOW() - $5::interval))
+        RETURNING ${TXN_COLUMNS}`,
+      tenantId,
+      Number(prior.id),
+      JSON.stringify(payload ?? {}),
+      clean(verificationFailureReason, 300),
+      LEG_RECLAIM_INTERVAL,
+    );
+    if (reclaimed[0]) return { row: reclaimed[0], duplicate: false, reclaimed: true };
+  }
+  return { row: prior, duplicate: true };
 }
 
 async function markLeg(tenantId, id, {
@@ -347,11 +389,9 @@ export async function handleUhiInit({ tenantId, environment, context, body }) {
  * auto-creating identities — resolve-or-create through the guarded front-desk
  * registration path is the flagged open product decision.
  *
- * Replay note (reviewed, accepted as-is): the dedupe key is
- * (txn, message_id, action), so a network retry that mints a NEW message_id
- * for the same order re-runs createAppointment. The slot-conflict FOR UPDATE
- * check inside appointmentService rejects the second booking of the same
- * slot, so the practical effect is a NACK, never a double booking.
+ * A processed, signature-verified init from the same tenant, environment,
+ * counterparty, and transaction is required before booking. The confirm must
+ * preserve the init's patient phone, doctor, date, and time.
  */
 export async function handleUhiConfirm({ tenantId, environment, context, body, legId }) {
   const order = body?.message?.order ?? {};
@@ -363,6 +403,41 @@ export async function handleUhiConfirm({ tenantId, environment, context, body, l
     throw AppError.badRequest('UHI confirm requires customer contact phone', 'UHI_CUSTOMER_PHONE_REQUIRED');
   }
   const phone = normalizePhone(String(customerPhone));
+  const priorInitRows = await prisma.$queryRawUnsafe(
+    `SELECT payload FROM uhi_transactions
+      WHERE tenant_id = $1::uuid AND environment = $2::text
+        AND counterparty_subscriber_id = $3::text
+        AND transaction_id = $4::text AND action = 'init'
+        AND direction = 'inbound' AND signature_verified = TRUE
+        AND status = 'processed'
+      ORDER BY id DESC
+      LIMIT 1`,
+    tenantId,
+    environment,
+    context.consumerId,
+    context.transactionId,
+  );
+  const initializedOrder = priorInitRows[0]?.payload?.message?.order;
+  if (!initializedOrder) {
+    throw AppError.badRequest(
+      'UHI confirm requires a processed init from the same counterparty',
+      'UHI_JOURNEY_NOT_INITIALIZED',
+    );
+  }
+  const initializedSlot = parseOrderSlot(initializedOrder);
+  const initializedPhoneRaw = initializedOrder?.customer?.contact?.phone
+    ?? initializedOrder?.fulfillment?.customer?.contact?.phone
+    ?? null;
+  if (!initializedPhoneRaw
+      || normalizePhone(String(initializedPhoneRaw)) !== phone
+      || initializedSlot.doctorId !== doctorId
+      || initializedSlot.date !== date
+      || initializedSlot.time !== time) {
+    throw AppError.badRequest(
+      'UHI confirm does not match the authenticated init',
+      'UHI_JOURNEY_MISMATCH',
+    );
+  }
   const patients = await prisma.$queryRawUnsafe(
     `SELECT id, uid, name, phone FROM users
       WHERE tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE
@@ -433,11 +508,16 @@ export async function handleUhiStatus({ tenantId, environment, context }) {
        LEFT JOIN appointments a
          ON a.id = t.appointment_id AND a.tenant_id = $1::uuid
       WHERE t.tenant_id = $1::uuid AND t.transaction_id = $2::text
-        AND t.action = 'confirm' AND t.appointment_id IS NOT NULL
+        AND t.environment = $3::text AND t.counterparty_subscriber_id = $4::text
+        AND t.action = 'confirm' AND t.direction = 'inbound'
+        AND t.signature_verified = TRUE AND t.status = 'processed'
+        AND t.appointment_id IS NOT NULL
       ORDER BY t.id DESC
       LIMIT 1`,
     tenantId,
     context.transactionId,
+    environment,
+    context.consumerId,
   );
   const correlated = rows[0] ?? null;
   const message = correlated
@@ -469,11 +549,16 @@ export async function handleUhiCancel({ tenantId, environment, context, body, le
   const rows = await prisma.$queryRawUnsafe(
     `SELECT appointment_id FROM uhi_transactions
       WHERE tenant_id = $1::uuid AND transaction_id = $2::text
-        AND action = 'confirm' AND appointment_id IS NOT NULL
+        AND environment = $3::text AND counterparty_subscriber_id = $4::text
+        AND action = 'confirm' AND direction = 'inbound'
+        AND signature_verified = TRUE AND status = 'processed'
+        AND appointment_id IS NOT NULL
       ORDER BY id DESC
       LIMIT 1`,
     tenantId,
     context.transactionId,
+    environment,
+    context.consumerId,
   );
   // The cancel is bound to ITS OWN transaction's confirmed booking: a confirm
   // leg for this transaction_id MUST exist, and a message.order_id (when
