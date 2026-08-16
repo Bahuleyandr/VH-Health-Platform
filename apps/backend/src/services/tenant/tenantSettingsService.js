@@ -36,6 +36,13 @@
 //                                         // Effective only with PAYMENT_GATEWAY_ENABLED=true
 //                                         // AND an enabled payment_gateway_provider_configs row.
 //     },
+//     sms?: {
+//       enabled?: boolean,                // default false — real SMS gateway sends.
+//                                         // Effective only when SMS_PROVIDER is not the
+//                                         // 'logger' kill switch AND an enabled
+//                                         // sms_provider_configs row (or complete env
+//                                         // credentials) exists; otherwise dry-run.
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -184,6 +191,21 @@ export async function getAmbulanceGpsTrackingSettings(tenantId) {
 export async function getPaymentGatewaySettings(tenantId) {
   const settings = await getTenantSettings(tenantId);
   const raw = settings.paymentGateway;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// SMS gateway (migrations 699/700). Disabled by default — the outbox drain
+// resolves every tenant to the dry-run logger until this settings write AND a
+// provider config row (or complete env credentials) exist; SMS_PROVIDER=logger
+// remains the deployment-wide kill switch
+// (smsProviders/index.js:resolveSmsProviderContext ANDs all of it). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getSmsSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.sms;
   const defaults = { enabled: false };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
   return { enabled: raw.enabled === true };

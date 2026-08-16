@@ -240,6 +240,7 @@ import billingV2Routes from './routes/billing/billingV2Routes.js';
 import publicPaymentPageRoutes from './routes/billing/publicPaymentPageRoutes.js';
 import paymentGatewayRoutes from './routes/billing/paymentGatewayRoutes.js';
 import paymentGatewayWebhookRoutes from './routes/billing/paymentGatewayWebhookRoutes.js';
+import smsDlrWebhookRoutes from './routes/webhooks/smsDlrRoutes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import labIngestRoutes from './routes/lab/labIngestRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
@@ -884,6 +885,18 @@ app.use('/pay', patientRateLimiter, publicPaymentPageRoutes);
 // mount, so the handler writes tenant_id explicitly on every row (migration
 // 695 contract). Raw body is captured by the express.json verify hook above.
 app.use('/webhooks/payments', genericLimiter, paymentGatewayWebhookRoutes);
+
+// ====================================
+// SMS DELIVERY-STATUS (DLR) WEBHOOKS (public, token/signature-authenticated)
+// ====================================
+// MSG91/Twilio delivery-status callbacks carry no VH credential — the URL's
+// bearer token resolves the tenant FAIL-CLOSED via its SHA-256 hash on
+// sms_provider_configs (699); unknown token → 401, nothing written, never a
+// default tenant. Twilio deliveries are additionally verified against
+// X-Twilio-Signature (URL + sorted params, so no raw-body capture needed).
+// Receipts land append-only in the 609 ledger inside setTenant; outbox
+// status is NEVER flipped from a DLR (migration 700 contract).
+app.use('/webhooks/sms', genericLimiter, smsDlrWebhookRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE

@@ -131,6 +131,7 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'security' },
   { slug: 'session' },
   { slug: 'smart-fhir' },
+  { slug: 'sms-gateway' },
   { slug: 'sos' },
   { slug: 'staff-admin' },
   { slug: 'staff-care-plan' },

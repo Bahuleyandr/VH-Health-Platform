@@ -575,6 +575,50 @@ export const envSchema = Joi.object({
     .default('false')
     .label('PAYMENT_GATEWAY_ENABLED'),
 
+  // SMS gateway (migrations 699/700). Unset = dry-run everywhere (DEFAULT
+  // OFF); 'logger' is the explicit deployment-wide kill switch (tenant
+  // configs ignored); 'msg91'/'twilio' enable an env-credential fallback for
+  // tenants without their own sms_provider_configs row — per-tenant rows
+  // always win, and tenants.settings.sms.enabled still gates every real
+  // send. A named env provider must carry complete credentials.
+  SMS_PROVIDER: Joi.string()
+    .valid('msg91', 'twilio', 'logger')
+    .optional()
+    .label('SMS_PROVIDER'),
+  MSG91_AUTH_KEY: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_AUTH_KEY'),
+  MSG91_SENDER_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(20).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_SENDER_ID'),
+  MSG91_DLT_ENTITY_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(40).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_DLT_ENTITY_ID'),
+  TWILIO_SMS_FROM: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_SMS_FROM'),
+  // Shared Twilio account credentials (also used by the WhatsApp/voice
+  // channels, which only soft-check them at send time) become REQUIRED when
+  // the deployment names twilio as the env SMS provider.
+  TWILIO_ACCOUNT_SID: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_ACCOUNT_SID'),
+  TWILIO_AUTH_TOKEN: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_AUTH_TOKEN'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',

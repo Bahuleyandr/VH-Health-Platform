@@ -1,0 +1,326 @@
+// src/tests/unit/smsDlrCallback.test.js
+//
+// The public /webhooks/sms DLR mount (migrations 699/700) — the contract:
+//   * fail-closed tenant resolution: unknown/malformed URL token → 401 and
+//     NOTHING is written (never a default tenant on a pre-RLS mount);
+//   * Twilio deliveries additionally require a valid X-Twilio-Signature —
+//     any missing verification input (auth token, signature, public URL,
+//     SDK) fails CLOSED;
+//   * only TERMINAL statuses are persisted (delivered → acknowledged,
+//     failed/undelivered/rejected/expired → rejected); intermediate and
+//     unrecognized statuses are 200-acked with no write, protecting the
+//     one-receipt-per-(attempt, source) unique for the terminal report;
+//   * receipts are recorded through recordProviderReceiptTx inside
+//     setTenantTx with receipt_source='provider_status_callback';
+//   * an unknown provider reference is 200-acked with no write;
+//   * outbox status and delivery cursors are NEVER touched from a DLR.
+
+import { jest } from '@jest/globals';
+import express from 'express';
+import request from 'supertest';
+
+const TENANT_ID = '00000000-0000-4000-8000-000000000031';
+const TOKEN = 'tok_abcdefghijklmnopqrstuvwxyz01';
+
+const resolveSmsConfigByCallbackTokenMock = jest.fn();
+const recordProviderReceiptTxMock = jest.fn();
+const setTenantTxMock = jest.fn();
+const txQueryRawUnsafeMock = jest.fn();
+const decryptFieldMock = jest.fn();
+const validateRequestMock = jest.fn();
+const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: setTenantTxMock,
+}));
+jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
+jest.unstable_mockModule('../../services/notification/smsProviderConfigService.js', () => ({
+  resolveSmsConfigByCallbackToken: resolveSmsConfigByCallbackTokenMock,
+}));
+jest.unstable_mockModule('../../services/notification/notificationDeliveryLedgerService.js', () => ({
+  recordProviderReceiptTx: recordProviderReceiptTxMock,
+}));
+jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
+  decryptField: decryptFieldMock,
+}));
+jest.unstable_mockModule('twilio', () => ({
+  default: () => ({}),
+  validateRequest: validateRequestMock,
+}));
+
+const { default: dlrRouter } = await import('../../routes/webhooks/smsDlrRoutes.js');
+const { __testing__: dlrInternals } = await import(
+  '../../services/notification/smsDeliveryStatusService.js'
+);
+
+function app() {
+  const instance = express();
+  instance.use(express.json());
+  instance.use(express.urlencoded({ extended: true }));
+  instance.use('/webhooks/sms', dlrRouter);
+  return instance;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  delete process.env.PUBLIC_BASE_URL;
+  delete process.env.TWILIO_AUTH_TOKEN;
+  setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback({
+    $queryRawUnsafe: txQueryRawUnsafeMock,
+  }));
+  txQueryRawUnsafeMock.mockResolvedValue([
+    { attempt_id: 'aaaaaaaa-0000-4000-8000-000000000001', notification_outbox_id: 555 },
+  ]);
+  recordProviderReceiptTxMock.mockResolvedValue({
+    receipt_id: 'bbbbbbbb-0000-4000-8000-000000000002',
+  });
+  resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+    id: 7,
+    tenant_id: TENANT_ID,
+    provider: 'msg91',
+    auth_key_ciphertext: 'enc:key',
+    callback_token_hash: 'f'.repeat(64),
+  });
+  decryptFieldMock.mockReturnValue('twilio-auth-token');
+});
+
+describe('MSG91 DLR — token auth is the whole authentication', () => {
+  it('401s an unknown token and writes nothing', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue(null);
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-1', status: 'delivered' });
+    expect(res.status).toBe(401);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('records a delivered report as an acknowledged provider_status_callback receipt', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-123', status: 'delivered' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['recorded']);
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT_ID, expect.any(Function));
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      tenantId: TENANT_ID,
+      attemptId: 'aaaaaaaa-0000-4000-8000-000000000001',
+      outboxId: 555,
+      channel: 'sms',
+      outcome: 'acknowledged',
+      receiptSource: 'provider_status_callback',
+      providerReference: 'req-abc-123',
+      providerCode: 'dlr_delivered',
+    }));
+  });
+
+  it('maps a terminal failure (with operator code) to a rejected receipt', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-124', status: 'failed', code: 'DND' });
+    expect(res.status).toBe(200);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      outcome: 'rejected',
+      providerCode: 'dlr_failed_DND',
+      receiptSource: 'provider_status_callback',
+    }));
+  });
+
+  it('maps the documented MSG91 numeric codes (1=delivered)', async () => {
+    await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-125', status: 1 });
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      outcome: 'acknowledged',
+      providerCode: 'dlr_delivered',
+    }));
+  });
+
+  it('acks an intermediate status WITHOUT writing (protects the terminal unique)', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-126', status: 'queued' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['ignored_intermediate']);
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('acks an unrecognized status without writing (append-once safety)', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-127', status: 'weird-new-status' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['ignored_unknown_status']);
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('acks an unknown provider reference without writing (late/foreign DLR)', async () => {
+    txQueryRawUnsafeMock.mockResolvedValue([]);
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-unknown', status: 'delivered' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['unknown_reference']);
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('acks a report with no reference without writing', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ status: 'delivered' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['ignored_no_reference']);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
+  it('handles the batched report shape', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send([
+        { requestId: 'req-b-1', report: [{ status: 'delivered' }] },
+        { requestId: 'req-b-2', report: [{ status: 'failed', desc: 'ABSENT_SUBSCRIBER' }] },
+      ]);
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['recorded', 'recorded']);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(2);
+    expect(recordProviderReceiptTxMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      outcome: 'rejected',
+      providerCode: 'dlr_failed_ABSENT_SUBSCRIBER',
+    }));
+  });
+
+  it('a replayed terminal DLR is 200-acked (the receipt unique collapses it server-side)', async () => {
+    // recordProviderReceiptTx resolves the EXISTING receipt on conflict — the
+    // service treats both first-write and replay identically.
+    await request(app()).post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-123', status: 'delivered' });
+    const replay = await request(app()).post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-123', status: 'delivered' });
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.results).toEqual(['recorded']);
+  });
+
+  it('never touches outbox status or cursors — only the receipt insert path runs', async () => {
+    await request(app()).post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-abc-123', status: 'failed' });
+    const sql = txQueryRawUnsafeMock.mock.calls.map(([q]) => q).join('\n');
+    expect(sql).not.toMatch(/UPDATE\s+notification_outbox/i);
+    expect(sql).not.toMatch(/notification_delivery_cursors/i);
+  });
+});
+
+describe('Twilio status callback — token AND signature, fail-closed', () => {
+  const form = { MessageSid: 'SM900', MessageStatus: 'delivered' };
+
+  function postTwilio(overrides = {}) {
+    const req = request(app())
+      .post(`/webhooks/sms/twilio-status/${TOKEN}`)
+      .type('form');
+    if (overrides.signature !== null) {
+      req.set('X-Twilio-Signature', overrides.signature ?? 'sig-ok');
+    }
+    return req.send(overrides.form ?? form);
+  }
+
+  it('401s an unknown token', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue(null);
+    const res = await postTwilio();
+    expect(res.status).toBe(401);
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when PUBLIC_BASE_URL is not configured', async () => {
+    const res = await postTwilio();
+    expect(res.status).toBe(401);
+    expect(validateRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a missing signature header', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    const res = await postTwilio({ signature: null });
+    expect(res.status).toBe(401);
+  });
+
+  it('401s an invalid signature', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(false);
+    const res = await postTwilio();
+    expect(res.status).toBe(401);
+    expect(validateRequestMock).toHaveBeenCalledWith(
+      'twilio-auth-token',
+      'sig-ok',
+      `https://api.vhhealth.app/webhooks/sms/twilio-status/${TOKEN}`,
+      expect.objectContaining({ MessageSid: 'SM900' }),
+    );
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('records a verified delivered status as acknowledged', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio();
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['recorded']);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      outcome: 'acknowledged',
+      providerReference: 'SM900',
+      providerCode: 'dlr_delivered',
+      receiptSource: 'provider_status_callback',
+    }));
+  });
+
+  it('records a verified undelivered status as rejected with the Twilio error code', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio({
+      form: { MessageSid: 'SM901', MessageStatus: 'undelivered', ErrorCode: '30003' },
+    });
+    expect(res.status).toBe(200);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      outcome: 'rejected',
+      providerCode: 'dlr_undelivered_30003',
+    }));
+  });
+
+  it('acks a verified intermediate status without writing', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio({ form: { MessageSid: 'SM902', MessageStatus: 'sent' } });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['ignored_intermediate']);
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the env TWILIO_AUTH_TOKEN when the config has no ciphertext', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+      id: 8, tenant_id: TENANT_ID, provider: 'twilio', auth_key_ciphertext: null,
+    });
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    process.env.TWILIO_AUTH_TOKEN = 'env-twilio-token';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio();
+    expect(res.status).toBe(200);
+    expect(validateRequestMock).toHaveBeenCalledWith(
+      'env-twilio-token', expect.any(String), expect.any(String), expect.any(Object),
+    );
+  });
+});
+
+describe('status classification table', () => {
+  it.each([
+    ['delivered', 'acknowledged'],
+    ['DELIVERED', 'acknowledged'],
+    ['failed', 'rejected'],
+    ['undelivered', 'rejected'],
+    ['rejected', 'rejected'],
+    ['expired', 'rejected'],
+    ['queued', 'intermediate'],
+    ['sent', 'intermediate'],
+    ['submitted', 'intermediate'],
+    ['16', 'rejected'],
+    ['2', 'rejected'],
+    ['', 'unknown'],
+  ])('classifies %s as %s', (status, kind) => {
+    expect(dlrInternals.classifyDlrStatus(status).kind).toBe(kind);
+  });
+});

@@ -43,6 +43,7 @@ import * as referralFacilities from '../../../scripts/openapi/schemas/referralFa
 import * as shiftSwapOnCall from '../../../scripts/openapi/schemas/shiftSwapOnCall.mjs';
 import * as ambulanceTracking from '../../../scripts/openapi/schemas/ambulanceTracking.mjs';
 import * as paymentGateway from '../../../scripts/openapi/schemas/paymentGateway.mjs';
+import * as smsConfig from '../../../scripts/openapi/schemas/smsConfig.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -86,7 +87,8 @@ const MODULES = [
   referralFacilities,
   shiftSwapOnCall,
   ambulanceTracking,
-  paymentGateway
+  paymentGateway,
+  smsConfig
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
