@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -178,7 +178,15 @@ test('accepts a digest-pinned docker-container BuildKit image', () => {
       '        --driver docker-container \\',
       `        --driver-opt "image=moby/buildkit@sha256:${imageDigest}" \\`,
       '        --use',
+      '  - run: docker buildx create --name cloud-builder --driver=cloud example/acme',
       `  - run: docker buildx create --name inline-builder --driver=docker-container --driver-opt=image=moby/buildkit@sha256:${imageDigest} --use`,
+      '  - run: |-',
+      '      "docker" \\',
+      '        buildx create \\',
+      '        --name quoted-builder \\',
+      '        --driver docker-container \\',
+      `        --driver-opt "image=moby/buildkit@sha256:${imageDigest}" \\`,
+      '        --use',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
   });
@@ -212,6 +220,83 @@ test('rejects implicit, mutable, and expression-driven BuildKit driver images', 
   assert.match(violations[2].message, /sha256 digest/);
   assert.match(violations[3].message, /sha256 digest/);
   assert.match(violations[4].message, /explicit/);
+});
+
+test('rejects folded, continued, quoted, and indirect BuildKit command evasions', () => {
+  const root = fixture({
+    workflow: [
+      'x-build-command: &build-command >-',
+      '  docker buildx',
+      '  create --name aliased-builder --use',
+      'steps:',
+      '  - run: >-',
+      '      docker buildx',
+      '      create --name folded-builder --use',
+      '  - run: |',
+      '      docker buildx \\',
+      '        create --name continued-create --use',
+      '  - run: |',
+      '      docker \\',
+      '        buildx create --name continued-buildx --use',
+      '  - run: "\\\"docker\\\" buildx create --name quoted-docker --use"',
+      `  - run: \${DOCKER} buildx create --name indirect-docker --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
+      '  - run: *build-command',
+      '  - run: docker buildx',
+      '      create --name multiline-plain --use',
+      '  - run: >2',
+      '      docker buildx create --name explicit-indent --use',
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  const violations = findForgejoSupplyChainViolations(root);
+  assert.equal(violations.length, 8);
+  assert.equal(
+    violations.filter((violation) => /BuildKit image/.test(violation.message)).length,
+    4,
+  );
+  assert.equal(
+    violations.filter((violation) => /direct.*scalar/.test(violation.message)).length,
+    3,
+  );
+  assert.equal(
+    violations.filter((violation) => /literal docker executable/.test(violation.message)).length,
+    1,
+  );
+});
+
+test('does not accept a digest mentioned only in a shell comment or later command', () => {
+  const root = fixture({
+    workflow: [
+      'steps:',
+      `  - run: docker buildx create --name commented --use # --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
+      `  - run: docker buildx create --name chained --use && printf '%s' --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  const violations = findForgejoSupplyChainViolations(root);
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) => /BuildKit image/.test(violation.message)));
+});
+
+test('rejects explicit and aliased run mapping keys before command scanning', () => {
+  const root = fixture({
+    workflow: [
+      'x-key: &run-key run',
+      'steps:',
+      '  - *run-key: docker buildx create --name aliased-key --use',
+      '  - ? run',
+      '    : docker buildx create --name explicit-key --use',
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  const violations = findForgejoSupplyChainViolations(root);
+  const mappingViolations = violations.filter((violation) =>
+    /direct scalar keys/.test(violation.message),
+  );
+  assert.equal(mappingViolations.length, 2);
 });
 
 test('rejects quoted, flow-map, unqualified, and expression-driven images', () => {
@@ -250,4 +335,44 @@ test('rejects movable tool channels outside action and image references', () => 
 
 test('the repository Forgejo workflows and CI image are immutable', () => {
   assert.doesNotThrow(() => assertForgejoSupplyChainPins(resolve(import.meta.dirname, '..')));
+});
+
+test('repository BuildKit builders retain one rollback and clean only exact older generations', () => {
+  const workflows = [
+    ['deploy-dalekdefender.yml', 'vh-dalek-builder'],
+    ['release-images.yml', 'vh-release-builder'],
+  ];
+
+  for (const [file, prefix] of workflows) {
+    const workflow = readFileSync(
+      resolve(import.meta.dirname, '..', '.forgejo', 'workflows', file),
+      'utf8',
+    );
+    assert.match(workflow, new RegExp(`builder_prefix="${prefix}"`));
+    assert.match(workflow, /builder_generation=3/);
+    assert.match(workflow, /rollback_builder="\$\{builder_prefix\}-v\$\(\(builder_generation - 1\)\)"/);
+
+    const bootstrap = workflow.indexOf('docker buildx inspect "$builder_name" --bootstrap');
+    const imageProof = workflow.indexOf('BuildKit builder image does not match');
+    const workerProof = workflow.indexOf('worker_json=');
+    const logProof = workflow.indexOf('HostConfig.LogConfig.Type');
+    const cleanup = workflow.indexOf('remove_stale_builder "$builder_prefix"');
+    const firstBuild = workflow.indexOf('docker buildx build', cleanup);
+    assert.ok(bootstrap >= 0, `${file} must bootstrap the current builder`);
+    assert.ok(imageProof > bootstrap, `${file} must verify the reused builder image`);
+    assert.ok(workerProof > bootstrap, `${file} must verify a live worker`);
+    assert.ok(logProof > workerProof, `${file} must verify the bounded log driver`);
+    assert.ok(cleanup > logProof, `${file} cleanup must follow every current-builder health proof`);
+    assert.ok(firstBuild > cleanup, `${file} cleanup must precede workload builds`);
+
+    const createImage = workflow.match(/--driver-opt "image=([^"]+)"/)?.[1];
+    const expectedImage = workflow.match(/expected_builder_image="([^"]+)"/)?.[1];
+    assert.equal(expectedImage, createImage, `${file} reused-builder proof must match the create pin`);
+
+    const cleanupBlock = workflow.slice(cleanup, firstBuild);
+    const lifecycleBlock = workflow.slice(bootstrap, firstBuild);
+    assert.match(cleanupBlock, /while \[ "\$stale_generation" -lt "\$\(\(builder_generation - 1\)\)" \]/);
+    assert.match(lifecycleBlock, /docker buildx rm --force "\$stale_builder"/);
+    assert.doesNotMatch(lifecycleBlock, /docker\s+(?:builder|buildx|system)\s+prune/);
+  }
 });

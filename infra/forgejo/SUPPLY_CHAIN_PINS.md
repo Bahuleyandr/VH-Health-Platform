@@ -14,7 +14,10 @@ action tag, branch, workflow service image, or runner base image. The canonical
 security stage runs this check on every provider. Credential-bearing workflow
 tools must also use exact versions; `@latest` package execution and movable
 `version` channels are rejected. The checker also rejects implicit, movable, or
-expression-driven Docker-container BuildKit images.
+expression-driven Docker-container BuildKit images. It decodes direct inline,
+literal, and folded `run` scalars before inspecting shell commands, and rejects
+indirect or unsupported `run` forms rather than allowing them to bypass the pin
+check.
 
 To update a pin:
 
@@ -23,8 +26,12 @@ To update a pin:
 2. Review the upstream delta and record the release tag beside the immutable
    commit or digest.
 3. Update every occurrence in one change.
-4. For a BuildKit image update, bump the persistent builder name so existing
-   builder metadata cannot retain the prior image.
+4. For a BuildKit image update, increment `builder_generation`. The workflow
+   verifies the current builder's image identity, worker, garbage-collection,
+   and log controls before retiring the unsuffixed builder and numbered
+   generations older than the immediately preceding rollback. The current and
+   one explicitly named rollback generation are the complete retained set; do
+   not add a second rollback or a broad Docker prune.
 5. Run the pin unit tests, the security stage, and the affected Forgejo workflow
    syntax checks before publication.
 

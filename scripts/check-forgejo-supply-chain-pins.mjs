@@ -47,64 +47,262 @@ function isCommentedMatch(content, offset) {
   return content.slice(lineStart, offset).trimStart().startsWith('#');
 }
 
-function buildxCreateCommands(content) {
+function foldYamlBlockLines(lines) {
+  return lines.reduce((result, line, index) => {
+    if (index === 0) return line;
+    const previous = lines[index - 1];
+    const separator =
+      previous.trim() === '' ||
+      line.trim() === '' ||
+      previous.startsWith(' ') ||
+      line.startsWith(' ')
+        ? '\n'
+        : ' ';
+    return `${result}${separator}${line}`;
+  }, '');
+}
+
+function decodeInlineRunScalar(rawValue) {
+  const anchoredValue = rawValue.trim().replace(/^&[A-Za-z0-9_.-]+\s+/, '');
+  if (!anchoredValue || /^(?:\*|!|\$\{\{)/.test(anchoredValue)) return null;
+
+  if (anchoredValue.startsWith('"')) {
+    const match = anchoredValue.match(/^("(?:\\.|[^"\\])*")(?:\s+#.*)?$/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  if (anchoredValue.startsWith("'")) {
+    const match = anchoredValue.match(/^('(?:''|[^'])*')(?:\s+#.*)?$/);
+    return match ? match[1].slice(1, -1).replaceAll("''", "'") : null;
+  }
+  return anchoredValue;
+}
+
+function workflowRunScalars(content, file) {
   const lines = content.split(/\r?\n/);
-  const commands = [];
+  const scripts = [];
+  const violations = [];
+  const handledLines = new Set();
+  const blockRanges = [];
+  const key = `(?<key>"(?:\\\\.|[^"\\\\])*"|'(?:''|[^'])*'|[A-Za-z_][A-Za-z0-9_.-]*)`;
+  const directMapping = new RegExp(`^(?<indent> *)(?:-\\s*)?${key}\\s*:\\s*(?<value>.*)$`);
+  const blockHeader = /^(?<style>[>|])(?<modifiers>[+-]|[1-9]|[+-][1-9]|[1-9][+-])?(?:\s+#.*)?$/;
 
   for (let index = 0; index < lines.length; index += 1) {
-    const firstLine = lines[index].trim();
-    if (firstLine.startsWith('#') || !/\bdocker\s+buildx\s+create\b/.test(firstLine)) {
+    const line = lines[index];
+    if (line.trimStart().startsWith('#')) continue;
+    const mapping = line.match(directMapping);
+    if (!mapping) continue;
+    const parsedKey = parseYamlKey(mapping.groups.key);
+    if (parsedKey?.toLowerCase() !== 'run') continue;
+
+    const lineNumber = index + 1;
+    handledLines.add(lineNumber);
+    const rawValue = mapping.groups.value.trim();
+    const unanchoredValue = rawValue.replace(/^&[A-Za-z0-9_.-]+\s+/, '');
+    const header = unanchoredValue.match(blockHeader);
+    const parentIndent = line.indexOf(mapping.groups.key);
+    if (header) {
+      let firstContent = index + 1;
+      while (firstContent < lines.length && lines[firstContent].trim() === '') {
+        firstContent += 1;
+      }
+
+      const contentIndent = firstContent < lines.length
+        ? lines[firstContent].match(/^ */)[0].length
+        : 0;
+      if (contentIndent <= parentIndent) {
+        scripts.push({ script: '', line: lineNumber });
+        continue;
+      }
+
+      const blockLines = [];
+      let cursor = index + 1;
+      for (; cursor < lines.length; cursor += 1) {
+        if (lines[cursor].trim() === '') {
+          blockLines.push('');
+          continue;
+        }
+        const indentation = lines[cursor].match(/^ */)[0].length;
+        if (indentation < contentIndent) break;
+        blockLines.push(lines[cursor].slice(contentIndent));
+      }
+      blockRanges.push([index + 2, cursor]);
+      if (/\d/.test(header.groups.modifiers || '')) {
+        violations.push({
+          file,
+          line: lineNumber,
+          message: 'workflow run commands must use direct, supported scalar values',
+        });
+      } else {
+        const script = header.groups.style === '>'
+          ? foldYamlBlockLines(blockLines)
+          : blockLines.join('\n');
+        scripts.push({ script, line: lineNumber });
+      }
+      index = cursor - 1;
       continue;
     }
 
-    const startLine = index + 1;
-    let command = firstLine;
-    while (command.endsWith('\\') && index + 1 < lines.length) {
-      command = `${command.slice(0, -1).trimEnd()} ${lines[index + 1].trim()}`;
-      index += 1;
+    let continuation = index + 1;
+    while (
+      continuation < lines.length &&
+      (lines[continuation].trim() === '' || lines[continuation].trimStart().startsWith('#'))
+    ) {
+      continuation += 1;
     }
-    commands.push({ command, line: startLine });
+    if (
+      continuation < lines.length &&
+      lines[continuation].match(/^ */)[0].length > parentIndent
+    ) {
+      let cursor = continuation + 1;
+      while (
+        cursor < lines.length &&
+        (lines[cursor].trim() === '' || lines[cursor].match(/^ */)[0].length > parentIndent)
+      ) {
+        cursor += 1;
+      }
+      blockRanges.push([index + 2, cursor]);
+      violations.push({
+        file,
+        line: lineNumber,
+        message: 'workflow run commands must use direct, supported scalar values',
+      });
+      index = cursor - 1;
+      continue;
+    }
+
+    const script = decodeInlineRunScalar(rawValue);
+    if (script === null || /^[>|]/.test(unanchoredValue)) {
+      violations.push({
+        file,
+        line: lineNumber,
+        message: 'workflow run commands must use direct, supported scalar values',
+      });
+      continue;
+    }
+    scripts.push({ script, line: lineNumber });
+  }
+
+  for (const match of scalarPairs(content)) {
+    if (isCommentedMatch(content, match.index)) continue;
+    const parsedKey = parseYamlKey(match.groups.key);
+    if (parsedKey?.toLowerCase() !== 'run') continue;
+    const line = lineNumberAt(content, match.index);
+    if (handledLines.has(line)) continue;
+    if (blockRanges.some(([start, end]) => line >= start && line <= end)) continue;
+    violations.push({
+      file,
+      line,
+      message: 'workflow run commands must use direct, supported scalar values',
+    });
+  }
+
+  return { scripts, violations };
+}
+
+function shellCommandAt(script, start) {
+  let quote = null;
+  for (let index = start; index < script.length; index += 1) {
+    const character = script[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      else if (character === '\\' && quote === '"') index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '\\') {
+      index += 1;
+      continue;
+    }
+    if (
+      character === '\n' ||
+      character === '\r' ||
+      character === ';' ||
+      character === '|' ||
+      character === '&' ||
+      (character === '#' && (index === start || /\s/.test(script[index - 1])))
+    ) {
+      return script.slice(start, index);
+    }
+  }
+  return script.slice(start);
+}
+
+function buildxCreateCommands(script, line) {
+  const normalized = script.replace(/\\\r?\n[ \t]*/g, ' ');
+  const subcommand = '(?:"buildx"|\'buildx\'|buildx)\\s+(?:"create"|\'create\'|create)';
+  const pattern = new RegExp(`(?<![A-Za-z0-9_./$-])${subcommand}(?=\\s|$|[;&|])`, 'gi');
+  const literalDocker = /(?<![A-Za-z0-9_./$-])(?:"docker"|'docker'|docker)\s+$/i;
+  const commands = [];
+
+  for (const match of normalized.matchAll(pattern)) {
+    const prefix = normalized.slice(0, match.index);
+    const dockerMatch = prefix.match(literalDocker);
+    if (!dockerMatch) {
+      commands.push({ command: null, line });
+      continue;
+    }
+    const commandStart = prefix.length - dockerMatch[0].length;
+    commands.push({ command: shellCommandAt(normalized, commandStart), line });
   }
 
   return commands;
 }
 
 function buildkitDriverImageViolations(content, file) {
-  const violations = [];
+  const { scripts, violations } = workflowRunScalars(content, file);
 
-  for (const { command, line } of buildxCreateCommands(content)) {
-    const createCommand = command.slice(command.search(/\bdocker\s+buildx\s+create\b/));
-    const driverMatch = createCommand.match(
-      /(?:^|\s)--driver(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i,
-    );
-    const driver = driverMatch?.slice(1).find(Boolean)?.toLowerCase();
-    if (driver && ['docker', 'kubernetes', 'remote'].includes(driver)) continue;
+  for (const run of scripts) {
+    for (const { command, line } of buildxCreateCommands(run.script, run.line)) {
+      if (command === null) {
+        violations.push({
+          file,
+          line,
+          message: 'BuildKit create commands must invoke a literal docker executable',
+        });
+        continue;
+      }
+      const createCommand = command;
+      const driverMatch = createCommand.match(
+        /(?:^|\s)--driver(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i,
+      );
+      const driver = driverMatch?.slice(1).find(Boolean)?.toLowerCase();
+      if (driver && ['cloud', 'docker', 'kubernetes', 'remote'].includes(driver)) continue;
 
-    const driverOptions = [
-      ...createCommand.matchAll(
-        /(?:^|\s)--driver-opt(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/gi,
-      ),
-    ].map((match) => match.slice(1).find(Boolean));
-    const driverImages = driverOptions.flatMap((option) =>
-      option
-        .split(',')
-        .filter((field) => /^image=/i.test(field))
-        .map((field) => field.slice('image='.length)),
-    );
-    if (driverImages.length === 0) {
-      violations.push({
-        file,
-        line,
-        message: 'docker-container BuildKit image must be explicit and use a sha256 digest',
-      });
-      continue;
-    }
-    if (driverImages.length !== 1 || !literalImageDigestPattern.test(driverImages[0])) {
-      violations.push({
-        file,
-        line,
-        message: `docker-container BuildKit image must use a sha256 digest: ${driverImages.join(', ')}`,
-      });
+      const driverOptions = [
+        ...createCommand.matchAll(
+          /(?:^|\s)--driver-opt(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/gi,
+        ),
+      ].map((match) => match.slice(1).find(Boolean));
+      const driverImages = driverOptions.flatMap((option) =>
+        option
+          .split(',')
+          .filter((field) => /^image=/i.test(field))
+          .map((field) => field.slice('image='.length)),
+      );
+      if (driverImages.length === 0) {
+        violations.push({
+          file,
+          line,
+          message: 'docker-container BuildKit image must be explicit and use a sha256 digest',
+        });
+        continue;
+      }
+      if (driverImages.length !== 1 || !literalImageDigestPattern.test(driverImages[0])) {
+        violations.push({
+          file,
+          line,
+          message: `docker-container BuildKit image must use a sha256 digest: ${driverImages.join(', ')}`,
+        });
+      }
     }
   }
 

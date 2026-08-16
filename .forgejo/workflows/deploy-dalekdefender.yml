@@ -105,7 +105,11 @@ jobs:
 
           # buildx-stable-1 multi-arch index, resolved from Docker Hub on
           # 2026-08-17. The v2 builder remains for operator-directed rollback.
-          builder_name="vh-dalek-builder-v3"
+          builder_prefix="vh-dalek-builder"
+          builder_generation=3
+          builder_name="${builder_prefix}-v${builder_generation}"
+          rollback_builder="${builder_prefix}-v$((builder_generation - 1))"
+          expected_builder_image="moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
           if docker buildx inspect "$builder_name" >/dev/null 2>&1; then
             docker buildx use "$builder_name"
           else
@@ -119,6 +123,11 @@ jobs:
           docker buildx inspect "$builder_name" --bootstrap
 
           builder_container="buildx_buildkit_${builder_name}0"
+          actual_builder_image="$(docker inspect -f '{{.Config.Image}}' "$builder_container")"
+          if [ "$actual_builder_image" != "$expected_builder_image" ]; then
+            echo "::error::BuildKit builder image does not match the reviewed digest"
+            exit 1
+          fi
           worker_json="$(docker exec "$builder_container" buildctl debug workers --format '{{json .}}')"
           WORKER_JSON="$worker_json" node -e '
             const workers = JSON.parse(process.env.WORKER_JSON);
@@ -139,6 +148,27 @@ jobs:
             echo "::error::Pinned BuildKit builder is not using the bounded local log driver"
             exit 1
           fi
+
+          # Keep only the verified current generation and its immediate rollback.
+          # Cleanup is exact-name only and runs after image, worker, GC, and log checks.
+          remove_stale_builder() {
+            stale_builder="$1"
+            if docker buildx inspect "$stale_builder" >/dev/null 2>&1; then
+              if ! docker buildx rm --force "$stale_builder"; then
+                if docker buildx inspect "$stale_builder" >/dev/null 2>&1; then
+                  echo "::error::Failed to retire stale BuildKit builder $stale_builder"
+                  return 1
+                fi
+              fi
+            fi
+          }
+          remove_stale_builder "$builder_prefix"
+          stale_generation=1
+          while [ "$stale_generation" -lt "$((builder_generation - 1))" ]; do
+            remove_stale_builder "${builder_prefix}-v${stale_generation}"
+            stale_generation=$((stale_generation + 1))
+          done
+          echo "Retaining $rollback_builder as the sole rollback generation"
 
           docker buildx build \
             --pull \
