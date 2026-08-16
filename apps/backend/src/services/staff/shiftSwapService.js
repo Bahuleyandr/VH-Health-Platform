@@ -155,22 +155,35 @@ async function auditSwap(tx, { swapId, tenantId, actor, action, reason, before, 
 
 // In-app notifications for swap lifecycle events (the roster notification
 // idiom — direct `notifications` rows, same as rosterDeadlineService).
-async function notifySwapParties(tx, { userIds, title, body, data }) {
+async function notifySwapParties(tx, { userIds, title, body, data, tenantId }) {
   const ids = [...new Set(userIds.filter(id => Number.isInteger(Number(id)) && Number(id) > 0))];
   if (!ids.length) return 0;
+  const tenant = resolveTenant(tenantId);
   const rows = await tx.$queryRawUnsafe(
+    // tenant_id is stamped from the caller's resolved tenant rather than left
+    // to the column DEFAULT, which reads an app.current_tenant_id GUC that a
+    // bare prisma.$transaction never sets — every swap notification was
+    // landing on the default tenant, invisible to the real recipient's list
+    // (which filters `WHERE user_id = $1 AND tenant_id = $2`) and visible to
+    // the default tenant's admins, carrying the other tenant's staff names
+    // and roster facts in the body.
+    //
+    // The recipient lookup is tenant-filtered for the same reason: a swap must
+    // never notify a user outside the tenant that owns it.
     `INSERT INTO notifications
-       (uid, user_id, phone, title, body, type, priority, data, is_read,
+       (tenant_id, uid, user_id, phone, title, body, type, priority, data, is_read,
         created_at, updated_at, recipient_role)
-     SELECT u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'SHIFT_SWAP', 'HIGH', $3::jsonb,
+     SELECT u.tenant_id, u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'SHIFT_SWAP', 'HIGH', $3::jsonb,
             false, NOW(), NOW(), u.role
        FROM users u
       WHERE u.id = ANY($4::int[])
+        AND u.tenant_id = $5::uuid
       RETURNING id`,
     title,
     body,
     JSON.stringify(normalizeSnapshot(data)),
-    ids.map(Number)
+    ids.map(Number),
+    tenant
   );
   return rows.length;
 }
@@ -289,6 +302,7 @@ export async function proposeShiftSwap({
       after: created,
     });
     await notifySwapParties(tx, {
+      tenantId: tenant,
       userIds: [theirs.staff_id],
       title: 'Shift swap proposed',
       body: `${actor.name || 'A colleague'} wants to swap their ${describeAssignment(mine)} for your ${describeAssignment(theirs)}.`,
@@ -517,6 +531,7 @@ export async function respondToShiftSwap({ swapId, decision, note, actorUser, te
       after,
     });
     await notifySwapParties(tx, {
+      tenantId: tenant,
       userIds: [swap.requester_id],
       title: clean === 'accept' ? 'Shift swap accepted' : 'Shift swap declined',
       body: clean === 'accept'
@@ -559,6 +574,7 @@ export async function cancelShiftSwap({ swapId, actorUser, tenantId = null }) {
       after,
     });
     await notifySwapParties(tx, {
+      tenantId: tenant,
       userIds: [swap.counterparty_id],
       title: 'Shift swap cancelled',
       body: `${actor.name || 'Your colleague'} withdrew their shift swap request.`,
@@ -611,18 +627,29 @@ async function assertExchangeTargetClear(tx, { staffId, staffName, rosterDate, e
   }
 }
 
-async function auditRosterAssignmentExchange(tx, { rosterId, assignmentId, actor, reason, before, after }) {
+async function auditRosterAssignmentExchange(
+  tx,
+  { rosterId, assignmentId, actor, reason, before, after, tenantId }
+) {
   await tx.$executeRawUnsafe(
+    // tenant_id stamped explicitly: the column DEFAULT reads an
+    // app.current_tenant_id GUC that a bare $transaction never sets, so the
+    // exchange evidence for every tenant's roster landed in the default
+    // tenant — the owning tenant's audit trail showed nothing for its own
+    // swap, and the default tenant's showed two unexplained swap_exchanged
+    // rows referencing another tenant's roster.
     `INSERT INTO staff_shift_roster_assignment_audit
-       (roster_id, assignment_id, actor_id, actor_uid, action, reason, before_snapshot, after_snapshot)
-     VALUES ($1::int,$2::int,$3::int,$4::uuid,'swap_exchanged',$5,$6::jsonb,$7::jsonb)`,
+       (tenant_id, roster_id, assignment_id, actor_id, actor_uid, action, reason,
+        before_snapshot, after_snapshot)
+     VALUES ($8::uuid,$1::int,$2::int,$3::int,$4::uuid,'swap_exchanged',$5,$6::jsonb,$7::jsonb)`,
     rosterId,
     assignmentId,
     actor.id || null,
     actor.uid || null,
     reason || null,
     JSON.stringify(normalizeSnapshot(before)),
-    JSON.stringify(normalizeSnapshot(after))
+    JSON.stringify(normalizeSnapshot(after)),
+    resolveTenant(tenantId)
   );
 }
 
@@ -666,6 +693,7 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tena
         before: swap, after,
       });
       await notifySwapParties(tx, {
+        tenantId: tenant,
         userIds: [swap.requester_id, swap.counterparty_id],
         title: 'Shift swap rejected',
         body: `${actor.name || 'The department reviewer'} rejected the proposed shift swap.`,
@@ -782,6 +810,7 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tena
     });
     const exchangeReason = `Shift swap #${id} approved`;
     await auditRosterAssignmentExchange(tx, {
+      tenantId: tenant,
       rosterId: mine.roster_id,
       assignmentId: mine.id,
       actor,
@@ -790,6 +819,7 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tena
       after: { staff_id: theirs.staff_id, staff_uid: theirs.staff_uid, staff_role: theirs.staff_role },
     });
     await auditRosterAssignmentExchange(tx, {
+      tenantId: tenant,
       rosterId: theirs.roster_id,
       assignmentId: theirs.id,
       actor,
@@ -798,6 +828,7 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tena
       after: { staff_id: mine.staff_id, staff_uid: mine.staff_uid, staff_role: mine.staff_role },
     });
     await notifySwapParties(tx, {
+      tenantId: tenant,
       userIds: [swap.requester_id, swap.counterparty_id],
       title: 'Shift swap approved',
       body: `Your shift swap was approved: ${describeAssignment(mine)} <-> ${describeAssignment(theirs)}.`,
