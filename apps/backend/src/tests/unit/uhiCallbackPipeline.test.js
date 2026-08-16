@@ -198,6 +198,37 @@ describe('UHI webhook pipeline', () => {
     expect(recordUhiLeg.mock.calls[0][0].tenantId).toBe('00000000-0000-4000-8000-000000000001');
   });
 
+  it('a RESOLVED tenant with a missing key row fails 401 — never re-attributed to the default tenant', async () => {
+    // contracts-review F7: tenant T registered the env subscriber id but has
+    // no uhi_callback secret. The env fallback applies only when NO tenant
+    // resolved; T's misconfiguration must fail for T, not silently bind the
+    // message to the default tenant with the env key.
+    resolveTenantBySender.mockResolvedValue(TENANT_A);
+    getInteropSecret.mockResolvedValue(null);
+    const res = await request(buildApp())
+      .post('/api/v1/uhi/search')
+      .send(envelope('search', 'hsp.vhhealth'));
+    expect(res.status).toBe(401);
+    expect(recordUhiLeg).not.toHaveBeenCalled();
+    expect(verifyBecknSignature).not.toHaveBeenCalled();
+  });
+
+  it('missing raw-body capture → 400 loudly, never verifies a re-serialization', async () => {
+    // Same posture as the payments webhook: a captureJsonRawBody path-list
+    // drift is a plumbing bug that must fail loudly, not degrade into
+    // verifying JSON.stringify(req.body).
+    const app = express();
+    app.use(express.json()); // deliberately NO uhiRawBody capture
+    app.use('/api/v1/uhi', callbackRouter);
+    const res = await request(app)
+      .post('/api/v1/uhi/search')
+      .send(envelope());
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('UHI_RAW_BODY_MISSING');
+    expect(verifyBecknSignature).not.toHaveBeenCalled();
+    expect(recordUhiLeg).not.toHaveBeenCalled();
+  });
+
   it('tenant setting off → 404 UHI_DISABLED, nothing stored', async () => {
     getUhiSettings.mockResolvedValue({ enabled: false, environment: 'sandbox' });
     const res = await request(buildApp())

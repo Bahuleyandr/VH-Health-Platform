@@ -101,11 +101,14 @@ async function validateUhiRequest(req, res, next) {
   // Fail-closed tenant resolution BEFORE any write (ABDM W3 model): a
   // per-tenant row in tenant_interop_secrets (kind 'uhi_callback', sender =
   // our per-tenant HSP subscriber id) wins; the env-configured subscriber id
-  // maps to the DEFAULT tenant with the env gateway public key. Unknown
-  // provider id → 401, nothing stored.
+  // maps to the DEFAULT tenant with the env gateway public key ONLY when no
+  // tenant resolved at all — a resolved tenant whose key row is missing is a
+  // misconfiguration that must fail for THAT tenant, never be silently
+  // re-attributed to the default tenant. Unknown provider id → 401, nothing
+  // stored.
   let tenantId = await resolveTenantBySender('uhi_callback', context.providerId);
   let verificationKey = tenantId ? await getInteropSecret(tenantId, 'uhi_callback') : null;
-  if (!verificationKey && UHI_CONFIG.subscriberId && context.providerId === UHI_CONFIG.subscriberId) {
+  if (!tenantId && UHI_CONFIG.subscriberId && context.providerId === UHI_CONFIG.subscriberId) {
     tenantId = DEFAULT_TENANT_ID;
     verificationKey = UHI_CONFIG.gatewayPublicKey;
   }
@@ -126,10 +129,21 @@ async function validateUhiRequest(req, res, next) {
 
   const environment = settings.environment ?? UHI_CONFIG.environment;
 
+  // The beckn signature is computed over the EXACT request bytes. A missing
+  // capture means the app.js captureJsonRawBody path list drifted from
+  // UHI_CALLBACK_PATHS — fail loudly (payments-webhook posture) instead of
+  // degrading to verifying a re-serialization of req.body.
+  if (!req.uhiRawBody || !req.uhiRawBody.length) {
+    logger.error('UHI callback missing raw body capture — check the app.js captureJsonRawBody list');
+    return error(res, 'Unable to verify message signature', 400, {
+      topLevel: { code: 'UHI_RAW_BODY_MISSING' },
+    });
+  }
+
   try {
     verifyBecknSignature({
       authorizationHeader: req.headers.authorization,
-      rawBody: req.uhiRawBody ?? JSON.stringify(req.body ?? {}),
+      rawBody: req.uhiRawBody,
       publicKeyBase64: verificationKey,
     });
   } catch (err) {

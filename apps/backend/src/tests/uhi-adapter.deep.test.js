@@ -391,6 +391,44 @@ d('UHI adapter (migration 705)', () => {
     expect(count[0].n).toBe(0);
   });
 
+  it('NACKs a cancel on a fresh transaction naming an arbitrary order_id — the appointment is untouched', async () => {
+    // Adversarial: a signed counterparty replays `cancel` on a transaction_id
+    // that never carried a confirm leg, with message.order_id pointing at a
+    // real appointment booked under a DIFFERENT transaction. The cancel must
+    // bind to its own transaction's confirm leg and NACK.
+    const ctx = context({ transactionId: 'uhi-txn-enum', messageId: 'msg-enum-cancel' });
+    const body = { message: { order_id: String(confirmedAppointmentId) } };
+    const intake = await recordUhiLeg({
+      tenantId: TENANT_ID,
+      transactionId: ctx.transactionId,
+      messageId: ctx.messageId,
+      action: 'cancel',
+      direction: 'inbound',
+      payload: body,
+      signatureVerified: true,
+    });
+    const result = await handleUhiCancel({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      context: ctx,
+      body,
+      legId: intake.row.id,
+    });
+    expect(result.error).toMatchObject({ code: 'UHI_ORDER_NOT_FOUND' });
+    const legs = await prisma.$queryRawUnsafe(
+      `SELECT status, ack FROM uhi_transactions
+        WHERE tenant_id = $1::uuid AND transaction_id = 'uhi-txn-enum' AND action = 'cancel'`,
+      TENANT_ID,
+    );
+    expect(legs[0]).toMatchObject({ status: 'rejected', ack: 'NACK' });
+    const appts = await prisma.$queryRawUnsafe(
+      `SELECT status FROM appointments WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_ID,
+      confirmedAppointmentId,
+    );
+    expect(appts[0].status).toBe('SCHEDULED');
+  });
+
   it('cancels through the patient self-service transition path', async () => {
     const ctx = context({ messageId: 'msg-cancel' });
     const body = { message: { order_id: String(confirmedAppointmentId) } };

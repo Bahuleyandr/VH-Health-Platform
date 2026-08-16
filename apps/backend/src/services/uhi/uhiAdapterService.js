@@ -346,6 +346,12 @@ export async function handleUhiInit({ tenantId, environment, context, body }) {
  * and NACKs unregistered customers (UHI_PATIENT_NOT_REGISTERED) rather than
  * auto-creating identities — resolve-or-create through the guarded front-desk
  * registration path is the flagged open product decision.
+ *
+ * Replay note (reviewed, accepted as-is): the dedupe key is
+ * (txn, message_id, action), so a network retry that mints a NEW message_id
+ * for the same order re-runs createAppointment. The slot-conflict FOR UPDATE
+ * check inside appointmentService rejects the second booking of the same
+ * slot, so the practical effect is a NACK, never a double booking.
  */
 export async function handleUhiConfirm({ tenantId, environment, context, body, legId }) {
   const order = body?.message?.order ?? {};
@@ -469,10 +475,16 @@ export async function handleUhiCancel({ tenantId, environment, context, body, le
     tenantId,
     context.transactionId,
   );
-  const appointmentId = Number.isInteger(orderId) && orderId > 0
-    ? orderId
-    : (rows[0]?.appointment_id ?? null);
-  if (!appointmentId || (rows[0] && Number(rows[0].appointment_id) !== Number(appointmentId))) {
+  // The cancel is bound to ITS OWN transaction's confirmed booking: a confirm
+  // leg for this transaction_id MUST exist, and a message.order_id (when
+  // present) must name exactly that appointment. Without this binding a
+  // signed counterparty could cancel arbitrary appointments by id enumeration
+  // on a fresh transaction_id.
+  const confirmedAppointmentId = rows[0] ? Number(rows[0].appointment_id) : null;
+  const appointmentId = confirmedAppointmentId;
+  const orderIdMismatch = Number.isInteger(orderId) && orderId > 0
+    && Number(orderId) !== confirmedAppointmentId;
+  if (!appointmentId || orderIdMismatch) {
     const errorBody = {
       code: 'UHI_ORDER_NOT_FOUND',
       message: 'No confirmed booking for this transaction',
