@@ -35,6 +35,7 @@ export async function getMyShiftSwaps(req, res) {
   try {
     const rows = await listMyShiftSwaps({
       actorUser: req.user,
+      tenantId: req.tenantId || null,
       limit: req.query?.limit,
     });
     success(res, rows, 'Shift swap requests fetched');
@@ -48,6 +49,7 @@ export async function getSwapCandidates(req, res) {
   try {
     const rows = await listSwapCandidates({
       actorUser: req.user,
+      tenantId: req.tenantId || null,
       limit: req.query?.limit,
     });
     success(res, rows, 'Swap candidates fetched');
@@ -63,6 +65,7 @@ export async function getDepartmentShiftSwaps(req, res) {
       department: req.params.department,
       status: req.query?.status || null,
       actorUser: req.user,
+      tenantId: req.tenantId || null,
       limit: req.query?.limit,
     });
     success(res, rows, 'Department shift swaps fetched');
@@ -79,6 +82,7 @@ export async function respondShiftSwap(req, res) {
       decision: req.body?.decision,
       note: req.body?.note,
       actorUser: req.user,
+      tenantId: req.tenantId || null,
     });
     success(res, swap, 'Shift swap response recorded');
   } catch (err) {
@@ -92,6 +96,7 @@ export async function cancelShiftSwapRequest(req, res) {
     const swap = await cancelShiftSwap({
       swapId: req.params.id,
       actorUser: req.user,
+      tenantId: req.tenantId || null,
     });
     success(res, swap, 'Shift swap cancelled');
   } catch (err) {
@@ -107,6 +112,7 @@ export async function reviewShiftSwapRequest(req, res) {
       decision: req.body?.decision,
       notes: req.body?.notes,
       actorUser: req.user,
+      tenantId: req.tenantId || null,
     });
     success(res, swap, 'Shift swap reviewed');
   } catch (err) {

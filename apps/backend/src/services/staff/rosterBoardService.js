@@ -1195,6 +1195,63 @@ async function saveRosterBoardRecord(tx, {
     );
     const board = boardRows[0];
 
+    // A board rewrite replaces every assignment row, so live swap requests
+    // referencing them cannot survive — cancel them first with audit
+    // evidence and party notifications. Settled swaps keep their request +
+    // audit rows: the assignment FKs are ON DELETE SET NULL and migration
+    // 686's chk_staff_shift_swap_live_assignment_refs makes deleting an
+    // assignment under a still-live swap fail closed instead.
+    const liveSwaps = await tx.$queryRawUnsafe(
+      `SELECT s.* FROM staff_shift_swap_requests s
+        WHERE s.status IN ('proposed', 'counterparty_accepted')
+          AND EXISTS (
+            SELECT 1 FROM staff_shift_roster_assignments a
+             WHERE a.roster_id = $1::int
+               AND a.id IN (s.requester_assignment_id, s.counterparty_assignment_id))
+        FOR UPDATE OF s`,
+      board.id
+    );
+    for (const liveSwap of liveSwaps) {
+      const cancelledRows = await tx.$queryRawUnsafe(
+        `UPDATE staff_shift_swap_requests
+            SET status = 'cancelled', updated_at = NOW()
+          WHERE id = $1::int
+          RETURNING *`,
+        liveSwap.id
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO staff_shift_swap_request_audit
+           (tenant_id, swap_request_id, actor_id, actor_uid, action, reason,
+            before_snapshot, after_snapshot)
+         VALUES ($1::uuid,$2::int,$3::int,$4::uuid,'cancelled',$5,$6::jsonb,$7::jsonb)`,
+        liveSwap.tenant_id,
+        liveSwap.id,
+        actor.id || null,
+        actor.uid || null,
+        `Roster board ${board.department} ${board.roster_date} ${board.shift_label} was re-saved; the underlying shift assignments were replaced`,
+        JSON.stringify(normalizeSnapshot(liveSwap)),
+        JSON.stringify(normalizeSnapshot(cancelledRows[0]))
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO notifications
+           (uid, user_id, phone, title, body, type, priority, data, is_read,
+            created_at, updated_at, recipient_role)
+         SELECT u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'SHIFT_SWAP', 'HIGH', $3::jsonb,
+                false, NOW(), NOW(), u.role
+           FROM users u
+          WHERE u.id = ANY($4::int[])`,
+        'Shift swap cancelled',
+        'Your shift swap request was cancelled because the roster board was re-saved.',
+        JSON.stringify({
+          swap_request_id: liveSwap.id,
+          department: liveSwap.department,
+          source: 'shift_swap_cancelled_roster_resave'
+        }),
+        [Number(liveSwap.requester_id), Number(liveSwap.counterparty_id)]
+          .filter(id => Number.isInteger(id) && id > 0)
+      );
+    }
+
     await tx.$executeRawUnsafe(
       `DELETE FROM staff_shift_roster_assignments WHERE roster_id = $1::int`,
       board.id

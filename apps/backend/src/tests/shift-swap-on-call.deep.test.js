@@ -21,6 +21,7 @@ const FOREIGN_UID = '11111111-2222-4333-8444-000000682005';
 const ONCALL_DOC_UID = '11111111-2222-4333-8444-000000682006';
 const ONCALL_DOC2_UID = '11111111-2222-4333-8444-000000682007';
 const ADMIN682_UID = '11111111-2222-4333-8444-000000682008';
+const FOREIGN_INCHARGE_UID = '11111111-2222-4333-8444-000000682009';
 
 const FOREIGN_TENANT = 'd6820000-0000-4000-8000-0000006820aa';
 const ESCALATION_TENANT = 'd6820000-0000-4000-8000-0000006820ab';
@@ -80,6 +81,7 @@ describe('shift swap + on-call roster', () => {
   let inchargeId;
   let outsiderId;
   let foreignId;
+  let foreignInchargeId;
   let oncallDocId;
   let oncallDoc2Id;
   let adminId;
@@ -128,12 +130,15 @@ describe('shift swap + on-call roster', () => {
 
     const foreign = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
-       VALUES ($1::uuid, $2, 'Swap Foreign Nurse [test]', 'NURSING_STAFF', true, $3::uuid, NOW())
+       VALUES ($1::uuid, $2, 'Swap Foreign Nurse [test]', 'NURSING_STAFF', true, $3::uuid, NOW()),
+              ($4::uuid, $5, 'Swap Foreign Incharge [test]', 'NURSING_INCHARGE', true, $3::uuid, NOW())
        ON CONFLICT (uid) DO UPDATE SET is_active = true, updated_at = NOW()
-       RETURNING id`,
-      FOREIGN_UID, `97${STAMP.slice(-8)}8`, FOREIGN_TENANT
+       RETURNING id, uid`,
+      FOREIGN_UID, `97${STAMP.slice(-8)}8`, FOREIGN_TENANT,
+      FOREIGN_INCHARGE_UID, `97${STAMP.slice(-8)}9`
     );
-    foreignId = foreign[0].id;
+    foreignId = foreign.find(row => row.uid === FOREIGN_UID).id;
+    foreignInchargeId = foreign.find(row => row.uid === FOREIGN_INCHARGE_UID).id;
   }, HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -473,6 +478,287 @@ describe('shift swap + on-call roster', () => {
     });
   });
 
+  describe('cross-tenant swap isolation', () => {
+    let swapId;
+    let mineId;
+    let theirsId;
+
+    beforeAll(async () => {
+      const b1 = await createBoard({ rosterDate: dateOffset(16), shiftLabel: label('XT1') });
+      const b2 = await createBoard({ rosterDate: dateOffset(17), shiftLabel: label('XT2') });
+      boardIds.push(b1.id, b2.id);
+      const mine = await createAssignment({
+        boardId: b1.id, staffId: requesterId, staffUid: REQUESTER_UID
+      });
+      const theirs = await createAssignment({
+        boardId: b2.id, staffId: counterpartyId, staffUid: COUNTERPARTY_UID
+      });
+      mineId = mine.id;
+      theirsId = theirs.id;
+      const proposed = await authed('NURSING_STAFF', REQUESTER_UID, requesterId)
+        .post('/api/v1/staff/roster-board/swaps')
+        .send({ requester_assignment_id: mineId, counterparty_assignment_id: theirsId });
+      expect(proposed.status).toBe(201);
+      swapId = proposed.body.data.id;
+      const accepted = await authed('NURSING_STAFF', COUNTERPARTY_UID, counterpartyId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/respond`)
+        .send({ decision: 'accept' });
+      expect(accepted.status).toBe(200);
+    }, HOOK_TIMEOUT_MS);
+
+    it('hides another tenant\'s assignments from the candidate list', async () => {
+      const res = await authed('NURSING_STAFF', FOREIGN_UID, foreignId)
+        .get('/api/v1/staff/roster-board/swaps/candidates');
+      expect(res.status).toBe(200);
+      expect(res.body.data.some(row => [mineId, theirsId].includes(row.assignment_id))).toBe(false);
+    });
+
+    it('rejects a review by an incharge from another tenant as not found', async () => {
+      const res = await authed('NURSING_INCHARGE', FOREIGN_INCHARGE_UID, foreignInchargeId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/review`)
+        .send({ decision: 'rejected', notes: 'cross-tenant attack' });
+      expect(res.status).toBe(404);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT status FROM staff_shift_swap_requests WHERE id = $1::int`,
+        swapId
+      );
+      expect(rows[0].status).toBe('counterparty_accepted');
+    });
+
+    it('does not list another tenant\'s swaps for a foreign department reviewer', async () => {
+      const res = await authed('NURSING_INCHARGE', FOREIGN_INCHARGE_UID, foreignInchargeId)
+        .get('/api/v1/staff/roster-board/departments/nursing/swaps');
+      expect(res.status).toBe(200);
+      expect(res.body.data.some(row => row.id === swapId)).toBe(false);
+    });
+
+    it('rejects respond/cancel from another tenant as not found', async () => {
+      const respond = await authed('NURSING_STAFF', FOREIGN_UID, foreignId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/respond`)
+        .send({ decision: 'decline' });
+      expect(respond.status).toBe(404);
+
+      const cancel = await authed('NURSING_STAFF', FOREIGN_UID, foreignId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/cancel`)
+        .send({});
+      expect(cancel.status).toBe(404);
+    });
+
+    it('still lets the same-tenant incharge review the swap', async () => {
+      const res = await authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/review`)
+        .send({ decision: 'rejected', notes: 'Coverage does not hold' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('rejected');
+    });
+  });
+
+  describe('approval-time eligibility re-validation', () => {
+    let swapId;
+
+    beforeAll(async () => {
+      const b1 = await createBoard({ rosterDate: dateOffset(18), shiftLabel: label('EL1') });
+      const b2 = await createBoard({ rosterDate: dateOffset(19), shiftLabel: label('EL2') });
+      boardIds.push(b1.id, b2.id);
+      const mine = await createAssignment({
+        boardId: b1.id, staffId: requesterId, staffUid: REQUESTER_UID
+      });
+      const theirs = await createAssignment({
+        boardId: b2.id, staffId: counterpartyId, staffUid: COUNTERPARTY_UID
+      });
+      const proposed = await authed('NURSING_STAFF', REQUESTER_UID, requesterId)
+        .post('/api/v1/staff/roster-board/swaps')
+        .send({ requester_assignment_id: mine.id, counterparty_assignment_id: theirs.id });
+      expect(proposed.status).toBe(201);
+      swapId = proposed.body.data.id;
+      const accepted = await authed('NURSING_STAFF', COUNTERPARTY_UID, counterpartyId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/respond`)
+        .send({ decision: 'accept' });
+      expect(accepted.status).toBe(200);
+    }, HOOK_TIMEOUT_MS);
+
+    it('refuses approval when a party was deactivated after proposing', async () => {
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1::int`,
+        counterpartyId
+      );
+      try {
+        const res = await authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId)
+          .post(`/api/v1/staff/roster-board/swaps/${swapId}/review`)
+          .send({ decision: 'approved' });
+        expect(res.status).toBe(409);
+        expect(res.body.message).toMatch(/active/i);
+      } finally {
+        await prisma.$executeRawUnsafe(
+          `UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1::int`,
+          counterpartyId
+        );
+      }
+    });
+
+    it('refuses approval when a party\'s role is no longer roster-eligible', async () => {
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET role = 'PHARMACY_STAFF', updated_at = NOW() WHERE id = $1::int`,
+        counterpartyId
+      );
+      try {
+        const res = await authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId)
+          .post(`/api/v1/staff/roster-board/swaps/${swapId}/review`)
+          .send({ decision: 'approved' });
+        expect(res.status).toBe(409);
+        expect(res.body.message).toMatch(/eligible/i);
+      } finally {
+        await prisma.$executeRawUnsafe(
+          `UPDATE users SET role = 'NURSING_STAFF', updated_at = NOW() WHERE id = $1::int`,
+          counterpartyId
+        );
+      }
+    });
+
+    it('approves once both parties are active and eligible again', async () => {
+      const res = await authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId)
+        .post(`/api/v1/staff/roster-board/swaps/${swapId}/review`)
+        .send({ decision: 'approved', notes: 'Re-validated' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('approved');
+      expect(res.body.data.exchanged).toBe(true);
+    });
+  });
+
+  describe('swap evidence survives roster rewrites', () => {
+    let boardOneId;
+    let boardTwoId;
+    let mineId;
+    let theirsId;
+    let swapId;
+    const rwDateOne = dateOffset(20);
+    const rwDateTwo = dateOffset(21);
+
+    async function saveNursingBoard({ rosterDate, shiftLabel, staffId }) {
+      return authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId)
+        .post('/api/v1/staff/roster-board/departments/nursing/boards')
+        .send({
+          roster_date: rosterDate,
+          shift_label: shiftLabel,
+          assignments: [{
+            staff_id: staffId,
+            assignment_target_type: 'ward',
+            assignment_target_id: 1,
+            assignment_target_label: 'Test Ward'
+          }]
+        });
+    }
+
+    async function assignmentIdFor(rosterId) {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM staff_shift_roster_assignments WHERE roster_id = $1::int ORDER BY id DESC LIMIT 1`,
+        rosterId
+      );
+      return rows[0].id;
+    }
+
+    beforeAll(async () => {
+      const incharge = authed('NURSING_INCHARGE', INCHARGE_UID, inchargeId);
+      const savedOne = await saveNursingBoard({
+        rosterDate: rwDateOne, shiftLabel: label('RW1'), staffId: requesterId
+      });
+      expect(savedOne.status).toBe(200);
+      boardOneId = savedOne.body.data.id;
+      const savedTwo = await saveNursingBoard({
+        rosterDate: rwDateTwo, shiftLabel: label('RW2'), staffId: counterpartyId
+      });
+      expect(savedTwo.status).toBe(200);
+      boardTwoId = savedTwo.body.data.id;
+      boardIds.push(boardOneId, boardTwoId);
+
+      for (const id of [boardOneId, boardTwoId]) {
+        const published = await incharge
+          .post(`/api/v1/staff/roster-board/boards/${id}/publish`)
+          .send({ reason: 'Publish for swap rewrite test' });
+        expect(published.status).toBe(200);
+      }
+      mineId = await assignmentIdFor(boardOneId);
+      theirsId = await assignmentIdFor(boardTwoId);
+
+      const proposed = await authed('NURSING_STAFF', REQUESTER_UID, requesterId)
+        .post('/api/v1/staff/roster-board/swaps')
+        .send({ requester_assignment_id: mineId, counterparty_assignment_id: theirsId });
+      expect(proposed.status).toBe(201);
+      swapId = proposed.body.data.id;
+    }, HOOK_TIMEOUT_MS);
+
+    it('fails closed on a direct assignment delete under a live swap', async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_assignments WHERE id = $1::int`,
+          mineId
+        )
+      ).rejects.toThrow(/chk_staff_shift_swap_live_assignment_refs|23514/);
+    });
+
+    it('re-saving the board cancels the live swap and keeps the audit trail', async () => {
+      const resaved = await saveNursingBoard({
+        rosterDate: rwDateOne, shiftLabel: label('RW1'), staffId: requesterId
+      });
+      expect(resaved.status).toBe(200);
+
+      const swaps = await prisma.$queryRawUnsafe(
+        `SELECT status, requester_assignment_id, counterparty_assignment_id,
+                requester_shift_snapshot, counterparty_shift_snapshot
+           FROM staff_shift_swap_requests WHERE id = $1::int`,
+        swapId
+      );
+      expect(swaps.length).toBe(1);
+      expect(swaps[0].status).toBe('cancelled');
+      // The rewritten board's assignment reference was nulled by the FK…
+      expect(swaps[0].requester_assignment_id).toBeNull();
+      // …the untouched board keeps its reference…
+      expect(swaps[0].counterparty_assignment_id).toBe(theirsId);
+      // …and the proposal-time snapshot preserves what was offered.
+      expect(swaps[0].requester_shift_snapshot.shift_label).toBe(label('RW1'));
+      expect(swaps[0].requester_shift_snapshot.roster_date).toBe(rwDateOne);
+
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT action FROM staff_shift_swap_request_audit
+          WHERE swap_request_id = $1::int ORDER BY id`,
+        swapId
+      );
+      expect(audit.map(row => row.action)).toEqual(['proposed', 'cancelled']);
+
+      const notif = await prisma.$queryRawUnsafe(
+        `SELECT user_id FROM notifications
+          WHERE type = 'SHIFT_SWAP'
+            AND (data->>'source') = 'shift_swap_cancelled_roster_resave'
+            AND (data->>'swap_request_id')::int = $1::int`,
+        swapId
+      );
+      expect(new Set(notif.map(row => row.user_id)))
+        .toEqual(new Set([requesterId, counterpartyId]));
+    });
+
+    it('keeps the settled request and audit rows when assignments are deleted outright', async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM staff_shift_roster_assignments WHERE id = $1::int`,
+        theirsId
+      );
+      const swaps = await prisma.$queryRawUnsafe(
+        `SELECT status, counterparty_assignment_id, counterparty_shift_snapshot
+           FROM staff_shift_swap_requests WHERE id = $1::int`,
+        swapId
+      );
+      expect(swaps.length).toBe(1);
+      expect(swaps[0].counterparty_assignment_id).toBeNull();
+      expect(swaps[0].counterparty_shift_snapshot.shift_label).toBe(label('RW2'));
+
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS n FROM staff_shift_swap_request_audit WHERE swap_request_id = $1::int`,
+        swapId
+      );
+      expect(audit[0].n).toBe(2);
+    });
+  });
+
   describe('on-call roster', () => {
     let onCallId;
 
@@ -485,6 +771,17 @@ describe('shift swap + on-call roster', () => {
           end_at: new Date(Date.now() + 13 * 60 * 60 * 1000).toISOString()
         });
       expect(res.status).toBe(403);
+    });
+
+    it('refuses to put another tenant\'s staff member on call', async () => {
+      const res = await authed('ADMIN', ADMIN682_UID, adminId)
+        .post('/api/v1/staff/roster-board/departments/nursing/on-call')
+        .send({
+          staff_id: foreignId,
+          start_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          end_at: new Date(Date.now() + 13 * 60 * 60 * 1000).toISOString()
+        });
+      expect(res.status).toBe(404);
     });
 
     it('lets a department manager create an on-call stint', async () => {

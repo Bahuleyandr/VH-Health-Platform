@@ -13,6 +13,7 @@
 // swapping people does not move leadership flags or duty targets.
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   ROSTER_DEPARTMENT_POLICIES,
   canReviewRosterDepartmentRequest,
@@ -20,6 +21,17 @@ import {
 } from '../../config/rosterDepartmentConfig.js';
 
 const LIVE_STATUSES = ['proposed', 'counterparty_accepted'];
+
+// Every entrypoint resolves the caller's tenant up front and every query
+// carries an explicit `tenant_id = $N::uuid` predicate (house pattern,
+// PR #684/#751). These queries run on plain `prisma` pre-flight or on the
+// bare interactive-transaction client, and NEITHER is auto-tenant-wrapped
+// (src/lib/prisma.js — tx clients are never auto-scoped), so migration 682's
+// permissive tenant_isolation policy alone would let an enumerable SERIAL
+// swap id from another tenant be read, reviewed, or flipped.
+function resolveTenant(tenantId) {
+  return requireTenantId(tenantId);
+}
 
 function httpError(message, statusCode, details) {
   return Object.assign(new Error(message), { statusCode, details });
@@ -61,13 +73,17 @@ async function resolveActor(client, user) {
   throw httpError('Unable to resolve the requesting staff member', 401);
 }
 
-// Load an assignment + its board + the assignee. `forUpdate` locks only the
-// assignment row (boards are read; board rewrites cascade-delete swaps anyway).
-async function loadSwapAssignment(client, assignmentId, { forUpdate = false } = {}) {
+// Load an assignment + its board + the assignee, scoped to the caller's
+// tenant. `forUpdate` locks only the assignment row (boards are read; live
+// swaps are auto-cancelled by roster board rewrites — migration 686).
+async function loadSwapAssignment(client, assignmentId, tenantId, { forUpdate = false } = {}) {
   if (forUpdate) {
     await client.$queryRawUnsafe(
-      `SELECT id FROM staff_shift_roster_assignments WHERE id = $1::int FOR UPDATE`,
-      assignmentId
+      `SELECT id FROM staff_shift_roster_assignments
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      assignmentId,
+      tenantId
     );
   }
   const rows = await client.$queryRawUnsafe(
@@ -93,10 +109,31 @@ async function loadSwapAssignment(client, assignmentId, { forUpdate = false } = 
        JOIN staff_shift_roster_boards b ON b.id = a.roster_id
        LEFT JOIN users u ON u.id = a.staff_id
       WHERE a.id = $1::int
+        AND a.tenant_id = $2::uuid
+        AND b.tenant_id = $2::uuid
       LIMIT 1`,
-    assignmentId
+    assignmentId,
+    tenantId
   );
   return rows[0] || null;
+}
+
+// Proposal-time evidence of the shift being exchanged — survives roster
+// rewrites that null the assignment FK (migration 686).
+function buildShiftSnapshot(row) {
+  return {
+    assignment_id: row.id,
+    roster_id: row.roster_id,
+    department: row.department,
+    roster_date: row.roster_date,
+    shift_label: row.shift_label,
+    shift_start: row.shift_start,
+    shift_end: row.shift_end,
+    staff_id: row.staff_id,
+    staff_uid: row.staff_uid || null,
+    staff_role: row.staff_role || row.staff_user_role || null,
+    staff_name: row.staff_name || null,
+  };
 }
 
 async function auditSwap(tx, { swapId, tenantId, actor, action, reason, before, after }) {
@@ -142,16 +179,18 @@ function describeAssignment(row) {
   return `${row.shift_label} on ${row.roster_date}`;
 }
 
-async function assertNoLiveSwapForAssignments(client, assignmentIds) {
+async function assertNoLiveSwapForAssignments(client, assignmentIds, tenantId) {
   const rows = await client.$queryRawUnsafe(
     `SELECT id, requester_assignment_id, counterparty_assignment_id, status
        FROM staff_shift_swap_requests
-      WHERE status = ANY($2::text[])
+      WHERE tenant_id = $3::uuid
+        AND status = ANY($2::text[])
         AND (requester_assignment_id = ANY($1::int[])
              OR counterparty_assignment_id = ANY($1::int[]))
       LIMIT 1`,
     assignmentIds,
-    LIVE_STATUSES
+    LIVE_STATUSES,
+    tenantId
   );
   if (rows.length) {
     throw httpError(
@@ -175,16 +214,11 @@ export async function proposeShiftSwap({
     throw httpError('Pick two different shifts to swap', 400);
   }
 
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
-  const mine = await loadSwapAssignment(prisma, myAssignmentId);
-  const theirs = await loadSwapAssignment(prisma, theirAssignmentId);
+  const mine = await loadSwapAssignment(prisma, myAssignmentId, tenant);
+  const theirs = await loadSwapAssignment(prisma, theirAssignmentId, tenant);
   if (!mine || !theirs) {
-    throw httpError('Roster assignment not found', 404);
-  }
-  if (tenantId && (String(mine.tenant_id) !== String(tenantId) || String(theirs.tenant_id) !== String(tenantId))) {
-    throw httpError('Roster assignment not found', 404);
-  }
-  if (String(mine.tenant_id) !== String(theirs.tenant_id)) {
     throw httpError('Roster assignment not found', 404);
   }
   if (Number(mine.staff_id) !== Number(actor.id)) {
@@ -214,7 +248,7 @@ export async function proposeShiftSwap({
       throw httpError('Only future shifts can be swapped', 400);
     }
   }
-  await assertNoLiveSwapForAssignments(prisma, [myAssignmentId, theirAssignmentId]);
+  await assertNoLiveSwapForAssignments(prisma, [myAssignmentId, theirAssignmentId], tenant);
 
   const expiresAt = new Date(Math.min(
     new Date(mine.shift_start_at).getTime(),
@@ -226,9 +260,10 @@ export async function proposeShiftSwap({
       `INSERT INTO staff_shift_swap_requests
          (tenant_id, department, requester_id, requester_uid, requester_assignment_id,
           counterparty_id, counterparty_uid, counterparty_assignment_id,
-          status, reason, expires_at, updated_at)
+          status, reason, expires_at,
+          requester_shift_snapshot, counterparty_shift_snapshot, updated_at)
        VALUES ($1::uuid,$2,$3::int,$4::uuid,$5::int,$6::int,$7::uuid,$8::int,
-               'proposed',$9,$10::timestamptz,NOW())
+               'proposed',$9,$10::timestamptz,$11::jsonb,$12::jsonb,NOW())
        RETURNING *`,
       mine.tenant_id,
       mine.department,
@@ -239,7 +274,9 @@ export async function proposeShiftSwap({
       theirs.staff_uid || null,
       theirAssignmentId,
       reason || null,
-      expiresAt.toISOString()
+      expiresAt.toISOString(),
+      JSON.stringify(buildShiftSnapshot(mine)),
+      JSON.stringify(buildShiftSnapshot(theirs))
     );
     const created = rows[0];
     await auditSwap(tx, {
@@ -267,19 +304,21 @@ export async function proposeShiftSwap({
   });
 }
 
+// Settled swaps can outlive their assignment rows (migration 686 SET NULL
+// FKs) — the proposal-time snapshots keep the shift facts legible then.
 const SWAP_LIST_SELECT = `
   SELECT s.*,
          ru.name AS requester_name,
          cu.name AS counterparty_name,
          du.name AS decided_by_name,
-         rb.roster_date::text AS requester_roster_date,
-         rb.shift_label AS requester_shift_label,
-         rb.shift_start::text AS requester_shift_start,
-         rb.shift_end::text AS requester_shift_end,
-         cb.roster_date::text AS counterparty_roster_date,
-         cb.shift_label AS counterparty_shift_label,
-         cb.shift_start::text AS counterparty_shift_start,
-         cb.shift_end::text AS counterparty_shift_end
+         COALESCE(rb.roster_date::text, s.requester_shift_snapshot->>'roster_date') AS requester_roster_date,
+         COALESCE(rb.shift_label, s.requester_shift_snapshot->>'shift_label') AS requester_shift_label,
+         COALESCE(rb.shift_start::text, s.requester_shift_snapshot->>'shift_start') AS requester_shift_start,
+         COALESCE(rb.shift_end::text, s.requester_shift_snapshot->>'shift_end') AS requester_shift_end,
+         COALESCE(cb.roster_date::text, s.counterparty_shift_snapshot->>'roster_date') AS counterparty_roster_date,
+         COALESCE(cb.shift_label, s.counterparty_shift_snapshot->>'shift_label') AS counterparty_shift_label,
+         COALESCE(cb.shift_start::text, s.counterparty_shift_snapshot->>'shift_start') AS counterparty_shift_start,
+         COALESCE(cb.shift_end::text, s.counterparty_shift_snapshot->>'shift_end') AS counterparty_shift_end
     FROM staff_shift_swap_requests s
     LEFT JOIN users ru ON ru.id = s.requester_id
     LEFT JOIN users cu ON cu.id = s.counterparty_id
@@ -294,7 +333,8 @@ const SWAP_LIST_SELECT = `
 // the manager-only department snapshot: only published board rows (the roster
 // staff already see on the notice board), only the requester's department,
 // and only rows without a live swap already attached.
-export async function listSwapCandidates({ actorUser, limit = 100 }) {
+export async function listSwapCandidates({ actorUser, tenantId = null, limit = 100 }) {
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
   const role = String(actor.role || '').trim().toUpperCase();
   let department = null;
@@ -323,6 +363,8 @@ export async function listSwapCandidates({ actorUser, limit = 100 }) {
        JOIN staff_shift_roster_boards b ON b.id = a.roster_id
        JOIN users u ON u.id = a.staff_id
       WHERE b.department = $1
+        AND a.tenant_id = $5::uuid
+        AND b.tenant_id = $5::uuid
         AND b.status = 'published'
         AND a.status = 'published'
         AND a.staff_id <> $2::int
@@ -330,7 +372,8 @@ export async function listSwapCandidates({ actorUser, limit = 100 }) {
         AND (b.roster_date + b.shift_start)::timestamptz > NOW()
         AND NOT EXISTS (
           SELECT 1 FROM staff_shift_swap_requests s
-           WHERE s.status = ANY($4::text[])
+           WHERE s.tenant_id = $5::uuid
+             AND s.status = ANY($4::text[])
              AND (s.requester_assignment_id = a.id OR s.counterparty_assignment_id = a.id)
         )
       ORDER BY b.roster_date ASC, b.shift_start ASC, u.name ASC
@@ -338,26 +381,30 @@ export async function listSwapCandidates({ actorUser, limit = 100 }) {
     department,
     actor.id,
     Math.min(Math.max(Number(limit) || 100, 1), 200),
-    LIVE_STATUSES
+    LIVE_STATUSES,
+    tenant
   );
 }
 
-export async function listMyShiftSwaps({ actorUser, limit = 50 }) {
+export async function listMyShiftSwaps({ actorUser, tenantId = null, limit = 50 }) {
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
   return prisma.$queryRawUnsafe(
     `${SWAP_LIST_SELECT}
-      WHERE s.requester_id = $1::int OR s.counterparty_id = $1::int
+      WHERE s.tenant_id = $4::uuid
+        AND (s.requester_id = $1::int OR s.counterparty_id = $1::int)
       ORDER BY
         CASE WHEN s.status = ANY($3::text[]) THEN 0 ELSE 1 END,
         s.created_at DESC
       LIMIT $2::int`,
     actor.id,
     Math.min(Math.max(Number(limit) || 50, 1), 100),
-    LIVE_STATUSES
+    LIVE_STATUSES,
+    tenant
   );
 }
 
-export async function listDepartmentShiftSwaps({ department, status = null, actorUser, limit = 100 }) {
+export async function listDepartmentShiftSwaps({ department, status = null, actorUser, tenantId = null, limit = 100 }) {
   const policy = getRosterDepartmentPolicy(department);
   if (!policy) {
     throw httpError('Roster department is not configured', 404);
@@ -368,7 +415,8 @@ export async function listDepartmentShiftSwaps({ department, status = null, acto
   const cleanStatus = status ? String(status).trim().toLowerCase() : null;
   return prisma.$queryRawUnsafe(
     `${SWAP_LIST_SELECT}
-      WHERE s.department = $1
+      WHERE s.tenant_id = $4::uuid
+        AND s.department = $1
         AND ($2::text IS NULL OR s.status = $2)
       ORDER BY
         CASE s.status
@@ -380,14 +428,22 @@ export async function listDepartmentShiftSwaps({ department, status = null, acto
       LIMIT $3::int`,
     policy.department,
     cleanStatus,
-    Math.min(Math.max(Number(limit) || 100, 1), 200)
+    Math.min(Math.max(Number(limit) || 100, 1), 200),
+    resolveTenant(tenantId)
   );
 }
 
-async function lockSwap(tx, swapId) {
+// Tenant-scoped by design: swap ids are enumerable SERIALs and this SELECT
+// runs on the bare transaction client (never auto-tenant-wrapped), so the
+// explicit predicate is the only thing keeping tenant B's reviewer from
+// locking and flipping tenant A's swap.
+async function lockSwap(tx, swapId, tenantId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT * FROM staff_shift_swap_requests WHERE id = $1::int FOR UPDATE`,
-    swapId
+    `SELECT * FROM staff_shift_swap_requests
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    swapId,
+    tenantId
   );
   if (!rows.length) {
     throw httpError('Swap request not found', 404);
@@ -417,16 +473,17 @@ async function expireIfPastDeadline(tx, swap, actor) {
   return true;
 }
 
-export async function respondToShiftSwap({ swapId, decision, note, actorUser }) {
+export async function respondToShiftSwap({ swapId, decision, note, actorUser, tenantId = null }) {
   const id = parseId(swapId, 'swap request id');
   const clean = String(decision || '').trim().toLowerCase();
   if (!['accept', 'decline'].includes(clean)) {
     throw httpError('decision must be accept or decline', 400);
   }
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
 
   return prisma.$transaction(async tx => {
-    const swap = await lockSwap(tx, id);
+    const swap = await lockSwap(tx, id, tenant);
     if (Number(swap.counterparty_id) !== Number(actor.id)) {
       throw httpError('Only the invited colleague can respond to this swap request', 403);
     }
@@ -471,12 +528,13 @@ export async function respondToShiftSwap({ swapId, decision, note, actorUser }) 
   });
 }
 
-export async function cancelShiftSwap({ swapId, actorUser }) {
+export async function cancelShiftSwap({ swapId, actorUser, tenantId = null }) {
   const id = parseId(swapId, 'swap request id');
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
 
   return prisma.$transaction(async tx => {
-    const swap = await lockSwap(tx, id);
+    const swap = await lockSwap(tx, id, tenant);
     if (Number(swap.requester_id) !== Number(actor.id)) {
       throw httpError('Only the requester can cancel this swap request', 403);
     }
@@ -568,16 +626,17 @@ async function auditRosterAssignmentExchange(tx, { rosterId, assignmentId, actor
   );
 }
 
-export async function reviewShiftSwap({ swapId, decision, notes, actorUser }) {
+export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tenantId = null }) {
   const id = parseId(swapId, 'swap request id');
   const clean = String(decision || '').trim().toLowerCase();
   if (!['approved', 'rejected'].includes(clean)) {
     throw httpError('decision must be approved or rejected', 400);
   }
+  const tenant = resolveTenant(tenantId);
   const actor = await resolveActor(prisma, actorUser);
 
   return prisma.$transaction(async tx => {
-    const swap = await lockSwap(tx, id);
+    const swap = await lockSwap(tx, id, tenant);
     if (!canReviewRosterDepartmentRequest(actorUser, swap.department)) {
       throw httpError('You are not allowed to review swap requests for this department', 403);
     }
@@ -629,12 +688,15 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser }) {
       .sort((a, b) => a - b);
     for (const assignmentId of orderedIds) {
       await tx.$queryRawUnsafe(
-        `SELECT id FROM staff_shift_roster_assignments WHERE id = $1::int FOR UPDATE`,
-        assignmentId
+        `SELECT id FROM staff_shift_roster_assignments
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        assignmentId,
+        tenant
       );
     }
-    const mine = await loadSwapAssignment(tx, swap.requester_assignment_id);
-    const theirs = await loadSwapAssignment(tx, swap.counterparty_assignment_id);
+    const mine = await loadSwapAssignment(tx, swap.requester_assignment_id, tenant);
+    const theirs = await loadSwapAssignment(tx, swap.counterparty_assignment_id, tenant);
     if (!mine || !theirs) {
       throw httpError('One of the rostered shifts no longer exists', 409);
     }
@@ -642,9 +704,22 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser }) {
       || Number(theirs.staff_id) !== Number(swap.counterparty_id)) {
       throw httpError('The roster changed since this swap was proposed. Ask for a fresh request.', 409);
     }
+    // Decision-time re-validation mirrors the proposal-path checks: a staff
+    // member deactivated (or moved to an ineligible role) after proposing
+    // must not be exchanged into a live shift.
+    const policy = getRosterDepartmentPolicy(swap.department);
+    if (!policy) {
+      throw httpError('Roster department is not configured', 404);
+    }
     for (const row of [mine, theirs]) {
       if (row.board_status !== 'published' || row.assignment_status !== 'published') {
         throw httpError('Both shifts must still be on a published roster', 409);
+      }
+      if (!row.staff_is_active) {
+        throw httpError('Both staff members must still be active', 409);
+      }
+      if (!policy.staffRoles.includes(String(row.staff_user_role || '').toUpperCase())) {
+        throw httpError('Both staff members must still be eligible for this roster department', 409);
       }
       if (new Date(row.shift_start_at).getTime() <= Date.now()) {
         throw httpError('Only future shifts can be swapped', 409);

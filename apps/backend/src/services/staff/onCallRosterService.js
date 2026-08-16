@@ -186,15 +186,19 @@ export async function createOnCallAssignment({
   if (!Number.isInteger(staffIdInt) || staffIdInt <= 0) {
     throw httpError('staff_id must be a valid id', 400);
   }
+  // Tenant predicate: staff ids are enumerable SERIALs — a manager must not
+  // be able to put another tenant's staff member on call in their tenant.
   const staffRows = await prisma.$queryRawUnsafe(
     `SELECT id, uid, name, role
        FROM users
       WHERE id = $1::int
+        AND tenant_id = $3::uuid
         AND is_active = true
         AND role = ANY($2::text[])
       LIMIT 1`,
     staffIdInt,
-    policy.staffRoles
+    policy.staffRoles,
+    tenant
   );
   if (!staffRows.length) {
     throw httpError('Staff member not found or not eligible for this roster department', 404);
