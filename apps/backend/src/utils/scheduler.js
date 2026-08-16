@@ -256,6 +256,7 @@ import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineSer
 // started can never complete; flip them to expired so they stop blocking
 // fresh proposals on the same roster assignments.
 import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
+import { expireStaleGatewayOrders } from '../services/billing/paymentGatewayService.js';
 // Ambulance GPS position retention — the fix stream (migration 683) is
 // high-volume operational telemetry; keep only the tenant-configured window
 // (default 7 days).
@@ -1126,6 +1127,16 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('shift-swap-expiry', tenantId => (
       expireStaleShiftSwapRequests({ tenantId })
     ));
+  }));
+
+  // 🗓️ Every 15 min — expire payment gateway orders (migration 694) whose
+  // checkout window lapsed while still created/attempted. Mirrors the
+  // payment-link expiry idiom: idempotent cross-tenant UPDATE; a capture
+  // webhook arriving later still books (capture path ignores expiry — the
+  // provider's money is authoritative).
+  registerCron('*/15 * * * *', withJobLock('payment-gateway-order-expiry', async () => {
+    const { expired } = await expireStaleGatewayOrders();
+    if (expired) logger.info(`Scheduled Task: expired ${expired} payment gateway orders`);
   }));
 
   // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).

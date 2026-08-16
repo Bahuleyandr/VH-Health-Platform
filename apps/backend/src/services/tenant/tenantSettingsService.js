@@ -31,6 +31,11 @@
 //       retentionDays?: number,           // position-event retention (1-90, default 7)
 //       minSecondsBetweenFixes?: number,  // per-reporter ingest floor (1-300, default 3)
 //     },
+//     paymentGateway?: {
+//       enabled?: boolean,                // default false — online gateway (UPI/cards).
+//                                         // Effective only with PAYMENT_GATEWAY_ENABLED=true
+//                                         // AND an enabled payment_gateway_provider_configs row.
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -167,6 +172,21 @@ export async function getAmbulanceGpsTrackingSettings(tenantId) {
       ? intervalParsed
       : defaults.minSecondsBetweenFixes,
   };
+}
+
+// Online payment gateway (migrations 693-697). Disabled by default — turning
+// the feature on is a settings write + provider config row, never a
+// migration. Effective enablement additionally requires the
+// PAYMENT_GATEWAY_ENABLED env kill switch and an enabled provider config
+// (paymentGatewayService.resolveGatewayContext ANDs all three). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getPaymentGatewaySettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.paymentGateway;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
 }
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {

@@ -323,11 +323,40 @@ export function resolvePaymentLinkPublicState(row, now = new Date()) {
   return 'unavailable';
 }
 
+// Gateway checkout bootstrap for the /pay page. Disabled marker unless the
+// tenant's online gateway is effectively enabled (env kill switch AND tenant
+// setting AND enabled provider config — paymentGatewayService ANDs them) and
+// the link is payable. Lazy import + defensive: the gateway module is only
+// loaded once the env kill switch is on, and ANY failure renders the disabled
+// marker so the page falls back to the raw UPI intent exactly as before.
+const DISABLED_GATEWAY_VIEW = Object.freeze({
+  enabled: false, provider: null, keyId: null, providerOrderId: null,
+});
+
+async function resolvePublicGatewayView(row, state) {
+  if (state !== 'payable') return { ...DISABLED_GATEWAY_VIEW };
+  if (process.env.PAYMENT_GATEWAY_ENABLED !== 'true') return { ...DISABLED_GATEWAY_VIEW };
+  try {
+    const { getPublicGatewayViewForLink } = await import('./paymentGatewayService.js');
+    return await getPublicGatewayViewForLink({
+      tenantId: row.tenant_id ? String(row.tenant_id) : null,
+      paymentLinkId: row.id != null ? Number(row.id) : null,
+    });
+  } catch (err) {
+    logger.warn('payment link gateway view failed — rendering disabled marker', {
+      error: err?.message,
+    });
+    return { ...DISABLED_GATEWAY_VIEW };
+  }
+}
+
 export async function getPublicPaymentLinkView({ link_token }, now = new Date()) {
   if (!isWellFormedPaymentLinkToken(link_token)) return null;
 
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT pl.amount,
+    `SELECT pl.id,
+            pl.tenant_id,
+            pl.amount,
             pl.currency,
             pl.status,
             pl.expires_at,
@@ -361,6 +390,9 @@ export async function getPublicPaymentLinkView({ link_token }, now = new Date())
     invoiceReference: row.invoice_number ? String(row.invoice_number) : null,
     hospitalName: String(row.upi_payee_name || process.env.HOSPITAL_NAME || 'Hospital'),
     upiDeepLink,
+    // { enabled, provider, keyId, providerOrderId } — checkout bootstrap only,
+    // never a secret. Disabled marker whenever the gateway is not effective.
+    gateway: await resolvePublicGatewayView(row, state),
     paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
     expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
   };
@@ -385,14 +417,28 @@ export async function sendPaymentLink({
   // Build a short message body. Localise via the hospital's preferred
   // language eventually; for MVP we keep it bilingual English+Hindi.
   //
-  // UPI ONLY. The landing page offers a upi:// intent and nothing else — no
-  // card/netbanking/wallet gateway is integrated anywhere in this codebase —
-  // so the message must not promise those rails. Widen this wording only in
-  // the same change that actually lands a gateway.
+  // Wording follows what the landing page can actually offer. With the
+  // tenant's online gateway effectively enabled (env + settings + config —
+  // resolveGatewayContext) the page renders provider checkout (UPI + cards),
+  // so the message may promise those rails; otherwise the page offers only
+  // the raw upi:// intent and the message must stay UPI-only. This is the
+  // wording-widening the pre-gateway comment here reserved for "the same
+  // change that actually lands a gateway".
+  let gatewayCheckout = false;
+  if (process.env.PAYMENT_GATEWAY_ENABLED === 'true') {
+    try {
+      const { resolveGatewayContext } = await import('./paymentGatewayService.js');
+      gatewayCheckout = (await resolveGatewayContext(tenantId)).enabled === true;
+    } catch (e) {
+      logger.warn('paymentLink gateway wording check failed — using UPI wording', { error: e.message });
+    }
+  }
   const amountStr = `₹${Number(link.amount).toFixed(2)}`;
   const messageBody = [
     `Your hospital bill of ${amountStr} is ready.`,
-    `Pay by UPI here: ${shareUrl}`,
+    gatewayCheckout
+      ? `Pay securely by UPI or card here: ${shareUrl}`
+      : `Pay by UPI here: ${shareUrl}`,
     '',
     `बिल ₹${Number(link.amount).toFixed(2)} का तैयार है। भुगतान करें: ${shareUrl}`,
   ].join('\n');

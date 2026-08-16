@@ -238,6 +238,8 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
 import publicPaymentPageRoutes from './routes/billing/publicPaymentPageRoutes.js';
+import paymentGatewayRoutes from './routes/billing/paymentGatewayRoutes.js';
+import paymentGatewayWebhookRoutes from './routes/billing/paymentGatewayWebhookRoutes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import labIngestRoutes from './routes/lab/labIngestRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
@@ -584,6 +586,12 @@ function captureJsonRawBody(req, body) {
       || path === '/api/v1/abdm/health-info/on-request') {
     req.abdmRawBody = Buffer.from(body);
   }
+  // Payment gateway webhooks are HMAC-signed over the EXACT raw bytes —
+  // express.json re-serialization is not byte-stable, so the router verifies
+  // against this captured buffer (paymentGatewayWebhookRoutes).
+  if (path.startsWith('/webhooks/payments/')) {
+    req.paymentGatewayRawBody = Buffer.from(body);
+  }
 }
 
 function legacyBodyLimitError(length) {
@@ -865,6 +873,17 @@ app.use(
 // the patient profile — that limiter is the anti-enumeration control, and the
 // router answers unknown and malformed tokens with one identical page.
 app.use('/pay', patientRateLimiter, publicPaymentPageRoutes);
+
+// ====================================
+// PAYMENT GATEWAY PROVIDER WEBHOOKS (public, provider-signature-authenticated)
+// ====================================
+// Razorpay-shaped webhook deliveries carry no VH credential — authenticity is
+// the HMAC-SHA256 signature over the raw body, verified against the tenant's
+// encrypted webhook secret. The URL's opaque token resolves the tenant
+// FAIL-CLOSED (unknown token → 404, nothing written) — this is a pre-RLS
+// mount, so the handler writes tenant_id explicitly on every row (migration
+// 695 contract). Raw body is captured by the express.json verify hook above.
+app.use('/webhooks/payments', genericLimiter, paymentGatewayWebhookRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE
@@ -1627,6 +1646,18 @@ app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBod
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), patientAccessGuard('BLOOD_BANK', { careTeamModeGoverned: true }), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+
+// Online payment gateway (config-gated DEFAULT OFF; UPI + cards via a
+// provider-abstracted adapter). Mounted BEFORE the generic /api/v1/billing
+// mounts so their role gates cannot shadow this surface; PATIENT is admitted
+// for self-payment order creation (service enforces ownership), admin config
+// and refund execution are gated route-level.
+app.use(
+  '/api/v1/billing/gateway',
+  requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'),
+  billingPhiAccessLogger(),
+  paymentGatewayRoutes,
+);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(

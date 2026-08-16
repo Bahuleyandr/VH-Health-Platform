@@ -565,6 +565,16 @@ export const envSchema = Joi.object({
     .default(600)
     .label('TELECONSULT_TOKEN_TTL_SECONDS'),
 
+  // Online payment gateway (UPI + cards) deployment-wide kill switch.
+  // Default OFF. Provider credentials are strictly per-tenant rows
+  // (payment_gateway_provider_configs, encryptField ciphertext) — no env
+  // credentials exist, so enabling requires no additional env keys; the
+  // dry_run provider needs no credentials at all.
+  PAYMENT_GATEWAY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PAYMENT_GATEWAY_ENABLED'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',

@@ -26,8 +26,11 @@ const {
 // The complete set of fields the page is allowed to publish. Adding a key here
 // is a PHI decision — it must be justified against audit F8's constraint that
 // the page exposes nothing beyond a payer display name, invoice ref and amount.
+// 'gateway' (payment-gateway wave, migrations 693-697) carries only the
+// checkout bootstrap: { enabled, provider, keyId, providerOrderId } — the
+// publishable key id and provider order handle, never a secret and never PHI.
 const ALLOWED_VIEW_KEYS = [
-  'amount', 'currency', 'expiresAt', 'hospitalName',
+  'amount', 'currency', 'expiresAt', 'gateway', 'hospitalName',
   'invoiceReference', 'paidAt', 'state', 'upiDeepLink',
 ];
 
@@ -170,5 +173,19 @@ describe('getPublicPaymentLinkView', () => {
     const view = await getPublicPaymentLinkView({ link_token: TOKEN });
     expect(view.invoiceReference).toBeNull();
     expect(view.hospitalName).toBe('Test Hospital');
+  });
+
+  // The gateway block is config-gated DEFAULT OFF: with the env kill switch
+  // unset (as in this suite) the view renders the explicit disabled marker
+  // WITHOUT even loading the gateway module — the page then falls back to
+  // the raw UPI intent exactly as before the gateway wave.
+  it('renders the disabled gateway marker when PAYMENT_GATEWAY_ENABLED is off', async () => {
+    queryRawUnsafe.mockResolvedValue([row()]);
+    const view = await getPublicPaymentLinkView({ link_token: TOKEN });
+    expect(view.gateway).toEqual({
+      enabled: false, provider: null, keyId: null, providerOrderId: null,
+    });
+    // Only the link lookup itself hit the database.
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });

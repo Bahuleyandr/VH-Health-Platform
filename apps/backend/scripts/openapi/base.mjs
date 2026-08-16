@@ -105,6 +105,7 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'patient-identifier' },
   { slug: 'patient-merge' },
   { slug: 'patient-portal' },
+  { slug: 'payment-gateway' },
   { slug: 'pharmacy' },
   { slug: 'pharmacy-supply' },
   { slug: 'platform-workbench' },
