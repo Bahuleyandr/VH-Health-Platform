@@ -56,6 +56,7 @@ import * as radiology from './openapi/schemas/radiology.mjs';
 import * as misReportSchedules from './openapi/schemas/misReportSchedules.mjs';
 import * as paymentGateway from './openapi/schemas/paymentGateway.mjs';
 import * as smsConfig from './openapi/schemas/smsConfig.mjs';
+import * as abdmCompletion from './openapi/schemas/abdmCompletion.mjs';
 import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
 
@@ -104,7 +105,8 @@ const SCHEMA_MODULES = [
   pharmacyCounterSale,
   dietaryKitchen,
   paymentGateway,
-  smsConfig
+  smsConfig,
+  abdmCompletion
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

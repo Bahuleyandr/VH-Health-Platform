@@ -1,0 +1,482 @@
+// apps/backend/scripts/openapi/schemas/abdmCompletion.mjs
+// ABDM completion (migrations 701-703): ABHA enrolment (Aadhaar-OTP /
+// mobile-OTP against the ABDM sandbox by default), Scan & Share front-desk
+// intake, and the thin HIU consent/fetch legs.
+// Config-gated DEFAULT OFF: ABDM_ENABLED env AND the per-tenant
+// tenants.settings.abdmEnrolment / abdmHiu accessors (403
+// ABDM_ENROLMENT_DISABLED / ABDM_HIU_DISABLED).
+// PRIVACY: Aadhaar numbers and OTP values are RSA-encrypted in memory and
+// forwarded — never persisted, logged, or echoed by any endpoint here.
+import { envelope } from './_helpers.mjs';
+
+export const schemas = {
+  AbhaEnrolmentStartRequest: {
+    type: 'object',
+    properties: {
+      flow: {
+        type: 'string',
+        enum: ['aadhaar_otp', 'mobile_otp'],
+        default: 'aadhaar_otp',
+        description: 'aadhaar_otp creates a new ABHA; mobile_otp is the verify/update-mobile leg for an already-enrolled ABHA.',
+      },
+      aadhaar_number: {
+        type: 'string',
+        nullable: true,
+        description: '12-digit Aadhaar (Verhoeff-validated). Encrypted in memory with the gateway certificate and discarded — never persisted or logged.',
+      },
+      mobile: { type: 'string', nullable: true, description: '10-digit mobile (mobile_otp flow, or communication mobile).' },
+      patient_uid: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Front-desk assisted mount only; the portal mount always targets the caller.',
+      },
+    },
+  },
+  AbhaEnrolmentOtpRequest: {
+    type: 'object',
+    required: ['session_id', 'otp'],
+    properties: {
+      session_id: { type: 'integer' },
+      otp: { type: 'string', description: '6-digit OTP. Encrypted in memory and forwarded — never persisted or logged.' },
+    },
+  },
+  AbhaEnrolmentResendRequest: {
+    type: 'object',
+    required: ['session_id'],
+    properties: {
+      session_id: { type: 'integer' },
+      aadhaar_number: {
+        type: 'string',
+        nullable: true,
+        description: 'Required again for the aadhaar_otp flow — the number is never stored, so a resend must re-supply it.',
+      },
+      mobile: { type: 'string', nullable: true },
+    },
+  },
+  AbhaEnrolmentCancelRequest: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'integer' } },
+  },
+  AbhaEnrolmentSession: {
+    type: 'object',
+    required: ['id', 'flow', 'environment', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      flow: { type: 'string', enum: ['aadhaar_otp', 'mobile_otp'] },
+      environment: { type: 'string', enum: ['sandbox', 'production'] },
+      status: {
+        type: 'string',
+        enum: ['initiated', 'otp_sent', 'otp_verified', 'enrolled', 'linked', 'failed', 'expired', 'cancelled'],
+      },
+      otp_attempts: { type: 'integer' },
+      mobile_last4: { type: 'string', nullable: true, description: 'The only demographic echo kept — never the full mobile, never any Aadhaar material.' },
+      abha_number: { type: 'string', nullable: true },
+      abha_address: { type: 'string', nullable: true },
+      error_code: { type: 'string', nullable: true },
+      otp_sent_at: { type: 'string', format: 'date-time', nullable: true },
+      enrolled_at: { type: 'string', format: 'date-time', nullable: true },
+      linked_at: { type: 'string', format: 'date-time', nullable: true },
+      expires_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  AbhaEnrolmentSessionData: {
+    type: 'object',
+    required: ['session'],
+    properties: { session: { $ref: '#/components/schemas/AbhaEnrolmentSession' } },
+  },
+  AbhaEnrolmentStatusData: {
+    type: 'object',
+    properties: {
+      session: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/AbhaEnrolmentSession' }],
+        description: 'Latest enrolment session for the patient, or null when none exists.',
+      },
+    },
+  },
+
+  AbdmShareIntake: {
+    type: 'object',
+    required: ['id', 'request_id', 'environment', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      environment: { type: 'string', enum: ['sandbox', 'production'] },
+      request_id: { type: 'string', description: 'CM request id — UNIQUE per (tenant, environment); redeliveries collapse.' },
+      token_number: { type: 'string', nullable: true, description: 'Queue-display token (CM-assigned, or minted from the row id).' },
+      counter_context: { type: 'string', nullable: true },
+      abha_number: { type: 'string', nullable: true },
+      abha_address: { type: 'string', nullable: true },
+      profile: { type: 'object', description: 'Allowlisted shared demographics only — never Aadhaar material.' },
+      status: {
+        type: 'string',
+        enum: ['received', 'matched', 'registered', 'linked_visit', 'dismissed', 'expired', 'failed'],
+      },
+      matched_patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      linked_appointment_id: { type: 'integer', nullable: true },
+      processed_at: { type: 'string', format: 'date-time', nullable: true },
+      received_at: { type: 'string', format: 'date-time' },
+      expires_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  AbdmShareIntakeData: {
+    type: 'object',
+    required: ['intake'],
+    properties: { intake: { $ref: '#/components/schemas/AbdmShareIntake' } },
+  },
+  AbdmShareIntakeList: {
+    type: 'object',
+    required: ['intakes', 'count'],
+    properties: {
+      intakes: { type: 'array', items: { $ref: '#/components/schemas/AbdmShareIntake' } },
+      count: { type: 'integer' },
+    },
+  },
+  AbdmShareIntakeMatchRequest: {
+    type: 'object',
+    required: ['patient_uid'],
+    properties: { patient_uid: { type: 'string', format: 'uuid' } },
+  },
+  AbdmShareIntakeRegisterRequest: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', nullable: true, description: 'Overrides the shared profile value.' },
+      phone: { type: 'string', nullable: true },
+      gender: { type: 'string', nullable: true },
+      birthday: { type: 'string', nullable: true, description: 'YYYY-MM-DD.' },
+      address: { type: 'string', nullable: true },
+      duplicate_override_reason: {
+        type: 'string',
+        nullable: true,
+        description: 'Audited create-anyway reason (min 10 chars) once duplicates were reviewed.',
+      },
+    },
+  },
+  AbdmShareIntakeRegisterResult: {
+    type: 'object',
+    required: ['intake', 'patient'],
+    properties: {
+      intake: { $ref: '#/components/schemas/AbdmShareIntake' },
+      patient: {
+        type: 'object',
+        required: ['uid'],
+        properties: {
+          id: { type: 'integer' },
+          uid: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          phone: { type: 'string' },
+        },
+      },
+      abha_link: { type: 'object', nullable: true, description: 'registerABHA linkage result (verified only if it passed the 653 gate).' },
+      abha_link_error: { type: 'string', nullable: true },
+      duplicate_override: { type: 'boolean' },
+    },
+  },
+  AbdmShareIntakeLinkVisitRequest: {
+    type: 'object',
+    required: ['appointment_id'],
+    properties: { appointment_id: { type: 'integer' } },
+  },
+  AbdmShareIntakeDismissRequest: {
+    type: 'object',
+    properties: { reason: { type: 'string', nullable: true, maxLength: 500 } },
+  },
+  AbdmShareCallbackAck: {
+    type: 'object',
+    required: ['acknowledgement'],
+    properties: {
+      acknowledgement: {
+        type: 'object',
+        required: ['status'],
+        properties: { status: { type: 'string', enum: ['SUCCESS'] } },
+      },
+      requestId: { type: 'string', nullable: true },
+      tokenNumber: { type: 'string', nullable: true },
+    },
+  },
+  AbdmHiuCallbackAck: {
+    type: 'object',
+    properties: {
+      requestId: { type: 'string', nullable: true },
+      duplicate: { type: 'boolean' },
+    },
+  },
+  AbdmHiuDataPushAck: {
+    type: 'object',
+    required: ['transactionId'],
+    properties: {
+      transactionId: { type: 'string' },
+      duplicate: { type: 'boolean' },
+      stored: { type: 'integer' },
+      failed: { type: 'integer' },
+    },
+  },
+
+  AbdmHiuConsentRequestCreate: {
+    type: 'object',
+    required: ['abha_address', 'hi_types', 'date_from', 'date_to'],
+    properties: {
+      abha_address: { type: 'string', description: 'Patient ABHA address (name@abdm / name@sbx).' },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      purpose: { type: 'string', default: 'CAREMGT' },
+      hi_types: { type: 'array', items: { type: 'string' }, minItems: 1 },
+      date_from: { type: 'string', format: 'date-time' },
+      date_to: { type: 'string', format: 'date-time' },
+      expiry: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  AbdmHiuConsentRequest: {
+    type: 'object',
+    required: ['id', 'request_id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      request_id: { type: 'string' },
+      flow_kind: { type: 'string', enum: ['hiu'] },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      requester_uid: { type: 'string', format: 'uuid', nullable: true },
+      hi_types: { type: 'array', items: { type: 'string' } },
+      permission_kind: { type: 'string' },
+      data_from: { type: 'string', format: 'date-time', nullable: true },
+      data_to: { type: 'string', format: 'date-time', nullable: true },
+      expiry_at: { type: 'string', format: 'date-time', nullable: true },
+      purpose_code: { type: 'string' },
+      status: { type: 'string', enum: ['requested', 'granted', 'denied', 'revoked', 'expired', 'failed'] },
+      requested_at: { type: 'string', format: 'date-time' },
+      decided_at: { type: 'string', format: 'date-time', nullable: true },
+      environment: { type: 'string', enum: ['sandbox', 'production'] },
+      metadata: { type: 'object' },
+    },
+  },
+  AbdmHiuConsentRequestData: {
+    type: 'object',
+    required: ['consent_request'],
+    properties: { consent_request: { $ref: '#/components/schemas/AbdmHiuConsentRequest' } },
+  },
+  AbdmHiuConsentRequestList: {
+    type: 'object',
+    required: ['consent_requests', 'count'],
+    properties: {
+      consent_requests: { type: 'array', items: { $ref: '#/components/schemas/AbdmHiuConsentRequest' } },
+      count: { type: 'integer' },
+    },
+  },
+  AbdmHiuConsentArtifactList: {
+    type: 'object',
+    required: ['artifacts', 'count'],
+    properties: {
+      artifacts: { type: 'array', items: { type: 'object' } },
+      count: { type: 'integer' },
+    },
+  },
+  AbdmHiuFetchSession: {
+    type: 'object',
+    required: ['id', 'transaction_id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      environment: { type: 'string', enum: ['sandbox', 'production'] },
+      consent_artifact_id: { type: 'integer', nullable: true },
+      data_transfer_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      transaction_id: { type: 'string' },
+      request_id: { type: 'string', nullable: true },
+      hi_types: { type: 'array', items: { type: 'string' } },
+      date_range_from: { type: 'string', format: 'date-time', nullable: true },
+      date_range_to: { type: 'string', format: 'date-time', nullable: true },
+      data_push_url: { type: 'string', nullable: true },
+      status: {
+        type: 'string',
+        enum: ['requested', 'acknowledged', 'receiving', 'completed', 'partial', 'failed', 'expired'],
+      },
+      parts_expected: { type: 'integer', nullable: true },
+      parts_received: { type: 'integer' },
+      requested_at: { type: 'string', format: 'date-time' },
+      acknowledged_at: { type: 'string', format: 'date-time', nullable: true },
+      completed_at: { type: 'string', format: 'date-time', nullable: true },
+      failure_reason: { type: 'string', nullable: true },
+    },
+  },
+  AbdmHiuFetchSessionData: {
+    type: 'object',
+    required: ['session'],
+    properties: { session: { $ref: '#/components/schemas/AbdmHiuFetchSession' } },
+  },
+  AbdmHiuFetchSessionList: {
+    type: 'object',
+    required: ['sessions', 'count'],
+    properties: {
+      sessions: { type: 'array', items: { $ref: '#/components/schemas/AbdmHiuFetchSession' } },
+      count: { type: 'integer' },
+    },
+  },
+  AbdmHiuReceivedBundle: {
+    type: 'object',
+    required: ['id', 'fetch_session_id', 'bundle_storage_key', 'bundle_sha256'],
+    properties: {
+      id: { type: 'integer' },
+      fetch_session_id: { type: 'integer' },
+      care_context_reference: { type: 'string', nullable: true },
+      hi_type: { type: 'string', nullable: true },
+      part_number: { type: 'integer', nullable: true },
+      bundle_storage_key: { type: 'string', description: 'R2 object key of the decrypted FHIR bundle — PHI bytes never land in Postgres.' },
+      bundle_sha256: { type: 'string' },
+      checksum_verified: { type: 'boolean' },
+      media_type: { type: 'string' },
+      received_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  AbdmHiuBundleList: {
+    type: 'object',
+    required: ['bundles', 'count'],
+    properties: {
+      bundles: { type: 'array', items: { $ref: '#/components/schemas/AbdmHiuReceivedBundle' } },
+      count: { type: 'integer' },
+    },
+  },
+  AbdmHiuBundleContent: {
+    type: 'object',
+    required: ['bundle', 'content'],
+    properties: {
+      bundle: { $ref: '#/components/schemas/AbdmHiuReceivedBundle' },
+      content: { description: 'The decrypted FHIR bundle, streamed from R2 for transient rendering (PHI access is logged).' },
+    },
+  },
+
+  AbhaEnrolmentSessionResponse: envelope('AbhaEnrolmentSessionData'),
+  AbhaEnrolmentStatusResponse: envelope('AbhaEnrolmentStatusData'),
+  AbdmShareIntakeResponse: envelope('AbdmShareIntakeData'),
+  AbdmShareIntakeListResponse: envelope('AbdmShareIntakeList'),
+  AbdmShareIntakeRegisterResponse: envelope('AbdmShareIntakeRegisterResult'),
+  AbdmShareCallbackAckResponse: envelope('AbdmShareCallbackAck'),
+  AbdmHiuCallbackAckResponse: envelope('AbdmHiuCallbackAck'),
+  AbdmHiuDataPushAckResponse: envelope('AbdmHiuDataPushAck'),
+  AbdmHiuConsentRequestResponse: envelope('AbdmHiuConsentRequestData'),
+  AbdmHiuConsentRequestListResponse: envelope('AbdmHiuConsentRequestList'),
+  AbdmHiuConsentArtifactListResponse: envelope('AbdmHiuConsentArtifactList'),
+  AbdmHiuFetchSessionResponse: envelope('AbdmHiuFetchSessionData'),
+  AbdmHiuFetchSessionListResponse: envelope('AbdmHiuFetchSessionList'),
+  AbdmHiuBundleListResponse: envelope('AbdmHiuBundleList'),
+  AbdmHiuBundleContentResponse: envelope('AbdmHiuBundleContent'),
+};
+
+const enrolmentOps = (base, audience) => ({
+  [`POST ${base}/start`]: {
+    description: `Starts an ABHA enrolment session (${audience}). Validates the 12-digit Aadhaar (Verhoeff), encrypts it in memory with the gateway certificate, requests the enrolment OTP, and returns the session (status otp_sent). One live session per patient; OTP rate-limited (3 per 10 min). 403 ABDM_ENROLMENT_DISABLED until tenants.settings.abdmEnrolment.enabled AND ABDM_ENABLED hold. No Aadhaar material is ever persisted, logged, or echoed.`,
+    request: 'AbhaEnrolmentStartRequest',
+    response: 'AbhaEnrolmentSessionResponse',
+  },
+  [`POST ${base}/otp`]: {
+    description: `Verifies the enrolment OTP (${audience}). Aadhaar flow completes enrolment at the gateway and links the resulting ABHA through the migration-653 verified gate (users.abha_verification_status='verified' + clinical_audit_events row, one transaction; no clinical timeline row — identity, not clinical care). Attempts cap at 3, then the session fails. 409 ABHA_ALREADY_LINKED when another patient holds the verified slot.`,
+    request: 'AbhaEnrolmentOtpRequest',
+    response: 'AbhaEnrolmentSessionResponse',
+  },
+  [`POST ${base}/resend`]: {
+    description: `Re-sends the enrolment OTP (${audience}). The Aadhaar number is never stored, so the aadhaar_otp flow must re-supply it (validated, encrypted in memory, discarded). Capped at 3 resends; OTP rate-limited.`,
+    request: 'AbhaEnrolmentResendRequest',
+    response: 'AbhaEnrolmentSessionResponse',
+  },
+  [`POST ${base}/cancel`]: {
+    description: `Cancels a live enrolment session (${audience}).`,
+    request: 'AbhaEnrolmentCancelRequest',
+    response: 'AbhaEnrolmentSessionResponse',
+  },
+});
+
+export const operations = {
+  ...enrolmentOps('/api/v1/portal/abdm/enrolment', 'patient self-service; target is always the caller'),
+  'GET /api/v1/portal/abdm/enrolment/status': {
+    description: 'The calling patient\'s latest ABHA enrolment session (safe projection — no txn id, no profile snapshot).',
+    response: 'AbhaEnrolmentStatusResponse',
+  },
+  ...enrolmentOps('/api/v1/abdm/enrolment', 'front-desk assisted; patient_uid in the body, patient-registry write roles'),
+  'GET /api/v1/abdm/enrolment/status/{patientUid}': {
+    description: 'Front-desk view of a patient\'s latest ABHA enrolment session.',
+    response: 'AbhaEnrolmentStatusResponse',
+  },
+
+  'GET /api/v1/front-desk/abdm/share-intakes': {
+    description: 'Front-desk queue of Scan & Share intakes (patient-scanned counter QR → CM profile share). Filter with ?status=received for the live counter screen.',
+    response: 'AbdmShareIntakeListResponse',
+  },
+  'GET /api/v1/front-desk/abdm/share-intakes/{id}': {
+    description: 'One Scan & Share intake with the shared (allowlisted) demographics.',
+    response: 'AbdmShareIntakeResponse',
+  },
+  'POST /api/v1/front-desk/abdm/share-intakes/{id}/match': {
+    description: 'Attaches the intake to an EXISTING patient (status received → matched). Audited front-office identity action.',
+    request: 'AbdmShareIntakeMatchRequest',
+    response: 'AbdmShareIntakeResponse',
+  },
+  'POST /api/v1/front-desk/abdm/share-intakes/{id}/register': {
+    description: 'Registers a NEW patient from the intake through the guarded front-desk flow: exact-phone probe + duplicate candidate scan 409 PATIENT_DUPLICATE_REVIEW_REQUIRED until reviewed or overridden with an audited reason (min 10 chars). On create the shared ABHA links via the registerABHA verified-gate pathway; a linkage refusal is recorded on the intake, never a rollback. Status → registered.',
+    request: 'AbdmShareIntakeRegisterRequest',
+    response: 'AbdmShareIntakeRegisterResponse',
+  },
+  'POST /api/v1/front-desk/abdm/share-intakes/{id}/link-visit': {
+    description: 'Attaches an existing OP appointment belonging to the resolved patient (status matched/registered → linked_visit).',
+    request: 'AbdmShareIntakeLinkVisitRequest',
+    response: 'AbdmShareIntakeResponse',
+  },
+  'POST /api/v1/front-desk/abdm/share-intakes/{id}/dismiss': {
+    description: 'Dismisses an intake without action (audited).',
+    request: 'AbdmShareIntakeDismissRequest',
+    response: 'AbdmShareIntakeResponse',
+  },
+
+  'POST /api/v1/abdm/patients/profile/share': {
+    description: 'Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. Self-authenticated exactly like the legacy ABDM callbacks — x-hip-id tenant resolution, HMAC over the exact raw bytes, durable cross-replica replay claim. Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token.',
+    response: 'AbdmShareCallbackAckResponse',
+  },
+  'POST /api/v1/abdm/hiu/consent-requests/on-init': {
+    description: 'Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). Same authenticity chain as every ABDM callback.',
+    response: 'AbdmHiuCallbackAckResponse',
+  },
+  'POST /api/v1/abdm/hiu/consents/notify': {
+    description: 'Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables.',
+    response: 'AbdmHiuCallbackAckResponse',
+  },
+  'POST /api/v1/abdm/hiu/health-info/on-request': {
+    description: 'Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged).',
+    response: 'AbdmHiuCallbackAckResponse',
+  },
+  'POST /api/v1/abdm/hiu/health-info/push': {
+    description: 'Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session\'s persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page).',
+    response: 'AbdmHiuDataPushAckResponse',
+  },
+
+  'POST /api/v1/abdm/hiu/consent-requests': {
+    description: 'Clinician-initiated HIU consent request: persists the abdm_consent_requests row (flow_kind hiu, durable evidence first), then inits at the gateway — a gateway refusal fails the row. 403 ABDM_HIU_DISABLED until tenants.settings.abdmHiu.enabled AND ABDM_ENABLED hold.',
+    request: 'AbdmHiuConsentRequestCreate',
+    response: 'AbdmHiuConsentRequestResponse',
+  },
+  'GET /api/v1/abdm/hiu/consent-requests': {
+    description: 'HIU consent requests for this tenant (flow_kind hiu), newest first.',
+    response: 'AbdmHiuConsentRequestListResponse',
+  },
+  'GET /api/v1/abdm/hiu/consents': {
+    description: 'Consent artefacts granted against HIU consent requests.',
+    response: 'AbdmHiuConsentArtifactListResponse',
+  },
+  'POST /api/v1/abdm/hiu/consents/{artifactId}/fetch': {
+    description: 'Starts a health-information fetch against an ACTIVE consent artefact: generates the X25519 receive keypair, persists the private key encryptField-encrypted for the async hi-request → data-push gap (NULLed after decrypt; 30-min liability window), creates the direction-in transfer row, and hands the public key material + dataPushUrl to the CM.',
+    response: 'AbdmHiuFetchSessionResponse',
+  },
+  'GET /api/v1/abdm/hiu/sessions': {
+    description: 'HIU fetch sessions (requested → acknowledged → receiving → completed | partial | failed | expired). Key material columns are never exposed.',
+    response: 'AbdmHiuFetchSessionListResponse',
+  },
+  'GET /api/v1/abdm/hiu/sessions/{id}': {
+    description: 'One HIU fetch session (safe projection — no key material).',
+    response: 'AbdmHiuFetchSessionResponse',
+  },
+  'GET /api/v1/abdm/hiu/sessions/{id}/bundles': {
+    description: 'Reference rows for the decrypted bundles a fetch session received. PHI bytes live in R2, not in these rows.',
+    response: 'AbdmHiuBundleListResponse',
+  },
+  'GET /api/v1/abdm/hiu/sessions/{id}/bundles/{bundleId}': {
+    description: 'Streams one decrypted FHIR bundle from R2 for transient rendering. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.',
+    response: 'AbdmHiuBundleContentResponse',
+  },
+};

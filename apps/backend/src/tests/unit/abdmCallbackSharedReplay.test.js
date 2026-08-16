@@ -63,6 +63,22 @@ jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryServic
   recordAuthenticatedAbdmCallback,
   markAuthenticatedAbdmCallback,
 }));
+// The Scan & Share / HIU callback handlers lazy-import their services;
+// unstable_mockModule intercepts the dynamic import too, so the whole
+// migration-702/703 dependency graph stays out of this suite.
+const handlePatientProfileShareCallback = jest.fn();
+const handleHiuDataPush = jest.fn();
+jest.unstable_mockModule('../../services/abdm/abdmShareIntakeService.js', () => ({
+  handlePatientProfileShareCallback,
+  default: { handlePatientProfileShareCallback },
+}));
+jest.unstable_mockModule('../../services/abdm/abdmHiuService.js', () => ({
+  handleHiuDataPush,
+  handleHiuConsentOnInit: jest.fn(),
+  handleHiuConsentNotify: jest.fn(),
+  handleHiuHealthInfoOnRequest: jest.fn(),
+  default: { handleHiuDataPush },
+}));
 
 let abdmService;
 let callbackRouter;
@@ -77,6 +93,14 @@ beforeEach(() => {
   assertSharedReplayOnce.mockReset();
   recordAuthenticatedAbdmCallback.mockReset();
   markAuthenticatedAbdmCallback.mockReset();
+  handlePatientProfileShareCallback.mockReset();
+  handleHiuDataPush.mockReset();
+  handlePatientProfileShareCallback.mockResolvedValue({
+    intake: { id: 21 }, duplicate: false, tokenNumber: 'T-21',
+  });
+  handleHiuDataPush.mockResolvedValue({
+    duplicate: false, transactionId: 'txn-1', stored: 1, failed: 0,
+  });
   recordAuthenticatedAbdmCallback.mockResolvedValue({
     event: { id: '71', external_event_id: 'cr-9', status: 'pending' },
     duplicate: false,
@@ -173,6 +197,77 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(res.status).toBe(401);
     expect(spy).not.toHaveBeenCalled();
     expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
+  });
+
+  it('runs the Scan & Share path through the SAME replay chain and hands the resolved tenant to the service', async () => {
+    const res = await request(buildApp())
+      .post('/patients/profile/share')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ requestId: 'req-abc', profile: { patient: { name: 'Asha' } } });
+
+    expect(res.status).toBe(202);
+    expect(res.body.data).toMatchObject({
+      acknowledgement: { status: 'SUCCESS' },
+      requestId: 'req-abc',
+      tokenNumber: 'T-21',
+    });
+    expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
+    expect(handlePatientProfileShareCallback).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: expect.any(String),
+      environment: 'sandbox',
+      body: expect.objectContaining({ requestId: 'req-abc' }),
+    }));
+  });
+
+  it('a replay on the Scan & Share path is rejected before the service runs', async () => {
+    assertSharedReplayOnce.mockRejectedValue(Object.assign(
+      new Error('replay'), { statusCode: 401, code: 'ABDM_CALLBACK_REPLAY' },
+    ));
+
+    const res = await request(buildApp())
+      .post('/patients/profile/share')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ requestId: 'req-abc' });
+
+    expect(res.status).toBe(401);
+    expect(handlePatientProfileShareCallback).not.toHaveBeenCalled();
+  });
+
+  it('an unrecognized HIP id 401s the new paths (tenant fail-closed)', async () => {
+    const res = await request(buildApp())
+      .post('/hiu/health-info/push')
+      .set('x-hip-id', 'SOMEONE_ELSES_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ transactionId: 'txn-1', entries: [] });
+
+    expect(res.status).toBe(401);
+    expect(handleHiuDataPush).not.toHaveBeenCalled();
+    expect(assertSharedReplayOnce).not.toHaveBeenCalled();
+  });
+
+  it('the HIU data-push path rides the same chain and 202-acks', async () => {
+    const res = await request(buildApp())
+      .post('/hiu/health-info/push')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ transactionId: 'txn-1', pageNumber: 1, pageCount: 1, entries: [] });
+
+    expect(res.status).toBe(202);
+    expect(res.body.data).toMatchObject({ transactionId: 'txn-1', stored: 1 });
+    expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
+    expect(handleHiuDataPush).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: expect.any(String),
+    }));
   });
 
   it('rejects fail-closed when the shared replay store is unavailable (503)', async () => {

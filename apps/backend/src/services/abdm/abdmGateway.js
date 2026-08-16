@@ -85,7 +85,9 @@ async function authenticatedRequest(method, path, body = null) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
-      'X-CM-ID': 'sbx', // sandbox; override for production
+      // Explicit environment (was hardcoded 'sbx'): ABDM_CM_ID / ABDM_ENVIRONMENT
+      // drive the Consent-Manager id — see abdmConfig.cmId.
+      'X-CM-ID': ABDM_CONFIG.cmId,
       'REQUEST-ID': requestId,
       'TIMESTAMP': timestamp,
     },
@@ -285,12 +287,281 @@ async function notifyHealthInfoTransfer({
   logger.info('ABDM health-information transfer notified', { transactionId, sessionStatus });
 }
 
+// ---------------------------------------------------------------------------
+// ABHA enrolment (v3) — the Aadhaar-OTP / mobile-OTP flow this platform
+// previously could not reach (see the registerABHA docblock: "abdmGateway
+// exposes no enrolment call"). Driven against the ABHA sandbox by default
+// (ABDM_CONFIG.abhaEnrolmentBaseUrl).
+//
+// PRIVACY CONTRACT: every sensitive value (Aadhaar number, OTP) arrives here
+// ALREADY RSA-encrypted with the enrolment public certificate — this module
+// never sees, logs, or persists plaintext Aadhaar/OTP material.
+// ---------------------------------------------------------------------------
+
+// Enrolment public-certificate cache (rotates rarely; refetch hourly).
+let cachedEnrolmentCert = null;
+let enrolmentCertExpiresAt = 0;
+
+/**
+ * Make an authenticated request against the ABHA enrolment API base.
+ * Mirrors authenticatedRequest but targets abhaEnrolmentBaseUrl.
+ */
+async function enrolmentRequest(method, path, body = null) {
+  const token = await getAccessToken();
+  const url = `${ABDM_CONFIG.abhaEnrolmentBaseUrl}${path}`;
+  const requestId = crypto.randomUUID();
+
+  const options = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'REQUEST-ID': requestId,
+      'TIMESTAMP': new Date().toISOString(),
+    },
+    signal: AbortSignal.timeout(30000),
+  };
+  if (body && method !== 'GET') {
+    options.body = JSON.stringify(body);
+  }
+
+  try {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      const responseBody = await response.text();
+      // Never log the request body here — it can carry encrypted Aadhaar/OTP
+      // material whose presence alone should stay out of logs.
+      logger.error('ABHA enrolment API request failed', {
+        method,
+        path,
+        status: response.status,
+        body: responseBody.substring(0, 500),
+        requestId,
+      });
+      const err = AppError.internal(
+        `ABHA enrolment API request failed with status ${response.status}`,
+        'ABHA_ENROLMENT_API_ERROR',
+      );
+      err.details = { status: response.status };
+      throw err;
+    }
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json();
+    }
+    return { status: response.status };
+  } catch (err) {
+    if (err.isOperational) throw err;
+    logger.error('ABHA enrolment API connection error', { method, path, error: err.message });
+    throw AppError.internal('Unable to connect to the ABHA enrolment API', 'ABDM_CONNECTION_ERROR');
+  }
+}
+
+/**
+ * Fetch (and cache) the enrolment RSA public certificate used to encrypt
+ * Aadhaar numbers and OTP values in memory before they leave the process.
+ * @returns {Promise<{publicKey: string}>}
+ */
+async function fetchEnrolmentPublicCertificate() {
+  const now = Date.now();
+  if (cachedEnrolmentCert && enrolmentCertExpiresAt > now) {
+    return cachedEnrolmentCert;
+  }
+  const result = await enrolmentRequest('GET', '/profile/public/certificate');
+  const publicKey = result?.publicKey || result?.certificate || null;
+  if (!publicKey) {
+    throw AppError.internal(
+      'ABHA enrolment certificate endpoint returned no public key',
+      'ABHA_ENROLMENT_CERT_MISSING',
+    );
+  }
+  cachedEnrolmentCert = { publicKey: String(publicKey) };
+  enrolmentCertExpiresAt = now + 60 * 60 * 1000;
+  return cachedEnrolmentCert;
+}
+
+/**
+ * Request an enrolment OTP.
+ * @param {Object} params
+ * @param {'abha-enrol'|'mobile-verify'} params.scope
+ * @param {string} params.encryptedValue - RSA-encrypted Aadhaar number
+ *   (aadhaar login hint) or mobile number (mobile-verify leg). NEVER plaintext.
+ * @param {string|null} [params.txnId] - Existing ABDM txn to continue (resend /
+ *   mobile-verify leg of an enrolment txn).
+ * @returns {Promise<{txnId: string, message?: string}>}
+ */
+async function requestEnrolmentOtp({ scope, encryptedValue, txnId = null }) {
+  const mobileVerify = scope === 'mobile-verify';
+  const result = await enrolmentRequest('POST', '/enrollment/request/otp', {
+    txnId: txnId || '',
+    scope: mobileVerify ? ['abha-enrol', 'mobile-verify'] : ['abha-enrol'],
+    loginHint: mobileVerify ? 'mobile' : 'aadhaar',
+    loginId: encryptedValue,
+    otpSystem: mobileVerify ? 'abdm' : 'aadhaar',
+  });
+  if (!result?.txnId) {
+    throw AppError.internal(
+      'ABHA enrolment OTP request returned no transaction id',
+      'ABHA_ENROLMENT_NO_TXN',
+    );
+  }
+  logger.info('ABHA enrolment OTP requested', { scope, txnId: result.txnId });
+  return result;
+}
+
+/**
+ * Complete Aadhaar-OTP enrolment for a transaction.
+ * @param {Object} params
+ * @param {string} params.txnId
+ * @param {string} params.encryptedOtp - RSA-encrypted OTP. NEVER plaintext.
+ * @param {string|null} [params.mobile] - Plain 10-digit communication mobile
+ *   (an ABDM contact field, not Aadhaar material).
+ * @returns {Promise<Object>} Gateway response ({ txnId, ABHAProfile, ... }).
+ */
+async function enrolByAadhaar({ txnId, encryptedOtp, mobile = null }) {
+  const body = {
+    authData: {
+      authMethods: ['otp'],
+      otp: {
+        timeStamp: new Date().toISOString(),
+        txnId,
+        otpValue: encryptedOtp,
+        ...(mobile ? { mobile } : {}),
+      },
+    },
+    consent: { code: 'abha-enrollment', version: '1.4' },
+  };
+  const result = await enrolmentRequest('POST', '/enrollment/enrol/byAadhaar', body);
+  logger.info('ABHA enrolment by Aadhaar-OTP completed at gateway', { txnId });
+  return result;
+}
+
+/**
+ * Verify the mobile-OTP (update/verify-mobile leg of an enrolment txn).
+ * @param {Object} params
+ * @param {string} params.txnId
+ * @param {string} params.encryptedOtp - RSA-encrypted OTP. NEVER plaintext.
+ * @returns {Promise<Object>}
+ */
+async function verifyMobileOtp({ txnId, encryptedOtp }) {
+  const result = await enrolmentRequest('POST', '/enrollment/auth/byAbdm', {
+    scope: ['abha-enrol', 'mobile-verify'],
+    authData: {
+      authMethods: ['otp'],
+      otp: {
+        timeStamp: new Date().toISOString(),
+        txnId,
+        otpValue: encryptedOtp,
+      },
+    },
+  });
+  logger.info('ABHA enrolment mobile OTP verified at gateway', { txnId });
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Thin HIU legs (consent request init + health-information fetch).
+// ---------------------------------------------------------------------------
+
+/**
+ * HIU: initiate a consent request at the gateway (/v0.5/consent-requests/init).
+ * @returns {Promise<{requestId: string}>} echoes the requestId sent.
+ */
+async function initHiuConsentRequest({
+  requestId,
+  patientAbhaAddress,
+  purposeCode,
+  hiTypes,
+  dateFrom,
+  dateTo,
+  expiryAt,
+  requesterName,
+}) {
+  const body = {
+    requestId,
+    timestamp: new Date().toISOString(),
+    consent: {
+      purpose: { text: purposeCode, code: purposeCode },
+      patient: { id: patientAbhaAddress },
+      hiu: { id: ABDM_CONFIG.hiuId },
+      requester: { name: requesterName || ABDM_CONFIG.hipName },
+      hiTypes,
+      permission: {
+        accessMode: 'VIEW',
+        dateRange: { from: dateFrom, to: dateTo },
+        dataEraseAt: expiryAt,
+        frequency: { unit: 'HOUR', value: 1, repeats: 0 },
+      },
+    },
+  };
+  await authenticatedRequest('POST', '/v0.5/consent-requests/init', body);
+  logger.info('ABDM HIU consent request initiated', { requestId });
+  return { requestId };
+}
+
+/**
+ * HIU: request health information against a granted consent
+ * (/v0.5/health-information/cm/request). keyMaterial is the PUBLIC envelope
+ * from abdmCrypto.generateKeyMaterial — the private key never reaches here.
+ */
+async function requestHealthInformation({
+  requestId,
+  consentId,
+  dateFrom,
+  dateTo,
+  dataPushUrl,
+  keyMaterial,
+}) {
+  const body = {
+    requestId,
+    timestamp: new Date().toISOString(),
+    hiRequest: {
+      consent: { id: consentId },
+      dateRange: { from: dateFrom, to: dateTo },
+      dataPushUrl,
+      keyMaterial,
+    },
+  };
+  await authenticatedRequest('POST', '/v0.5/health-information/cm/request', body);
+  logger.info('ABDM HIU health-information request sent', { requestId, consentId });
+  return { requestId };
+}
+
+/**
+ * HIU: notify the gateway of received/failed health-information transfer
+ * (HIU side of /v0.5/health-information/notify). Best-effort by design.
+ */
+async function notifyHiuHealthInfoStatus({
+  transactionId,
+  consentId,
+  sessionStatus = 'TRANSFERRED',
+}) {
+  const body = {
+    requestId: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    notification: {
+      consentId,
+      transactionId,
+      doneAt: new Date().toISOString(),
+      notifier: { type: 'HIU', id: ABDM_CONFIG.hiuId },
+      statusNotification: {
+        sessionStatus,
+        hipId: ABDM_CONFIG.hipId,
+      },
+    },
+  };
+  await authenticatedRequest('POST', '/v0.5/health-information/notify', body);
+  logger.info('ABDM HIU health-information status notified', { transactionId, sessionStatus });
+}
+
 /**
  * Clear cached token (for testing or forced refresh).
  */
 function clearTokenCache() {
   cachedToken = null;
   tokenExpiresAt = 0;
+  cachedEnrolmentCert = null;
+  enrolmentCertExpiresAt = 0;
 }
 
 export default {
@@ -300,5 +571,12 @@ export default {
   notifyConsentStatus,
   sendHealthData,
   notifyHealthInfoTransfer,
+  fetchEnrolmentPublicCertificate,
+  requestEnrolmentOtp,
+  enrolByAadhaar,
+  verifyMobileOtp,
+  initHiuConsentRequest,
+  requestHealthInformation,
+  notifyHiuHealthInfoStatus,
   clearTokenCache,
 };

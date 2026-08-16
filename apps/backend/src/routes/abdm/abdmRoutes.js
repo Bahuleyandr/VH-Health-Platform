@@ -29,7 +29,21 @@ const callbackRouter = Router();
 // Audit 2026-06-18: throttle the unauthenticated ABDM callback surface — each
 // request does DB + HMAC work, so brute-force/DoS must be capped before that.
 callbackRouter.use(genericLimiter);
-const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
+// Every path here must ALSO be present in the app.js raw-body capture list
+// (captureJsonRawBody) — signature verification runs over the exact bytes.
+// The first two are the I16-recovered paths (618 intake, receipt_source
+// non-NULL); the newer Scan & Share + HIU paths record PLAIN 124-shape
+// abdm_webhook_events rows (receipt_source NULL — 618's CHECK pins non-NULL
+// receipt_source to the two I16 paths).
+const ABDM_CALLBACK_PATHS = new Set([
+  '/consent/on-notify',
+  '/health-info/on-request',
+  '/patients/profile/share',
+  '/hiu/consent-requests/on-init',
+  '/hiu/consents/notify',
+  '/hiu/health-info/on-request',
+  '/hiu/health-info/push',
+]);
 const ABDM_CALLBACK_ENVIRONMENT = process.env.ABDM_ENVIRONMENT === 'production'
   ? 'production'
   : 'sandbox';
@@ -303,6 +317,137 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
     next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// SCAN & SHARE + THIN-HIU CALLBACKS (migrations 702/703).
+//
+// Same authenticity chain as the two legacy paths (validateABDMRequest:
+// x-hip-id tenant resolution → HMAC over exact raw bytes → durable
+// cross-replica replay claim). Handlers lazy-import their services so suites
+// exercising the legacy callbacks never load the new dependency graph, and
+// every service write carries req.tenantId EXPLICITLY (pre-RLS mount).
+// ---------------------------------------------------------------------------
+
+function abdmCallbackHandler(label, run) {
+  return async (req, res, next) => {
+    try {
+      const result = await run(req);
+      return success(res, result.data, result.message, 202);
+    } catch (err) {
+      if (err.isOperational) {
+        return relayAppError(res, err, label);
+      }
+      logger.error(label, { error: err.message });
+      return next(err);
+    }
+  };
+}
+
+/**
+ * POST /abdm/patients/profile/share
+ * Scan & Share: the CM posts a patient-shared profile after the patient scans
+ * a counter QR. Derives a front-desk work item; redeliveries 202 replay-safe.
+ */
+callbackRouter.post('/patients/profile/share', abdmCallbackHandler(
+  'Failed to handle ABDM patient profile share',
+  async (req) => {
+    const { handlePatientProfileShareCallback } = await import('../../services/abdm/abdmShareIntakeService.js');
+    const result = await handlePatientProfileShareCallback({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: {
+        acknowledgement: { status: 'SUCCESS' },
+        requestId: req.body?.requestId || null,
+        tokenNumber: result.tokenNumber,
+      },
+      message: result.duplicate
+        ? 'Patient profile share already received'
+        : 'Patient profile share received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/consent-requests/on-init — gateway ack of consent init. */
+callbackRouter.post('/hiu/consent-requests/on-init', abdmCallbackHandler(
+  'Failed to handle ABDM HIU consent on-init',
+  async (req) => {
+    const { handleHiuConsentOnInit } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuConsentOnInit({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate ? 'Consent on-init already received' : 'Consent on-init received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/consents/notify — CM consent grant/deny/revoke for the HIU. */
+callbackRouter.post('/hiu/consents/notify', abdmCallbackHandler(
+  'Failed to handle ABDM HIU consent notification',
+  async (req) => {
+    const { handleHiuConsentNotify } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuConsentNotify({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate
+        ? 'Consent notification already received'
+        : 'Consent notification received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/health-info/on-request — CM ack of our hi-request. */
+callbackRouter.post('/hiu/health-info/on-request', abdmCallbackHandler(
+  'Failed to handle ABDM HIU health-info on-request',
+  async (req) => {
+    const { handleHiuHealthInfoOnRequest } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuHealthInfoOnRequest({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate ? 'Acknowledgement already received' : 'Acknowledgement received',
+    };
+  },
+));
+
+/**
+ * POST /abdm/hiu/health-info/push — the dataPushUrl leg: the HIP pushes
+ * encrypted FHIR entries; parts decrypt against the session's persisted
+ * receive key, bundles land in R2, references in abdm_hiu_received_bundles.
+ */
+callbackRouter.post('/hiu/health-info/push', abdmCallbackHandler(
+  'Failed to handle ABDM HIU data push',
+  async (req) => {
+    const { handleHiuDataPush } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuDataPush({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: {
+        transactionId: result.transactionId,
+        duplicate: result.duplicate,
+        stored: result.stored ?? 0,
+        failed: result.failed ?? 0,
+      },
+      message: result.duplicate ? 'Data push page already received' : 'Data push received',
+    };
+  },
+));
 
 
 // ====================================

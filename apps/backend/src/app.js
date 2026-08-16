@@ -125,6 +125,9 @@ import {
 
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
+import { abdmEnrolmentPortalRouter, abdmEnrolmentStaffRouter } from './routes/abdm/abdmEnrolmentRoutes.js';
+import abdmShareIntakeRoutes from './routes/abdm/abdmShareIntakeRoutes.js';
+import abdmHiuRoutes from './routes/abdm/abdmHiuRoutes.js';
 import adoptionRoutes from './routes/adoption/adoptionRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
 import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
@@ -584,7 +587,16 @@ function captureJsonRawBody(req, body) {
     req.scimRawBody = Buffer.from(body);
   }
   if (path === '/api/v1/abdm/consent/on-notify'
-      || path === '/api/v1/abdm/health-info/on-request') {
+      || path === '/api/v1/abdm/health-info/on-request'
+      // ABDM completion (migrations 701-703): Scan & Share + thin-HIU
+      // callbacks verify the HMAC over these EXACT bytes. Every entry in
+      // ABDM_CALLBACK_PATHS (abdmRoutes.js) must appear here with the
+      // /api/v1/abdm mount prefix.
+      || path === '/api/v1/abdm/patients/profile/share'
+      || path === '/api/v1/abdm/hiu/consent-requests/on-init'
+      || path === '/api/v1/abdm/hiu/consents/notify'
+      || path === '/api/v1/abdm/hiu/health-info/on-request'
+      || path === '/api/v1/abdm/hiu/health-info/push') {
     req.abdmRawBody = Buffer.from(body);
   }
   // Payment gateway webhooks are HMAC-signed over the EXACT raw bytes —
@@ -1128,6 +1140,24 @@ const ABDM_PHI_PATHS = [
   '/api/v1/abdm/consent-requests',
   '/api/v1/abdm/consents',
 ];
+// ABDM completion (migrations 701-703) — mounted BEFORE the generic /abdm
+// patient router so the sub-paths resolve deterministically.
+//
+// Front-desk assisted ABHA enrolment. No route-level PHI logger: every
+// enrolment route logs its own logPhiAccess('abha_enrolment') with accurate
+// patient attribution (mirrors the /register-abha exclusion above — a mount
+// logger would double-log each write).
+app.use('/api/v1/abdm/enrolment', abdmEnrolmentStaffRouter);
+// Thin HIU. Consent surfaces + session/bundle LISTS ride the route-scoped
+// PHI logger; the bundle-CONTENT read is excluded here because the route
+// logs it explicitly as 'abdm_hiu_bundle' with patient attribution.
+app.use('/api/v1/abdm/hiu', phiAccessLoggerForPaths('ABDM', [
+  '/api/v1/abdm/hiu/consent-requests',
+  '/api/v1/abdm/hiu/consents',
+  /^\/api\/v1\/abdm\/hiu\/sessions(\/\d+(\/bundles)?)?$/,
+]), abdmHiuRoutes);
+// Scan & Share front-desk work queue — shared demographics are PHI.
+app.use('/api/v1/front-desk/abdm/share-intakes', phiAccessLogger('ABDM'), abdmShareIntakeRoutes);
 app.use('/api/v1/abdm', phiAccessLoggerForPaths('ABDM', ABDM_PHI_PATHS), abdmPatientRoutes);
 
 // ====================================
@@ -1766,6 +1796,10 @@ app.use('/api/v1/productivity', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLE
 // backend-HTTP P3 #7). No SUPER_ADMIN step-up: aggregate BI reads are not a
 // control-plane mutation surface (matches /admin/tenant-context posture).
 app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, dashboardsRoutes);
+// ABHA self-enrolment (migration 701) — mounted BEFORE the portal barrel so
+// /portal/abdm/enrolment/* resolves here. Routes log their own
+// logPhiAccess('abha_enrolment'); identity comes from the JWT only.
+app.use('/api/v1/portal/abdm/enrolment', patientRateLimiter, requireRole('PATIENT'), abdmEnrolmentPortalRouter);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);

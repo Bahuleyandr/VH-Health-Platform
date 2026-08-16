@@ -43,6 +43,16 @@
 //                                         // sms_provider_configs row (or complete env
 //                                         // credentials) exists; otherwise dry-run.
 //     },
+//     abdmEnrolment?: {
+//       enabled?: boolean,                // default false — ABHA enrolment flows
+//                                         // (Aadhaar-OTP/mobile-OTP). Effective only
+//                                         // with ABDM_ENABLED=true; sandbox unless
+//                                         // ABDM_ENVIRONMENT=production.
+//     },
+//     abdmHiu?: {
+//       enabled?: boolean,                // default false — thin HIU consent/fetch
+//                                         // legs. Effective only with ABDM_ENABLED=true.
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -206,6 +216,30 @@ export async function getPaymentGatewaySettings(tenantId) {
 export async function getSmsSettings(tenantId) {
   const settings = await getTenantSettings(tenantId);
   const raw = settings.sms;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// ABHA enrolment (migration 701). Disabled by default — enrolment reaches the
+// national ABDM sandbox/production gateway, so it turns on per tenant via a
+// settings write only after the deployment sets ABDM_ENABLED and the operator
+// decides. Defensive like every accessor here: malformed config yields the
+// disabled default, never a throw.
+export async function getAbdmEnrolmentSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmEnrolment;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// Thin HIU legs (migration 703 + the 124 abdmFull consent layer). Disabled by
+// default — same posture as abdmEnrolment. Defensive: malformed config yields
+// the disabled default, never a throw.
+export async function getAbdmHiuSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmHiu;
   const defaults = { enabled: false };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
   return { enabled: raw.enabled === true };

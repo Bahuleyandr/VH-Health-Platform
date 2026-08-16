@@ -1019,6 +1019,31 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }));
 
+  // 🪪 Every 5 minutes — ABHA enrolment session expiry (migration 701).
+  // Live sessions past expires_at flip to 'expired' so the one-live-session
+  // partial unique never wedges a patient behind an abandoned OTP txn.
+  registerCron('*/5 * * * *', withJobLock('abha-enrolment-expiry', async () => {
+    const { sweepExpiredEnrolmentSessions } = await import('../services/abdm/abhaEnrolmentService.js');
+    await sweepExpiredEnrolmentSessions();
+  }));
+
+  // 🧾 Every 5 minutes — Scan & Share intake expiry (migration 702). Share
+  // tokens are short-lived; unactioned 'received' intakes expire off the
+  // front-desk queue.
+  registerCron('*/5 * * * *', withJobLock('abdm-share-intake-expiry', async () => {
+    const { sweepExpiredShareIntakes } = await import('../services/abdm/abdmShareIntakeService.js');
+    await sweepExpiredShareIntakes();
+  }));
+
+  // 🔑 Every 5 minutes — HIU fetch-session expiry + key scrub (migration 703).
+  // Persisted X25519 receive keys are a liability, not evidence: live sessions
+  // whose key aged out expire (key NULLed), and any terminal session still
+  // holding a key is scrubbed.
+  registerCron('*/5 * * * *', withJobLock('abdm-hiu-fetch-expiry', async () => {
+    const { sweepExpiredHiuFetchSessions } = await import('../services/abdm/abdmHiuService.js');
+    await sweepExpiredHiuFetchSessions();
+  }));
+
   // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
   // Per-tenant fan-out; runDueMisReportSchedules evaluates each enabled
   // schedule against the tenant's local clock (settings.timezone, defaulting

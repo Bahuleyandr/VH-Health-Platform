@@ -644,6 +644,26 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CM_PUBLIC_KEY'),
+  // ABDM completion (migrations 701-703): the environment is EXPLICIT — the
+  // gateway previously hardcoded X-CM-ID 'sbx'. Defaults stay sandbox; a
+  // production deployment sets ABDM_ENVIRONMENT=production and MUST then name
+  // its Consent-Manager id (no production default exists on purpose).
+  ABDM_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('ABDM_ENVIRONMENT'),
+  ABDM_CM_ID: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_CM_ID'),
+  // ABHA enrolment API base (v3). Sandbox default; only https targets.
+  ABHA_ENROLMENT_BASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://abhasbx.abdm.gov.in/abha/api/v3')
+    .label('ABHA_ENROLMENT_BASE_URL'),
+  // Thin-HIU identity; defaults to ABDM_HIP_ID in abdmConfig when unset.
+  ABDM_HIU_ID: Joi.string().allow('').optional().label('ABDM_HIU_ID'),
 }).unknown(true);
 
 // Validate the current environment variables
