@@ -62,32 +62,33 @@ model abdm_care_contexts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model abdm_consent_artifacts {
-  id                    Int                    @id @default(autoincrement())
-  tenant_id             String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consent_request_id    Int?
-  artifact_id           String                 @db.VarChar(120)
-  abha_id               String?                @db.VarChar(40)
-  patient_uid           String?                @db.Uuid
-  hi_types              String[]               @default([])
-  permission_kind       String                 @db.VarChar(40)
-  data_from             DateTime?              @db.Timestamptz(6)
-  data_to               DateTime?              @db.Timestamptz(6)
-  expiry_at             DateTime?              @db.Timestamptz(6)
-  status                String                 @default("active") @db.VarChar(20)
-  signed_payload        Json                   @default("{}")
-  signature_kid         String?                @db.VarChar(120)
-  signature_algorithm   String?                @db.VarChar(40)
-  granted_at            DateTime               @default(now()) @db.Timestamptz(6)
-  revoked_at            DateTime?              @db.Timestamptz(6)
-  expired_at            DateTime?              @db.Timestamptz(6)
-  environment           String                 @default("sandbox") @db.VarChar(20)
-  metadata              Json                   @default("{}")
-  created_at            DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
-  abdm_consent_requests abdm_consent_requests? @relation(fields: [consent_request_id], references: [id], onUpdate: NoAction)
-  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  abdm_data_transfers   abdm_data_transfers[]
-  abdm_webhook_events   abdm_webhook_events[]
+  id                      Int                       @id @default(autoincrement())
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_request_id      Int?
+  artifact_id             String                    @db.VarChar(120)
+  abha_id                 String?                   @db.VarChar(40)
+  patient_uid             String?                   @db.Uuid
+  hi_types                String[]                  @default([])
+  permission_kind         String                    @db.VarChar(40)
+  data_from               DateTime?                 @db.Timestamptz(6)
+  data_to                 DateTime?                 @db.Timestamptz(6)
+  expiry_at               DateTime?                 @db.Timestamptz(6)
+  status                  String                    @default("active") @db.VarChar(20)
+  signed_payload          Json                      @default("{}")
+  signature_kid           String?                   @db.VarChar(120)
+  signature_algorithm     String?                   @db.VarChar(40)
+  granted_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  revoked_at              DateTime?                 @db.Timestamptz(6)
+  expired_at              DateTime?                 @db.Timestamptz(6)
+  environment             String                    @default("sandbox") @db.VarChar(20)
+  metadata                Json                      @default("{}")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  abdm_consent_requests   abdm_consent_requests?    @relation(fields: [consent_request_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_data_transfers     abdm_data_transfers[]
+  abdm_hiu_fetch_sessions abdm_hiu_fetch_sessions[]
+  abdm_webhook_events     abdm_webhook_events[]
 
   @@unique([tenant_id, artifact_id, environment])
   @@index([tenant_id, status, granted_at(sort: Desc)], map: "idx_consent_artifacts_tenant_status")
@@ -196,30 +197,31 @@ model abdm_data_requests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model abdm_data_transfers {
-  id                     Int                     @id @default(autoincrement())
-  tenant_id              String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consent_artifact_id    Int?
-  transaction_id         String                  @db.VarChar(120)
-  patient_uid            String?                 @db.Uuid
-  abha_id                String?                 @db.VarChar(40)
-  direction              String                  @default("out") @db.VarChar(8)
-  bundle_kind            String?                 @db.VarChar(60)
-  payload_size_bytes     BigInt?
-  encryption_kind        String?                 @db.VarChar(40)
-  destination_url        String?
-  status                 String                  @default("pending") @db.VarChar(20)
-  attempt_count          Int                     @default(0)
-  started_at             DateTime?               @db.Timestamptz(6)
-  completed_at           DateTime?               @db.Timestamptz(6)
-  failure_reason         String?
-  hi_types               String[]                @default([])
-  environment            String                  @default("sandbox") @db.VarChar(20)
-  metadata               Json                    @default("{}")
-  created_at             DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
-  abdm_consent_artifacts abdm_consent_artifacts? @relation(fields: [consent_artifact_id], references: [id], onUpdate: NoAction)
-  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  abdm_webhook_events    abdm_webhook_events[]
+  id                      Int                       @id @default(autoincrement())
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_artifact_id     Int?
+  transaction_id          String                    @db.VarChar(120)
+  patient_uid             String?                   @db.Uuid
+  abha_id                 String?                   @db.VarChar(40)
+  direction               String                    @default("out") @db.VarChar(8)
+  bundle_kind             String?                   @db.VarChar(60)
+  payload_size_bytes      BigInt?
+  encryption_kind         String?                   @db.VarChar(40)
+  destination_url         String?
+  status                  String                    @default("pending") @db.VarChar(20)
+  attempt_count           Int                       @default(0)
+  started_at              DateTime?                 @db.Timestamptz(6)
+  completed_at            DateTime?                 @db.Timestamptz(6)
+  failure_reason          String?
+  hi_types                String[]                  @default([])
+  environment             String                    @default("sandbox") @db.VarChar(20)
+  metadata                Json                      @default("{}")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  abdm_consent_artifacts  abdm_consent_artifacts?   @relation(fields: [consent_artifact_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_hiu_fetch_sessions abdm_hiu_fetch_sessions[]
+  abdm_webhook_events     abdm_webhook_events[]
 
   @@unique([tenant_id, transaction_id, environment])
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_data_transfers_tenant_status")
@@ -916,6 +918,7 @@ model appointments {
   triage_acuity                        Int?                                  @db.SmallInt
   tenant_id                            String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   queue_id                             Int?
+  abdm_patient_share_intakes           abdm_patient_share_intakes[]
   admissions                           admissions[]
   appointment_documents                appointment_documents[]
   appointment_slot_holds               appointment_slot_holds[]
@@ -10482,8 +10485,12 @@ model tenants {
   abdm_data_requests                                   abdm_data_requests[]
   abdm_data_transfers                                  abdm_data_transfers[]
   abdm_facility_mappings                               abdm_facility_mappings[]
+  abdm_hiu_fetch_sessions                              abdm_hiu_fetch_sessions[]
+  abdm_hiu_received_bundles                            abdm_hiu_received_bundles[]
+  abdm_patient_share_intakes                           abdm_patient_share_intakes[]
   abdm_practitioner_mappings                           abdm_practitioner_mappings[]
   abdm_webhook_events                                  abdm_webhook_events[]
+  abha_enrolment_sessions                              abha_enrolment_sessions[]
   abha_profiles                                        abha_profiles[]
   admin_activity_logs                                  admin_activity_logs[]
   admins                                               admins[]
@@ -10970,6 +10977,10 @@ model tenants {
   patient_vitals                                       patient_vitals[]
   payer_tariff_links                                   payer_tariff_links[]
   payers                                               payers[]
+  payment_gateway_orders                               payment_gateway_orders[]
+  payment_gateway_provider_configs                     payment_gateway_provider_configs?
+  payment_gateway_refunds                              payment_gateway_refunds[]
+  payment_gateway_webhook_events                       payment_gateway_webhook_events[]
   payment_transactions                                 payment_transactions[]
   payroll_runs                                         payroll_runs[]
   payslip_queries                                      payslip_queries[]
@@ -11075,6 +11086,8 @@ model tenants {
   smart_authz_codes                                    smart_authz_codes[]
   smart_fhir_write_resource_plan                       smart_fhir_write_resource_plan[]
   smart_launch_contexts                                smart_launch_contexts[]
+  sms_provider_configs                                 sms_provider_configs?
+  sms_template_registrations                           sms_template_registrations[]
   sos_alerts                                           sos_alerts[]
   staff                                                staff[]
   staff_access_audit_log                               staff_access_audit_log[]
@@ -11645,7 +11658,9 @@ model users {
   abdm_consents                                                                                                                    abdm_consents[]
   abdm_data_requests                                                                                                               abdm_data_requests[]                                   @relation("abdm_data_requests_patient")
   abdm_data_requests_recovery_owner                                                                                                abdm_data_requests[]                                   @relation("abdm_data_requests_recovery_owner")
+  abdm_patient_share_intakes                                                                                                       abdm_patient_share_intakes[]
   abdm_webhook_events_recovery_owner                                                                                               abdm_webhook_events[]
+  abha_enrolment_sessions                                                                                                          abha_enrolment_sessions?
   annual_review_reminders                                                                                                          annual_review_reminders[]
   annual_tax_summaries                                                                                                             annual_tax_summaries[]
   ap_report_addenda                                                                                                                ap_report_addenda[]
@@ -12950,6 +12965,7 @@ model billing_invoices {
   billing_payments            billing_payments[]
   billing_refunds             billing_refunds[]
   patient_message_threads     patient_message_threads[]
+  payment_gateway_orders      payment_gateway_orders[]
   pharmacy_counter_sales      pharmacy_counter_sales[]
   tpa_claims                  tpa_claims[]
 
@@ -12963,36 +12979,37 @@ model billing_invoices {
 }
 
 model billing_payment_links {
-  id                   Int               @id @default(autoincrement())
-  link_token           String            @unique @db.VarChar(64)
-  invoice_id           Int?
-  patient_uid          String            @db.Uuid
-  amount               Decimal           @db.Decimal(12, 2)
-  currency             String            @default("INR") @db.VarChar(3)
-  upi_payee_vpa        String?           @db.VarChar(100)
-  upi_payee_name       String?           @db.VarChar(100)
-  upi_transaction_ref  String?           @db.VarChar(100)
-  upi_deep_link        String?
-  provider             String?           @default("upi_intent") @db.VarChar(20)
-  provider_invoice_id  String?           @db.VarChar(100)
-  provider_payment_url String?
-  status               String            @default("created") @db.VarChar(20)
-  expires_at           DateTime?         @db.Timestamptz(6)
-  notes                String?
-  linked_payment_id    Int?
-  paid_at              DateTime?         @db.Timestamptz(6)
-  paid_via             String?           @db.VarChar(20)
-  paid_reference       String?           @db.VarChar(100)
-  cancelled_at         DateTime?         @db.Timestamptz(6)
-  sent_via_whatsapp_at DateTime?         @db.Timestamptz(6)
-  sent_via_sms_at      DateTime?         @db.Timestamptz(6)
-  sent_via_email_at    DateTime?         @db.Timestamptz(6)
-  created_by           String?           @db.Uuid
-  tenant_id            String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at           DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime          @default(now()) @db.Timestamptz(6)
-  billing_invoices     billing_invoices? @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
-  billing_payments     billing_payments? @relation(fields: [linked_payment_id], references: [id], onUpdate: NoAction)
+  id                     Int                      @id @default(autoincrement())
+  link_token             String                   @unique @db.VarChar(64)
+  invoice_id             Int?
+  patient_uid            String                   @db.Uuid
+  amount                 Decimal                  @db.Decimal(12, 2)
+  currency               String                   @default("INR") @db.VarChar(3)
+  upi_payee_vpa          String?                  @db.VarChar(100)
+  upi_payee_name         String?                  @db.VarChar(100)
+  upi_transaction_ref    String?                  @db.VarChar(100)
+  upi_deep_link          String?
+  provider               String?                  @default("upi_intent") @db.VarChar(20)
+  provider_invoice_id    String?                  @db.VarChar(100)
+  provider_payment_url   String?
+  status                 String                   @default("created") @db.VarChar(20)
+  expires_at             DateTime?                @db.Timestamptz(6)
+  notes                  String?
+  linked_payment_id      Int?
+  paid_at                DateTime?                @db.Timestamptz(6)
+  paid_via               String?                  @db.VarChar(20)
+  paid_reference         String?                  @db.VarChar(100)
+  cancelled_at           DateTime?                @db.Timestamptz(6)
+  sent_via_whatsapp_at   DateTime?                @db.Timestamptz(6)
+  sent_via_sms_at        DateTime?                @db.Timestamptz(6)
+  sent_via_email_at      DateTime?                @db.Timestamptz(6)
+  created_by             String?                  @db.Uuid
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  billing_invoices       billing_invoices?        @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  billing_payments       billing_payments?        @relation(fields: [linked_payment_id], references: [id], onUpdate: NoAction)
+  payment_gateway_orders payment_gateway_orders[]
 
   @@index([patient_uid], map: "idx_payment_links_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_payment_links_status")
@@ -13002,25 +13019,26 @@ model billing_payment_links {
 }
 
 model billing_payments {
-  id                    Int                     @id @default(autoincrement())
-  invoice_id            Int?
-  patient_uid           String                  @db.Uuid
-  amount                Decimal                 @db.Decimal(12, 2)
-  mode                  String                  @db.VarChar(20)
-  reference             String?                 @db.VarChar(255)
-  denominations         Json?
-  collected_by          String?                 @db.Uuid
-  collected_at          DateTime?               @default(now()) @db.Timestamptz(6)
-  shift                 String?                 @db.VarChar(20)
-  notes                 String?                 @db.VarChar(500)
-  reversed              Boolean                 @default(false)
-  reversed_at           DateTime?               @db.Timestamptz(6)
-  reversed_by           String?                 @db.Uuid
-  reversal_reason       String?                 @db.VarChar(255)
-  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at            DateTime?               @default(now()) @db.Timestamptz(6)
-  billing_payment_links billing_payment_links[]
-  billing_invoices      billing_invoices?       @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  id                     Int                      @id @default(autoincrement())
+  invoice_id             Int?
+  patient_uid            String                   @db.Uuid
+  amount                 Decimal                  @db.Decimal(12, 2)
+  mode                   String                   @db.VarChar(20)
+  reference              String?                  @db.VarChar(255)
+  denominations          Json?
+  collected_by           String?                  @db.Uuid
+  collected_at           DateTime?                @default(now()) @db.Timestamptz(6)
+  shift                  String?                  @db.VarChar(20)
+  notes                  String?                  @db.VarChar(500)
+  reversed               Boolean                  @default(false)
+  reversed_at            DateTime?                @db.Timestamptz(6)
+  reversed_by            String?                  @db.Uuid
+  reversal_reason        String?                  @db.VarChar(255)
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  billing_payment_links  billing_payment_links[]
+  billing_invoices       billing_invoices?        @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  payment_gateway_orders payment_gateway_orders[]
 
   @@unique([tenant_id, reference, mode], map: "uq_billing_payments_tenant_reference_mode", where: raw("((reference IS NOT NULL) AND ((reference)::text <> ''::text))"))
   @@index([collected_at(sort: Desc)], map: "idx_payments_collected_at")
@@ -13032,30 +13050,31 @@ model billing_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model billing_refunds {
-  id                     Int                      @id @default(autoincrement())
-  patient_uid            String                   @db.Uuid
-  invoice_id             Int?
-  advance_id             Int?
-  amount                 Decimal                  @db.Decimal(12, 2)
-  reason                 String                   @db.VarChar(500)
-  mode                   String                   @db.VarChar(20)
-  reference              String?                  @db.VarChar(255)
-  approval_status        String                   @default("PENDING") @db.VarChar(20)
-  raised_by              String?                  @db.Uuid
-  raised_at              DateTime?                @default(now()) @db.Timestamptz(6)
-  approved_by            String?                  @db.Uuid
-  approved_at            DateTime?                @db.Timestamptz(6)
-  rejected_by            String?                  @db.Uuid
-  rejected_at            DateTime?                @db.Timestamptz(6)
-  rejection_reason       String?                  @db.VarChar(255)
-  paid_at                DateTime?                @db.Timestamptz(6)
-  paid_by                String?                  @db.Uuid
-  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
-  billing_advances       billing_advances?        @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
-  billing_invoices       billing_invoices?        @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
-  pharmacy_counter_sales pharmacy_counter_sales[]
+  id                      Int                       @id @default(autoincrement())
+  patient_uid             String                    @db.Uuid
+  invoice_id              Int?
+  advance_id              Int?
+  amount                  Decimal                   @db.Decimal(12, 2)
+  reason                  String                    @db.VarChar(500)
+  mode                    String                    @db.VarChar(20)
+  reference               String?                   @db.VarChar(255)
+  approval_status         String                    @default("PENDING") @db.VarChar(20)
+  raised_by               String?                   @db.Uuid
+  raised_at               DateTime?                 @default(now()) @db.Timestamptz(6)
+  approved_by             String?                   @db.Uuid
+  approved_at             DateTime?                 @db.Timestamptz(6)
+  rejected_by             String?                   @db.Uuid
+  rejected_at             DateTime?                 @db.Timestamptz(6)
+  rejection_reason        String?                   @db.VarChar(255)
+  paid_at                 DateTime?                 @db.Timestamptz(6)
+  paid_by                 String?                   @db.Uuid
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  billing_advances        billing_advances?         @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
+  billing_invoices        billing_invoices?         @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  payment_gateway_refunds payment_gateway_refunds[]
+  pharmacy_counter_sales  pharmacy_counter_sales[]
 
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
@@ -26960,6 +26979,7 @@ model notification_provider_receipts {
 
   @@unique([tenant_id, receipt_id, notification_outbox_id, channel], map: "ux_notification_provider_receipt_identity")
   @@index([tenant_id, notification_outbox_id, channel, observed_at(sort: Desc)], map: "idx_notification_provider_receipt_outbox")
+  @@index([tenant_id, channel, provider_reference], map: "idx_notification_provider_receipt_reference", where: raw("(provider_reference IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28017,6 +28037,326 @@ model dietary_menu_items {
   tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id, meal_type], map: "idx_dietary_menu_items_tenant_meal", where: raw("active"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model abdm_hiu_fetch_sessions {
+  id                              Int                         @id @default(autoincrement())
+  tenant_id                       String                      @db.Uuid
+  environment                     String                      @default("sandbox") @db.VarChar(20)
+  consent_artifact_id             Int?
+  data_transfer_id                Int?
+  patient_uid                     String?                     @db.Uuid
+  transaction_id                  String                      @db.VarChar(120)
+  request_id                      String?                     @db.VarChar(120)
+  hi_types                        String[]                    @default([])
+  date_range_from                 DateTime?                   @db.Timestamptz(6)
+  date_range_to                   DateTime?                   @db.Timestamptz(6)
+  data_push_url                   String?
+  key_material_private_ciphertext String?
+  key_material_nonce              String?                     @db.VarChar(64)
+  key_material_expires_at         DateTime?                   @db.Timestamptz(6)
+  status                          String                      @default("requested") @db.VarChar(24)
+  parts_expected                  Int?
+  parts_received                  Int                         @default(0)
+  initiated_by_uid                String?                     @db.Uuid
+  requested_at                    DateTime                    @default(now()) @db.Timestamptz(6)
+  acknowledged_at                 DateTime?                   @db.Timestamptz(6)
+  completed_at                    DateTime?                   @db.Timestamptz(6)
+  failure_reason                  String?                     @db.VarChar(500)
+  metadata                        Json                        @default("{}")
+  created_at                      DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                    @default(now()) @db.Timestamptz(6)
+  abdm_consent_artifacts          abdm_consent_artifacts?     @relation(fields: [consent_artifact_id], references: [id], onUpdate: NoAction)
+  abdm_data_transfers             abdm_data_transfers?        @relation(fields: [data_transfer_id], references: [id], onUpdate: NoAction)
+  tenants                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_hiu_received_bundles       abdm_hiu_received_bundles[]
+
+  @@unique([tenant_id, transaction_id, environment], map: "uq_abdm_hiu_fetch_txn")
+  @@index([consent_artifact_id], map: "idx_abdm_hiu_fetch_artifact", where: raw("(consent_artifact_id IS NOT NULL)"))
+  @@index([key_material_expires_at], map: "idx_abdm_hiu_fetch_key_expiry", where: raw("((status)::text = ANY ((ARRAY['requested'::character varying, 'acknowledged'::character varying, 'receiving'::character varying])::text[]))"))
+  @@index([tenant_id, patient_uid, requested_at(sort: Desc)], map: "idx_abdm_hiu_fetch_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_abdm_hiu_fetch_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model abdm_hiu_received_bundles {
+  id                      Int                     @id @default(autoincrement())
+  tenant_id               String                  @db.Uuid
+  fetch_session_id        Int
+  care_context_reference  String?                 @db.VarChar(120)
+  hi_type                 String?                 @db.VarChar(60)
+  part_number             Int?
+  bundle_storage_key      String                  @db.VarChar(500)
+  bundle_sha256           String                  @db.Char(64)
+  checksum_verified       Boolean                 @default(false)
+  media_type              String                  @default("application/fhir+json") @db.VarChar(60)
+  received_at             DateTime                @default(now()) @db.Timestamptz(6)
+  metadata                Json                    @default("{}")
+  created_at              DateTime                @default(now()) @db.Timestamptz(6)
+  abdm_hiu_fetch_sessions abdm_hiu_fetch_sessions @relation(fields: [fetch_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, fetch_session_id, bundle_sha256], map: "uq_abdm_hiu_bundle_content")
+  @@index([tenant_id, fetch_session_id, received_at(sort: Desc)], map: "idx_abdm_hiu_bundle_session")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model abdm_patient_share_intakes {
+  id                    Int           @id @default(autoincrement())
+  tenant_id             String        @db.Uuid
+  environment           String        @default("sandbox") @db.VarChar(20)
+  request_id            String        @db.VarChar(120)
+  token_number          String?       @db.VarChar(20)
+  counter_context       String?       @db.VarChar(120)
+  abha_number           String?       @db.VarChar(20)
+  abha_address          String?       @db.VarChar(120)
+  profile               Json          @default("{}")
+  status                String        @default("received") @db.VarChar(24)
+  matched_patient_uid   String?       @db.Uuid
+  linked_appointment_id Int?
+  processed_by_uid      String?       @db.Uuid
+  processed_at          DateTime?     @db.Timestamptz(6)
+  failure_reason        String?       @db.VarChar(500)
+  received_at           DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at            DateTime?     @db.Timestamptz(6)
+  metadata              Json          @default("{}")
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime      @default(now()) @db.Timestamptz(6)
+  appointments          appointments? @relation(fields: [linked_appointment_id], references: [id], onUpdate: NoAction)
+  tenants               tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                 users?        @relation(fields: [tenant_id, matched_patient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_share_intake_patient")
+
+  @@unique([tenant_id, request_id, environment], map: "uq_abdm_share_intake_request")
+  @@index([tenant_id, abha_number], map: "idx_abdm_share_intake_abha", where: raw("(abha_number IS NOT NULL)"))
+  @@index([expires_at], map: "idx_abdm_share_intake_expiry", where: raw("((status)::text = 'received'::text)"))
+  @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_abdm_share_intake_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model abha_enrolment_sessions {
+  id               Int       @id @default(autoincrement())
+  tenant_id        String    @db.Uuid
+  patient_uid      String    @db.Uuid
+  flow             String    @db.VarChar(20)
+  environment      String    @default("sandbox") @db.VarChar(20)
+  txn_id           String?   @db.VarChar(120)
+  status           String    @default("initiated") @db.VarChar(24)
+  otp_attempts     Int       @default(0)
+  mobile_last4     String?   @db.VarChar(4)
+  abha_number      String?   @db.VarChar(20)
+  abha_address     String?   @db.VarChar(120)
+  profile_snapshot Json      @default("{}")
+  error_code       String?   @db.VarChar(80)
+  failure_reason   String?   @db.VarChar(500)
+  requested_by_uid String?   @db.Uuid
+  otp_sent_at      DateTime? @db.Timestamptz(6)
+  otp_verified_at  DateTime? @db.Timestamptz(6)
+  enrolled_at      DateTime? @db.Timestamptz(6)
+  linked_at        DateTime? @db.Timestamptz(6)
+  expires_at       DateTime? @db.Timestamptz(6)
+  metadata         Json      @default("{}")
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users            users     @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: Cascade, onUpdate: NoAction, map: "fk_abha_enrolment_patient")
+
+  @@unique([tenant_id, patient_uid], map: "ux_abha_enrolment_patient_live", where: raw("((status)::text = ANY ((ARRAY['initiated'::character varying, 'otp_sent'::character varying, 'otp_verified'::character varying])::text[]))"))
+  @@unique([tenant_id, txn_id, environment], map: "ux_abha_enrolment_tenant_txn", where: raw("(txn_id IS NOT NULL)"))
+  @@index([expires_at], map: "idx_abha_enrolment_expiry", where: raw("((status)::text = ANY ((ARRAY['initiated'::character varying, 'otp_sent'::character varying, 'otp_verified'::character varying])::text[]))"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_abha_enrolment_patient")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_abha_enrolment_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_gateway_orders {
+  id                               Int                               @id @default(autoincrement())
+  tenant_id                        String                            @db.Uuid
+  provider                         String                            @db.VarChar(30)
+  environment                      String                            @default("sandbox") @db.VarChar(20)
+  provider_config_id               Int?
+  patient_uid                      String                            @db.Uuid
+  invoice_id                       Int?
+  payment_link_id                  Int?
+  amount                           Decimal                           @db.Decimal(12, 2)
+  currency                         String                            @default("INR") @db.VarChar(3)
+  receipt                          String?                           @db.VarChar(64)
+  provider_order_id                String?                           @db.VarChar(120)
+  provider_payment_id              String?                           @db.VarChar(120)
+  method                           String?                           @db.VarChar(20)
+  status                           String                            @default("created") @db.VarChar(26)
+  billing_payment_id               Int?
+  captured_at                      DateTime?                         @db.Timestamptz(6)
+  reconciled_at                    DateTime?                         @db.Timestamptz(6)
+  reconciliation_note              String?                           @db.VarChar(500)
+  failure_code                     String?                           @db.VarChar(80)
+  failure_reason                   String?                           @db.VarChar(500)
+  expires_at                       DateTime?                         @db.Timestamptz(6)
+  created_by                       String?                           @db.Uuid
+  metadata                         Json                              @default("{}")
+  created_at                       DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                          @default(now()) @db.Timestamptz(6)
+  billing_payments                 billing_payments?                 @relation(fields: [billing_payment_id], references: [id], onUpdate: NoAction)
+  billing_invoices                 billing_invoices?                 @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  billing_payment_links            billing_payment_links?            @relation(fields: [payment_link_id], references: [id], onUpdate: NoAction)
+  payment_gateway_provider_configs payment_gateway_provider_configs? @relation(fields: [provider_config_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  payment_gateway_refunds          payment_gateway_refunds[]
+  payment_gateway_webhook_events   payment_gateway_webhook_events[]
+
+  @@unique([tenant_id, provider, provider_order_id], map: "ux_pg_order_tenant_provider_order", where: raw("(provider_order_id IS NOT NULL)"))
+  @@unique([tenant_id, receipt], map: "ux_pg_order_tenant_receipt", where: raw("(receipt IS NOT NULL)"))
+  @@index([expires_at], map: "idx_pg_order_expiry", where: raw("((status)::text = ANY ((ARRAY['created'::character varying, 'attempted'::character varying])::text[]))"))
+  @@index([invoice_id], map: "idx_pg_order_invoice", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_pg_order_patient")
+  @@index([payment_link_id], map: "idx_pg_order_payment_link", where: raw("(payment_link_id IS NOT NULL)"))
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_pg_order_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_gateway_provider_configs {
+  id                        Int                      @id @default(autoincrement())
+  tenant_id                 String                   @unique(map: "ux_pg_provider_config_tenant_live", where: raw("enabled")) @db.Uuid
+  provider                  String                   @db.VarChar(30)
+  environment               String                   @default("sandbox") @db.VarChar(20)
+  enabled                   Boolean                  @default(false)
+  display_name              String?                  @db.VarChar(120)
+  key_id                    String?                  @db.VarChar(120)
+  key_secret_ciphertext     String?
+  webhook_secret_ciphertext String?
+  accepted_methods          String[]                 @default(["upi", "card"])
+  metadata                  Json                     @default("{}")
+  created_by                String?                  @db.Uuid
+  created_at                DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                 @default(now()) @db.Timestamptz(6)
+  payment_gateway_orders    payment_gateway_orders[]
+  tenants                   tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, provider, environment], map: "uq_pg_provider_config_tenant_provider_env")
+  @@index([tenant_id, provider, environment], map: "idx_pg_provider_config_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_gateway_refunds {
+  id                     Int                    @id @default(autoincrement())
+  tenant_id              String                 @db.Uuid
+  provider               String                 @db.VarChar(30)
+  environment            String                 @default("sandbox") @db.VarChar(20)
+  gateway_order_id       Int
+  billing_refund_id      Int?
+  provider_payment_id    String                 @db.VarChar(120)
+  provider_refund_id     String?                @db.VarChar(120)
+  amount                 Decimal                @db.Decimal(12, 2)
+  currency               String                 @default("INR") @db.VarChar(3)
+  status                 String                 @default("initiated") @db.VarChar(20)
+  reason                 String?                @db.VarChar(500)
+  initiated_by           String?                @db.Uuid
+  initiated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  processed_at           DateTime?              @db.Timestamptz(6)
+  failed_at              DateTime?              @db.Timestamptz(6)
+  failure_code           String?                @db.VarChar(80)
+  failure_reason         String?                @db.VarChar(500)
+  metadata               Json                   @default("{}")
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime               @default(now()) @db.Timestamptz(6)
+  billing_refunds        billing_refunds?       @relation(fields: [billing_refund_id], references: [id], onUpdate: NoAction)
+  payment_gateway_orders payment_gateway_orders @relation(fields: [gateway_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, billing_refund_id], map: "ux_pg_refund_billing_refund_live", where: raw("((billing_refund_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['initiated'::character varying, 'pending'::character varying, 'processed'::character varying])::text[])))"))
+  @@unique([tenant_id, provider, provider_refund_id], map: "ux_pg_refund_tenant_provider_refund", where: raw("(provider_refund_id IS NOT NULL)"))
+  @@index([gateway_order_id], map: "idx_pg_refund_order")
+  @@index([tenant_id, status, initiated_at(sort: Desc)], map: "idx_pg_refund_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_gateway_webhook_events {
+  id                     BigInt                  @id @default(autoincrement())
+  tenant_id              String                  @db.Uuid
+  provider               String                  @db.VarChar(30)
+  environment            String                  @default("sandbox") @db.VarChar(20)
+  provider_event_id      String                  @db.VarChar(160)
+  event_type             String                  @db.VarChar(120)
+  signature_verified     Boolean                 @default(false)
+  payload                Json                    @default("{}")
+  raw_body_sha256        String?                 @db.Char(64)
+  provider_order_id      String?                 @db.VarChar(120)
+  provider_payment_id    String?                 @db.VarChar(120)
+  provider_refund_id     String?                 @db.VarChar(120)
+  gateway_order_id       Int?
+  status                 String                  @default("pending") @db.VarChar(20)
+  received_at            DateTime                @default(now()) @db.Timestamptz(6)
+  processed_at           DateTime?               @db.Timestamptz(6)
+  failure_reason         String?                 @db.VarChar(500)
+  metadata               Json                    @default("{}")
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  payment_gateway_orders payment_gateway_orders? @relation(fields: [gateway_order_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, provider, provider_event_id], map: "uq_pg_webhook_tenant_provider_event")
+  @@index([gateway_order_id], map: "idx_pg_webhook_order", where: raw("(gateway_order_id IS NOT NULL)"))
+  @@index([tenant_id, provider_payment_id], map: "idx_pg_webhook_provider_payment", where: raw("(provider_payment_id IS NOT NULL)"))
+  @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_pg_webhook_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sms_provider_configs {
+  id                         Int                          @id @default(autoincrement())
+  tenant_id                  String                       @unique(map: "ux_sms_provider_config_tenant_live", where: raw("enabled")) @db.Uuid
+  provider                   String                       @db.VarChar(30)
+  enabled                    Boolean                      @default(false)
+  sender_id                  String?                      @db.VarChar(20)
+  dlt_entity_id              String?                      @db.VarChar(40)
+  auth_key_ciphertext        String?
+  account_sid                String?                      @db.VarChar(64)
+  callback_token_hash        String?                      @db.Char(64)
+  metadata                   Json                         @default("{}")
+  created_by                 String?                      @db.Uuid
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sms_template_registrations sms_template_registrations[]
+
+  @@unique([tenant_id, provider], map: "uq_sms_provider_config_tenant_provider")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sms_template_registrations {
+  id                   Int                  @id @default(autoincrement())
+  tenant_id            String               @db.Uuid
+  provider_config_id   Int
+  template_key         String               @db.VarChar(120)
+  dlt_template_id      String               @db.VarChar(40)
+  provider_template_id String?              @db.VarChar(64)
+  active               Boolean              @default(true)
+  metadata             Json                 @default("{}")
+  created_by           String?              @db.Uuid
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  sms_provider_configs sms_provider_configs @relation(fields: [provider_config_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, provider_config_id, template_key], map: "uq_sms_template_registration")
+  @@index([tenant_id, template_key], map: "idx_sms_template_registration_lookup", where: raw("active"))
 }
 
 enum transplant_organ_type {
