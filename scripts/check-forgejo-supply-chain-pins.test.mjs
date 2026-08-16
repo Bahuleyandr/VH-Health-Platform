@@ -168,6 +168,52 @@ test('rejects movable workflow and Forgejo runner images', () => {
   assert.match(violations[1].message, /runner base image/);
 });
 
+test('accepts a digest-pinned docker-container BuildKit image', () => {
+  const root = fixture({
+    workflow: [
+      'steps:',
+      '  - run: |',
+      '      docker buildx create \\',
+      '        --name release-builder \\',
+      '        --driver docker-container \\',
+      `        --driver-opt "image=moby/buildkit@sha256:${imageDigest}" \\`,
+      '        --use',
+      `  - run: docker buildx create --name inline-builder --driver=docker-container --driver-opt=image=moby/buildkit@sha256:${imageDigest} --use`,
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  assert.deepEqual(findForgejoSupplyChainViolations(root), []);
+});
+
+test('rejects implicit, mutable, and expression-driven BuildKit driver images', () => {
+  const root = fixture({
+    workflow: [
+      'steps:',
+      '  - run: docker buildx create --name implicit-builder --use',
+      '  - run: docker buildx create --name mutable-builder --driver docker-container --driver-opt image=moby/buildkit:buildx-stable-1 --use',
+      '  - run: |',
+      '      docker buildx create \\',
+      '        --name expression-builder \\',
+      '        --driver=docker-container \\',
+      '        --driver-opt "image=${BUILDKIT_IMAGE}" \\',
+      '        --use',
+      `  - run: docker buildx create --name prefixed-expression --driver docker-container --driver-opt "image=\${BUILDKIT_REPOSITORY}@sha256:${imageDigest}" --use`,
+      `  - run: docker buildx create --name decoy-option --driver docker-container --driver-opt "env.BUILDKIT_IMAGE=image=moby/buildkit@sha256:${imageDigest}" --use`,
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  const violations = findForgejoSupplyChainViolations(root);
+  assert.equal(violations.length, 5);
+  assert.ok(violations.every((violation) => /BuildKit image/.test(violation.message)));
+  assert.match(violations[0].message, /explicit/);
+  assert.match(violations[1].message, /sha256 digest/);
+  assert.match(violations[2].message, /sha256 digest/);
+  assert.match(violations[3].message, /sha256 digest/);
+  assert.match(violations[4].message, /explicit/);
+});
+
 test('rejects quoted, flow-map, unqualified, and expression-driven images', () => {
   const root = fixture({
     workflow: [

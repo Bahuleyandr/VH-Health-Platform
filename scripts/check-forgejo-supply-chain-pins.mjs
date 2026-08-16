@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const actionCommitPattern = /@[0-9a-f]{40}$/i;
 const imageDigestPattern = /@sha256:[0-9a-f]{64}$/i;
+const literalImageDigestPattern = /^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$/i;
 
 function lineNumberAt(content, offset) {
   return content.slice(0, offset).split(/\r?\n/).length;
@@ -44,6 +45,70 @@ function parseYamlKey(rawKey) {
 function isCommentedMatch(content, offset) {
   const lineStart = content.lastIndexOf('\n', offset) + 1;
   return content.slice(lineStart, offset).trimStart().startsWith('#');
+}
+
+function buildxCreateCommands(content) {
+  const lines = content.split(/\r?\n/);
+  const commands = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const firstLine = lines[index].trim();
+    if (firstLine.startsWith('#') || !/\bdocker\s+buildx\s+create\b/.test(firstLine)) {
+      continue;
+    }
+
+    const startLine = index + 1;
+    let command = firstLine;
+    while (command.endsWith('\\') && index + 1 < lines.length) {
+      command = `${command.slice(0, -1).trimEnd()} ${lines[index + 1].trim()}`;
+      index += 1;
+    }
+    commands.push({ command, line: startLine });
+  }
+
+  return commands;
+}
+
+function buildkitDriverImageViolations(content, file) {
+  const violations = [];
+
+  for (const { command, line } of buildxCreateCommands(content)) {
+    const createCommand = command.slice(command.search(/\bdocker\s+buildx\s+create\b/));
+    const driverMatch = createCommand.match(
+      /(?:^|\s)--driver(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i,
+    );
+    const driver = driverMatch?.slice(1).find(Boolean)?.toLowerCase();
+    if (driver && ['docker', 'kubernetes', 'remote'].includes(driver)) continue;
+
+    const driverOptions = [
+      ...createCommand.matchAll(
+        /(?:^|\s)--driver-opt(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/gi,
+      ),
+    ].map((match) => match.slice(1).find(Boolean));
+    const driverImages = driverOptions.flatMap((option) =>
+      option
+        .split(',')
+        .filter((field) => /^image=/i.test(field))
+        .map((field) => field.slice('image='.length)),
+    );
+    if (driverImages.length === 0) {
+      violations.push({
+        file,
+        line,
+        message: 'docker-container BuildKit image must be explicit and use a sha256 digest',
+      });
+      continue;
+    }
+    if (driverImages.length !== 1 || !literalImageDigestPattern.test(driverImages[0])) {
+      violations.push({
+        file,
+        line,
+        message: `docker-container BuildKit image must use a sha256 digest: ${driverImages.join(', ')}`,
+      });
+    }
+  }
+
+  return violations;
 }
 
 function scanWorkflow(filePath, rootDir) {
@@ -116,6 +181,8 @@ function scanWorkflow(filePath, rootDir) {
       message: 'npx must execute an exact package version, not @latest',
     });
   }
+
+  violations.push(...buildkitDriverImageViolations(content, file));
 
   return violations;
 }

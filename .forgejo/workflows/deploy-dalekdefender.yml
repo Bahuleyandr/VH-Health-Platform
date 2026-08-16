@@ -103,15 +103,16 @@ jobs:
           admin_image="ghcr.io/${owner_lc}/vh-health-platform-adminportal"
           tag="dalek-${GITHUB_SHA}"
 
-          # Use a new builder name so the uncapped builder remains available
-          # for an operator-directed rollback.
-          builder_name="vh-dalek-builder-v2"
+          # buildx-stable-1 multi-arch index, resolved from Docker Hub on
+          # 2026-08-17. The v2 builder remains for operator-directed rollback.
+          builder_name="vh-dalek-builder-v3"
           if docker buildx inspect "$builder_name" >/dev/null 2>&1; then
             docker buildx use "$builder_name"
           else
             docker buildx create \
               --name "$builder_name" \
               --driver docker-container \
+              --driver-opt "image=moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8" \
               --buildkitd-config .forgejo/buildkitd-dalekdefender.toml \
               --use
           fi
@@ -130,12 +131,12 @@ jobs:
               ),
             );
             if (!valid) {
-              console.error("BuildKit v2 GC policy does not match the Dalekdefender cap");
+              console.error("Pinned BuildKit GC policy does not match the Dalekdefender cap");
               process.exit(1);
             }
           '
           if [ "$(docker inspect -f '{{.HostConfig.LogConfig.Type}}' "$builder_container")" != "local" ]; then
-            echo "::error::BuildKit v2 is not using the bounded local log driver"
+            echo "::error::Pinned BuildKit builder is not using the bounded local log driver"
             exit 1
           fi
 
