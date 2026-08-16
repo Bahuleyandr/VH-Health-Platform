@@ -228,6 +228,11 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { name: "Referrals", href: "/dashboard/referral", minRole: "STAFF" },
       {
+        name: "Referral Facilities",
+        href: "/dashboard/referral-facilities",
+        requiredRole: "ADMIN",
+      },
+      {
         name: "Productivity",
         href: "/dashboard/productivity",
         minRole: "STAFF",

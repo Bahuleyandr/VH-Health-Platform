@@ -25,6 +25,7 @@ import {
   resolvePathwayTaskOwnerTx,
 } from '../workflow/workflowHumanOwnerService.js';
 import referralService from './referralService.js';
+import { assertReferralFacilityUsable } from './referralFacilityService.js';
 
 const INTERNAL_TYPE = 'internal';
 const REFERRAL_RESPONSE_RULE = 'referral_response';
@@ -86,6 +87,7 @@ function requestFingerprint(input) {
     repeat_reason: input.repeatReason
       ? String(input.repeatReason).trim().replace(/\s+/g, ' ').toLowerCase()
       : null,
+    destination_facility_id: input.destinationFacilityId || null,
   })).digest('hex');
 }
 
@@ -600,6 +602,19 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
   }
   if (!['internal', 'external'].includes(referralType)) throw AppError.badRequest('Invalid referral_type');
   if (!['routine', 'urgent', 'emergency'].includes(urgency)) throw AppError.badRequest('Invalid urgency');
+  const destinationFacilityId = input.destination_facility_id == null
+    ? null
+    : Number.parseInt(input.destination_facility_id, 10);
+  if (destinationFacilityId != null
+      && (!Number.isSafeInteger(destinationFacilityId) || destinationFacilityId <= 0)) {
+    throw AppError.badRequest('destination_facility_id must be a positive integer');
+  }
+  if (destinationFacilityId != null && referralType !== 'external') {
+    throw AppError.badRequest(
+      'destination_facility_id is only valid for external referrals',
+      'REFERRAL_DESTINATION_FACILITY_EXTERNAL_ONLY',
+    );
+  }
   if (referralType === INTERNAL_TYPE && !input.referred_to_doctor) {
     throw AppError.badRequest(
       'A named receiving doctor is required for an internal referral',
@@ -634,6 +649,11 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
     const receiverUid = referralType === INTERNAL_TYPE
       ? await resolveNamedReceiverTx(tx, tenantId, input.referred_to_doctor, department)
       : null;
+    // Structured destination (migration 680): tenant ownership + active,
+    // locked FOR SHARE so a concurrent deactivation cannot race the linkage.
+    const destinationFacility = destinationFacilityId == null
+      ? null
+      : await assertReferralFacilityUsable(tx, tenantId, destinationFacilityId, { lock: true });
     const encounterId = uuid(input.encounter_id, 'encounter_id');
     const fingerprint = requestFingerprint({
       patientUid,
@@ -647,6 +667,7 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
       expiresAt,
       replacementId,
       repeatReason,
+      destinationFacilityId,
     });
     const idempotencyKey = text(input.idempotency_key, 'idempotency_key', { max: 160 });
     await tx.$queryRawUnsafe(
@@ -707,14 +728,15 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
           referral_type, reason, urgency, priority, clinical_summary,
           requester_id, performer_id, source, request_context,
           current_owner_uid, request_fingerprint, idempotency_key,
-          replacement_of_referral_id, repeat_reason, expires_at)
+          replacement_of_referral_id, repeat_reason, expires_at,
+          destination_facility_id)
        VALUES
          ($1::text, $2::uuid, $3::uuid, $4::uuid,
           $5::uuid, $6::uuid, $7::text,
           $8::text, $9::text, $10::text, $11::text, $12::text,
           $13::uuid, $6::uuid, $14::text, $15::jsonb,
           $5::uuid, $16::char(64), $17::text, $18::integer, $19::text,
-          $20::timestamptz)
+          $20::timestamptz, $21::int)
        RETURNING *`,
       referralNumber,
       tenantId,
@@ -736,6 +758,7 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
       replacementId,
       repeatReason,
       expiresAt,
+      destinationFacilityId,
     );
     const referral = inserted[0];
     await recordTransitionTx({
@@ -748,7 +771,12 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
       fromOwnerUid: null,
       toOwnerUid: referringDoctor,
       actor,
-      payload: { referred_to_doctor: receiverUid, referred_to_department: department },
+      payload: {
+        referred_to_doctor: receiverUid,
+        referred_to_department: department,
+        destination_facility_id: destinationFacility ? Number(destinationFacility.id) : null,
+        destination_facility_name: destinationFacility?.name || null,
+      },
     });
     await publishOpChildResourceLinkedFromEncounterTx(tx, {
       tenantId,
@@ -781,14 +809,22 @@ export async function createClosedLoopReferral(input = {}, context = {}) {
         tenantId,
         tx,
         taskKind: 'follow_up',
-        title: `Coordinate external referral ${referralNumber}`,
+        title: destinationFacility
+          ? `Coordinate external referral ${referralNumber} to ${destinationFacility.name}`
+          : `Coordinate external referral ${referralNumber}`,
         patientUid,
         relatedResourceType: EXTERNAL_TASK_RESOURCE,
         relatedResourceId: String(referral.id),
         priority: priorityForUrgency(urgency),
         assignedToUid: referringDoctor,
         createdBy: actor.uid,
-        metadata: { referral_stage: 'external_coordination' },
+        metadata: {
+          referral_stage: 'external_coordination',
+          destination_facility_id: destinationFacility ? Number(destinationFacility.id) : null,
+          destination_facility_name: destinationFacility?.name || null,
+          destination_facility_city: destinationFacility?.city || null,
+          destination_facility_phone: destinationFacility?.phone || null,
+        },
         onConflictResourceDoNothing: true,
       });
     }
@@ -1432,12 +1468,80 @@ export async function linkReferralAppointment(id, input = {}, context = {}) {
   });
 }
 
+/**
+ * Sets or changes the structured destination facility of an EXTERNAL referral
+ * (migration 680). Originator-gated with the same authority rules as closure /
+ * reroute (admins and covering doctors need a recorded override reason), and
+ * every change lands as a referral_transition_events row plus canonical
+ * timeline + audit evidence via recordTransitionTx.
+ */
+export async function setReferralDestinationFacility(id, input = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
+  const nextFacilityId = Number.parseInt(input.destination_facility_id, 10);
+  if (!Number.isSafeInteger(nextFacilityId) || nextFacilityId <= 0) {
+    throw AppError.badRequest('destination_facility_id must be a positive integer');
+  }
+  return setTenantTx(tenantId, async (tx) => {
+    const actor = await resolveActorTx(tx, tenantId, context);
+    const referral = await loadReferralForUpdateTx(tx, tenantId, id);
+    if (String(referral.referral_type || 'internal').trim().toLowerCase() !== 'external') {
+      throw AppError.conflict(
+        'Only an external referral can link a destination facility',
+        'REFERRAL_DESTINATION_FACILITY_EXTERNAL_ONLY',
+      );
+    }
+    await assertOriginatorAuthorityTx(tx, referral, actor, context.overrideReason, {
+      allowAdministrativeReroute: true,
+    });
+    if (Number(referral.destination_facility_id) === nextFacilityId) {
+      return { ...referral, replayed: true };
+    }
+    if (referral.closure_status !== 'open') {
+      throw AppError.conflict('Only an open referral can change its destination facility');
+    }
+    const facility = await assertReferralFacilityUsable(tx, tenantId, nextFacilityId, { lock: true });
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE referrals
+          SET destination_facility_id = $3::int, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::integer
+        RETURNING *`,
+      tenantId,
+      referral.id,
+      facility.id,
+    );
+    const updated = rows[0];
+    await recordTransitionTx({
+      tx, tenantId, referral: updated, eventType: 'referral.destination_facility_changed',
+      fromStatus: referral.status, toStatus: updated.status,
+      fromOwnerUid: referral.current_owner_uid, toOwnerUid: updated.current_owner_uid,
+      actor,
+      reason: text(input.reason, 'reason', { max: 2000 }),
+      payload: {
+        prior_destination_facility_id: referral.destination_facility_id == null
+          ? null
+          : Number(referral.destination_facility_id),
+        destination_facility_id: Number(facility.id),
+        destination_facility_name: facility.name,
+        destination_facility_city: facility.city,
+      },
+    });
+    return updated;
+  });
+}
+
 export async function getClosedLoopReferral(id, context = {}) {
   const tenantId = requireTenantId(context.tenantId);
   return setTenantTx(tenantId, async (tx) => {
     const actor = await resolveActorTx(tx, tenantId, context);
     const rows = await tx.$queryRawUnsafe(
-      `SELECT * FROM referrals WHERE tenant_id = $1::uuid AND id = $2::integer LIMIT 1`,
+      `SELECT r.*,
+              (SELECT jsonb_build_object(
+                     'id', f.id, 'name', f.name, 'facility_type', f.facility_type,
+                     'city', f.city, 'phone', f.phone, 'active', f.active)
+                 FROM referral_facilities f
+                WHERE f.tenant_id = r.tenant_id
+                  AND f.id = r.destination_facility_id) AS destination_facility
+         FROM referrals r WHERE r.tenant_id = $1::uuid AND r.id = $2::integer LIMIT 1`,
       tenantId,
       referralId(id),
     );
@@ -1485,5 +1589,6 @@ export default {
   recordSignedReferralResponse,
   closeReferralByOriginator,
   linkReferralAppointment,
+  setReferralDestinationFacility,
   getClosedLoopReferral,
 };

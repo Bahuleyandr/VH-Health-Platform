@@ -12,6 +12,7 @@ import {
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opChildResourceEventService.js';
+import { assertReferralFacilityUsable } from './referralFacilityService.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
@@ -100,13 +101,30 @@ const REFERRAL_STATE_SELECT = {
 };
 
 // Columns returned by the three list views (getIncomingReferrals /
-// getOutgoingReferrals / getPatientReferrals). Superset of REFERRAL_STATE_SELECT
-// with `encounter_id` — which the list views include but the mutation returns
-// don't.
-const REFERRAL_LIST_SELECT = {
-  ...REFERRAL_STATE_SELECT,
-  encounter_id: true,
-};
+// getOutgoingReferrals / getPatientReferrals), as raw SQL — the generated
+// Prisma client predates migration 680, so `destination_facility_id` (and the
+// projected facility object) are only reachable through raw selects.
+const REFERRAL_LIST_COLUMNS = `id, referral_number, tenant_id, patient_uid, encounter_id,
+              referring_doctor, referred_to_doctor, referred_to_department,
+              referral_type, reason, urgency, clinical_summary, status,
+              accepted_by, accepted_at, completed_at, response_notes,
+              requester_id, performer_id, first_seen_at, first_seen_by,
+              source, current_owner_uid, closure_status, closure_reason,
+              closed_at, closed_by, appointment_id, expires_at,
+              ownership_accepted_at, created_at,
+              destination_facility_id, ${destinationFacilitySql('referrals')}`;
+
+// Scalar-subquery projection of the linked destination facility (migration
+// 680) — avoids aliasing/join ambiguity in the list queries' dynamically
+// built WHERE clauses. NULL when the referral has no structured destination.
+function destinationFacilitySql(alias) {
+  return `(SELECT jsonb_build_object(
+                'id', f.id, 'name', f.name, 'facility_type', f.facility_type,
+                'city', f.city, 'phone', f.phone, 'active', f.active)
+           FROM referral_facilities f
+          WHERE f.tenant_id = ${alias}.tenant_id
+            AND f.id = ${alias}.destination_facility_id) AS destination_facility`;
+}
 
 class ReferralService {
 
@@ -344,7 +362,7 @@ class ReferralService {
       referred_to_doctor, referred_to_department,
       referral_type, reason, urgency, clinical_summary,
       requester_id, performer_id, tenant_id, actor_role,
-      source, request_context
+      source, request_context, destination_facility_id
     } = data;
     const tenantId = normalizeTenantId(tenant_id);
     const requesterUid = requester_id || referring_doctor;
@@ -366,6 +384,19 @@ class ReferralService {
     }
     if (urgency && !VALID_URGENCIES.includes(urgency)) {
       throw AppError.badRequest(`Invalid urgency. Must be one of: ${VALID_URGENCIES.join(', ')}`);
+    }
+    const destinationFacilityId = destination_facility_id == null
+      ? null
+      : Number.parseInt(destination_facility_id, 10);
+    if (destination_facility_id != null
+        && (!Number.isSafeInteger(destinationFacilityId) || destinationFacilityId < 1)) {
+      throw AppError.badRequest('destination_facility_id must be a positive integer');
+    }
+    if (destinationFacilityId != null && (referral_type || 'internal') !== 'external') {
+      throw AppError.badRequest(
+        'destination_facility_id is only valid for external referrals',
+        'REFERRAL_DESTINATION_FACILITY_EXTERNAL_ONLY',
+      );
     }
 
     await this._assertCanCreateForPatient({
@@ -401,6 +432,12 @@ class ReferralService {
     // already ran on plain prisma above (Phase 0) so a not-found surfaces as 4xx,
     // not a 500 inside the tx.
     const referral = await setTenantTx(tenantId, async (tx) => {
+      // Structured destination (migration 680): validate tenant ownership +
+      // active inside the tx with FOR SHARE so a concurrent deactivation
+      // cannot race the linkage.
+      const destinationFacility = destinationFacilityId == null
+        ? null
+        : await assertReferralFacilityUsable(tx, tenantId, destinationFacilityId, { lock: true });
       // Prisma ORM — column names validated at runtime against schema.prisma.
       // Defaults for status ('pending') come from the schema itself, so we
       // don't set them here.
@@ -447,6 +484,26 @@ class ReferralService {
         },
       });
 
+      // The generated Prisma client predates migration 680, so the new column
+      // is written with raw SQL inside the same tx (this wave's pattern).
+      if (destinationFacility) {
+        await tx.$executeRawUnsafe(
+          `UPDATE referrals SET destination_facility_id = $3::int
+            WHERE tenant_id = $1::uuid AND id = $2::integer`,
+          tenantId,
+          created.id,
+          destinationFacility.id,
+        );
+        created.destination_facility_id = Number(destinationFacility.id);
+        created.destination_facility = {
+          id: Number(destinationFacility.id),
+          name: destinationFacility.name,
+          facility_type: destinationFacility.facility_type,
+          city: destinationFacility.city,
+          phone: destinationFacility.phone,
+        };
+      }
+
       await recordCanonicalClinicalEvent({
         tenantId,
         patientUid: created.patient_uid,
@@ -469,6 +526,8 @@ class ReferralService {
           reason: created.reason,
           clinical_summary: created.clinical_summary,
           source: created.source,
+          destination_facility_id: destinationFacility ? Number(destinationFacility.id) : null,
+          destination_facility_name: destinationFacility?.name || null,
         },
         afterState: created,
       }, { db: tx });
@@ -550,14 +609,7 @@ class ReferralService {
     const total = Number.parseInt(countRows[0]?.count ?? 0, 10);
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, referral_number, tenant_id, patient_uid, encounter_id,
-              referring_doctor, referred_to_doctor, referred_to_department,
-              referral_type, reason, urgency, clinical_summary, status,
-              accepted_by, accepted_at, completed_at, response_notes,
-              requester_id, performer_id, first_seen_at, first_seen_by,
-              source, current_owner_uid, closure_status, closure_reason,
-              closed_at, closed_by, appointment_id, expires_at,
-              ownership_accepted_at, created_at
+      `SELECT ${REFERRAL_LIST_COLUMNS}
          FROM referrals ${whereClause}
         ORDER BY
           CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
@@ -651,30 +703,39 @@ class ReferralService {
       defaultSortBy: 'created_at'
     });
 
-    const where = { tenant_id: normalizeTenantId(tenantId) };
+    // Raw SQL (not Prisma findMany) so the migration-680 destination facility
+    // projection is included — the generated client predates the column.
+    const conditions = ['tenant_id = $1::uuid'];
+    const params = [normalizeTenantId(tenantId)];
+    let paramIndex = 2;
     if (doctorUid) {
-      where.OR = [
-        { referring_doctor: doctorUid },
-        { requester_id: doctorUid },
-      ];
+      conditions.push(`(referring_doctor = $${paramIndex}::uuid OR requester_id = $${paramIndex}::uuid)`);
+      params.push(doctorUid);
+      paramIndex += 1;
     }
-    if (status) where.status = status;
-    if (urgency) where.urgency = urgency;
+    if (status) { conditions.push(`status = $${paramIndex++}`); params.push(status); }
+    if (urgency) { conditions.push(`urgency = $${paramIndex++}`); params.push(urgency); }
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    const [total, referrals] = await Promise.all([
-      prisma.referrals.count({ where }),
-      prisma.referrals.findMany({
-        where,
-        select: REFERRAL_LIST_SELECT,
-        orderBy: { created_at: 'desc' },
-        take: listQuery.limit,
-        skip: listQuery.offset,
-      }),
-    ]);
+    const countRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM referrals ${whereClause}`,
+      ...params,
+    );
+    const referrals = await prisma.$queryRawUnsafe(
+      `SELECT ${REFERRAL_LIST_COLUMNS}
+         FROM referrals ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+      ...params, listQuery.limit, listQuery.offset,
+    );
 
     return {
       referrals,
-      pagination: buildPagination(total, listQuery.page, listQuery.limit),
+      pagination: buildPagination(
+        Number.parseInt(countRows[0]?.count ?? 0, 10),
+        listQuery.page,
+        listQuery.limit,
+      ),
     };
   }
 
@@ -1048,6 +1109,12 @@ class ReferralService {
               owner.name AS current_owner_name,
               r.appointment_id,
               r.reason,
+              r.referral_type,
+              r.destination_facility_id,
+              df.name AS destination_facility_name,
+              df.city AS destination_facility_city,
+              df.phone AS destination_facility_phone,
+              df.facility_type AS destination_facility_type,
               r.created_at AS requested_at,
               r.first_seen_at,
               r.first_seen_by,
@@ -1065,6 +1132,8 @@ class ReferralService {
          LEFT JOIN users requester ON requester.uid = r.requester_id
          LEFT JOIN users seen_by ON seen_by.uid = r.first_seen_by
          LEFT JOIN users owner ON owner.uid = r.current_owner_uid
+         LEFT JOIN referral_facilities df
+                ON df.tenant_id = r.tenant_id AND df.id = r.destination_facility_id
         ${whereClause}
         ORDER BY r.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
@@ -1086,25 +1155,30 @@ class ReferralService {
       defaultSortBy: 'created_at'
     });
 
-    const where = {
-      patient_uid: patientUid,
-      tenant_id: normalizeTenantId(filters.tenantId),
-    };
+    // Raw SQL (not Prisma findMany) so the migration-680 destination facility
+    // projection is included — the generated client predates the column.
+    const params = [normalizeTenantId(filters.tenantId), patientUid];
+    const whereClause = 'WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid';
 
-    const [total, referrals] = await Promise.all([
-      prisma.referrals.count({ where }),
-      prisma.referrals.findMany({
-        where,
-        select: REFERRAL_LIST_SELECT,
-        orderBy: { created_at: 'desc' },
-        take: listQuery.limit,
-        skip: listQuery.offset,
-      }),
-    ]);
+    const countRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM referrals ${whereClause}`,
+      ...params,
+    );
+    const referrals = await prisma.$queryRawUnsafe(
+      `SELECT ${REFERRAL_LIST_COLUMNS}
+         FROM referrals ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $3::int OFFSET $4::int`,
+      ...params, listQuery.limit, listQuery.offset,
+    );
 
     return {
       referrals,
-      pagination: buildPagination(total, listQuery.page, listQuery.limit),
+      pagination: buildPagination(
+        Number.parseInt(countRows[0]?.count ?? 0, 10),
+        listQuery.page,
+        listQuery.limit,
+      ),
     };
   }
 }

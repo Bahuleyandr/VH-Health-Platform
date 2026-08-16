@@ -17,6 +17,11 @@ type ReferralAuditRow = {
   current_owner_name?: string | null;
   urgency: string;
   status: string;
+  referral_type?: string | null;
+  destination_facility_id?: number | null;
+  destination_facility_name?: string | null;
+  destination_facility_city?: string | null;
+  destination_facility_phone?: string | null;
   closure_status?: string | null;
   closure_reason?: string | null;
   requested_at: string;
@@ -150,7 +155,16 @@ export default function ReferralPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div>{row.referred_to_department}</div>
-                    <div className="text-xs text-muted-foreground">{row.referred_to_doctor_name || "Named receiver pending"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.referral_type === "external"
+                        ? row.destination_facility_name
+                          ? [row.destination_facility_name, row.destination_facility_city].filter(Boolean).join(", ")
+                          : "External (unstructured destination)"
+                        : row.referred_to_doctor_name || "Named receiver pending"}
+                    </div>
+                    {row.referral_type === "external" && row.destination_facility_phone && (
+                      <div className="text-xs text-muted-foreground">{row.destination_facility_phone}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div>{row.current_owner_name || "Unresolved"}</div>

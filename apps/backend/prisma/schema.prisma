@@ -9186,12 +9186,14 @@ model referrals {
   replacement_of_referral_id                         Int?
   repeat_reason                                      String?
   ownership_accepted_at                              DateTime?                    @db.Timestamptz(6)
+  destination_facility_id                            Int?
   physio_assessments                                 physio_assessments[]
   referral_responses                                 referral_responses[]
   referral_transition_events                         referral_transition_events[]
   appointments                                       appointments?                @relation(fields: [tenant_id, appointment_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_appointment")
   users_referrals_tenant_id_closed_byTousers         users?                       @relation("referrals_tenant_id_closed_byTousers", fields: [tenant_id, closed_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_closed_by")
   users_referrals_tenant_id_current_owner_uidTousers users?                       @relation("referrals_tenant_id_current_owner_uidTousers", fields: [tenant_id, current_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_current_owner")
+  referral_facilities                                referral_facilities?         @relation(fields: [tenant_id, destination_facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_destination_facility")
   referrals                                          referrals?                   @relation("referralsToreferrals", fields: [tenant_id, replacement_of_referral_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_replacement")
   other_referrals                                    referrals[]                  @relation("referralsToreferrals")
   tenants                                            tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
@@ -9215,6 +9217,7 @@ model referrals {
   @@index([tenant_id, status, referred_to_department, created_at(sort: Desc)], map: "idx_referrals_tenant_status_department_created")
   @@index([tenant_id, appointment_id], map: "idx_referrals_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, current_owner_uid, created_at(sort: Desc)], map: "idx_referrals_tenant_owner_open", where: raw("((closure_status)::text = 'open'::text)"))
+  @@index([tenant_id, destination_facility_id], map: "idx_referrals_tenant_destination_facility", where: raw("(destination_facility_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11011,6 +11014,7 @@ model tenants {
   radiology_tat_thresholds                             radiology_tat_thresholds[]
   radiotherapy_fraction_schedules                      radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs                               radiotherapy_plan_refs[]
+  referral_facilities                                  referral_facilities[]
   referrals                                            referrals[]
   remote_prescriptions                                 remote_prescriptions[]
   replacement_requests                                 replacement_requests[]
@@ -27667,6 +27671,37 @@ model mis_report_schedules {
   tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id, enabled], map: "idx_mis_report_schedules_enabled")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model referral_facilities {
+  id             Int         @id @default(autoincrement())
+  tenant_id      String      @db.Uuid
+  name           String      @db.VarChar(200)
+  facility_type  String      @default("hospital") @db.VarChar(20)
+  specialties    String[]    @default([])
+  address_line1  String?     @db.VarChar(300)
+  address_line2  String?     @db.VarChar(300)
+  city           String?     @db.VarChar(120)
+  state          String?     @db.VarChar(120)
+  pincode        String?     @db.VarChar(10)
+  phone          String?     @db.VarChar(20)
+  email          String?     @db.VarChar(320)
+  contact_person String?     @db.VarChar(120)
+  notes          String?
+  active         Boolean     @default(true)
+  created_by     String?     @db.Uuid
+  updated_by     String?     @db.Uuid
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
+  tenants        tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  referrals      referrals[]
+
+  @@unique([tenant_id, id], map: "ux_referral_facilities_tenant_id")
+  @@index([tenant_id, active, name], map: "idx_referral_facilities_tenant_active")
 }
 
 enum transplant_organ_type {

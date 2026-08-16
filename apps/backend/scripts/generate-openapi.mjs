@@ -51,6 +51,7 @@ import * as devices from './openapi/schemas/devices.mjs';
 import * as health from './openapi/schemas/health.mjs';
 import * as radiology from './openapi/schemas/radiology.mjs';
 import * as misReportSchedules from './openapi/schemas/misReportSchedules.mjs';
+import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -90,7 +91,8 @@ const SCHEMA_MODULES = [
   devices,
   health,
   radiology,
-  misReportSchedules
+  misReportSchedules,
+  referralFacilities
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

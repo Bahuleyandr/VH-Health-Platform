@@ -606,6 +606,10 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                         s.lookup('s4.lib.referrals.department'),
                       ),
                     ),
+                    // Structured destination facility for external referrals
+                    // (migration 680); absent on internal/legacy rows.
+                    if (_destinationFacilityText(referral).isNotEmpty)
+                      _pill(_destinationFacilityText(referral)),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -1340,6 +1344,18 @@ String _referralUrgencyLabel(AppStrings s, String urgency) {
 String _text(dynamic value, [String fallback = '']) {
   final text = (value ?? '').toString().trim();
   return text.isEmpty ? fallback : text;
+}
+
+/// "Name - City" for the linked destination facility of an external referral,
+/// or '' when the referral carries no structured destination.
+String _destinationFacilityText(Map<String, dynamic> referral) {
+  final facility = (referral['destination_facility'] as Map?)
+      ?.cast<String, dynamic>();
+  if (facility == null) return '';
+  final name = _text(facility['name']);
+  if (name.isEmpty) return '';
+  final city = _text(facility['city']);
+  return city.isEmpty ? name : '$name - $city';
 }
 
 int _int(dynamic value) => int.tryParse('${value ?? 0}') ?? 0;
