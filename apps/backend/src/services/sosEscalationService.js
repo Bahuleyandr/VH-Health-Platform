@@ -40,6 +40,28 @@ export const DEFAULT_ESCALATION_WINDOW_MINUTES = Math.max(
 
 const MAX_ALERTS_PER_SWEEP = 20;
 
+// Age ceiling. The sweep escalates *live* emergencies; it must never chase
+// history. Two reasons, both load-bearing:
+//
+//   1. CUTOVER. last_escalated_at is added by migration 677 and is therefore
+//      NULL on every pre-existing row, so COALESCE(last_escalated_at,
+//      raised_at) makes the entire historical backlog eligible on the first
+//      tick after deploy. That backlog is "every alert ever raised and not
+//      patient-cancelled", because the responder endpoints had no client
+//      before this wave — the very defect this sweep exists to fix. Without a
+//      ceiling the sweep would re-page the emergency team for alerts that are
+//      weeks old, forever (re-eligibility is one window, so nothing ever
+//      drains it).
+//   2. STARVATION. The eligibility query is ORDER BY raised_at ASC LIMIT 20.
+//      With more than ~60 stalled rows the oldest monopolise every tick and a
+//      genuinely new alert is never reached — the sweep silently fails its own
+//      purpose. Bounding the age bounds the candidate set.
+//
+// An alert older than this is stale by any operational definition: it stays
+// ACTIVE and visible on the SOS dashboard for manual resolution, it simply
+// stops generating pages. Escalation is a real-time mechanism.
+const MAX_ALERT_AGE_HOURS = 24;
+
 async function markSlaEscalated(db, tenantId, alertId) {
   // Terminal-state guard mirrors completeWorkflowSla: completed/cancelled rows
   // are never re-touched; an active/breached clock records the escalation.
@@ -71,6 +93,7 @@ export async function runSosAlertAgeEscalationSweep({
   db = prisma,
   windowMinutes = DEFAULT_ESCALATION_WINDOW_MINUTES,
   limit = MAX_ALERTS_PER_SWEEP,
+  maxAgeHours = MAX_ALERT_AGE_HOURS,
 } = {}) {
   const result = { scanned: 0, escalated: 0, refannedOut: 0, criticalStalled: 0 };
   if (!tenantId) return result;
@@ -82,12 +105,14 @@ export async function runSosAlertAgeEscalationSweep({
       WHERE sa.tenant_id = $1::uuid
         AND sa.status = 'ACTIVE'
         AND sa.responded_at IS NULL
+        AND sa.raised_at > NOW() - ($4::int * INTERVAL '1 hour')
         AND COALESCE(sa.last_escalated_at, sa.raised_at) < NOW() - ($2::int * INTERVAL '1 minute')
       ORDER BY sa.raised_at ASC
       LIMIT $3::int`,
     tenantId,
     windowMinutes,
     limit,
+    maxAgeHours,
   );
   result.scanned = overdue.length;
 
@@ -102,11 +127,13 @@ export async function runSosAlertAgeEscalationSweep({
           AND tenant_id = $2::uuid
           AND status = 'ACTIVE'
           AND responded_at IS NULL
+          AND raised_at > NOW() - ($4::int * INTERVAL '1 hour')
           AND COALESCE(last_escalated_at, raised_at) < NOW() - ($3::int * INTERVAL '1 minute')
         RETURNING id, UPPER(COALESCE(severity, '')) AS severity`,
       alert.id,
       tenantId,
       windowMinutes,
+      maxAgeHours,
     );
     if (claimed.length === 0) continue;
 

@@ -174,3 +174,45 @@ test('ladder failure (severity raced to max) still re-fans-out and never hot-loo
   const [claimSql] = queryRawUnsafeMock.mock.calls[1];
   expect(claimSql).toContain('SET last_escalated_at = NOW()');
 });
+
+// ── Age ceiling ─────────────────────────────────────────────────────────────
+// Migration 677 adds last_escalated_at nullable with no backfill, so
+// COALESCE(last_escalated_at, raised_at) falls through to raised_at on every
+// pre-existing row. Without an age ceiling the first tick after deploy makes
+// the ENTIRE historical backlog eligible — and that backlog is every alert
+// ever raised and not patient-cancelled, because the responder endpoints had
+// no client before this wave. Re-eligibility is one window, so nothing ever
+// drains it: the sweep would re-page the emergency team for weeks-old alerts
+// forever. The same bound fixes starvation — ORDER BY raised_at ASC LIMIT 20
+// otherwise lets stale rows monopolise every tick so a NEW alert is never
+// reached.
+
+test('both the select and the claim are bounded by the age ceiling, parameterised at 24h', async () => {
+  queryRawUnsafeMock
+    .mockResolvedValueOnce([overdueRow()])
+    .mockResolvedValueOnce([{ id: 42, severity: 'HIGH' }]);
+  escalateAlertMock.mockResolvedValueOnce({ id: 42, severity: 'CRITICAL', previousSeverity: 'HIGH' });
+
+  await runSosAlertAgeEscalationSweep({ tenantId: TENANT });
+
+  // Eligibility SELECT: (sql, tenantId, windowMinutes, limit, maxAgeHours)
+  const [selectSql, , , , selectMaxAge] = queryRawUnsafeMock.mock.calls[0];
+  expect(selectSql).toMatch(/sa\.raised_at > NOW\(\) - \(\$4::int \* INTERVAL '1 hour'\)/);
+  expect(selectMaxAge).toBe(24);
+
+  // Claim UPDATE: (sql, alertId, tenantId, windowMinutes, maxAgeHours) — the
+  // ceiling must be on the claim too, or a row that ages past the bound
+  // between SELECT and UPDATE still escalates.
+  const [claimSql, , , , claimMaxAge] = queryRawUnsafeMock.mock.calls[1];
+  expect(claimSql).toMatch(/raised_at > NOW\(\) - \(\$4::int \* INTERVAL '1 hour'\)/);
+  expect(claimMaxAge).toBe(24);
+});
+
+test('the ceiling is a real parameter, not baked into the SQL text', async () => {
+  queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+  await runSosAlertAgeEscalationSweep({ tenantId: TENANT, maxAgeHours: 6 });
+
+  const [, , , , selectMaxAge] = queryRawUnsafeMock.mock.calls[0];
+  expect(selectMaxAge).toBe(6);
+});

@@ -61,6 +61,15 @@ data:
   # Firebase — project ID is public; private_key + client_email live in the Secret
   FIREBASE_AUTH_ENABLED: "true"
 
+  # SOS alert-age escalation sweep (every 2 min). "true" is also the code
+  # default — this key exists so an operator can flip it to "false" and
+  # restart the Deployment to stop the sweep paging the emergency team,
+  # without a revert commit and a second manual ArgoCD sync. Turning it off
+  # disables the HIGH-1 remediation: never-acknowledged SOS alerts stop
+  # auto-escalating. Alerts still fan out at creation and stay visible on the
+  # SOS dashboard. Re-enable as soon as the underlying issue is fixed.
+  SOS_ALERT_AGE_ESCALATION_ENABLED: "true"
+
   # Cloudflare R2 — endpoint/account/bucket are not secrets. R2_ENDPOINT is the
   # exact production S3 API endpoint confirmed in the bucket's Settings → S3
   # API page. CF_R2_URL is a different value: r2Storage.js uses it as the public

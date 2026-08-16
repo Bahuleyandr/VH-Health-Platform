@@ -256,6 +256,14 @@ export const envSchema = Joi.object({
 
   // Firebase — optional but warn if missing
   FIREBASE_AUTH_ENABLED: Joi.string().valid('true', 'false').optional().label('FIREBASE_AUTH_ENABLED'),
+  // Opt-OUT kill switch for the sos-alert-age-escalation sweep. Unset means
+  // ENABLED — this is the HIGH-1 remediation, so it must not require an env
+  // var to be live. Set 'false' only to stop a misbehaving sweep without
+  // waiting on a revert commit and a second manual production sync.
+  SOS_ALERT_AGE_ESCALATION_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .optional()
+    .label('SOS_ALERT_AGE_ESCALATION_ENABLED'),
   FIREBASE_PROJECT_ID: Joi.string().optional().label('FIREBASE_PROJECT_ID'),
   FIREBASE_CLIENT_EMAIL: Joi.string().email().optional().label('FIREBASE_CLIENT_EMAIL'),
   FIREBASE_PRIVATE_KEY: Joi.string().optional().label('FIREBASE_PRIVATE_KEY'),
