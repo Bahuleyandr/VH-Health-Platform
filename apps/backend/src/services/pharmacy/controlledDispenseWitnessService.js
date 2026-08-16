@@ -273,11 +273,20 @@ export async function createControlledDispenseWitnessApproval({
 }
 
 export async function approveControlledDispenseWitnessApproval({
-  tenantId, approvalId, actorUid, payload,
+  tenantId, approvalId, actorUid, payload, requesterUid = null,
 }) {
   return setTenantTx(tenantId, async (tx) => {
     const row = await loadApproval(tx, tenantId, approvalId, { lock: true });
     const metadata = approvalMetadata(row);
+    if (
+      requesterUid
+      && String(metadata.requested_by || '').toLowerCase() !== String(requesterUid).toLowerCase()
+    ) {
+      throw AppError.conflict(
+        'Witness approval belongs to a different dispensing staff member',
+        'CONTROLLED_DISPENSE_WITNESS_APPROVAL_REQUESTER_MISMATCH',
+      );
+    }
     assertApprovalContract(row, {
       scope: metadata.scope,
       payload,

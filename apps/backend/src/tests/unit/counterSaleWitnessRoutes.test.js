@@ -4,8 +4,10 @@ import request from 'supertest';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
+const WITNESS = '22222222-2222-4222-8222-222222222222';
 const requestApprovalMock = jest.fn(async (input) => input);
 const approveApprovalMock = jest.fn(async (input) => input);
+const authenticateWitnessMock = jest.fn(async () => ({ uid: WITNESS }));
 
 jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => ({
   approveCounterSaleWitnessApproval: approveApprovalMock,
@@ -13,6 +15,11 @@ jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => 
 }));
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
   tenantOf: () => TENANT,
+}));
+jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
+  StaffAuthService: {
+    authenticateControlledDispenseWitness: authenticateWitnessMock,
+  },
 }));
 jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   requireIdempotencyKey: () => (_req, _res, next) => next(),
@@ -35,6 +42,7 @@ beforeEach(() => {
   actorRole = 'PHARMACY_STAFF';
   requestApprovalMock.mockClear();
   approveApprovalMock.mockClear();
+  authenticateWitnessMock.mockClear();
 });
 
 test('counter-sale witness endpoints bind seller and approver to authenticated actors', async () => {
@@ -49,20 +57,46 @@ test('counter-sale witness endpoints bind seller and approver to authenticated a
 
   const approvalResponse = await request(app)
     .post('/counter-sales/witness-approvals/71/approve')
-    .send({ actorUid: 'caller-actor', sale: { tenantId: 'caller-tenant', lines: [] } });
+    .send({
+      actorUid: 'caller-actor',
+      employeeId: 'PHARM-002',
+      password: 'witness-secret',
+      sale: { tenantId: 'caller-tenant', lines: [] },
+    });
   expect(approvalResponse.statusCode).toBe(200);
+  expect(authenticateWitnessMock).toHaveBeenCalledWith(
+    'PHARM-002',
+    'witness-secret',
+    expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
+  );
   expect(approveApprovalMock).toHaveBeenCalledWith({
     approvalId: '71',
-    actorUid: ACTOR,
+    actorUid: WITNESS,
+    requesterUid: ACTOR,
     sale: { tenantId: TENANT, lines: [] },
   });
 });
 
-test('ADMIN cannot provide the controlled-dispense second signature', async () => {
+test('ADMIN seller may host a separately authenticated eligible witness challenge', async () => {
   actorRole = 'ADMIN';
   const response = await request(app)
     .post('/counter-sales/witness-approvals/71/approve')
-    .send({ sale: { lines: [] } });
-  expect(response.statusCode).toBe(403);
+    .send({
+      employeeId: 'NURSE-002',
+      password: 'witness-secret',
+      sale: { lines: [] },
+    });
+  expect(response.statusCode).toBe(200);
+  expect(approveApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
+    actorUid: WITNESS,
+  }));
+});
+
+test('a partial witness credential challenge fails closed', async () => {
+  const response = await request(app)
+    .post('/counter-sales/witness-approvals/71/approve')
+    .send({ employeeId: 'NURSE-002', sale: { lines: [] } });
+  expect(response.statusCode).toBe(400);
+  expect(authenticateWitnessMock).not.toHaveBeenCalled();
   expect(approveApprovalMock).not.toHaveBeenCalled();
 });

@@ -122,6 +122,32 @@ describe('OpenAPI contract overlays (static gate)', () => {
     }
   });
 
+  it('documents the counter-sale witness approval handshake and final approval id', () => {
+    const createSchema = spec.components.schemas.PharmacyCounterSaleCreateRequest;
+    expect(createSchema.properties.witness).toBeUndefined();
+    expect(createSchema.properties.witness_approval_id).toEqual(expect.objectContaining({
+      type: 'integer',
+      minimum: 1,
+    }));
+
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      const requestApproval = spec.paths[`${prefix}/counter-sales/witness-approvals`]?.post;
+      const approve = spec.paths[`${prefix}/counter-sales/witness-approvals/{id}/approve`]?.post;
+      expect(requestApproval?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
+      });
+      expect(approve?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
+      });
+      for (const suffix of [
+        '/inventory/v2/controlled-dispense/witness-approvals',
+        '/inventory/v2/controlled-dispense/witness-approvals/{id}/approve',
+      ]) {
+        expect(spec.paths[`${prefix}${suffix}`]?.post?.description).toEqual(expect.any(String));
+      }
+    }
+  });
+
   it('documents notification-authority validation as a bearer-authenticated fail-closed request', () => {
     const operation = spec.paths['/api/v1/devices/notification-authority/validate'].post;
 

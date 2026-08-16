@@ -14,6 +14,8 @@ import {
   STORES_PURCHASE_INCHARGE,
   hasRole,
 } from '../../utils/roles.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = Router();
 
@@ -92,11 +94,38 @@ function requireControlledDispense(req, res, next) {
   )(req, res, next);
 }
 
-function requireControlledDispenseWitness(req, res, next) {
+function requireControlledDispenseApprovalHost(req, res, next) {
   return requireInventoryRole(
-    inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
-    'Clinical or pharmacy witness role required',
+    [...new Set([
+      ...PHARMACY_CONTROLLED_DISPENSE_ROLES,
+      ...inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
+    ])],
+    'Pharmacy dispenser or clinical witness role required',
   )(req, res, next);
+}
+
+async function resolveWitnessActor(req) {
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  if (employeeId == null && password == null) {
+    return { actorUid: req.user?.uid, requesterUid: null };
+  }
+  try {
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness(
+      employeeId,
+      password,
+      req,
+    );
+    return { actorUid: witness.uid, requesterUid: req.user?.uid };
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
 }
 
 // ── Drug master / items ───────────────────────────────────────────────
@@ -138,13 +167,16 @@ router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
   })));
 
 router.post('/controlled-dispense/witness-approvals/:id/approve',
-  requireControlledDispenseWitness,
-  wrap(async (req) => inv.approveInventoryDispenseWitnessApproval({
-    tenantId: inv.tenantOf(req),
-    approvalId: req.params.id,
-    actorUid: req.user?.uid,
-    dispense: req.body.dispense || {},
-  })));
+  requireControlledDispenseApprovalHost,
+  wrap(async (req) => {
+    const actor = await resolveWitnessActor(req);
+    return inv.approveInventoryDispenseWitnessApproval({
+      tenantId: inv.tenantOf(req),
+      approvalId: req.params.id,
+      ...actor,
+      dispense: req.body.dispense || {},
+    });
+  }));
 
 router.post('/controlled-dispense', requireControlledDispense, wrap(async (req) => inv.dispenseControlled({
   ...req.body,

@@ -361,11 +361,11 @@ function enforceScheduleRules({
 }
 
 function counterSaleWitnessPayload({
-  itemsById, lines, patient_uid, customer_name, customer_phone, rx,
+  lines, patient_uid, customer_name, customer_phone, rx,
+  payment_mode, payment_reference, notes,
 }) {
   return {
     lines: lines
-      .filter((line) => isWitnessed(itemsById.get(Number(line.inventory_item_id))))
       .map((line) => ({
         inventory_item_id: Number(line.inventory_item_id),
         quantity: Number(line.quantity),
@@ -380,6 +380,9 @@ function counterSaleWitnessPayload({
       id_proof_type: rx?.id_proof_type || null,
       id_proof_last4: rx?.id_proof_last4 ? String(rx.id_proof_last4).slice(-4) : null,
     },
+    payment_mode: payment_mode ? String(payment_mode).trim().toUpperCase() : null,
+    payment_reference: payment_reference ? String(payment_reference).trim() : null,
+    notes: notes ? String(notes).trim() : null,
   };
 }
 
@@ -425,6 +428,7 @@ export async function approveCounterSaleWitnessApproval(params) {
     approvalId: params.approvalId,
     actorUid: params.actorUid,
     payload,
+    requesterUid: params.requesterUid,
   });
 }
 
@@ -500,12 +504,14 @@ export async function createCounterSale({
 
   const witnessPayload = scheduleRules.needsWitness
     ? counterSaleWitnessPayload({
-      itemsById,
       lines,
       patient_uid,
       customer_name,
       customer_phone,
       rx,
+      payment_mode,
+      payment_reference,
+      notes,
     })
     : null;
   if (scheduleRules.needsWitness) {

@@ -329,13 +329,37 @@ class PharmacyApiService {
 
   /// POST /pharmacy-orders/counter-sales — sell: FEFO dispense + schedule
   /// enforcement + billingV2 PHARMACY invoice + pay-at-counter payment.
+  static Future<Map<String, dynamic>> requestCounterSaleWitnessApproval({
+    required Map<String, dynamic> sale,
+  }) async {
+    return _post('/pharmacy-orders/counter-sales/witness-approvals', sale);
+  }
+
+  /// Authenticates the second staff member without replacing the seller's
+  /// session, then approves the same sale payload that was requested.
+  static Future<Map<String, dynamic>> approveCounterSaleWitnessApproval({
+    required int approvalId,
+    required Map<String, dynamic> sale,
+    required String employeeId,
+    required String password,
+  }) async {
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals/$approvalId/approve',
+      {
+        'sale': sale,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+    );
+  }
+
   static Future<Map<String, dynamic>> createCounterSale({
     required List<Map<String, dynamic>> lines,
     String? patientUid,
     String? customerName,
     String? customerPhone,
     Map<String, dynamic>? rx,
-    Map<String, dynamic>? witness,
+    int? witnessApprovalId,
     required String paymentMode,
     String? paymentReference,
     String? notes,
@@ -346,7 +370,7 @@ class PharmacyApiService {
       'customer_name': ?customerName,
       'customer_phone': ?customerPhone,
       'rx': ?rx,
-      'witness': ?witness,
+      'witness_approval_id': ?witnessApprovalId,
       'payment_mode': paymentMode,
       'payment_reference': ?paymentReference,
       'notes': ?notes,

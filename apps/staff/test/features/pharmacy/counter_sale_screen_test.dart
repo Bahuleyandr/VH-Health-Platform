@@ -27,6 +27,8 @@ Map<String, dynamic> _item({
 Widget _screen({
   CounterSaleItemSearcher? searchItems,
   CounterSaleCreator? createSale,
+  CounterSaleWitnessApprovalRequester? requestWitnessApproval,
+  CounterSaleWitnessApprovalApprover? approveWitnessApproval,
   CounterSaleLister? listSales,
   CounterSaleVoider? voidSale,
 }) {
@@ -41,7 +43,7 @@ Widget _screen({
             String? customerName,
             String? customerPhone,
             Map<String, dynamic>? rx,
-            Map<String, dynamic>? witness,
+            int? witnessApprovalId,
             required String paymentMode,
             String? paymentReference,
             String? notes,
@@ -49,6 +51,8 @@ Widget _screen({
             'sale': {'id': '1', 'status': 'COMPLETED'},
             'invoice': {'invoice_number': 'INV-2026-000001'},
           },
+      requestWitnessApproval: requestWitnessApproval,
+      approveWitnessApproval: approveWitnessApproval,
       listSales: listSales ?? ({String? status, String? date}) async => [],
       voidSale: voidSale ?? (id, reason) async => {'sale': {}},
     ),
@@ -115,7 +119,7 @@ void main() {
               String? customerName,
               String? customerPhone,
               Map<String, dynamic>? rx,
-              Map<String, dynamic>? witness,
+              int? witnessApprovalId,
               required String paymentMode,
               String? paymentReference,
               String? notes,
@@ -170,8 +174,180 @@ void main() {
         find.byKey(const ValueKey('counter-sale-witness')),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const ValueKey('counter-sale-witness-request')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('counter-sale-witness-employee-id')),
+        findsNothing,
+      );
     },
   );
+
+  testWidgets(
+    'controlled sale requires an independently authenticated approval for the unchanged payload',
+    (tester) async {
+      Map<String, dynamic>? requestedSale;
+      Map<String, dynamic>? approvedSale;
+      String? witnessEmployeeId;
+      String? witnessPassword;
+      int? submittedApprovalId;
+      _useTallViewport(tester);
+      await tester.pumpWidget(
+        _screen(
+          searchItems: ({String? search}) async => [
+            _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
+          ],
+          requestWitnessApproval: ({required sale}) async {
+            requestedSale = Map<String, dynamic>.from(sale);
+            return {'id': '71', 'status': 'pending'};
+          },
+          approveWitnessApproval:
+              ({
+                required approvalId,
+                required sale,
+                required employeeId,
+                required password,
+              }) async {
+                expect(approvalId, 71);
+                approvedSale = Map<String, dynamic>.from(sale);
+                witnessEmployeeId = employeeId;
+                witnessPassword = password;
+                return {
+                  'id': '71',
+                  'status': 'approved',
+                  'witness': {'name': 'Canonical Nurse'},
+                };
+              },
+          createSale:
+              ({
+                required lines,
+                patientUid,
+                customerName,
+                customerPhone,
+                rx,
+                witnessApprovalId,
+                required paymentMode,
+                paymentReference,
+                notes,
+              }) async {
+                submittedApprovalId = witnessApprovalId;
+                return {
+                  'sale': {'id': '9', 'status': 'COMPLETED'},
+                  'invoice': {'invoice_number': 'INV-2026-000043'},
+                };
+              },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _addFirstResult(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('counter-sale-customer-name')),
+        'Walk-in Customer',
+      );
+      await tester.enterText(find.byType(TextField).at(2), '9876543210');
+      await tester.enterText(find.byType(TextField).at(3), 'Dr Rao');
+      await tester.enterText(find.byType(TextField).at(4), 'RX-77');
+
+      final sellButton = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('counter-sale-sell')),
+      );
+      expect(sellButton.onPressed, isNull);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('counter-sale-witness-request')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('counter-sale-witness-request')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('counter-sale-witness-employee-id')),
+        'nurse-002',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('counter-sale-witness-password')),
+        'witness-secret',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('counter-sale-witness-approve-submit')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(witnessEmployeeId, 'NURSE-002');
+      expect(witnessPassword, 'witness-secret');
+      expect(approvedSale, requestedSale);
+      expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
+      expect(find.text('witness-secret'), findsNothing);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('counter-sale-sell')),
+      );
+      await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
+      await tester.pumpAndSettle();
+      expect(submittedApprovalId, 71);
+    },
+  );
+
+  testWidgets('changing the sale invalidates an approved witness id', (
+    tester,
+  ) async {
+    _useTallViewport(tester);
+    await tester.pumpWidget(
+      _screen(
+        searchItems: ({String? search}) async => [
+          _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
+        ],
+        requestWitnessApproval: ({required sale}) async => {'id': '72'},
+        approveWitnessApproval:
+            ({
+              required approvalId,
+              required sale,
+              required employeeId,
+              required password,
+            }) async => {
+              'id': '72',
+              'status': 'approved',
+              'witness': {'name': 'Canonical Nurse'},
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _addFirstResult(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-customer-name')),
+      'Walk-in Customer',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('counter-sale-witness-request')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-witness-request')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-witness-employee-id')),
+      'NURSE-002',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-witness-password')),
+      'witness-secret',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-witness-approve-submit')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(4), 'RX-CHANGED');
+    await tester.pump();
+    expect(find.text('Approval not requested'), findsOneWidget);
+    final sellButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('counter-sale-sell')),
+    );
+    expect(sellButton.onPressed, isNull);
+  });
 
   testWidgets('recent tab lists sales and voids with a reason', (tester) async {
     String? voidedId;

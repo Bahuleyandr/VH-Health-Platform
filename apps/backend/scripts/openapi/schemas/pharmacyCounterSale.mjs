@@ -44,14 +44,12 @@ export const schemas = {
       customer_name: { type: 'string', nullable: true },
       customer_phone: { type: 'string', nullable: true },
       rx: { allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleRxInput' }], nullable: true },
-      witness: {
-        type: 'object',
+      witness_approval_id: {
+        type: 'integer',
+        minimum: 1,
         nullable: true,
-        description: 'Witness for Schedule X / narcotic lines (required then).',
-        properties: {
-          uid: { type: 'string', format: 'uuid' },
-          name: { type: 'string' },
-        },
+        description:
+          'Approved, unexpired one-time witness approval returned by the two-person approval flow. Required for Schedule X / narcotic lines; caller-selected witness identity is never accepted.',
       },
       payment_mode: {
         type: 'string',
@@ -60,6 +58,62 @@ export const schemas = {
       payment_reference: { type: 'string', nullable: true },
       notes: { type: 'string', nullable: true },
       sold_by_name: { type: 'string', nullable: true },
+    },
+  },
+
+  PharmacyCounterSaleWitnessApprovalRequest: {
+    allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleCreateRequest' }],
+    description:
+      'The exact prospective sale payload to bind to a short-lived pending witness approval. Omit witness_approval_id until final submission.',
+  },
+
+  PharmacyCounterSaleWitnessApprovalDecisionRequest: {
+    type: 'object',
+    required: ['sale'],
+    properties: {
+      sale: {
+        $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
+      },
+      employeeId: {
+        type: 'string',
+        pattern: '^[A-Z0-9-]{3,20}$',
+        description:
+          'Witness employee ID for an in-session password step-up. Must be supplied with password; the server derives the witness UID from this authentication.',
+      },
+      password: {
+        type: 'string',
+        format: 'password',
+        minLength: 6,
+        maxLength: 100,
+        writeOnly: true,
+        description:
+          'Witness password for the one-request step-up. It is neither returned nor persisted and does not replace the seller session.',
+      },
+    },
+  },
+
+  PharmacyCounterSaleWitnessApproval: {
+    type: 'object',
+    required: ['id', 'status', 'expires_at'],
+    properties: {
+      id: {
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
+        description: 'BIGSERIAL approval id serialized as text.',
+      },
+      status: { type: 'string', enum: ['pending', 'approved'] },
+      expires_at: { type: 'string', format: 'date-time' },
+      decided_at: { type: 'string', format: 'date-time', nullable: true },
+      witness: {
+        type: 'object',
+        nullable: true,
+        readOnly: true,
+        properties: {
+          uid: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          role: { type: 'string' },
+        },
+      },
     },
   },
 
@@ -216,6 +270,7 @@ export const schemas = {
   PharmacyCounterSaleResponse: envelope('PharmacyCounterSale'),
   PharmacyCounterSaleListResponse: envelope('PharmacyCounterSaleList'),
   PharmacyCounterSaleSellableItemsResponse: envelope('PharmacyCounterSaleSellableItemList'),
+  PharmacyCounterSaleWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
 };
 
 const DESCRIPTIONS = {
@@ -223,6 +278,10 @@ const DESCRIPTIONS = {
     'POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded.',
   create:
     'Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.',
+  requestWitnessApproval:
+    'Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload.',
+  approveWitnessApproval:
+    'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged sale payload. The seller may then submit the returned one-time approval id; self-witness, administrative/nonclinical witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.',
   list:
     'Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date.',
   detail:
@@ -241,6 +300,24 @@ function ops(prefix) {
       description: DESCRIPTIONS.create,
       request: 'PharmacyCounterSaleCreateRequest',
       response: 'PharmacyCounterSaleCreateResponse',
+    },
+    [`POST ${prefix}/counter-sales/witness-approvals`]: {
+      description: DESCRIPTIONS.requestWitnessApproval,
+      request: 'PharmacyCounterSaleWitnessApprovalRequest',
+      response: 'PharmacyCounterSaleWitnessApprovalResponse',
+    },
+    [`POST ${prefix}/counter-sales/witness-approvals/{id}/approve`]: {
+      description: DESCRIPTIONS.approveWitnessApproval,
+      request: 'PharmacyCounterSaleWitnessApprovalDecisionRequest',
+      response: 'PharmacyCounterSaleWitnessApprovalResponse',
+    },
+    [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals`]: {
+      description:
+        'Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload.',
+    },
+    [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`]: {
+      description:
+        'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged inventory dispense payload; self-witness, tenant mismatch, expiry, replay, and payload changes fail closed.',
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,

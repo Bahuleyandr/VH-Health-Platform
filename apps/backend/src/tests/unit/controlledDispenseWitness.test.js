@@ -184,6 +184,22 @@ describe('independent witness approval', () => {
     }));
   });
 
+  test('credential-hosted approval stays bound to the seller who requested it', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      approvalRow({ status: 'pending', approved_by: [], decided_by: null }),
+    ]);
+    await expect(approveControlledDispenseWitnessApproval({
+      tenantId: TENANT,
+      approvalId: 71,
+      actorUid: WITNESS,
+      requesterUid: '33333333-3333-4333-8333-333333333333',
+      payload: PAYLOAD,
+    })).rejects.toMatchObject({
+      code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_REQUESTER_MISMATCH',
+    });
+    expect(recordApprovalDecisionMock).not.toHaveBeenCalled();
+  });
+
   test('rejects approval or consumption when the exact dispense payload changes', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([approvalRow({ status: 'pending' })]);
     await expect(approveControlledDispenseWitnessApproval({

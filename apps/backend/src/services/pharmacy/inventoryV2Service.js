@@ -447,6 +447,7 @@ export async function approveInventoryDispenseWitnessApproval(params) {
     approvalId: params.approvalId,
     actorUid: params.actorUid,
     payload: controlledDispenseWitnessPayload(params.dispense),
+    requesterUid: params.requesterUid,
   });
 }
 

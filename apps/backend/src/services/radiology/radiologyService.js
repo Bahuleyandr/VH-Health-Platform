@@ -635,6 +635,38 @@ function parseContrastIntent(data = {}, modality = null) {
   return { contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed' };
 }
 
+const DERIVED_CONTRAST_INTENT_SOURCES = new Set([
+  'explicit',
+  'agent_named',
+  'study_text',
+  'modality_presumed',
+  'explicitly_negated',
+  'modality_not_presumed',
+]);
+
+function contrastIntentForCreate(data, modality, context = {}) {
+  const parsed = parseContrastIntent(data, modality);
+  const authoritative = context.contrastIntent;
+  if (authoritative == null) return parsed;
+  const contrastAgent = cleanOptionalText(authoritative.contrastAgent);
+  if (
+    typeof authoritative.contrastPlanned !== 'boolean'
+    || !DERIVED_CONTRAST_INTENT_SOURCES.has(authoritative.intentSource)
+    || parsed.contrastPlanned !== authoritative.contrastPlanned
+    || parsed.contrastAgent !== contrastAgent
+  ) {
+    throw AppError.conflict(
+      'Materialized radiology contrast intent contradicts the clinical order',
+      'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    );
+  }
+  return {
+    contrastPlanned: authoritative.contrastPlanned,
+    contrastAgent,
+    intentSource: authoritative.intentSource,
+  };
+}
+
 // Evidence blob persisted to radiology_orders.contrast_allergy_screen — the
 // immutable record of what the screen knew when the order was placed/amended.
 // Always records the derived contrast intent; when a screen ran it records
@@ -751,7 +783,11 @@ class RadiologyService {
     // fluoroscopy orders are presumed contrast-planned (and therefore always
     // screened) unless the client explicitly negates with
     // contrast_planned: false.
-    const { contrastPlanned, contrastAgent, intentSource } = parseContrastIntent(data, modality);
+    const { contrastPlanned, contrastAgent, intentSource } = contrastIntentForCreate(
+      data,
+      modality,
+      context,
+    );
     let contrastScreen = null;
     let contrastOverride = null;
     if (contrastPlanned) {

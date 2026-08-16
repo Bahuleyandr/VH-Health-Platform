@@ -1,31 +1,39 @@
+import 'dart:collection';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef CounterSaleItemSearcher = Future<List<Map<String, dynamic>>> Function({
-  String? search,
-});
-typedef CounterSaleCreator = Future<Map<String, dynamic>> Function({
-  required List<Map<String, dynamic>> lines,
-  String? patientUid,
-  String? customerName,
-  String? customerPhone,
-  Map<String, dynamic>? rx,
-  Map<String, dynamic>? witness,
-  required String paymentMode,
-  String? paymentReference,
-  String? notes,
-});
-typedef CounterSaleLister = Future<List<Map<String, dynamic>>> Function({
-  String? status,
-  String? date,
-});
-typedef CounterSaleVoider = Future<Map<String, dynamic>> Function(
-  String id,
-  String reason,
-);
+typedef CounterSaleItemSearcher =
+    Future<List<Map<String, dynamic>>> Function({String? search});
+typedef CounterSaleCreator =
+    Future<Map<String, dynamic>> Function({
+      required List<Map<String, dynamic>> lines,
+      String? patientUid,
+      String? customerName,
+      String? customerPhone,
+      Map<String, dynamic>? rx,
+      int? witnessApprovalId,
+      required String paymentMode,
+      String? paymentReference,
+      String? notes,
+    });
+typedef CounterSaleWitnessApprovalRequester =
+    Future<Map<String, dynamic>> Function({required Map<String, dynamic> sale});
+typedef CounterSaleWitnessApprovalApprover =
+    Future<Map<String, dynamic>> Function({
+      required int approvalId,
+      required Map<String, dynamic> sale,
+      required String employeeId,
+      required String password,
+    });
+typedef CounterSaleLister =
+    Future<List<Map<String, dynamic>>> Function({String? status, String? date});
+typedef CounterSaleVoider =
+    Future<Map<String, dynamic>> Function(String id, String reason);
 
 const _kPaymentModes = [
   'CASH',
@@ -37,6 +45,28 @@ const _kPaymentModes = [
   'WALLET',
 ];
 const _kScheduled = {'H', 'H1', 'X'};
+
+dynamic _canonicalJsonValue(dynamic value) {
+  if (value is Map) {
+    final sorted = SplayTreeMap<String, dynamic>();
+    for (final entry in value.entries) {
+      sorted[entry.key.toString()] = _canonicalJsonValue(entry.value);
+    }
+    return sorted;
+  }
+  if (value is List) return value.map(_canonicalJsonValue).toList();
+  return value;
+}
+
+String _saleFingerprint(Map<String, dynamic> sale) =>
+    jsonEncode(_canonicalJsonValue(sale));
+
+class _WitnessCredentials {
+  const _WitnessCredentials(this.employeeId, this.password);
+
+  final String employeeId;
+  final String password;
+}
 
 class _CartLine {
   _CartLine(this.item, this.quantity);
@@ -69,12 +99,16 @@ class CounterSaleScreen extends StatefulWidget {
     super.key,
     this.searchItems,
     this.createSale,
+    this.requestWitnessApproval,
+    this.approveWitnessApproval,
     this.listSales,
     this.voidSale,
   });
 
   final CounterSaleItemSearcher? searchItems;
   final CounterSaleCreator? createSale;
+  final CounterSaleWitnessApprovalRequester? requestWitnessApproval;
+  final CounterSaleWitnessApprovalApprover? approveWitnessApproval;
   final CounterSaleLister? listSales;
   final CounterSaleVoider? voidSale;
 
@@ -89,16 +123,19 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   final _patientUidCtrl = TextEditingController();
   final _rxDoctorCtrl = TextEditingController();
   final _rxRefCtrl = TextEditingController();
-  final _witnessUidCtrl = TextEditingController();
-  final _witnessNameCtrl = TextEditingController();
   final _paymentRefCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _results = const [];
   final List<_CartLine> _cart = [];
   bool _searching = false;
   bool _selling = false;
+  bool _witnessBusy = false;
   bool _walkIn = true;
   String _paymentMode = 'CASH';
+  int? _witnessApprovalId;
+  String? _witnessApprovalFingerprint;
+  String? _approvedWitnessName;
+  bool _witnessApproved = false;
 
   List<Map<String, dynamic>> _recent = const [];
   bool _recentLoading = false;
@@ -117,14 +154,51 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     _patientUidCtrl.dispose();
     _rxDoctorCtrl.dispose();
     _rxRefCtrl.dispose();
-    _witnessUidCtrl.dispose();
-    _witnessNameCtrl.dispose();
     _paymentRefCtrl.dispose();
     super.dispose();
   }
 
   bool get _needsRx => _cart.any((l) => l.isScheduled);
   bool get _needsWitness => _cart.any((l) => l.isWitnessed);
+
+  Map<String, dynamic> _currentSalePayload() {
+    final rxDoctor = _rxDoctorCtrl.text.trim();
+    final rxRef = _rxRefCtrl.text.trim();
+    final paymentReference = _paymentRefCtrl.text.trim();
+    return {
+      'lines': _cart
+          .map((l) => {'inventory_item_id': l.itemId, 'quantity': l.quantity})
+          .toList(),
+      if (_walkIn) 'customer_name': _customerNameCtrl.text.trim(),
+      if (_walkIn && _customerPhoneCtrl.text.trim().isNotEmpty)
+        'customer_phone': _customerPhoneCtrl.text.trim(),
+      if (!_walkIn) 'patient_uid': _patientUidCtrl.text.trim(),
+      if (_needsRx)
+        'rx': {
+          if (rxDoctor.isNotEmpty) 'doctor_name': rxDoctor,
+          if (rxRef.isNotEmpty) 'reference': rxRef,
+        },
+      'payment_mode': _paymentMode,
+      if (paymentReference.isNotEmpty) 'payment_reference': paymentReference,
+    };
+  }
+
+  bool get _hasCurrentWitnessApproval =>
+      _witnessApproved &&
+      _witnessApprovalId != null &&
+      _witnessApprovalFingerprint == _saleFingerprint(_currentSalePayload());
+
+  void _clearWitnessApprovalState() {
+    _witnessApprovalId = null;
+    _witnessApprovalFingerprint = null;
+    _approvedWitnessName = null;
+    _witnessApproved = false;
+  }
+
+  void _invalidateWitnessApproval() {
+    if (_witnessApprovalId == null) return;
+    setState(_clearWitnessApprovalState);
+  }
 
   double get _estimatedTotal =>
       _cart.fold(0, (sum, line) => sum + (line.unitPrice ?? 0) * line.quantity);
@@ -185,6 +259,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     );
     if (qty == null || qty <= 0) return;
     setState(() {
+      _clearWitnessApprovalState();
       final existing = _cart.where(
         (l) => l.itemId == (item['id'] as num).toInt(),
       );
@@ -199,38 +274,26 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   Future<void> _sell() async {
     final s = AppStrings.of(context);
     if (_cart.isEmpty || _selling) return;
+    final sale = _currentSalePayload();
+    if (_needsWitness &&
+        (!_hasCurrentWitnessApproval || _witnessApprovalId == null)) {
+      _snack(s.lookup('s4.lib.counter_sale.witness_required'), error: true);
+      return;
+    }
     setState(() => _selling = true);
     try {
       final creator = widget.createSale ?? PharmacyApiService.createCounterSale;
-      final rxDoctor = _rxDoctorCtrl.text.trim();
-      final rxRef = _rxRefCtrl.text.trim();
-      final witnessUid = _witnessUidCtrl.text.trim();
-      final witnessName = _witnessNameCtrl.text.trim();
       final result = await creator(
-        lines: _cart
-            .map((l) => {'inventory_item_id': l.itemId, 'quantity': l.quantity})
-            .toList(),
-        patientUid: _walkIn ? null : _patientUidCtrl.text.trim(),
-        customerName: _walkIn ? _customerNameCtrl.text.trim() : null,
-        customerPhone: _walkIn && _customerPhoneCtrl.text.trim().isNotEmpty
-            ? _customerPhoneCtrl.text.trim()
+        lines: List<Map<String, dynamic>>.from(sale['lines'] as List),
+        patientUid: sale['patient_uid']?.toString(),
+        customerName: sale['customer_name']?.toString(),
+        customerPhone: sale['customer_phone']?.toString(),
+        rx: sale['rx'] is Map
+            ? Map<String, dynamic>.from(sale['rx'] as Map)
             : null,
-        rx: _needsRx
-            ? {
-                if (rxDoctor.isNotEmpty) 'doctor_name': rxDoctor,
-                if (rxRef.isNotEmpty) 'reference': rxRef,
-              }
-            : null,
-        witness: _needsWitness
-            ? {
-                if (witnessUid.isNotEmpty) 'uid': witnessUid,
-                if (witnessName.isNotEmpty) 'name': witnessName,
-              }
-            : null,
-        paymentMode: _paymentMode,
-        paymentReference: _paymentRefCtrl.text.trim().isEmpty
-            ? null
-            : _paymentRefCtrl.text.trim(),
+        witnessApprovalId: _needsWitness ? _witnessApprovalId : null,
+        paymentMode: sale['payment_mode'].toString(),
+        paymentReference: sale['payment_reference']?.toString(),
       );
       final invoice = result['invoice'];
       final invoiceNumber = invoice is Map
@@ -238,11 +301,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           : '—';
       _snack(s.format('s4.lib.counter_sale.sold', {'invoice': invoiceNumber}));
       setState(() {
+        _clearWitnessApprovalState();
         _cart.clear();
         _rxDoctorCtrl.clear();
         _rxRefCtrl.clear();
-        _witnessUidCtrl.clear();
-        _witnessNameCtrl.clear();
         _paymentRefCtrl.clear();
         _customerNameCtrl.clear();
         _customerPhoneCtrl.clear();
@@ -251,9 +313,171 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       await _loadRecent();
       await _runSearch();
     } catch (e) {
-      _snack('$e', error: true);
+      final message = e.toString().toLowerCase();
+      if (_needsWitness &&
+          (message.contains('witness') || message.contains('approval'))) {
+        if (mounted) setState(_clearWitnessApprovalState);
+        _snack(_safeWitnessError(e, s), error: true);
+      } else {
+        _snack('$e', error: true);
+      }
     } finally {
       if (mounted) setState(() => _selling = false);
+    }
+  }
+
+  Future<_WitnessCredentials?> _collectWitnessCredentials(AppStrings s) async {
+    final employeeIdCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    try {
+      return await showDialog<_WitnessCredentials>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: Text(s.lookup('s4.lib.counter_sale.witness_auth_title')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(s.lookup('s4.lib.counter_sale.witness_review_hint')),
+                const SizedBox(height: 8),
+                ..._cart.map(
+                  (line) => Text(
+                    '${line.name} × ${line.quantity.toStringAsFixed(line.quantity == line.quantity.truncateToDouble() ? 0 : 2)}',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('counter-sale-witness-employee-id'),
+                  controller: employeeIdCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: s.lookup(
+                      's4.lib.counter_sale.witness_employee_id',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const ValueKey('counter-sale-witness-password'),
+                  controller: passwordCtrl,
+                  obscureText: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: s.lookup('s4.lib.counter_sale.witness_password'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('counter-sale-witness-approve-submit'),
+              onPressed: () {
+                final employeeId = employeeIdCtrl.text.trim().toUpperCase();
+                final password = passwordCtrl.text;
+                if (employeeId.isEmpty || password.isEmpty) return;
+                Navigator.pop(ctx, _WitnessCredentials(employeeId, password));
+              },
+              child: Text(s.lookup('s4.lib.counter_sale.witness_approve')),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      employeeIdCtrl.dispose();
+      passwordCtrl.dispose();
+    }
+  }
+
+  String _safeWitnessError(Object error, AppStrings s) {
+    final message = error.toString().toLowerCase();
+    if (message.contains('expired')) {
+      return s.lookup('s4.lib.counter_sale.witness_expired');
+    }
+    if (message.contains('consumed') || message.contains('already')) {
+      return s.lookup('s4.lib.counter_sale.witness_used');
+    }
+    if (message.contains('own controlled dispense') ||
+        message.contains('self')) {
+      return s.lookup('s4.lib.counter_sale.witness_self');
+    }
+    if (message.contains('role') || message.contains('eligible')) {
+      return s.lookup('s4.lib.counter_sale.witness_role');
+    }
+    if (message.contains('match') || message.contains('different')) {
+      return s.lookup('s4.lib.counter_sale.witness_changed');
+    }
+    return s.lookup('s4.lib.counter_sale.witness_auth_failed');
+  }
+
+  Future<void> _requestOrApproveWitness() async {
+    final s = AppStrings.of(context);
+    if (_witnessBusy || !_needsWitness || _cart.isEmpty) return;
+    final sale = _currentSalePayload();
+    final fingerprint = _saleFingerprint(sale);
+    setState(() => _witnessBusy = true);
+    try {
+      var approvalId = _witnessApprovalFingerprint == fingerprint
+          ? _witnessApprovalId
+          : null;
+      if (approvalId == null) {
+        final requester =
+            widget.requestWitnessApproval ??
+            PharmacyApiService.requestCounterSaleWitnessApproval;
+        final pending = await requester(sale: sale);
+        approvalId = int.tryParse(pending['id']?.toString() ?? '');
+        if (approvalId == null || approvalId <= 0) {
+          throw StateError('Witness approval id missing');
+        }
+        if (!mounted) return;
+        if (_saleFingerprint(_currentSalePayload()) != fingerprint) {
+          throw StateError('Sale changed while requesting witness approval');
+        }
+        setState(() {
+          _witnessApprovalId = approvalId;
+          _witnessApprovalFingerprint = fingerprint;
+          _witnessApproved = false;
+          _approvedWitnessName = null;
+        });
+      }
+
+      final credentials = await _collectWitnessCredentials(s);
+      if (credentials == null || !mounted) return;
+      final approver =
+          widget.approveWitnessApproval ??
+          PharmacyApiService.approveCounterSaleWitnessApproval;
+      final approved = await approver(
+        approvalId: approvalId,
+        sale: sale,
+        employeeId: credentials.employeeId,
+        password: credentials.password,
+      );
+      if (!mounted) return;
+      if (_saleFingerprint(_currentSalePayload()) != fingerprint) {
+        throw StateError('Sale changed while witness approval was pending');
+      }
+      final witness = approved['witness'];
+      final witnessName = witness is Map ? witness['name']?.toString() : null;
+      setState(() {
+        _witnessApprovalId = approvalId;
+        _witnessApprovalFingerprint = fingerprint;
+        _witnessApproved = true;
+        _approvedWitnessName = witnessName;
+      });
+      _snack(s.lookup('s4.lib.counter_sale.witness_approved'));
+    } catch (error) {
+      if (mounted) setState(_clearWitnessApprovalState);
+      _snack(_safeWitnessError(error, s), error: true);
+    } finally {
+      if (mounted) setState(() => _witnessBusy = false);
     }
   }
 
@@ -347,7 +571,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         const SizedBox(height: 16),
         FilledButton.icon(
           key: const ValueKey('counter-sale-sell'),
-          onPressed: _cart.isEmpty || _selling ? null : _sell,
+          onPressed:
+              _cart.isEmpty ||
+                  _selling ||
+                  (_needsWitness && !_hasCurrentWitnessApproval)
+              ? null
+              : _sell,
           icon: _selling
               ? const SizedBox(
                   width: 16,
@@ -489,7 +718,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                             ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline),
-                            onPressed: () => setState(() => _cart.remove(line)),
+                            onPressed: () => setState(() {
+                              _clearWitnessApprovalState();
+                              _cart.remove(line);
+                            }),
                           ),
                         ],
                       ),
@@ -538,13 +770,17 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 ),
               ],
               selected: {_walkIn},
-              onSelectionChanged: (v) => setState(() => _walkIn = v.first),
+              onSelectionChanged: (v) => setState(() {
+                _clearWitnessApprovalState();
+                _walkIn = v.first;
+              }),
             ),
             const SizedBox(height: 8),
             if (_walkIn) ...[
               TextField(
                 key: const ValueKey('counter-sale-customer-name'),
                 controller: _customerNameCtrl,
+                onChanged: (_) => _invalidateWitnessApproval(),
                 decoration: InputDecoration(
                   labelText: s.lookup('s4.lib.counter_sale.customer_name'),
                 ),
@@ -552,6 +788,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _customerPhoneCtrl,
+                onChanged: (_) => _invalidateWitnessApproval(),
                 keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
                   labelText: s.lookup('s4.lib.counter_sale.customer_phone'),
@@ -560,6 +797,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             ] else
               TextField(
                 controller: _patientUidCtrl,
+                onChanged: (_) => _invalidateWitnessApproval(),
                 decoration: InputDecoration(
                   labelText: s.lookup('s4.lib.counter_sale.patient_uid'),
                 ),
@@ -585,6 +823,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: _rxDoctorCtrl,
+              onChanged: (_) => _invalidateWitnessApproval(),
               decoration: InputDecoration(
                 labelText: s.lookup('s4.lib.counter_sale.rx_doctor'),
               ),
@@ -592,6 +831,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: _rxRefCtrl,
+              onChanged: (_) => _invalidateWitnessApproval(),
               decoration: InputDecoration(
                 labelText: s.lookup('s4.lib.counter_sale.rx_reference'),
               ),
@@ -615,17 +855,51 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _witnessUidCtrl,
-              decoration: InputDecoration(
-                labelText: s.lookup('s4.lib.counter_sale.witness_uid'),
-              ),
+            Text(s.lookup('s4.lib.counter_sale.witness_two_person_hint')),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  _hasCurrentWitnessApproval
+                      ? Icons.verified_user
+                      : Icons.person_add_alt_1,
+                  color: _hasCurrentWitnessApproval
+                      ? AppTheme.successGreen
+                      : Colors.orange.shade800,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _hasCurrentWitnessApproval
+                        ? s.format('s4.lib.counter_sale.witness_approved_by', {
+                            'name':
+                                _approvedWitnessName ??
+                                s.lookup(
+                                  's4.lib.counter_sale.witness_canonical_staff',
+                                ),
+                          })
+                        : _witnessApprovalId == null
+                        ? s.lookup('s4.lib.counter_sale.witness_not_requested')
+                        : s.lookup('s4.lib.counter_sale.witness_pending'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _witnessNameCtrl,
-              decoration: InputDecoration(
-                labelText: s.lookup('s4.lib.counter_sale.witness_name'),
+            OutlinedButton.icon(
+              key: const ValueKey('counter-sale-witness-request'),
+              onPressed: _witnessBusy ? null : _requestOrApproveWitness,
+              icon: _witnessBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.how_to_reg),
+              label: Text(
+                _witnessApprovalId == null
+                    ? s.lookup('s4.lib.counter_sale.witness_request')
+                    : s.lookup('s4.lib.counter_sale.witness_approve'),
               ),
             ),
           ],
@@ -650,7 +924,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               items: _kPaymentModes
                   .map((m) => DropdownMenuItem(value: m, child: Text(m)))
                   .toList(),
-              onChanged: (v) => setState(() => _paymentMode = v ?? 'CASH'),
+              onChanged: (v) => setState(() {
+                _clearWitnessApprovalState();
+                _paymentMode = v ?? 'CASH';
+              }),
             ),
             if (_paymentMode == 'CASH')
               Padding(
@@ -664,6 +941,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _paymentRefCtrl,
+                onChanged: (_) => _invalidateWitnessApproval(),
                 decoration: InputDecoration(
                   labelText: s.lookup('s4.lib.counter_sale.payment_reference'),
                 ),

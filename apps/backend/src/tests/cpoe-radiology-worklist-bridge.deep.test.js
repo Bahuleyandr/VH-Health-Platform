@@ -117,6 +117,13 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     // The derived plan is stamped onto the persisted details.
     expect(order.details.modality).toBe('ct');
     expect(order.details.body_part).toBe('CT abdomen/pelvis with contrast');
+    expect(order.details.contrast_planned).toBe(true);
+    expect(order.details.contrast_intent).toEqual({
+      contract: 'cpoe_radiology_contrast_v1',
+      planned: true,
+      agent: null,
+      source: 'study_text',
+    });
     expect(Array.isArray(cds_warnings)).toBe(true);
 
     // Worklist row materialized with the presumed-contrast screen evidence.
@@ -147,6 +154,32 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     expect(audit.map((r) => r.resource_table)).toEqual(
       expect.arrayContaining(['clinical_orders', 'radiology_orders']),
     );
+  });
+
+  test('contrast-enhanced ultrasound keeps the derived true intent through materialization', async () => {
+    const testName = 'Contrast-enhanced ultrasound liver';
+    const { order } = await createOrder({
+      patient_uid: CLEAN_PATIENT_UID,
+      order_type: 'radiology',
+      details: { modality: 'ultrasound', test_name: testName, reason: 'Characterise lesion' },
+      ordered_by: DOCTOR_UID,
+      tenantId: TENANT_ID,
+    });
+
+    expect(order.details.contrast_planned).toBe(true);
+    expect(order.details.contrast_intent).toMatchObject({
+      contract: 'cpoe_radiology_contrast_v1',
+      planned: true,
+      source: 'study_text',
+    });
+    const rows = await radiologyRowsFor(CLEAN_PATIENT_UID);
+    const materialized = rows.find((row) => row.body_part === testName);
+    expect(materialized).toBeTruthy();
+    expect(materialized.contrast_planned).toBe(true);
+    expect(materialized.contrast_allergy_screen).toMatchObject({
+      contrast_planned: true,
+      intent_source: 'study_text',
+    });
   });
 
   test('a contrast CT for a documented contrast allergy is blocked 409 with NO rows written', async () => {

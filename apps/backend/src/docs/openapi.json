@@ -35621,19 +35621,11 @@
             ],
             "nullable": true
           },
-          "witness": {
-            "type": "object",
+          "witness_approval_id": {
+            "type": "integer",
+            "minimum": 1,
             "nullable": true,
-            "description": "Witness for Schedule X / narcotic lines (required then).",
-            "properties": {
-              "uid": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "name": {
-                "type": "string"
-              }
-            }
+            "description": "Approved, unexpired one-time witness approval returned by the two-person approval flow. Required for Schedule X / narcotic lines; caller-selected witness identity is never accepted."
           },
           "payment_mode": {
             "type": "string",
@@ -35986,6 +35978,105 @@
           "refund": {
             "type": "object",
             "description": "The billing_refunds row (raised, approved, and paid) for the void."
+          }
+        }
+      },
+      "PharmacyCounterSaleWitnessApproval": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "BIGSERIAL approval id serialized as text."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "witness": {
+            "type": "object",
+            "nullable": true,
+            "readOnly": true,
+            "properties": {
+              "uid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleWitnessApprovalDecisionRequest": {
+        "type": "object",
+        "required": [
+          "sale"
+        ],
+        "properties": {
+          "sale": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest"
+          },
+          "employeeId": {
+            "type": "string",
+            "pattern": "^[A-Z0-9-]{3,20}$",
+            "description": "Witness employee ID for an in-session password step-up. Must be supplied with password; the server derives the witness UID from this authentication."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "maxLength": 100,
+            "writeOnly": true,
+            "description": "Witness password for the one-request step-up. It is neither returned nor persisted and does not replace the seller session."
+          }
+        }
+      },
+      "PharmacyCounterSaleWitnessApprovalRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PharmacyCounterSaleCreateRequest"
+          }
+        ],
+        "description": "The exact prospective sale payload to bind to a short-lived pending witness approval. Omit witness_approval_id until final submission."
+      },
+      "PharmacyCounterSaleWitnessApprovalResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApproval"
           }
         }
       },
@@ -115156,6 +115247,78 @@
         "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
       }
     },
+    "/api/v1/pharmacy-orders/counter-sales/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged sale payload. The seller may then submit the returned one-time approval id; self-witness, administrative/nonclinical witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pharmacy-orders/counter-sales/{id}": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_counter_sales_by_id",
@@ -115406,6 +115569,58 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_inventory_v2_controlled_dispense_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload."
+      }
+    },
+    "/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_inventory_v2_controlled_dispense_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged inventory dispense payload; self-witness, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/pharmacy-orders/inventory/v2/expiry-alerts": {
@@ -117709,6 +117924,78 @@
         "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
       }
     },
+    "/api/v1/pharmacy/counter-sales/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged sale payload. The seller may then submit the returned one-time approval id; self-witness, administrative/nonclinical witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pharmacy/counter-sales/{id}": {
       "get": {
         "operationId": "get_api_v1_pharmacy_counter_sales_by_id",
@@ -117959,6 +118246,58 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_inventory_v2_controlled_dispense_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload."
+      }
+    },
+    "/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_inventory_v2_controlled_dispense_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged inventory dispense payload; self-witness, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/pharmacy/inventory/v2/expiry-alerts": {

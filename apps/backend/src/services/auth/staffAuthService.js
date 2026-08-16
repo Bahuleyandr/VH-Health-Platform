@@ -376,6 +376,34 @@ export class StaffAuthService {
     }
   }
 
+  static async authenticateControlledDispenseWitness(employeeId, password, req) {
+    const normalizedEmployeeId = String(employeeId || '').trim().toUpperCase();
+    const suppliedPassword = typeof password === 'string' ? password : '';
+    if (!/^[A-Z0-9-]{3,20}$/.test(normalizedEmployeeId) || suppliedPassword.length < 6) {
+      throw AppError.invalidCredentials('Invalid employee ID or password');
+    }
+
+    const staff = await this._authenticateStaffPassword(
+      normalizedEmployeeId,
+      suppliedPassword,
+      req,
+      req?.originalUrl || '/api/v1/pharmacy/counter-sales/witness-approvals/approve',
+    );
+    await this.logAuthAttempt(
+      normalizedEmployeeId,
+      'CONTROLLED_DISPENSE_WITNESS',
+      true,
+      null,
+      'password',
+      req,
+    );
+    return {
+      uid: staff.uid,
+      tenantId: staff.tenant_id,
+      role: staff.role,
+    };
+  }
+
   static async updateOwnProfile(staffUid, updates, req) {
     const forbiddenFields = [
       'phone',

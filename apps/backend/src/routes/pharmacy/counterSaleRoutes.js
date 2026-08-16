@@ -20,6 +20,8 @@ import {
   hasRole,
 } from '../../utils/roles.js';
 import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = Router();
 
@@ -59,9 +61,34 @@ const requireVoid = requireCounterSaleRole(
 const requireRead = requireCounterSaleRole(
   COUNTER_SALE_READ_ROLES, 'Pharmacy role required',
 );
-const requireWitness = requireCounterSaleRole(
-  CONTROLLED_DISPENSE_WITNESS_ROLES, 'Clinical or pharmacy witness role required',
+const requireApprovalHost = requireCounterSaleRole(
+  [...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES])],
+  'Pharmacy seller or clinical witness role required',
 );
+
+async function resolveWitnessActor(req) {
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  if (employeeId == null && password == null) {
+    return { actorUid: req.user?.uid, requesterUid: null };
+  }
+  try {
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness(
+      employeeId,
+      password,
+      req,
+    );
+    return { actorUid: witness.uid, requesterUid: req.user?.uid };
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
+}
 
 // POS pick list: sellable items with usable stock + FEFO head batch/price.
 router.get('/items', requireRead, wrap(async (req) => ({
@@ -80,16 +107,17 @@ router.post('/witness-approvals', requireSell, wrap(async (req) => (
   })
 )));
 
-router.post('/witness-approvals/:id/approve', requireWitness, wrap(async (req) => (
-  counterSales.approveCounterSaleWitnessApproval({
+router.post('/witness-approvals/:id/approve', requireApprovalHost, wrap(async (req) => {
+  const actor = await resolveWitnessActor(req);
+  return counterSales.approveCounterSaleWitnessApproval({
     approvalId: req.params.id,
-    actorUid: req.user?.uid,
+    ...actor,
     sale: {
       ...(req.body.sale || {}),
       tenantId: tenantOf(req),
     },
-  })
-)));
+  });
+}));
 
 // Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.
 //

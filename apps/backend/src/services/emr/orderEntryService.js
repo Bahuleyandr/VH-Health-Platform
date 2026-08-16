@@ -263,6 +263,53 @@ export function deriveCpoeContrastIntent(details = {}, modality = null) {
   return { contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed' };
 }
 
+const CPOE_CONTRAST_INTENT_CONTRACT = 'cpoe_radiology_contrast_v1';
+const CPOE_CONTRAST_INTENT_SOURCES = new Set([
+  'explicit',
+  'agent_named',
+  'study_text',
+  'modality_presumed',
+  'explicitly_negated',
+  'modality_not_presumed',
+]);
+
+function persistedCpoeContrastIntent(details = {}, modality = null) {
+  const persisted = details.contrast_intent;
+  if (persisted == null) return deriveCpoeContrastIntent(details, modality);
+  if (
+    typeof persisted !== 'object'
+    || Array.isArray(persisted)
+    || persisted.contract !== CPOE_CONTRAST_INTENT_CONTRACT
+    || typeof persisted.planned !== 'boolean'
+    || !CPOE_CONTRAST_INTENT_SOURCES.has(persisted.source)
+  ) {
+    throw AppError.conflict(
+      'Persisted radiology contrast intent is invalid',
+      'RADIOLOGY_CONTRAST_INTENT_INVALID',
+    );
+  }
+  const agent = firstText(persisted.agent);
+  const compatible = deriveCpoeContrastIntent({
+    ...details,
+    contrast_planned: persisted.planned,
+    contrast_agent: agent,
+  }, modality);
+  if (
+    compatible.contrastPlanned !== persisted.planned
+    || compatible.contrastAgent !== agent
+  ) {
+    throw AppError.conflict(
+      'Persisted radiology contrast intent contradicts the clinical order details',
+      'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    );
+  }
+  return {
+    contrastPlanned: persisted.planned,
+    contrastAgent: agent,
+    intentSource: persisted.source,
+  };
+}
+
 /**
  * Phase-0 contrast/allergy gate for a CPOE radiology order (pre-commit, plain
  * prisma — same boundary as runCDSChecks for medications). Throws:
@@ -314,6 +361,15 @@ async function runRadiologyContrastGate(n, data = {}) {
     ...n.details,
     modality: fields.modality,
     body_part: fields.bodyPart || 'unspecified',
+    contrast_planned: intent.contrastPlanned,
+    contrast_agent: intent.contrastAgent,
+    contrast_intent_source: intent.intentSource,
+    contrast_intent: {
+      contract: CPOE_CONTRAST_INTENT_CONTRACT,
+      planned: intent.contrastPlanned,
+      agent: intent.contrastAgent,
+      source: intent.intentSource,
+    },
     ...(override
       ? { contrast_override_reason: override.reason, contrast_override_by: override.approvedBy }
       : {}),
@@ -1519,6 +1575,8 @@ async function materializeRadiologyOrderForClinicalOrder(order, { db = prisma } 
   );
   if (existing.length) return existing[0];
 
+  const contrastIntent = persistedCpoeContrastIntent(details, fields.modality);
+
   const { default: radiologyService } = await import('../radiology/radiologyService.js');
   const payload = {
     patient_uid: order.patient_uid,
@@ -1529,13 +1587,11 @@ async function materializeRadiologyOrderForClinicalOrder(order, { db = prisma } 
     priority: order.priority === 'prn' ? 'routine' : order.priority,
     ordered_by: order.ordered_by,
     notes: investigationNotesFromClinicalOrder(order, details),
-    // Contrast intent + any acknowledged override travel on the details keys
-    // runRadiologyContrastGate stamped at create time, so radiologyService's
-    // own screen re-derives the identical intent and records the override.
-    ...(details.contrast_planned !== undefined && details.contrast_planned !== null
-      ? { contrast_planned: details.contrast_planned }
-      : {}),
-    ...(details.contrast_agent ? { contrast_agent: details.contrast_agent } : {}),
+    // The pre-commit CPOE gate persists one authoritative derived intent.
+    // Carry it into materialization instead of re-deriving from modality/text,
+    // which can otherwise downgrade contrast-enhanced non-presumed modalities.
+    contrast_planned: contrastIntent.contrastPlanned,
+    ...(contrastIntent.contrastAgent ? { contrast_agent: contrastIntent.contrastAgent } : {}),
     ...(details.contrast_override_reason
       ? {
         contrast_override_reason: details.contrast_override_reason,
@@ -1546,6 +1602,7 @@ async function materializeRadiologyOrderForClinicalOrder(order, { db = prisma } 
 
   const row = await radiologyService.createOrder(payload, {
     tenantId: order.tenant_id,
+    contrastIntent,
     ...(db === prisma ? {} : { tx: db }),
   });
   logger.info(
