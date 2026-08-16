@@ -17,8 +17,12 @@ export const smsConfigUpsertValidator = [
   body('provider')
     .exists({ checkFalsy: true }).withMessage('provider is required')
     .isIn(SMS_PROVIDERS).withMessage(`provider must be one of: ${SMS_PROVIDERS.join(', ')}`),
+  // `enabled` is REQUIRED on every upsert: the DB upsert takes EXCLUDED.enabled,
+  // so an omitted flag would silently flip a live config off (e.g. a PUT that
+  // only rotates the auth key). Forcing the caller to state it makes the
+  // enable/disable decision always explicit.
   body('enabled')
-    .optional({ nullable: true })
+    .exists().withMessage('enabled is required — an omitted flag would silently disable a live config')
     .isBoolean().withMessage('enabled must be a boolean')
     .toBoolean(),
   optionalString('sender_id', 20),

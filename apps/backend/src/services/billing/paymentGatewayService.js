@@ -433,8 +433,8 @@ export async function createGatewayOrder({
 const ORDER_VIEW_COLUMNS = `
   id, provider, environment, patient_uid, invoice_id, payment_link_id, amount,
   currency, receipt, provider_order_id, provider_payment_id, method, status,
-  billing_payment_id, captured_at, failure_code, failure_reason, expires_at,
-  created_at, updated_at`;
+  billing_payment_id, captured_at, reconciled_at, reconciliation_note,
+  failure_code, failure_reason, expires_at, created_at, updated_at`;
 
 export async function getGatewayOrder({ tenantId, id, actor = {} }) {
   const rows = await prisma.$queryRawUnsafe(
@@ -467,6 +467,84 @@ export async function cancelGatewayOrder({ tenantId, id, actor = {} }) {
   if (!rows.length) {
     throw AppError.badRequest('Order is not cancellable in its current status', 'PAYMENT_GATEWAY_ORDER_NOT_CANCELLABLE');
   }
+  return { ...rows[0], id: Number(rows[0].id), amount: Number(rows[0].amount) };
+}
+
+/**
+ * Admin list of provider-captured-but-unbookable orders (the manual work
+ * queue handleCaptureEvent parks into). Unresolved rows only by default;
+ * include_resolved=true also returns rows an operator already stamped.
+ */
+export async function listReconciliationGatewayOrders({
+  tenantId, include_resolved = false, limit = 50, offset = 0,
+} = {}) {
+  const tenant = requireTenantId(tenantId);
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 200));
+  const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${ORDER_VIEW_COLUMNS}
+       FROM payment_gateway_orders
+      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
+        AND ($2::boolean OR reconciled_at IS NULL)
+      ORDER BY captured_at ASC NULLS LAST, id ASC
+      LIMIT $3::int OFFSET $4::int`,
+    tenant, include_resolved === true, safeLimit, safeOffset,
+  );
+  return {
+    orders: rows.map((row) => ({ ...row, id: Number(row.id), amount: Number(row.amount) })),
+    limit: safeLimit,
+    offset: safeOffset,
+  };
+}
+
+/**
+ * Operator resolution of a requires_reconciliation order: stamps WHO decided
+ * WHAT was done about the captured money (booked manually via collectPayment,
+ * refunded at the provider dashboard, ...) as reconciled_at +
+ * reconciliation_note. The status deliberately stays
+ * 'requires_reconciliation' — 694's status vocabulary has no 'reconciled'
+ * value, and the evidence CHECK guarantees the capture facts survive; the
+ * list surface hides stamped rows by default.
+ */
+export async function resolveGatewayOrderReconciliation({ tenantId, id, note, resolved_by }) {
+  const tenant = requireTenantId(tenantId);
+  const trimmedNote = String(note || '').trim();
+  if (trimmedNote.length < 10 || trimmedNote.length > 500) {
+    throw AppError.badRequest(
+      'A reconciliation note of 10-500 chars describing the manual resolution is required',
+      'PAYMENT_GATEWAY_RECONCILIATION_NOTE_REQUIRED',
+    );
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_orders
+        SET reconciled_at = NOW(),
+            reconciliation_note = $1,
+            updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND status = 'requires_reconciliation'
+        AND reconciled_at IS NULL
+      RETURNING ${ORDER_VIEW_COLUMNS}`,
+    trimmedNote.slice(0, 500), Number(id), tenant,
+  );
+  if (!rows.length) {
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, status, reconciled_at FROM payment_gateway_orders
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(id), tenant,
+    );
+    if (!existing.length) throw AppError.notFound('Payment gateway order not found');
+    throw AppError.conflict(
+      existing[0].reconciled_at
+        ? 'This order was already reconciled'
+        : 'Order is not awaiting reconciliation',
+      'PAYMENT_GATEWAY_ORDER_NOT_RECONCILABLE',
+    );
+  }
+  logger.info('payment gateway order manually reconciled', {
+    gateway_order_id: Number(rows[0].id),
+    resolved_by: resolved_by ? String(resolved_by) : null,
+  });
   return { ...rows[0], id: Number(rows[0].id), amount: Number(rows[0].amount) };
 }
 
@@ -807,64 +885,87 @@ export async function initiateGatewayRefund({ tenantId, billing_refund_id, initi
   const context = await requireGatewayContext(tenant);
   const { config } = context;
 
-  const refundRows = await prisma.$queryRawUnsafe(
-    `SELECT id, invoice_id, advance_id, amount, reason, approval_status
-       FROM billing_refunds
-      WHERE id = $1::int AND tenant_id = $2::uuid
-      LIMIT 1`,
-    Number(billing_refund_id), tenant,
-  );
-  if (!refundRows.length) throw AppError.notFound('Billing refund not found');
-  const refund = refundRows[0];
-  if (String(refund.approval_status).toUpperCase() !== 'APPROVED') {
-    throw AppError.badRequest(
-      `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
-      'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+  // ONE setTenantTx around lock → live-leg check → provider call → INSERT.
+  // The FOR UPDATE on billing_refunds serializes concurrent initiations for
+  // the same refund (two tabs, an operator retry with a fresh idempotency
+  // key): the loser blocks on the lock, then sees the winner's execution row
+  // and returns it WITHOUT a second provider call — the provider refund must
+  // never be executed twice while billing_refunds is still APPROVED (it only
+  // flips to PAID on the refund.processed webhook). The 697 partial unique
+  // (ux_pg_refund_billing_refund_live) remains the durable backstop, but it
+  // fires AFTER the money moved — the pre-call check is the real guard.
+  const outcome = await setTenantTx(tenant, async (tx) => {
+    const refundRows = await tx.$queryRawUnsafe(
+      `SELECT id, invoice_id, advance_id, amount, reason, approval_status
+         FROM billing_refunds
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(billing_refund_id), tenant,
     );
-  }
-  if (refund.invoice_id == null) {
-    throw AppError.badRequest(
-      'Only invoice-linked refunds can be executed through the gateway',
-      'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
-    );
-  }
-  const orderRows = await prisma.$queryRawUnsafe(
-    `SELECT id, provider, environment, provider_payment_id, amount
-       FROM payment_gateway_orders
-      WHERE tenant_id = $1::uuid AND invoice_id = $2::int AND status = 'paid'
-        AND provider_payment_id IS NOT NULL
-      ORDER BY captured_at DESC NULLS LAST, id DESC
-      LIMIT 1`,
-    tenant, Number(refund.invoice_id),
-  );
-  if (!orderRows.length) {
-    throw AppError.badRequest(
-      'The original payment for this refund was not collected through the gateway',
-      'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
-    );
-  }
-  const order = orderRows[0];
-  const refundAmount = Number(refund.amount);
-  if (refundAmount > Number(order.amount) + 0.01) {
-    throw AppError.badRequest(
-      `Refund amount ${refundAmount} exceeds the gateway-captured amount ${Number(order.amount)}`,
-      'PAYMENT_GATEWAY_REFUND_EXCEEDS_CAPTURE',
-    );
-  }
+    if (!refundRows.length) throw AppError.notFound('Billing refund not found');
+    const refund = refundRows[0];
+    if (String(refund.approval_status).toUpperCase() !== 'APPROVED') {
+      throw AppError.badRequest(
+        `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
+        'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+      );
+    }
+    if (refund.invoice_id == null) {
+      throw AppError.badRequest(
+        'Only invoice-linked refunds can be executed through the gateway',
+        'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
+      );
+    }
 
-  const adapter = resolveAdapter(order.provider);
-  const providerRefund = await adapter.createRefund({
-    keyId: config.key_id,
-    keySecret: decryptedKeySecret(config),
-    providerPaymentId: order.provider_payment_id,
-    amountPaise: toPaise(refundAmount),
-    receipt: `pgr-${refund.id}`,
-    notes: { billing_refund_id: String(refund.id) },
-  });
+    // Idempotent replay: a live (non-failed) execution leg already exists —
+    // return it, never re-execute at the provider.
+    const existingRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int
+          AND status IN ('initiated', 'pending', 'processed')
+        ORDER BY id DESC
+        LIMIT 1`,
+      tenant, Number(refund.id),
+    );
+    if (existingRows.length) return { row: existingRows[0], replay: true };
 
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT id, provider, environment, provider_payment_id, amount
+         FROM payment_gateway_orders
+        WHERE tenant_id = $1::uuid AND invoice_id = $2::int AND status = 'paid'
+          AND provider_payment_id IS NOT NULL
+        ORDER BY captured_at DESC NULLS LAST, id DESC
+        LIMIT 1`,
+      tenant, Number(refund.invoice_id),
+    );
+    if (!orderRows.length) {
+      throw AppError.badRequest(
+        'The original payment for this refund was not collected through the gateway',
+        'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
+      );
+    }
+    const order = orderRows[0];
+    const refundAmount = Number(refund.amount);
+    if (refundAmount > Number(order.amount) + 0.01) {
+      throw AppError.badRequest(
+        `Refund amount ${refundAmount} exceeds the gateway-captured amount ${Number(order.amount)}`,
+        'PAYMENT_GATEWAY_REFUND_EXCEEDS_CAPTURE',
+      );
+    }
+
+    // Provider call INSIDE the lock window: a concurrent initiation cannot
+    // pass the live-leg check until this tx commits the execution row.
+    const adapter = resolveAdapter(order.provider);
+    const providerRefund = await adapter.createRefund({
+      keyId: config.key_id,
+      keySecret: decryptedKeySecret(config),
+      providerPaymentId: order.provider_payment_id,
+      amountPaise: toPaise(refundAmount),
+      receipt: `pgr-${refund.id}`,
+      notes: { billing_refund_id: String(refund.id) },
+    });
+
+    const rows = await tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
           provider_payment_id, provider_refund_id, amount, currency, status,
@@ -881,17 +982,20 @@ export async function initiateGatewayRefund({ tenantId, billing_refund_id, initi
       refund.reason ? String(refund.reason).slice(0, 500) : null,
       initiated_by ? String(initiated_by) : null,
     );
-  } catch (err) {
+    return { row: rows[0], replay: false };
+  }).catch((err) => {
     if (isUniqueViolation(err)) {
+      // 697 backstop (should be unreachable now that the live-leg check runs
+      // under the billing_refunds lock).
       throw AppError.conflict(
         'A gateway refund is already in flight (or processed) for this billing refund',
         'PAYMENT_GATEWAY_REFUND_ALREADY_EXECUTING',
       );
     }
     throw err;
-  }
-  const row = rows[0];
-  return { ...row, id: Number(row.id), amount: Number(row.amount) };
+  });
+  const row = outcome.row;
+  return { ...row, id: Number(row.id), amount: Number(row.amount), replay: outcome.replay === true };
 }
 
 /**
@@ -1071,6 +1175,8 @@ export default {
   createGatewayOrder,
   getGatewayOrder,
   cancelGatewayOrder,
+  listReconciliationGatewayOrders,
+  resolveGatewayOrderReconciliation,
   expireStaleGatewayOrders,
   resolveWebhookConfigByToken,
   decryptedWebhookSecret,

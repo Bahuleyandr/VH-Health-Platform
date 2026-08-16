@@ -38,6 +38,16 @@ export const gatewayOrderCreateValidator = [
 /** POST /api/v1/billing/gateway/orders/:id/cancel + GET /orders/:id */
 export const gatewayOrderIdValidator = [paramId('id')];
 
+/** POST /api/v1/billing/gateway/orders/:id/reconcile */
+export const gatewayOrderReconcileValidator = [
+  paramId('id'),
+  body('note')
+    .exists({ checkFalsy: true }).withMessage('note is required')
+    .isString()
+    .trim()
+    .isLength({ min: 10, max: 500 }).withMessage('note must be 10-500 chars describing the manual resolution'),
+];
+
 /** POST /api/v1/billing/gateway/refunds */
 export const gatewayRefundCreateValidator = [
   body('billing_refund_id')
@@ -52,8 +62,12 @@ export const gatewayConfigUpsertValidator = [
     .exists({ checkFalsy: true }).withMessage('provider is required')
     .isIn(GATEWAY_PROVIDERS).withMessage(`provider must be one of: ${GATEWAY_PROVIDERS.join(', ')}`),
   optionalEnum('environment', GATEWAY_ENVIRONMENTS),
+  // `enabled` is REQUIRED on every upsert: the DB upsert takes EXCLUDED.enabled,
+  // so an omitted flag would silently flip a live config off (e.g. a PUT that
+  // only rotates a secret). Forcing the caller to state it makes the
+  // enable/disable decision always explicit.
   body('enabled')
-    .optional({ nullable: true })
+    .exists().withMessage('enabled is required — an omitted flag would silently disable a live config')
     .isBoolean().withMessage('enabled must be a boolean')
     .toBoolean(),
   optionalString('display_name', 120),
@@ -71,6 +85,7 @@ export const gatewayConfigUpsertValidator = [
 export default {
   gatewayOrderCreateValidator,
   gatewayOrderIdValidator,
+  gatewayOrderReconcileValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 };

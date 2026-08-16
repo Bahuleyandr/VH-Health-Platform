@@ -64,10 +64,10 @@ export const schemas = {
 
   SmsProviderConfigUpsertRequest: {
     type: 'object',
-    required: ['provider'],
+    required: ['provider', 'enabled'],
     properties: {
       provider: { type: 'string', enum: ['msg91', 'twilio', 'dry_run'] },
-      enabled: { type: 'boolean', description: 'At most one enabled config per tenant (699 partial unique).' },
+      enabled: { type: 'boolean', description: 'REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant (699 partial unique).' },
       sender_id: { type: 'string', nullable: true, maxLength: 20 },
       dlt_entity_id: { type: 'string', nullable: true, maxLength: 40 },
       auth_key: {

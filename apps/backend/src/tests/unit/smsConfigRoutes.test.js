@@ -70,6 +70,14 @@ describe('provider config surface', () => {
     expect(upsertSmsProviderConfig).not.toHaveBeenCalled();
   });
 
+  it('PUT /config rejects an omitted enabled flag (omission must not silently disable a live config)', async () => {
+    const res = await request(app())
+      .put('/api/v1/admin/notifications/sms/config')
+      .send({ provider: 'msg91', auth_key: 'rotated-authkey' });
+    expect(res.status).toBe(400);
+    expect(upsertSmsProviderConfig).not.toHaveBeenCalled();
+  });
+
   it('PUT /config forwards the write-only secret and passes the one-time token through', async () => {
     upsertSmsProviderConfig.mockResolvedValue({
       id: 7, provider: 'msg91', enabled: true, sender_id: 'VHHLTH',

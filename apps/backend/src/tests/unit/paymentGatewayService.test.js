@@ -238,6 +238,58 @@ describe('capture booking (payment.captured)', () => {
   });
 });
 
+describe('refund initiation (double-execution guard)', () => {
+  it('short-circuits to the existing live execution leg WITHOUT re-calling the provider or inserting', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([enabledConfig]); // gate: enabled config
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{ // billing_refunds FOR UPDATE
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        reason: null, approval_status: 'APPROVED',
+      }])
+      .mockResolvedValueOnce([{ // existing live execution leg
+        id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
+        billing_refund_id: 9, amount: '150.00', provider_refund_id: 'rfnd_dry_pgr-9',
+      }]);
+
+    const result = await gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: 9 });
+    expect(result.replay).toBe(true);
+    expect(result.id).toBe(6);
+    // The refund row lock + live-leg check ran inside ONE setTenantTx and the
+    // INSERT (which only happens after adapter.createRefund) never ran.
+    expect(setTenantTx).toHaveBeenCalledTimes(1);
+    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
+    const insertCall = txQueryRawUnsafe.mock.calls.find(([sql]) => sql.includes('INSERT INTO payment_gateway_refunds'));
+    expect(insertCall).toBeUndefined();
+  });
+
+  it('executes the provider refund and inserts the leg inside the same tx when none is live', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([enabledConfig]);
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{ // billing_refunds FOR UPDATE
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        reason: 'dup charge', approval_status: 'APPROVED',
+      }])
+      .mockResolvedValueOnce([]) // no live execution leg
+      .mockResolvedValueOnce([{ // paid gateway order for the invoice
+        id: 21, provider: 'dry_run', environment: 'sandbox',
+        provider_payment_id: 'pay_dry_9', amount: '500.00',
+      }])
+      .mockImplementationOnce(async (sql, ...params) => {
+        expect(sql).toContain('INSERT INTO payment_gateway_refunds');
+        return [{
+          id: 7, tenant_id: TENANT, provider: 'dry_run', status: params[8],
+          billing_refund_id: 9, amount: '150.00', provider_refund_id: params[6],
+        }];
+      });
+
+    const result = await gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: 9 });
+    expect(result.replay).toBe(false);
+    expect(result.id).toBe(7);
+    // dry_run adapter derived the deterministic provider refund id.
+    expect(result.provider_refund_id).toBe('rfnd_dry_pgr-9');
+  });
+});
+
 describe('refund.processed webhook', () => {
   it('drives markRefundPaid with reference = provider_refund_id, then marks the leg processed', async () => {
     queryRawUnsafe

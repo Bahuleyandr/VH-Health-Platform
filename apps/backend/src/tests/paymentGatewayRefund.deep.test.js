@@ -143,10 +143,20 @@ d('payment gateway refund execution leg (deep)', () => {
     expect(leg.provider_payment_id).toBe(providerPaymentId);
     expect(Number(leg.amount)).toBe(150);
 
-    // One live execution leg per billing refund (697 partial unique).
-    await expect(gateway.initiateGatewayRefund({
+    // One live execution leg per billing refund: a re-initiation (operator
+    // retry / second tab) is an idempotent replay of the EXISTING row — the
+    // provider is never called a second time and no second row appears.
+    const replayLeg = await gateway.initiateGatewayRefund({
       tenantId: TENANT, billing_refund_id: refund.id,
-    })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_REFUND_ALREADY_EXECUTING' });
+    });
+    expect(replayLeg.replay).toBe(true);
+    expect(Number(replayLeg.id)).toBe(Number(leg.id));
+    const legCount = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int`,
+      TENANT, Number(refund.id),
+    );
+    expect(legCount[0].n).toBe(1);
 
     // refund.processed webhook.
     const payload = {
@@ -183,6 +193,32 @@ d('payment gateway refund execution leg (deep)', () => {
       `SELECT id FROM ledger_entries WHERE idempotency_key = $1`, `refund-paid-${refund.id}`,
     );
     expect(entriesAfter.length).toBe(1);
+  });
+
+  it('two concurrent initiations execute exactly ONE provider refund (counter-sale race pattern)', async () => {
+    const patient = await makePatient();
+    const { invoiceId } = await makeCapturedGatewayPayment(patient, 300);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 120, reason: 'race refund', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+
+    // Both racers must SUCCEED (no 409 for the loser — it returns the
+    // winner's row), and exactly one execution row / provider refund exists.
+    const [a, b] = await Promise.all([
+      gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: refund.id }),
+      gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: refund.id }),
+    ]);
+    expect(Number(a.id)).toBe(Number(b.id));
+    expect([a.replay, b.replay].filter(Boolean)).toHaveLength(1);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, provider_refund_id FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int`,
+      TENANT, Number(refund.id),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].provider_refund_id).toBe(`rfnd_dry_pgr-${refund.id}`);
   });
 
   it('refuses execution for a refund that is not APPROVED or not gateway-collected', async () => {

@@ -77,11 +77,41 @@ export const schemas = {
         description: 'The billing_payments row collectPayment booked in the same transaction that marked this order paid.',
       },
       captured_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciled_at: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+        description: 'When an operator stamped the manual resolution of a requires_reconciliation order.',
+      },
+      reconciliation_note: { type: 'string', nullable: true, maxLength: 500 },
       failure_code: { type: 'string', nullable: true },
       failure_reason: { type: 'string', nullable: true },
       expires_at: { type: 'string', format: 'date-time', nullable: true },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  PaymentGatewayReconciliationList: {
+    type: 'object',
+    required: ['orders', 'limit', 'offset'],
+    properties: {
+      orders: { type: 'array', items: { $ref: '#/components/schemas/PaymentGatewayOrder' } },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+    },
+  },
+
+  PaymentGatewayOrderReconcileRequest: {
+    type: 'object',
+    required: ['note'],
+    properties: {
+      note: {
+        type: 'string',
+        minLength: 10,
+        maxLength: 500,
+        description: 'What was manually done about the captured money (booked via collectPayment, refunded at the provider dashboard, ...).',
+      },
     },
   },
 
@@ -118,11 +148,11 @@ export const schemas = {
 
   PaymentGatewayConfigUpsertRequest: {
     type: 'object',
-    required: ['provider'],
+    required: ['provider', 'enabled'],
     properties: {
       provider: { type: 'string', enum: ['razorpay', 'dry_run'] },
       environment: { type: 'string', enum: ['sandbox', 'production'], default: 'sandbox' },
-      enabled: { type: 'boolean', default: false, description: 'At most one enabled config per tenant. Enabling a non-dry_run provider requires key_id + key_secret.' },
+      enabled: { type: 'boolean', description: 'REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant; enabling a non-dry_run provider requires key_id + key_secret.' },
       display_name: { type: 'string', nullable: true, maxLength: 120 },
       key_id: { type: 'string', nullable: true, maxLength: 120, description: 'Publishable provider key id.' },
       key_secret: { type: 'string', nullable: true, description: 'WRITE-ONLY. Stored as encryptField() ciphertext; never returned by any read.' },
@@ -174,6 +204,7 @@ export const schemas = {
     },
   },
 
+  PaymentGatewayReconciliationListResponse: envelope('PaymentGatewayReconciliationList'),
   PaymentGatewayOrderCheckoutResponse: envelope('PaymentGatewayOrderCheckout'),
   PaymentGatewayOrderResponse: envelope('PaymentGatewayOrder'),
   PaymentGatewayRefundResponse: envelope('PaymentGatewayRefund'),
@@ -197,6 +228,17 @@ export const operations = {
   'POST /api/v1/billing/gateway/orders/{id}/cancel': {
     description:
       'Cancels a gateway order still in created/attempted. A capture webhook that arrives later still books the provider money (the provider capture is authoritative); cancel only stops the local checkout window.',
+    response: 'PaymentGatewayOrderResponse',
+  },
+  'GET /api/v1/billing/gateway/reconciliation': {
+    description:
+      'Admin work queue of requires_reconciliation orders — captures the provider took that automation could not book (voided invoice, amount drift). Unresolved rows only by default; include_resolved=true also returns operator-stamped rows.',
+    response: 'PaymentGatewayReconciliationListResponse',
+  },
+  'POST /api/v1/billing/gateway/orders/{id}/reconcile': {
+    description:
+      'Admin resolution stamp for a requires_reconciliation order: records reconciled_at + a required note describing how the captured money was manually handled, and writes an audit row. The order status stays requires_reconciliation (694 has no reconciled status) — stamped rows drop out of the default work-queue listing.',
+    request: 'PaymentGatewayOrderReconcileRequest',
     response: 'PaymentGatewayOrderResponse',
   },
   'POST /api/v1/billing/gateway/refunds': {

@@ -19,9 +19,12 @@
 //      reprocessing; a row a crash left 'pending' (or 'failed') is resumed —
 //      that redelivery-resume is what makes the two-phase refund/capture
 //      bookkeeping self-healing.
-//   4. Verified-but-unprocessable events are recorded 'failed' and still
-//      200-acked (with an ops alert) so the provider stops re-delivering
-//      something we can never book automatically.
+//   4. Verified-but-unprocessable events (operational AppErrors — business
+//      failures automation can never book) are recorded 'failed' and still
+//      200-acked (with an ops alert) so the provider stops re-delivering.
+//      NON-operational failures (transient DB/infra, bugs) are answered 5xx
+//      with the event row left 'pending' so the provider's redelivery
+//      resumes processing — there is no cron that re-drives 'failed' events.
 
 import { Router } from 'express';
 import * as gateway from '../../services/billing/paymentGatewayService.js';
@@ -142,6 +145,20 @@ router.post('/:webhookToken', async (req, res) => {
     }
 
     if (processingError) {
+      if (processingError?.isOperational !== true) {
+        // Transient/infrastructure failure (DB outage, circuit breaker, a
+        // programming bug) — NOT a verified-unprocessable business outcome.
+        // Leave the event row pending and answer 5xx so the provider's free
+        // redelivery resumes it; a 200 here would end redelivery with no
+        // automated re-drive of 'failed' events.
+        logger.error('payment gateway webhook processing hit a non-operational failure — 5xx for provider redelivery', {
+          event_id: eventRow.id, error: processingError?.message,
+        });
+        return error(res, 'Webhook processing failed', 500);
+      }
+      // Verified-but-unprocessable business failure (AppError): automation
+      // can never book this — record failed, 200-ack so redelivery stops,
+      // ops own it from here.
       await gateway.markWebhookEvent({
         tenantId,
         eventId: eventRow.id,

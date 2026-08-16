@@ -22,6 +22,7 @@ import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import {
   gatewayOrderCreateValidator,
   gatewayOrderIdValidator,
+  gatewayOrderReconcileValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 } from '../../validators/paymentGatewayValidator.js';
@@ -162,6 +163,39 @@ router.post('/orders/:id/cancel', ...gatewayOrderIdValidator, validate, wrap(asy
   await logGatewayAudit(req, 'PAYMENT_GATEWAY_ORDER_CANCELLED', {
     order_id: order?.id ?? Number(req.params.id),
     status: order?.status ?? null,
+  }, {
+    resourceId: order?.id ?? req.params.id,
+  });
+  return order;
+}));
+
+// ── Reconciliation work queue (admin) ─────────────────────────────────
+// requires_reconciliation = the provider captured money automation could not
+// book (voided invoice, amount drift...). This surface makes those orders
+// VISIBLE and lets an operator stamp how the money was manually resolved —
+// without it a parked capture sits invisible until someone reads the table
+// in psql (adversarial-review MEDIUM finding).
+router.get('/reconciliation', requireAdmin, wrap(async (req) =>
+  gateway.listReconciliationGatewayOrders({
+    tenantId: tenantOf(req),
+    include_resolved: String(req.query.include_resolved || '') === 'true',
+    limit: req.query.limit,
+    offset: req.query.offset,
+  }),
+));
+
+router.post('/orders/:id/reconcile', requireAdmin, ...gatewayOrderReconcileValidator, validate, wrap(async (req) => {
+  const order = await gateway.resolveGatewayOrderReconciliation({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    note: req.body.note,
+    resolved_by: req.user?.uid,
+  });
+  await logGatewayAudit(req, 'PAYMENT_GATEWAY_ORDER_RECONCILED', {
+    order_id: order?.id ?? Number(req.params.id),
+    provider_payment_id: order?.provider_payment_id ?? null,
+    amount: order?.amount ?? null,
+    note: req.body?.note ?? null,
   }, {
     resourceId: order?.id ?? req.params.id,
   });

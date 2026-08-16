@@ -199,14 +199,25 @@ describe('replay dedupe', () => {
 });
 
 describe('verified-but-unprocessable deliveries', () => {
-  it('records the event failed, alerts, and still 200-acks so the provider stops re-delivering', async () => {
-    processWebhookEvent.mockRejectedValue(new Error('invoice imploded'));
+  it('records an operational (business) failure as failed and still 200-acks so the provider stops re-delivering', async () => {
+    processWebhookEvent.mockRejectedValue(Object.assign(new Error('invoice imploded'), {
+      isOperational: true, statusCode: 400, code: 'PAYMENT_GATEWAY_AMOUNT_MISMATCH',
+    }));
     const res = await signedPost(payload);
     expect(res.status).toBe(200);
     expect(res.body.data.outcome).toBe('failed');
     expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT, eventId: 10, status: 'failed', failureReason: 'invoice imploded',
     }));
+  });
+
+  it('answers 5xx on a NON-operational failure, leaving the row pending so redelivery resumes it', async () => {
+    // Transient infra failure (circuit breaker, DB outage, bug): a 200 here
+    // would end the provider's redelivery with no automated re-drive.
+    processWebhookEvent.mockRejectedValue(new Error('connection pool exhausted'));
+    const res = await signedPost(payload);
+    expect(res.status).toBe(500);
+    expect(markWebhookEvent).not.toHaveBeenCalled();
   });
 
   it('marks unhandled event types ignored', async () => {

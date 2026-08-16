@@ -303,6 +303,31 @@ d('payment gateway capture (deep)', () => {
       TENANT, providerPaymentId,
     );
     expect(payments.length).toBe(0);
+
+    // The parked capture is VISIBLE on the admin work queue…
+    const queue = await gateway.listReconciliationGatewayOrders({ tenantId: TENANT });
+    const queued = queue.orders.find((o) => o.id === order.orderId);
+    expect(queued).toBeTruthy();
+    expect(queued.provider_payment_id).toBe(providerPaymentId);
+    expect(queued.reconciled_at).toBeNull();
+
+    // …and an operator stamp records the manual resolution + drops it from
+    // the default listing (already-stamped and unknown orders are refused).
+    const resolved = await gateway.resolveGatewayOrderReconciliation({
+      tenantId: TENANT, id: order.orderId,
+      note: 'Refunded at the provider dashboard; invoice was voided before capture.',
+    });
+    expect(resolved.reconciled_at).not.toBeNull();
+    expect(resolved.reconciliation_note).toContain('provider dashboard');
+    const after = await gateway.listReconciliationGatewayOrders({ tenantId: TENANT });
+    expect(after.orders.find((o) => o.id === order.orderId)).toBeUndefined();
+    const withResolved = await gateway.listReconciliationGatewayOrders({
+      tenantId: TENANT, include_resolved: true,
+    });
+    expect(withResolved.orders.find((o) => o.id === order.orderId)).toBeTruthy();
+    await expect(gateway.resolveGatewayOrderReconciliation({
+      tenantId: TENANT, id: order.orderId, note: 'second stamp attempt should conflict',
+    })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_ORDER_NOT_RECONCILABLE' });
   });
 
   it('webhook intake dedupes durably on (tenant, provider, provider_event_id)', async () => {

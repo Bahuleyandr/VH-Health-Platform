@@ -18,6 +18,8 @@ const cancelGatewayOrder = jest.fn();
 const initiateGatewayRefund = jest.fn();
 const listGatewayConfigs = jest.fn();
 const upsertGatewayConfig = jest.fn();
+const listReconciliationGatewayOrders = jest.fn();
+const resolveGatewayOrderReconciliation = jest.fn();
 
 const claimIdempotencyKey = jest.fn();
 const finaliseIdempotencyKey = jest.fn(async () => {});
@@ -30,6 +32,8 @@ jest.unstable_mockModule('../../services/billing/paymentGatewayService.js', () =
   initiateGatewayRefund,
   listGatewayConfigs,
   upsertGatewayConfig,
+  listReconciliationGatewayOrders,
+  resolveGatewayOrderReconciliation,
 }));
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
   claimIdempotencyKey,
@@ -157,6 +161,63 @@ describe('role gates', () => {
 
     listGatewayConfigs.mockResolvedValue({ env_enabled: false, tenant_enabled: false, configs: [] });
     const ok = await request(app('ADMIN')).get('/api/v1/billing/gateway/config');
+    expect(ok.status).toBe(200);
+  });
+
+  it('reconciliation work queue is admin-only and forwards the include_resolved filter', async () => {
+    const res = await request(app('BILLING_STAFF')).get('/api/v1/billing/gateway/reconciliation');
+    expect(res.status).toBe(403);
+    expect(listReconciliationGatewayOrders).not.toHaveBeenCalled();
+
+    listReconciliationGatewayOrders.mockResolvedValue({ orders: [], limit: 50, offset: 0 });
+    const ok = await request(app('ADMIN'))
+      .get('/api/v1/billing/gateway/reconciliation?include_resolved=true');
+    expect(ok.status).toBe(200);
+    expect(listReconciliationGatewayOrders).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant', include_resolved: true,
+    }));
+  });
+
+  it('reconcile stamp is admin-only, requires a substantive note, and audits', async () => {
+    const forbidden = await request(app('BILLING_STAFF'))
+      .post('/api/v1/billing/gateway/orders/21/reconcile')
+      .send({ note: 'Booked manually via collectPayment ref pay_x' });
+    expect(forbidden.status).toBe(403);
+    expect(resolveGatewayOrderReconciliation).not.toHaveBeenCalled();
+
+    const shortNote = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/orders/21/reconcile')
+      .send({ note: 'ok' });
+    expect(shortNote.status).toBe(400);
+    expect(resolveGatewayOrderReconciliation).not.toHaveBeenCalled();
+
+    resolveGatewayOrderReconciliation.mockResolvedValue({
+      id: 21, status: 'requires_reconciliation', amount: 500,
+      reconciled_at: '2026-08-16T10:00:00.000Z',
+      reconciliation_note: 'Booked manually via collectPayment ref pay_x',
+      provider_payment_id: 'pay_x',
+    });
+    const ok = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/orders/21/reconcile')
+      .send({ note: 'Booked manually via collectPayment ref pay_x' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.reconciliation_note).toContain('collectPayment');
+    expect(resolveGatewayOrderReconciliation).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant', id: '21', note: 'Booked manually via collectPayment ref pay_x',
+    }));
+  });
+
+  it('config upsert requires an EXPLICIT enabled flag (omission must not silently disable)', async () => {
+    const res = await request(app('ADMIN'))
+      .put('/api/v1/billing/gateway/config')
+      .send({ provider: 'razorpay', key_secret: 'rotated-secret' });
+    expect(res.status).toBe(400);
+    expect(upsertGatewayConfig).not.toHaveBeenCalled();
+
+    upsertGatewayConfig.mockResolvedValue({ id: 3, provider: 'razorpay', enabled: true });
+    const ok = await request(app('ADMIN'))
+      .put('/api/v1/billing/gateway/config')
+      .send({ provider: 'razorpay', enabled: true, key_id: 'rzp_test', key_secret: 's' });
     expect(ok.status).toBe(200);
   });
 
