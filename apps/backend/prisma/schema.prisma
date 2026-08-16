@@ -946,6 +946,7 @@ model appointments {
   referrals                            referrals[]
   scheduling_overbook_audit_events     scheduling_overbook_audit_events[]
   teleconsultations                    teleconsultations[]
+  uhi_transactions                     uhi_transactions[]
 
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
   @@unique([tenant_id, visit_no], map: "uniq_appointments_tenant_visit_no", where: raw("(visit_no IS NOT NULL)"))
@@ -10773,6 +10774,8 @@ model tenants {
   external_recovery_critical_obligations               external_recovery_critical_review_obligations[]
   external_recovery_operability_actions                external_recovery_operability_actions[]
   facilities                                           facilities?
+  facility_asset_events                                facility_asset_events[]
+  facility_assets                                      facility_assets[]
   facility_locations                                   facility_locations[]
   facility_rooms                                       facility_rooms[]
   failed_notifications                                 failed_notifications[]
@@ -11176,6 +11179,7 @@ model tenants {
   tumor_board_cases                                    tumor_board_cases[]
   tumor_board_meetings                                 tumor_board_meetings[]
   tumor_board_recommendations                          tumor_board_recommendations[]
+  uhi_transactions                                     uhi_transactions[]
   user_action_logs                                     user_action_logs[]
   user_active_sessions                                 user_active_sessions[]
   user_deactivation_log                                user_deactivation_log[]
@@ -28357,6 +28361,102 @@ model sms_template_registrations {
 
   @@unique([tenant_id, provider_config_id, template_key], map: "uq_sms_template_registration")
   @@index([tenant_id, template_key], map: "idx_sms_template_registration_lookup", where: raw("active"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model facility_asset_events {
+  id                  BigInt           @id @default(autoincrement())
+  tenant_id           String           @db.Uuid
+  asset_id            Int?
+  asset_tag_snapshot  String           @db.VarChar(64)
+  asset_name_snapshot String           @db.VarChar(200)
+  event_type          String           @db.VarChar(30)
+  from_status         String?          @db.VarChar(20)
+  to_status           String?          @db.VarChar(20)
+  details             Json             @default("{}")
+  notes               String?          @db.VarChar(1000)
+  actor_uid           String?          @db.Uuid
+  actor_role          String?          @db.VarChar(60)
+  occurred_at         DateTime         @default(now()) @db.Timestamptz(6)
+  created_at          DateTime         @default(now()) @db.Timestamptz(6)
+  tenants             tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_assets     facility_assets? @relation(fields: [tenant_id, asset_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_facility_asset_events_asset")
+
+  @@index([tenant_id, asset_id, occurred_at(sort: Desc), id(sort: Desc)], map: "idx_facility_asset_events_asset")
+  @@index([tenant_id, event_type, occurred_at(sort: Desc)], map: "idx_facility_asset_events_tenant_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model facility_assets {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @db.Uuid
+  asset_tag             String                  @db.VarChar(64)
+  name                  String                  @db.VarChar(200)
+  category              String                  @db.VarChar(30)
+  description           String?
+  location_department   String?                 @db.VarChar(120)
+  location_room         String?                 @db.VarChar(120)
+  custodian_uid         String?                 @db.Uuid
+  vendor                String?                 @db.VarChar(160)
+  purchase_date         DateTime?               @db.Date
+  purchase_cost         Decimal?                @db.Decimal(12, 2)
+  warranty_until        DateTime?               @db.Date
+  condition             String                  @default("good") @db.VarChar(10)
+  status                String                  @default("active") @db.VarChar(20)
+  disposal_reason       String?                 @db.VarChar(500)
+  disposed_at           DateTime?               @db.Timestamptz(6)
+  disposed_by           String?                 @db.Uuid
+  created_by            String?                 @db.Uuid
+  updated_by            String?                 @db.Uuid
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  facility_asset_events facility_asset_events[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, id], map: "ux_facility_assets_tenant_id")
+  @@unique([tenant_id, asset_tag], map: "ux_facility_assets_tenant_tag")
+  @@index([tenant_id, custodian_uid], map: "idx_facility_assets_tenant_custodian", where: raw("(custodian_uid IS NOT NULL)"))
+  @@index([tenant_id, status, category, name], map: "idx_facility_assets_tenant_status_category")
+  @@index([tenant_id, warranty_until], map: "idx_facility_assets_tenant_warranty", where: raw("((warranty_until IS NOT NULL) AND ((status)::text <> 'disposed'::text))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model uhi_transactions {
+  id                          Int           @id @default(autoincrement())
+  tenant_id                   String        @db.Uuid
+  environment                 String        @default("sandbox") @db.VarChar(20)
+  transaction_id              String        @db.VarChar(120)
+  message_id                  String        @db.VarChar(120)
+  action                      String        @db.VarChar(20)
+  direction                   String        @db.VarChar(10)
+  counterparty_subscriber_id  String?       @db.VarChar(200)
+  payload                     Json          @default("{}")
+  signature_verified          Boolean       @default(false)
+  verification_failure_reason String?       @db.VarChar(300)
+  status                      String        @default("received") @db.VarChar(20)
+  ack                         String?       @db.VarChar(8)
+  error_code                  String?       @db.VarChar(80)
+  error_message               String?       @db.VarChar(500)
+  appointment_id              Int?
+  booking_snapshot            Json          @default("{}")
+  received_at                 DateTime      @default(now()) @db.Timestamptz(6)
+  processed_at                DateTime?     @db.Timestamptz(6)
+  created_at                  DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime      @default(now()) @db.Timestamptz(6)
+  appointments                appointments? @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, environment, transaction_id, message_id, action], map: "uq_uhi_txn_leg")
+  @@index([appointment_id], map: "idx_uhi_txn_appointment", where: raw("(appointment_id IS NOT NULL)"))
+  @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_uhi_txn_tenant_received")
+  @@index([tenant_id, transaction_id, received_at, id], map: "idx_uhi_txn_tenant_transaction")
 }
 
 enum transplant_organ_type {
