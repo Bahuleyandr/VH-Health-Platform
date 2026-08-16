@@ -1,11 +1,7 @@
 import { fetchAdminAPI } from "./core";
 
 export type ReferralFacilityType =
-  | "hospital"
-  | "clinic"
-  | "diagnostic"
-  | "specialty_center"
-  | "other";
+  "hospital" | "clinic" | "diagnostic" | "specialty_center" | "other";
 
 export const REFERRAL_FACILITY_TYPES: ReferralFacilityType[] = [
   "hospital",
@@ -66,7 +62,10 @@ export async function createReferralFacility(payload: ReferralFacilityWrite) {
   });
 }
 
-export async function updateReferralFacility(id: number, payload: ReferralFacilityWrite) {
+export async function updateReferralFacility(
+  id: number,
+  payload: ReferralFacilityWrite,
+) {
   return fetchAdminAPI<ReferralFacility>(`/referrals/facilities/${id}`, {
     method: "PUT",
     body: payload,
