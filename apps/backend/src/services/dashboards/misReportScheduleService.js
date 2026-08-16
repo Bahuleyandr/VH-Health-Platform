@@ -389,10 +389,66 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-function formatCell(value) {
+// Snapshot money columns arrive as Prisma Decimal objects (SUM over numeric
+// columns). A Decimal is an OBJECT, so the previous renderer either recursed
+// into its decimal.js internals (metric tables — `collections_today.s/.e/.d`)
+// or JSON-dumped it (tabular cells). Non-scalars are now rendered honestly:
+// decimals become plain strings, money-named columns get INR formatting, and
+// anything genuinely structured is bounded — never a raw object dump.
+const MONEY_COLUMN_RE = /(^|_|\.)(amount|collections?|billed|claimed|approved|paid|revenue|price|charge)(_|\.|$)/i;
+const MAX_STRUCTURED_CELL_CHARS = 200;
+
+const INR_FORMATTER = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Prisma Decimal (decimal.js) duck-type — scalar-valued, never a plain object. */
+function isDecimalLike(value) {
+  return value !== null
+    && typeof value === 'object'
+    && typeof value.toFixed === 'function'
+    && typeof value.toNumber === 'function';
+}
+
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function formatMoney(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? INR_FORMATTER.format(numeric) : String(value);
+}
+
+function formatCell(value, column = '') {
   if (value === null || value === undefined) return '';
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value === 'object') return JSON.stringify(value);
+  const isMoney = MONEY_COLUMN_RE.test(String(column));
+  if (isDecimalLike(value)) {
+    return isMoney ? formatMoney(value) : String(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value) && isMoney) {
+    return formatMoney(value);
+  }
+  if (typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => formatCell(item, column)).join(', ')
+      .slice(0, MAX_STRUCTURED_CELL_CHARS);
+  }
+  if (typeof value === 'object') {
+    // Structured value with no scalar rendering — bounded, never a full dump.
+    let text;
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = '[unrenderable]';
+    }
+    return String(text ?? '').slice(0, MAX_STRUCTURED_CELL_CHARS);
+  }
   return String(value);
 }
 
@@ -400,10 +456,12 @@ function flattenMetrics(payload, prefix = '') {
   const rows = [];
   for (const [key, value] of Object.entries(payload || {})) {
     const label = prefix ? `${prefix}.${key}` : key;
-    if (value && typeof value === 'object' && !(value instanceof Date) && !Array.isArray(value)) {
+    // Recurse ONLY into plain objects — a Decimal (or any class instance) is a
+    // scalar-valued leaf, not a namespace of internals.
+    if (isPlainObject(value)) {
       rows.push(...flattenMetrics(value, label));
     } else {
-      rows.push({ metric: label, value: formatCell(value) });
+      rows.push({ metric: label, value: formatCell(value, label) });
     }
   }
   return rows;
@@ -414,7 +472,7 @@ function toTable(result) {
     const columns = result.length ? Object.keys(result[0]) : [];
     return {
       columns,
-      rows: result.map((row) => columns.map((column) => formatCell(row[column]))),
+      rows: result.map((row) => columns.map((column) => formatCell(row[column], column))),
     };
   }
   const metrics = flattenMetrics(result);
@@ -483,14 +541,19 @@ function buildEmailContent(schedule, { tenantName, occurrenceKey, sections }) {
 /* ─── delivery ───────────────────────────────────────────────────────────── */
 
 async function recordDelivery(tenantId, schedule, occurrenceKey, delivery) {
+  // schedule_name is an insert-time snapshot: the deliveries table is the only
+  // durable record of which external addresses received hospital data, and it
+  // outlives its schedule (migration 689 — schedule_id FK is SET NULL, not
+  // CASCADE), so the evidence row must stay legible on its own.
   await prisma.$executeRawUnsafe(
     `INSERT INTO mis_report_deliveries (
-       tenant_id, schedule_id, occurrence_key, recipient_email, report_keys,
-       outcome, provider_message_id, failure_code
+       tenant_id, schedule_id, schedule_name, occurrence_key, recipient_email,
+       report_keys, outcome, provider_message_id, failure_code
      )
-     VALUES ($1::uuid, $2::bigint, $3, $4, $5::text[], $6, $7, $8)`,
+     VALUES ($1::uuid, $2::bigint, $3, $4, $5, $6::text[], $7, $8, $9)`,
     tenantId,
     schedule.id,
+    schedule.name,
     occurrenceKey,
     delivery.recipient,
     schedule.reportKeys,

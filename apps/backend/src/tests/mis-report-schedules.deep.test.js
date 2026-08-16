@@ -339,5 +339,54 @@ d('MIS report schedules (migration 679)', () => {
       expect(res.body.data.status).toBe('sent');
       expect(res.body.data.deliveries[0].outcome).toBe('acknowledged');
     });
+
+    it('renders money metrics as plain INR strings, never decimal.js internals', async () => {
+      // daily-ops' collections_today is COALESCE(SUM(amount), 0) — a Prisma
+      // Decimal OBJECT even when zero. The old renderer recursed into the
+      // Decimal's own properties, mailing `collections_today.s/.e/.d` rows.
+      const id = await insertSchedule({ name: 'Money rendering' });
+      sendEmailMock.mockResolvedValue({ messageId: 'provider-msg-money' });
+
+      const result = await runMisReportScheduleNow(TENANT_A, id, { now: NOW_DUE });
+      expect(result.status).toBe('sent');
+
+      const { html, attachments } = sendEmailMock.mock.calls[0][0];
+      expect(html).toContain('collections_today');
+      expect(html).toContain('₹0.00');
+      expect(html).not.toContain('collections_today.s');
+      expect(html).not.toContain('collections_today.d');
+      expect(html).not.toContain('collections_today.e');
+      // CSV carries the same scalar rendering.
+      expect(attachments[0].content).toContain('collections_today,₹0.00');
+      expect(attachments[0].content).not.toContain('collections_today.s');
+    });
+
+    it('delivery evidence survives deleting its schedule (migration 689)', async () => {
+      const id = await insertSchedule({ name: 'Evidence survivor' });
+      sendEmailMock.mockResolvedValue({ messageId: 'provider-msg-evidence' });
+      const run = await runMisReportScheduleNow(TENANT_A, id, { now: NOW_DUE });
+      expect(run.status).toBe('sent');
+      expect(await deliveryRows(id)).toHaveLength(1);
+
+      const del = await admin().delete(`${BASE}/${id}`);
+      expect(del.statusCode).toBe(200);
+
+      // The schedule row is gone; the delivery evidence row is NOT — it keeps
+      // the recipient, outcome, receipt, and an insert-time schedule_name
+      // snapshot, with schedule_id nulled by the SET NULL FK.
+      const survivors = await prisma.$queryRawUnsafe(
+        `SELECT schedule_id, schedule_name, recipient_email, outcome, provider_message_id
+           FROM mis_report_deliveries
+          WHERE tenant_id = $1::uuid AND schedule_name = $2
+          ORDER BY id`,
+        TENANT_A, 'Evidence survivor',
+      );
+      expect(survivors).toHaveLength(1);
+      expect(survivors[0].schedule_id).toBeNull();
+      expect(survivors[0].schedule_name).toBe('Evidence survivor');
+      expect(survivors[0].recipient_email).toBe('mis@example.com');
+      expect(survivors[0].outcome).toBe('acknowledged');
+      expect(survivors[0].provider_message_id).toBe('provider-msg-evidence');
+    });
   });
 });
