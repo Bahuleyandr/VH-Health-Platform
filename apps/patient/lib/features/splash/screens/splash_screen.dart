@@ -536,9 +536,8 @@ class _UpdateRequiredScreen extends StatelessWidget {
                               onPressed: onUpdate,
                               icon: const Icon(Icons.system_update_alt),
                               label: Text(
-                                AppLocalizations.of(
-                                  context,
-                                )!.splashUpdateButton,
+                                AppLocalizations.of(context)!
+                                    .splashUpdateButton,
                               ),
                               style: ElevatedButton.styleFrom(
                                 minimumSize: const Size.fromHeight(52),
@@ -547,9 +546,8 @@ class _UpdateRequiredScreen extends StatelessWidget {
                           )
                         else
                           Text(
-                            AppLocalizations.of(
-                              context,
-                            )!.splashUpdateNoStoreBody,
+                            AppLocalizations.of(context)!
+                                .splashUpdateNoStoreBody,
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.86),
