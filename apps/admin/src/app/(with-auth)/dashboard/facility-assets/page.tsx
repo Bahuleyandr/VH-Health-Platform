@@ -117,9 +117,7 @@ function toPayload(form: FormState): FacilityAssetWrite {
     locationRoom: form.locationRoom.trim() || null,
     vendor: form.vendor.trim() || null,
     purchaseDate: form.purchaseDate || null,
-    purchaseCost: form.purchaseCost.trim()
-      ? Number(form.purchaseCost)
-      : null,
+    purchaseCost: form.purchaseCost.trim() ? Number(form.purchaseCost) : null,
     warrantyUntil: form.warrantyUntil || null,
     condition: form.condition,
   };
@@ -239,9 +237,7 @@ function AssetForm({
             value={form.category}
             options={FACILITY_ASSET_CATEGORIES}
             labels={CATEGORY_LABELS}
-            onChange={(category) =>
-              setForm((prev) => ({ ...prev, category }))
-            }
+            onChange={(category) => setForm((prev) => ({ ...prev, category }))}
           />
           <SelectField
             label="Condition"

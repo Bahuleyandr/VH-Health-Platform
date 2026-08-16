@@ -38,10 +38,7 @@ export const FACILITY_ASSET_CONDITIONS: FacilityAssetCondition[] = [
 ];
 
 export type FacilityAssetStatus =
-  | "active"
-  | "under_repair"
-  | "condemned"
-  | "disposed";
+  "active" | "under_repair" | "condemned" | "disposed";
 
 export const FACILITY_ASSET_STATUSES: FacilityAssetStatus[] = [
   "active",
@@ -120,7 +117,9 @@ export interface FacilityAssetListFilters {
   q?: string;
 }
 
-export async function listFacilityAssets(filters: FacilityAssetListFilters = {}) {
+export async function listFacilityAssets(
+  filters: FacilityAssetListFilters = {},
+) {
   const params = new URLSearchParams();
   if (filters.status) params.set("status", filters.status);
   if (filters.category) params.set("category", filters.category);
