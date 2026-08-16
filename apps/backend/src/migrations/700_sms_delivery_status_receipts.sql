@@ -43,6 +43,10 @@ ALTER TABLE public.notification_provider_receipts
       'transport_failure',
       'lease_expiry',
       'owner_reconciliation',
+      -- 658's operator surface (notificationOutboxAdminService
+      -- reconcileNotificationOutboxAttempt) still writes this source — a
+      -- rewrite of this CHECK must always carry the FULL prior vocabulary.
+      'operator_reconciliation',
       'provider_status_callback'
     ));
 

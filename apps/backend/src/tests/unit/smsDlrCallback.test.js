@@ -43,9 +43,13 @@ jest.unstable_mockModule('../../services/notification/notificationDeliveryLedger
 jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
   decryptField: decryptFieldMock,
 }));
+// Mock shaped like the REAL twilio CJS module under ESM interop: the package
+// exposes `validateRequest` as a property of module.exports (the default
+// export) and NOT as a top-level named export. Deliberately no named
+// `validateRequest` here — code that reads it off the import namespace
+// (the pre-fix bug) finds undefined and fails these suites.
 jest.unstable_mockModule('twilio', () => ({
-  default: () => ({}),
-  validateRequest: validateRequestMock,
+  default: Object.assign(() => ({}), { validateRequest: validateRequestMock }),
 }));
 
 const { default: dlrRouter } = await import('../../routes/webhooks/smsDlrRoutes.js');
@@ -189,6 +193,24 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
     }));
   });
 
+  it('never persists the recipient MSISDN into receipt evidence (allowlisted fields only)', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send([{
+        requestId: 'req-phi-1',
+        number: '919876543210',
+        mobile: '+919876543210',
+        report: [{ status: 'failed', desc: 'DND', number: '919876543210' }],
+      }]);
+    expect(res.status).toBe(200);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(1);
+    const { evidence } = recordProviderReceiptTxMock.mock.calls[0][1];
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain('9876543210');
+    expect(serialized).toContain('req-phi-1');
+    expect(serialized).toContain('DND');
+  });
+
   it('a replayed terminal DLR is 200-acked (the receipt unique collapses it server-side)', async () => {
     // recordProviderReceiptTx resolves the EXISTING receipt on conflict — the
     // service treats both first-write and replay identically.
@@ -289,6 +311,19 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.results).toEqual(['ignored_intermediate']);
     expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves validateRequest from the twilio DEFAULT export (CJS interop) — the namespace has no named export', async () => {
+    // Regression: the real twilio package has no named `validateRequest`
+    // under ESM interop; reading it off the import namespace makes every
+    // legitimate DLR fail closed with 401. The mock above mirrors the real
+    // shape (default-only), so this test fails with the namespace bug.
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio();
+    expect(res.status).toBe(200);
+    expect(validateRequestMock).toHaveBeenCalledTimes(1);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to the env TWILIO_AUTH_TOKEN when the config has no ciphertext', async () => {

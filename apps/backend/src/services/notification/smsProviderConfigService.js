@@ -205,6 +205,12 @@ export async function resolveSmsConfigByCallbackToken(token) {
   // pattern (refresh tokens, SCIM bearers): the stored value is not
   // recoverable and a timing signal over hash equality reveals nothing an
   // attacker can iterate on (the hash input space is the 192-bit token).
+  // DELIBERATE ASYMMETRY vs the payments webhook resolver (which requires
+  // enabled = true): a DLR for a message sent while the config was enabled
+  // may arrive AFTER an admin disables it, and that late terminal evidence
+  // must still land in the append-only receipt ledger. Receipts never touch
+  // outbox status/cursors, so accepting them from a disabled config widens
+  // nothing; rotating the callback token is the revocation lever.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
             auth_key_ciphertext, account_sid, callback_token_hash

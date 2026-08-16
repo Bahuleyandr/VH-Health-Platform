@@ -157,7 +157,16 @@ export async function processMsg91Dlr({ token, payload }) {
       providerReference: entry?.requestId ?? entry?.request_id ?? null,
       statusRaw: entry?.status ?? report?.status ?? null,
       errorCode: entry?.code ?? report?.code ?? report?.desc ?? null,
-      payload: entry,
+      // Allowlisted evidence fields only — MSG91's DLR entry carries the
+      // destination MSISDN, which must never land in
+      // notification_provider_receipts.evidence (same posture as the Twilio
+      // path dropping `To`: PHI-bearing fields deliberately not persisted).
+      payload: {
+        requestId: entry?.requestId ?? entry?.request_id ?? null,
+        status: entry?.status ?? report?.status ?? null,
+        code: entry?.code ?? report?.code ?? null,
+        desc: report?.desc ?? null,
+      },
     }));
   }
   return { authorized: true, tenantId, results };
@@ -194,8 +203,12 @@ export async function processTwilioStatusCallback({ token, params, signature, re
     });
     return { authorized: false };
   }
-  const twilioMod = await import('twilio').catch(() => null);
-  if (!twilioMod?.validateRequest) {
+  // The twilio package is CommonJS: `validateRequest` lives on the DEFAULT
+  // export (module.exports, the Twilio constructor function) — under ESM
+  // interop it is NOT a named export (sendWhatsAppNotification/
+  // sendVoiceNotification use `mod.default(...)` for the same reason).
+  const twilioMod = (await import('twilio').catch(() => null))?.default ?? null;
+  if (typeof twilioMod?.validateRequest !== 'function') {
     logger.error('sms-dlr: twilio package unavailable — cannot verify signature, rejecting');
     return { authorized: false };
   }
