@@ -19,6 +19,14 @@ import { jest } from '@jest/globals';
 
 const prismaQuery = jest.fn();
 const prismaExecute = jest.fn();
+// Transaction client handed out by the setTenantTx mock: shares the same
+// route dispatch, but is a DISTINCT spy so tests can assert which writes ran
+// inside the registration transaction vs on the plain client.
+const txQuery = jest.fn(async (sql, ...args) => dispatch(sql, args));
+const txExecute = jest.fn(async (sql, ...args) => dispatch(sql, args));
+const setTenantTxMock = jest.fn(async (_tenant, fn) => fn({
+  $queryRawUnsafe: txQuery, $executeRawUnsafe: txExecute,
+}));
 const recordWebhookEvent = jest.fn();
 const markWebhookProcessed = jest.fn();
 const findRegistrationDuplicateCandidates = jest.fn();
@@ -29,7 +37,7 @@ const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: prismaQuery, $executeRawUnsafe: prismaExecute },
   setTenant: jest.fn(),
-  setTenantTx: jest.fn(),
+  setTenantTx: setTenantTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/abdmFull/abdmHipHiuService.js', () => ({
@@ -312,9 +320,13 @@ describe('front-desk transitions', () => {
     route('SELECT id, tenant_id, environment', () => [BASE_INTAKE]);
     route('SELECT id, uid, phone, name, role FROM users', () => []);
     route('INSERT INTO users', () => [{ id: 99, uid: NEW_UID }]);
+    route("status = 'registered'", () => [{
+      ...BASE_INTAKE, status: 'registered', matched_patient_uid: NEW_UID, processed_at: new Date(),
+    }]);
+    // Post-commit linkage stamp (metadata-only UPDATE, no status change).
     let recordedMeta;
-    route("status = 'registered'", (sql, args) => {
-      recordedMeta = JSON.parse(args[4]);
+    route('SET metadata = metadata || $3::jsonb', (sql, args) => {
+      recordedMeta = JSON.parse(args[2]);
       return [{ ...BASE_INTAKE, status: 'registered', matched_patient_uid: NEW_UID, processed_at: new Date() }];
     });
     registerABHA.mockRejectedValue(Object.assign(new Error('gateway down'), {
@@ -329,6 +341,31 @@ describe('front-desk transitions', () => {
     expect(result.abha_link).toBeNull();
     expect(result.abha_link_error).toBe('ABHA_VERIFICATION_FAILED');
     expect(recordedMeta.abha_link_error).toBe('ABHA_VERIFICATION_FAILED');
+  });
+
+  it('register core is atomic: a lost intake-state race rolls the whole registration back in ONE setTenantTx', async () => {
+    // The intake left the registrable state between the pre-check and the
+    // transition (e.g. concurrently dismissed). The transition returns no row
+    // → the service throws INSIDE setTenantTx, so the user INSERT and the
+    // override evidence roll back with it — no orphaned patient.
+    route('SELECT id, tenant_id, environment', () => [BASE_INTAKE]);
+    route('SELECT id, uid, phone, name, role FROM users', () => []);
+    route('INSERT INTO users', () => [{ id: 99, uid: NEW_UID }]);
+    route("status = 'registered'", () => []); // raced: no longer received/matched
+
+    await expect(shareIntakeService.registerFromShareIntake({
+      tenantId: TENANT_ID, intakeId: 21, actorUid: NEW_UID,
+    })).rejects.toMatchObject({ code: 'ABDM_SHARE_INTAKE_STATE' });
+
+    // The registration core ran on the TRANSACTION client…
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    const txInsert = txQuery.mock.calls.find(([sql]) => sql.includes('INSERT INTO users'));
+    expect(txInsert).toBeTruthy();
+    // …not on the plain client (which would not roll back)…
+    const plainInsert = prismaQuery.mock.calls.find(([sql]) => sql.includes('INSERT INTO users'));
+    expect(plainInsert).toBeUndefined();
+    // …and the post-commit ABHA phase never started.
+    expect(registerABHA).not.toHaveBeenCalled();
   });
 
   it('register: an audited override reason creates anyway and records the override', async () => {

@@ -15,6 +15,7 @@
 // Self-skips when unconfigured.
 
 import { jest } from '@jest/globals';
+import { randomUUID } from 'node:crypto';
 
 process.env.ABDM_ENABLED = 'true';
 process.env.ABDM_HIP_ID = 'share-test-hip';
@@ -38,7 +39,14 @@ const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_U
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
-const REQUEST_ID = 'deep-share-req-1';
+// Run-unique ids: on a REUSED local DB the abdm_webhook_events cleanup is a
+// silent no-op — 618's assert_abdm_i16_receipt_immutable BEFORE DELETE row
+// trigger ends with RETURN NEW, which is NULL on DELETE, so every DELETE on
+// that table is skipped (pre-existing main-branch quirk, flagged as a
+// follow-up). Fixed ids would make a second run see duplicate=true, so every
+// id this suite writes through the webhook-dedupe layer is minted per run.
+const RUN = randomUUID().slice(0, 8);
+const REQUEST_ID = `deep-share-req-${RUN}`;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -148,7 +156,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     const sessionRows = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_hiu_fetch_sessions
          (tenant_id, environment, transaction_id, request_id, status)
-       VALUES ($1::uuid, 'sandbox', 'deep-hiu-txn-1', 'deep-hiu-req-1', 'requested')
+       VALUES ($1::uuid, 'sandbox', 'deep-hiu-txn-${RUN}', 'deep-hiu-req-a-${RUN}', 'requested')
        RETURNING id`,
       TENANT_ID,
     );
@@ -157,7 +165,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     await expect(prisma.$executeRawUnsafe(
       `INSERT INTO abdm_hiu_fetch_sessions
          (tenant_id, environment, transaction_id, request_id, status)
-       VALUES ($1::uuid, 'sandbox', 'deep-hiu-txn-1', 'deep-hiu-req-2', 'requested')`,
+       VALUES ($1::uuid, 'sandbox', 'deep-hiu-txn-${RUN}', 'deep-hiu-req-b-${RUN}', 'requested')`,
       TENANT_ID,
     )).rejects.toThrow(/duplicate key value/);
 
@@ -190,7 +198,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       `INSERT INTO abdm_hiu_fetch_sessions
          (tenant_id, environment, transaction_id, request_id, status,
           key_material_private_ciphertext, key_material_nonce, key_material_expires_at)
-       VALUES ($1::uuid, 'sandbox', 'deep-hiu-req-9', 'deep-hiu-req-9', 'requested',
+       VALUES ($1::uuid, 'sandbox', 'deep-hiu-seed-${RUN}', 'deep-hiu-req-9-${RUN}', 'requested',
                'enc:placeholder', 'nonce', NOW() + INTERVAL '30 minutes')`,
       TENANT_ID,
     );
@@ -199,9 +207,9 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body: {
-        requestId: 'deep-hiu-ack-9',
-        resp: { requestId: 'deep-hiu-req-9' },
-        hiRequest: { transactionId: 'deep-hiu-txn-9', sessionStatus: 'ACKNOWLEDGED' },
+        requestId: `deep-hiu-ack-9-${RUN}`,
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+        hiRequest: { transactionId: `deep-hiu-txn-9-${RUN}`, sessionStatus: 'ACKNOWLEDGED' },
       },
     });
     expect(result.duplicate).toBe(false);
@@ -209,10 +217,10 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT transaction_id, status, acknowledged_at
          FROM abdm_hiu_fetch_sessions
-        WHERE tenant_id = $1::uuid AND request_id = 'deep-hiu-req-9'`,
+        WHERE tenant_id = $1::uuid AND request_id = 'deep-hiu-req-9-${RUN}'`,
       TENANT_ID,
     );
-    expect(rows[0]).toMatchObject({ transaction_id: 'deep-hiu-txn-9', status: 'acknowledged' });
+    expect(rows[0]).toMatchObject({ transaction_id: `deep-hiu-txn-9-${RUN}`, status: 'acknowledged' });
     expect(rows[0].acknowledged_at).not.toBeNull();
 
     // Replayed ack collapses on the webhook-event dedupe.
@@ -220,9 +228,9 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body: {
-        requestId: 'deep-hiu-ack-9',
-        resp: { requestId: 'deep-hiu-req-9' },
-        hiRequest: { transactionId: 'deep-hiu-txn-9' },
+        requestId: `deep-hiu-ack-9-${RUN}`,
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+        hiRequest: { transactionId: `deep-hiu-txn-9-${RUN}` },
       },
     });
     expect(replay.duplicate).toBe(true);

@@ -26,7 +26,7 @@
 // requires an audited override reason, ABHA linkage rides the registerABHA
 // verified-gate pathway. Identity writes → audit rows; no clinical timeline row.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -245,8 +245,8 @@ export async function getShareIntake({ tenantId = null, intakeId } = {}) {
   return rows[0];
 }
 
-async function transitionIntake(tid, intakeId, fromStatuses, sets, params) {
-  const rows = await prisma.$queryRawUnsafe(
+async function transitionIntake(tid, intakeId, fromStatuses, sets, params, db = prisma) {
+  const rows = await db.$queryRawUnsafe(
     `UPDATE abdm_patient_share_intakes
         SET ${sets}, updated_at = NOW()
       WHERE id = $1::integer AND tenant_id = $2::uuid
@@ -381,28 +381,55 @@ export async function registerFromShareIntake({
     });
   }
 
-  const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO users
-       (phone, name, gender, birthday, address, role, is_active, tenant_id, registered_at, updated_at)
-     VALUES ($1, $2, $3, $4::date, $5, 'PATIENT', true, $6::uuid, NOW(), NOW())
-     RETURNING id, uid`,
-    phone, name, gender, birthday, address, tid,
-  );
-  const newPatient = created[0];
+  // Phase 1 — ONE setTenantTx for the registration core: the new-patient
+  // INSERT, the duplicate-override evidence, and the intake transition commit
+  // or roll back TOGETHER. Without this, a failure after the user INSERT
+  // (e.g. the intake concurrently dismissed → transition returns null)
+  // orphaned a freshly created patient with the intake still 'received'.
+  const core = await setTenantTx(tid, async (tx) => {
+    const created = await tx.$queryRawUnsafe(
+      `INSERT INTO users
+         (phone, name, gender, birthday, address, role, is_active, tenant_id, registered_at, updated_at)
+       VALUES ($1, $2, $3, $4::date, $5, 'PATIENT', true, $6::uuid, NOW(), NOW())
+       RETURNING id, uid`,
+      phone, name, gender, birthday, address, tid,
+    );
+    const patient = created[0];
 
-  if (duplicateScan.candidates.length > 0) {
-    await recordRegistrationDuplicateOverride({
-      tenantId: tid,
-      newPatientUid: newPatient.uid,
-      candidates: duplicateScan.candidates,
-      decidedBy: actorUid,
-      reason,
-    });
-  }
+    if (duplicateScan.candidates.length > 0) {
+      await recordRegistrationDuplicateOverride({
+        tenantId: tid,
+        newPatientUid: patient.uid,
+        candidates: duplicateScan.candidates,
+        decidedBy: actorUid,
+        reason,
+        db: tx,
+      });
+    }
 
-  // ABHA identity linkage rides the EXISTING verified-gate pathway. A refusal
-  // (gateway down, number already verified elsewhere) is evidence on the
-  // intake, never a registration rollback.
+    const transitioned = await transitionIntake(
+      tid, intakeId, ['received', 'matched'],
+      `status = 'registered', matched_patient_uid = $3::uuid,
+       processed_by_uid = $4::uuid, processed_at = NOW(),
+       metadata = metadata || $5::jsonb`,
+      [patient.uid, actorUid, JSON.stringify({
+        registered_patient_uid: patient.uid,
+        duplicate_override: duplicateScan.candidates.length > 0,
+      })],
+      tx,
+    );
+    if (!transitioned) {
+      throw AppError.conflict('Share intake left the registrable state', 'ABDM_SHARE_INTAKE_STATE');
+    }
+    return { patient, transitioned };
+  });
+  const newPatient = core.patient;
+  let updated = core.transitioned;
+
+  // Phase 1.5 — post-commit best-effort: ABHA identity linkage rides the
+  // EXISTING verified-gate pathway (registerABHA owns its own transaction, so
+  // it cannot join ours). A refusal (gateway down, number already verified
+  // elsewhere) is evidence on the intake, never a registration rollback.
   let abhaLink = null;
   let abhaLinkError = null;
   if (intake.abha_number) {
@@ -418,22 +445,23 @@ export async function registerFromShareIntake({
         code: abhaLinkError,
       });
     }
-  }
-
-  const updated = await transitionIntake(
-    tid, intakeId, ['received', 'matched'],
-    `status = 'registered', matched_patient_uid = $3::uuid,
-     processed_by_uid = $4::uuid, processed_at = NOW(),
-     metadata = metadata || $5::jsonb`,
-    [newPatient.uid, actorUid, JSON.stringify({
-      registered_patient_uid: newPatient.uid,
-      duplicate_override: duplicateScan.candidates.length > 0,
-      abha_link_status: abhaLink ? abhaLink.verification_status : null,
-      abha_link_error: abhaLinkError,
-    })],
-  );
-  if (!updated) {
-    throw AppError.conflict('Share intake left the registrable state', 'ABDM_SHARE_INTAKE_STATE');
+    // Stamp the linkage outcome onto the (already registered) intake —
+    // best-effort metadata; a failure here loses only the stamp.
+    try {
+      const stamped = await prisma.$queryRawUnsafe(
+        `UPDATE abdm_patient_share_intakes
+            SET metadata = metadata || $3::jsonb, updated_at = NOW()
+          WHERE id = $1::integer AND tenant_id = $2::uuid
+          RETURNING ${INTAKE_RETURNING}`,
+        Number(intakeId), tid, JSON.stringify({
+          abha_link_status: abhaLink ? abhaLink.verification_status : null,
+          abha_link_error: abhaLinkError,
+        }),
+      );
+      updated = stamped[0] || updated;
+    } catch (err) {
+      logger.warn('Scan & Share registration: ABHA linkage stamp failed', { error: err.message });
+    }
   }
 
   return {
