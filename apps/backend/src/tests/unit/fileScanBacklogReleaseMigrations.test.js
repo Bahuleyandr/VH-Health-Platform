@@ -1,4 +1,5 @@
-// Shape tests for migrations 675 + 676 (the file-scan fix wave).
+// Shape tests for migrations 675 + 676 (the file-scan fix wave) and 691
+// (676's deferred contract half).
 //
 // DB-backed verification is deferred to the deep suites; these pin the SQL
 // text itself — the same precedent as vitalBoundsMigration.test.js — so the
@@ -19,6 +20,7 @@ const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)),
 
 const sql675 = read('../../migrations/675_release_staff_message_attachment_failed_backlog.sql');
 const sql676 = read('../../migrations/676_file_scan_status_columns_and_default_disarm.sql');
+const sql691 = read('../../migrations/691_file_scan_status_drop_transitional_defaults.sql');
 
 // The exact CHECK vocabulary of migration 674, which 675/676 must mirror.
 const VOCAB_674 = "('pending', 'clean', 'quarantined', 'failed', 'not_scanned')";
@@ -157,5 +159,35 @@ describe('migration 676 — scan-status columns + default disarm', () => {
     const code = statements(sql676).join(';\n');
     expect(code).not.toMatch(/investigation_files\s+ALTER COLUMN scan_status DROP DEFAULT/);
     expect(code).not.toMatch(/consent_signatures\s+ALTER COLUMN scan_status DROP DEFAULT/);
+  });
+});
+
+describe('migration 691 — the contract half of 676: drop the transitional defaults', () => {
+  it('is exactly two executable statements, both catalog-only DROP DEFAULTs', () => {
+    const stmts = statements(sql691);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0].replace(/\s+/g, ' ')).toBe(
+      'ALTER TABLE investigation_files ALTER COLUMN scan_status DROP DEFAULT',
+    );
+    expect(stmts[1].replace(/\s+/g, ' ')).toBe(
+      'ALTER TABLE consent_signatures ALTER COLUMN scan_status DROP DEFAULT',
+    );
+  });
+
+  it('never re-arms a default and touches no other table', () => {
+    const code = statements(sql691).join(';\n');
+    expect(code).not.toMatch(/SET DEFAULT/i);
+    expect(code).not.toMatch(/UPDATE /i);
+    expect(code).not.toMatch(
+      /file_metadata|staff_message_attachments|investigation_bookings|slip_photo_scan_status|result_file_scan_status/,
+    );
+  });
+
+  it('documents itself as the deferred contract half of 676, shipped in a later release', () => {
+    // 676's header owes exactly these two DROP DEFAULTs to "the NEXT release
+    // after the fleet is fully rolled" — a separate file is the point: the
+    // same PreSync transaction as 676 would defeat the transitional default.
+    expect(sql691).toMatch(/CONTRACT half of migration 676/);
+    expect(sql691).toMatch(/fails loudly at INSERT time \(23502\)/);
   });
 });
