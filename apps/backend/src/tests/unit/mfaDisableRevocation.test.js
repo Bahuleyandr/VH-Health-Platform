@@ -18,6 +18,7 @@ jest.unstable_mockModule('../../utils/totpUtils.js', () => ({
   generateBackupCodes: jest.fn(),
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 }));

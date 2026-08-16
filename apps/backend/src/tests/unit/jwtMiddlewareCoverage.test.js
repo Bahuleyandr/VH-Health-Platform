@@ -28,6 +28,7 @@ verifyTokenMock.lastError = null;
 const isTokenBlacklistedMock = jest.fn();
 const isUserTokensRevokedMock = jest.fn();
 const isDelegatedTupleRevokedMock = jest.fn();
+const isSubjectDelegationRevokedMock = jest.fn();
 
 // Re-create the real RevocationCheckUnavailableError so `instanceof` works.
 class RevocationCheckUnavailableError extends Error {
@@ -55,6 +56,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: isTokenBlacklistedMock,
   isUserTokensRevoked: isUserTokensRevokedMock,
   isDelegatedTupleRevoked: isDelegatedTupleRevokedMock,
+  isSubjectDelegationRevoked: isSubjectDelegationRevokedMock,
   RevocationCheckUnavailableError,
 }));
 
@@ -85,9 +87,11 @@ beforeEach(() => {
   isTokenBlacklistedMock.mockReset();
   isUserTokensRevokedMock.mockReset();
   isDelegatedTupleRevokedMock.mockReset();
+  isSubjectDelegationRevokedMock.mockReset();
   isTokenBlacklistedMock.mockResolvedValue(false);
   isUserTokensRevokedMock.mockResolvedValue(false);
   isDelegatedTupleRevokedMock.mockResolvedValue(false);
+  isSubjectDelegationRevokedMock.mockResolvedValue(false);
 });
 
 // =====================================================================
@@ -301,7 +305,8 @@ describe('jwtMiddleware — acting-as delegation', () => {
   function liveDelegationRow(overrides = {}) {
     return {
       dep_id: 20, dep_uid: DEP_UID, dep_phone: '+919111111111', dep_email: 'kid@test.local',
-      dep_role: 'PATIENT', dep_is_minor: true, dep_tenant_id: 'tenant-A',
+      dep_role: 'PATIENT', dep_is_minor: true, dep_is_minor_now: true,
+      dep_tenant_id: 'tenant-A',
       dep_is_active: true, dep_status: 'active', dep_is_deleted: false,
       dep_deleted_at: null, dep_merged_into_uid: null,
       g_id: 10, g_uid: GUARDIAN_UID, g_role: 'PATIENT', g_tenant_id: 'tenant-A',
@@ -407,18 +412,17 @@ describe('jwtMiddleware — acting-as delegation', () => {
 
   it('denies with 403 when the dependent subject\'s sessions are revoked', async () => {
     verifyTokenMock.mockReturnValue(guardianToken({ iat: 1000 }));
-    // 1st call = guardian bearer check (clean), 2nd = subject check (revoked).
-    isUserTokensRevokedMock
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    isSubjectDelegationRevokedMock.mockResolvedValue(true);
     queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
     const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(res.statusCode).toBe(403);
     expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
-    // Subject check ran against the DEPENDENT with the bearer's iat and no
-    // epoch (the guardian's epoch is meaningless for the dependent).
-    expect(isUserTokensRevokedMock).toHaveBeenLastCalledWith(DEP_UID, 1000, undefined);
+    // Subject check ran against the DEPENDENT with the bearer's iat via the
+    // recoverable timestamp-only predicate (the guardian's epoch is
+    // meaningless for the dependent, and the subject's epoch COUNTER must not
+    // deny forever — only its bump timestamp vs the bearer's iat matters).
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith(DEP_UID, 1000);
   });
 
   it('denies with 403 when the delegated guardian↔dependent tuple is revoked', async () => {
@@ -434,14 +438,26 @@ describe('jwtMiddleware — acting-as delegation', () => {
 
   it('fails CLOSED with 503 when the subject revocation store is unreachable', async () => {
     verifyTokenMock.mockReturnValue(guardianToken({ iat: 1000 }));
-    isUserTokensRevokedMock
-      .mockResolvedValueOnce(false)
+    isSubjectDelegationRevokedMock
       .mockRejectedValueOnce(new RevocationCheckUnavailableError());
     queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
     const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(res.statusCode).toBe(503);
     expect(res.body.code).toBe('REVOCATION_CHECK_UNAVAILABLE');
+  });
+
+  it('denies when the dependent has turned 18 since is_minor was stamped', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken());
+    // Stale flag: is_minor still TRUE, but the check-time DOB recompute says
+    // the dependent is an adult now — delegation must end at 18.
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      liveDelegationRow({ dep_is_minor_now: false }),
+    ]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
   });
 
   it('rewrites req.user to the dependent and records req.acting on success', async () => {

@@ -49,6 +49,7 @@ const mockIsTokenBlacklisted = jest.fn();
 const mockBlacklistToken = jest.fn();
 const mockRevokeAllUserTokens = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and

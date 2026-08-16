@@ -5,6 +5,7 @@ import { verifyToken } from '../utils/jwtUtils.js';
 import { canonicalizeRequestRole } from '../utils/roles.js';
 import {
   isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
   isTokenBlacklisted,
   isUserTokensRevoked,
   RevocationCheckUnavailableError,
@@ -370,7 +371,13 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
 
   // Single query: load dependent + guardian, enforce
   //   - dependent.guardian_user_id = guardian.id
-  //   - dependent.is_minor = TRUE
+  //   - dependent.is_minor = TRUE, recomputed against date of birth at CHECK
+  //     time: guardianship delegation ends at 18, so a dependent whose
+  //     recorded birthday is 18+ years ago is an adult NOW even though the
+  //     is_minor flag was stamped at link time and never rewritten. A
+  //     dependent with no recorded birthday (synthetic/promoted dependents
+  //     may lack one) honestly falls back to the stored flag — there is no
+  //     data to recompute from, and unlinking remains the operator lever.
   //   - dependent.role = 'PATIENT'
   //   - both accounts are live PATIENT identities (active, not deleted, not merged)
   //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
@@ -385,6 +392,9 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
               dep.email       AS dep_email,
               dep.role        AS dep_role,
               dep.is_minor    AS dep_is_minor,
+              (dep.birthday IS NULL
+                OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
+                              AS dep_is_minor_now,
               dep.tenant_id   AS dep_tenant_id,
               dep.is_active   AS dep_is_active,
               dep.status      AS dep_status,
@@ -406,6 +416,8 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
           AND g.uid = $2::uuid
           AND dep.role = 'PATIENT'
           AND dep.is_minor = TRUE
+          AND (dep.birthday IS NULL
+               OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
           AND g.tenant_id = dep.tenant_id
           AND dep.is_active = TRUE
           AND dep.status = 'active'
@@ -472,7 +484,10 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
       },
     };
   }
-  if (!row.dep_is_minor) {
+  // Minor status is recomputed from date of birth at check time (SQL above);
+  // repeat both predicates in JS so a mock/view/query regression cannot extend
+  // guardianship past the dependent's 18th birthday.
+  if (!row.dep_is_minor || row.dep_is_minor_now !== true) {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} not a minor`);
     return {
       status: 403,
@@ -535,16 +550,19 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
   // GUARDIAN's identity; a delegated request is additionally authorized AS the
   // dependent, so the dependent's own revoke-all and the delegated
   // guardian↔dependent tuple revocation must also stop it — the same contract
-  // the WS handshake already enforces (wsServer.js delegated branch). The
-  // guardian's token_epoch is not meaningful for the dependent, so both checks
-  // use the durable timestamp predicate against the bearer's iat.
+  // the WS handshake enforces (wsServer.js delegated branch). The guardian's
+  // token_epoch is not meaningful for the dependent, so both checks use the
+  // durable TIMESTAMP predicate against the bearer's iat — including the
+  // subject's epoch-bump time (isSubjectDelegationRevoked), so denial is
+  // recoverable: a guardian bearer minted after the subject's revoke-all is
+  // new delegated authority under the still-standing guardian link, while
+  // severed links stay severed via the tuple revocation + link-row gates.
   // RevocationCheckUnavailableError propagates to the caller, which fails
   // CLOSED with 503.
   if (bearerIssuedAt) {
-    const subjectRevoked = await isUserTokensRevoked(
+    const subjectRevoked = await isSubjectDelegationRevoked(
       String(row.dep_uid),
       bearerIssuedAt,
-      undefined,
     );
     if (subjectRevoked) {
       logger.warn(`Acting-as denied: subject ${row.dep_uid} sessions revoked`);

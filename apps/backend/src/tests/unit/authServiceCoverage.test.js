@@ -128,6 +128,7 @@ const mockRevokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
 const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
 const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   blacklistToken: mockBlacklistToken,
   isTokenBlacklisted: mockIsTokenBlacklisted,

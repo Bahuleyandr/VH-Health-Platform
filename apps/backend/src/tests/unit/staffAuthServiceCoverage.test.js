@@ -56,6 +56,7 @@ const mockRevokeAllUserTokens = jest.fn();
 const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
 const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and

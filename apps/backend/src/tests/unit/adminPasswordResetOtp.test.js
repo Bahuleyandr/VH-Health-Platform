@@ -48,6 +48,7 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
 const persistRevokeAllUserTokensMock = jest.fn().mockResolvedValue(1_700_000_000);
 const publishRevokeAllUserTokensMock = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   blacklistToken: jest.fn(),
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),

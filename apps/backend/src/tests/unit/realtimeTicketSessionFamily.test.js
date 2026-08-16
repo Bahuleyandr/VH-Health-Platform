@@ -10,6 +10,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   verifyToken: verifyTokenMock,
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
   isUserTokensRevoked: jest.fn().mockResolvedValue(false),
   // realtimeTicketRoutes resolves the ticket's token_epoch through the

@@ -368,6 +368,65 @@ describe('Acting-as delegation — deep integration', () => {
     expect(restored.body.data.user.uid).toBe(MINOR_LINKED_UID);
   });
 
+  // Recoverable semantics: the subject's revoke-all severs delegated sessions
+  // whose bearer PREDATES it, via the epoch-bump timestamp — it must not deny
+  // forever. A guardian bearer minted after the bump (here: the suite bearer,
+  // minted after we backdate the bump) is new delegated authority under the
+  // still-standing guardian link.
+  test('A historical epoch bump on the dependent does not deny a later-minted bearer', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET token_epoch = 1,
+              token_epoch_bumped_at = NOW() - INTERVAL '1 hour'
+        WHERE uid = $1::uuid`,
+      MINOR_LINKED_UID,
+    );
+    try {
+      const res = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+      expect(res.status).toBe(200);
+      expect(res.body.data.user.uid).toBe(MINOR_LINKED_UID);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET token_epoch = 0, token_epoch_bumped_at = NULL WHERE uid = $1::uuid`,
+        MINOR_LINKED_UID,
+      );
+    }
+  });
+
+  // Minor status is recomputed from date of birth at check time — delegation
+  // ends at 18 even while the link-time is_minor flag is still TRUE. A
+  // dependent with no recorded birthday keeps the stored flag (there is no
+  // data to recompute from; unlinking remains the operator lever).
+  test('Acting-as denied once the dependent\'s recorded birthday makes them an adult', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET birthday = CURRENT_DATE - INTERVAL '19 years' WHERE uid = $1::uuid`,
+      MINOR_LINKED_UID,
+    );
+    try {
+      const adult = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+      expect(adult.status).toBe(403);
+      expect(adult.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET birthday = CURRENT_DATE - INTERVAL '10 years' WHERE uid = $1::uuid`,
+        MINOR_LINKED_UID,
+      );
+      const child = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+      expect(child.status).toBe(200);
+      expect(child.body.data.user.uid).toBe(MINOR_LINKED_UID);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET birthday = NULL WHERE uid = $1::uuid`,
+        MINOR_LINKED_UID,
+      );
+    }
+
+    // NULL birthday → stored flag governs (documented fallback).
+    const fallback = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+    expect(fallback.status).toBe(200);
+    expect(fallback.body.data.user.uid).toBe(MINOR_LINKED_UID);
+  });
+
   test('Direct (non-delegated) requests do not set the acting_as flag', async () => {
     // Plain /dependents call — no X-Acting-As-Uid. The PHI logger writes
     // a row with acting_as_dependent = false.
