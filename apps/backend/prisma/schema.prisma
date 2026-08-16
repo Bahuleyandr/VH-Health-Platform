@@ -7288,6 +7288,7 @@ model notification_outbox {
   claim_generation                                                                                                     Int                                       @default(0)
   claimed_at                                                                                                           DateTime?                                 @db.Timestamptz(6)
   lease_expires_at                                                                                                     DateTime?                                 @db.Timestamptz(6)
+  replay_generation                                                                                                    Int                                       @default(0) @db.SmallInt
   diagnostic_result_patient_notifications                                                                              diagnostic_result_patient_notifications[]
   discharge_pending_result_handoffs                                                                                    discharge_pending_result_handoffs[]
   engagement_campaign_recipients                                                                                       engagement_campaign_recipients[]
