@@ -5,6 +5,21 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { syncTicketsForOrder } from './kitchenService.js';
+
+// Phase 1.5 (best-effort, post-commit): keep today's kitchen meal tickets in
+// step with the order that just changed. Failure is logged, never blocks the
+// order write — the 05:00 IST scheduler cut and the manual regenerate
+// endpoint are the safety nets.
+async function bestEffortTicketSync(tenantId, dietOrderId, actorUid, reason) {
+  try {
+    await syncTicketsForOrder({ tenantId, dietOrderId, actorUid, reason });
+  } catch (err) {
+    logger.warn('Dietary meal-ticket sync failed (order write already committed)', {
+      tenantId, dietOrderId, error: err.message,
+    });
+  }
+}
 
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
@@ -98,6 +113,7 @@ class DietaryService {
     });
 
     logger.info('Diet order created', { orderId: order.id, diet_type, patient_uid });
+    await bestEffortTicketSync(tenantId, order.id, ordered_by, 'diet order created');
     return order;
   }
 
@@ -188,6 +204,7 @@ class DietaryService {
     });
 
     logger.info('Diet order updated', { orderId: id });
+    await bestEffortTicketSync(tenantId, order.id, reviewed_by, 'diet order changed');
     return order;
   }
 

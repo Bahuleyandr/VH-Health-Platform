@@ -120,6 +120,7 @@ import '../../features/bloodbank/screens/transfusion_scan_screen.dart';
 
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
+import '../../features/dietary/screens/kitchen_screen.dart';
 
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
@@ -1069,6 +1070,12 @@ final GoRouter appRouter = GoRouter(
           name: 'dietary',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DietaryScreen()),
+        ),
+        GoRoute(
+          path: '/dietary/kitchen',
+          name: 'dietary-kitchen',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: KitchenScreen()),
         ),
         GoRoute(
           path: '/dental',

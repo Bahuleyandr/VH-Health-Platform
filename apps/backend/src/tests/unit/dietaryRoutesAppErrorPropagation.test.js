@@ -30,6 +30,9 @@ jest.unstable_mockModule('../../services/dietary/dietaryService.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // kitchenService (imported by dietaryRoutes since migration 685) pulls
+  // requireTenantId from the same module — the mock must keep the export.
+  requireTenantId: (v) => v,
 }));
 
 const { default: dietaryRoutes } = await import('../../routes/dietary/dietaryRoutes.js');

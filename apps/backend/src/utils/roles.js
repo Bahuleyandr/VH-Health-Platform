@@ -45,6 +45,9 @@ export const ANESTHETIST = 'ANESTHETIST';
 
 // Allied health
 export const DIETITIAN = 'DIETITIAN';
+// Kitchen line staff (dietary capability group in rolePolicyGraph; was
+// referenced there by string but missing from this constants file).
+export const DIETARY_STAFF = 'DIETARY_STAFF';
 export const PHYSIOTHERAPIST = 'PHYSIOTHERAPIST';
 export const SOCIAL_WORKER = 'SOCIAL_WORKER';
 
@@ -122,6 +125,7 @@ export const ALL_ROLES = [
   IT_ADMIN,
   SYSTEM_ADMIN,
   DIETITIAN,
+  DIETARY_STAFF,
   PHYSIOTHERAPIST,
   SOCIAL_WORKER,
   SECURITY,

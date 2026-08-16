@@ -5,9 +5,11 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import dietaryService from '../../services/dietary/dietaryService.js';
-import { success, relayAppError } from '../../utils/responseHelper.js';
+import * as kitchen from '../../services/dietary/kitchenService.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { paramId, dietaryOrderValidator } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { hasRole } from '../../utils/roles.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -19,6 +21,35 @@ const router = Router();
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
+}
+
+// Kitchen RBAC on top of the mount-level DIETARY_ROUTE_ROLES gate: menu
+// mutations are manager-gated (dietitian/admin), kitchen actions need a
+// dietary capability role, and the ward tray leg stays open to every role
+// the mount admits (per-transition gating lives in the service).
+function requireKitchenRole(allowedRoles, message) {
+  return (req, res, next) => {
+    if (!hasRole(req.user, allowedRoles)) return error(res, message, 403);
+    return next();
+  };
+}
+const requireMenuManager = requireKitchenRole(
+  kitchen.MENU_MANAGE_ROLES, 'Dietary manager role required',
+);
+const requireKitchen = requireKitchenRole(
+  kitchen.KITCHEN_ROLES, 'Kitchen (dietary) role required',
+);
+
+function wrapKitchen(handler, failMessage) {
+  return async (req, res, next) => {
+    try {
+      return await handler(req, res);
+    } catch (err) {
+      if (err.isOperational) return relayAppError(res, err, failMessage);
+      logger.error(failMessage, { error: err.message });
+      return next(err);
+    }
+  };
 }
 
 /**
@@ -77,6 +108,116 @@ router.get('/worklist', async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * GET /dietary/menu-items
+ * Menu master list (filter: meal_type, diet_type, active)
+ */
+router.get('/menu-items', wrapKitchen(async (req, res) => {
+  const items = await kitchen.listMenuItems({
+    tenantId: tenantOf(req),
+    meal_type: req.query.meal_type,
+    diet_type: req.query.diet_type,
+    active: req.query.active,
+  });
+  return success(res, { items }, 'Menu items retrieved');
+}, 'Failed to get menu items'));
+
+/**
+ * POST /dietary/menu-items
+ * Create a menu item (dietary manager)
+ */
+router.post('/menu-items', requireMenuManager, wrapKitchen(async (req, res) => {
+  const item = await kitchen.createMenuItem({
+    tenant_id: tenantOf(req),
+    name: req.body.name,
+    meal_type: req.body.meal_type,
+    diet_types: req.body.diet_types,
+    is_veg: req.body.is_veg,
+    allergen_tags: req.body.allergen_tags,
+    notes: req.body.notes,
+    created_by: req.user?.uid || null,
+  });
+  return success(res, item, 'Menu item created', 201);
+}, 'Failed to create menu item'));
+
+/**
+ * PUT /dietary/menu-items/:id
+ * Update / activate / deactivate a menu item (dietary manager)
+ */
+router.put('/menu-items/:id', requireMenuManager, paramId(), validate, wrapKitchen(async (req, res) => {
+  const item = await kitchen.updateMenuItem(req.params.id, {
+    tenant_id: tenantOf(req),
+    name: req.body.name,
+    meal_type: req.body.meal_type,
+    diet_types: req.body.diet_types,
+    is_veg: req.body.is_veg,
+    allergen_tags: req.body.allergen_tags,
+    active: req.body.active,
+    notes: req.body.notes,
+  });
+  return success(res, item, 'Menu item updated');
+}, 'Failed to update menu item'));
+
+/**
+ * GET /dietary/kitchen/tickets
+ * Kitchen board / tray list for a service date (default: today IST)
+ */
+router.get('/kitchen/tickets', wrapKitchen(async (req, res) => {
+  const result = await kitchen.listMealTickets({
+    tenantId: tenantOf(req),
+    date: req.query.date,
+    meal_type: req.query.meal_type,
+    status: req.query.status,
+    ward: req.query.ward,
+    patient_uid: req.query.patient_uid,
+  });
+  return success(res, result, 'Meal tickets retrieved');
+}, 'Failed to get meal tickets'));
+
+/**
+ * GET /dietary/kitchen/summary
+ * Production summary: live-ticket counts by meal x diet type + status rollup
+ */
+router.get('/kitchen/summary', wrapKitchen(async (req, res) => {
+  const result = await kitchen.getProductionSummary({
+    tenantId: tenantOf(req),
+    date: req.query.date,
+  });
+  return success(res, result, 'Production summary retrieved');
+}, 'Failed to get production summary'));
+
+/**
+ * POST /dietary/kitchen/generate
+ * Manual (re)generation of the day's tickets (kitchen roles). Idempotent —
+ * meals that already hold a live ticket are skipped.
+ */
+router.post('/kitchen/generate', requireKitchen, wrapKitchen(async (req, res) => {
+  const result = await kitchen.generateMealTickets({
+    tenantId: tenantOf(req),
+    serviceDate: req.body.service_date,
+    source: 'manual',
+    generatedBy: req.user?.uid || null,
+  });
+  return success(res, result, 'Meal ticket generation complete');
+}, 'Failed to generate meal tickets'));
+
+/**
+ * POST /dietary/kitchen/tickets/:id/status
+ * Ticket lifecycle transition. Kitchen leg (preparing/ready/dispatched and
+ * pre-dispatch cancel) is role-gated in the service; the ward tray leg
+ * (delivered/collected) is open to every role on the dietary mount.
+ */
+router.post('/kitchen/tickets/:id/status', paramId(), validate, wrapKitchen(async (req, res) => {
+  const ticket = await kitchen.transitionTicket({
+    tenantId: tenantOf(req),
+    ticketId: req.params.id,
+    toStatus: req.body.status,
+    actor: req.user || null,
+    reason: req.body.reason,
+  });
+  return success(res, ticket, 'Meal ticket updated');
+}, 'Failed to update meal ticket'));
 
 /**
  * PUT /dietary/:id

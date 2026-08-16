@@ -16490,6 +16490,585 @@
           }
         }
       },
+      "DietaryKitchenGenerateRequest": {
+        "type": "object",
+        "properties": {
+          "service_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "YYYY-MM-DD; defaults to today (IST)."
+          }
+        }
+      },
+      "DietaryKitchenGenerationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryKitchenGenerationResult"
+          }
+        }
+      },
+      "DietaryKitchenGenerationResult": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "considered",
+          "created"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "considered": {
+            "type": "integer",
+            "description": "Eligible ACTIVE diet orders of currently admitted patients."
+          },
+          "created": {
+            "type": "integer",
+            "description": "Tickets newly cut; meals already holding a live ticket are skipped."
+          },
+          "byMeal": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "DietaryMealTicket": {
+        "type": "object",
+        "required": [
+          "id",
+          "diet_order_id",
+          "patient_uid",
+          "service_date",
+          "meal_type",
+          "diet_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "diet_order_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "service_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "diet_type": {
+            "type": "string"
+          },
+          "restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allergies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "calories_target": {
+            "type": "number",
+            "nullable": true
+          },
+          "menu_selections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "is_veg": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "description": "Menu items matched at generation (meal window + diet-type suitability + no allergen intersection). Empty when nothing suits; diet_spec then carries the free-text preparation spec."
+          },
+          "diet_spec": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_instructions": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "preparing",
+              "ready",
+              "dispatched",
+              "delivered",
+              "collected",
+              "cancelled"
+            ]
+          },
+          "generated_source": {
+            "type": "string",
+            "enum": [
+              "scheduler",
+              "manual",
+              "order_change"
+            ]
+          },
+          "generated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "preparing_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ready_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "dispatched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "cancel_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DietaryMealTicketListData": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "tickets"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DietaryMealTicket"
+            }
+          }
+        }
+      },
+      "DietaryMealTicketListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMealTicketListData"
+          }
+        }
+      },
+      "DietaryMealTicketResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMealTicket"
+          }
+        }
+      },
+      "DietaryMealTicketStatusRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "ready",
+              "dispatched",
+              "delivered",
+              "collected",
+              "cancelled"
+            ],
+            "description": "Target status. pending→preparing→ready→dispatched is the kitchen leg (dietary roles); dispatched→delivered→collected is ward-side tray tracking (any dietary-mount role). Cancel requires reason."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Required when status=cancelled."
+          }
+        }
+      },
+      "DietaryMenuItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "meal_type",
+          "diet_types",
+          "is_veg",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "diet_orders.diet_type values this dish suits (vocabulary minus 'npo' — nil-by-mouth patients get no menu)."
+          },
+          "is_veg": {
+            "type": "boolean"
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lower-cased allergen tags (e.g. 'peanut', 'milk'); ticket generation excludes the item when any tag matches the order's allergies case-insensitively."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DietaryMenuItemCreateRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "meal_type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_veg": {
+            "type": "boolean",
+            "default": true
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DietaryMenuItemListData": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DietaryMenuItem"
+            }
+          }
+        }
+      },
+      "DietaryMenuItemListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMenuItemListData"
+          }
+        }
+      },
+      "DietaryMenuItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMenuItem"
+          }
+        }
+      },
+      "DietaryMenuItemUpdateRequest": {
+        "type": "object",
+        "description": "Partial update; omitted fields keep their current values. Deactivate with active=false (names free up for replacements).",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_veg": {
+            "type": "boolean"
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DietaryProductionSummaryData": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "totalLive",
+          "byMeal"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "totalLive": {
+            "type": "integer",
+            "description": "Non-cancelled tickets for the day."
+          },
+          "byMeal": {
+            "type": "object",
+            "description": "Keyed by meal_type: what the kitchen cooks (counts by diet_type) plus a status rollup.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "total": {
+                  "type": "integer"
+                },
+                "by_diet_type": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                },
+                "by_status": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "DietaryProductionSummaryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryProductionSummaryData"
+          }
+        }
+      },
       "DischargeConsultRow": {
         "type": "object",
         "additionalProperties": false,
@@ -35089,8 +35668,7 @@
           },
           "quantity": {
             "type": "number",
-            "minimum": 0,
-            "exclusiveMinimum": true
+            "minimum": 0.0001
           }
         }
       },
@@ -91624,6 +92202,211 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/kitchen/generate": {
+      "post": {
+        "operationId": "post_api_v1_dietary_kitchen_generate",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryKitchenGenerationResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Manually (re)cuts the day's meal tickets for every ACTIVE diet order of a currently admitted patient (kitchen roles). Idempotent: meals already holding a live ticket are skipped; the 05:00 IST scheduler performs the same cut daily.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryKitchenGenerateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/kitchen/summary": {
+      "get": {
+        "operationId": "get_api_v1_dietary_kitchen_summary",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryProductionSummaryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Kitchen production summary for a service date: live-ticket counts by meal x diet type (what the kitchen actually cooks) plus a per-meal status rollup."
+      }
+    },
+    "/api/v1/dietary/kitchen/tickets": {
+      "get": {
+        "operationId": "get_api_v1_dietary_kitchen_tickets",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMealTicketListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Kitchen board / ward tray list for a service date (default today IST), filterable by meal_type, status, ward, and patient_uid. Ordered by meal window then ward/bed."
+      }
+    },
+    "/api/v1/dietary/kitchen/tickets/{id}/status": {
+      "post": {
+        "operationId": "post_api_v1_dietary_kitchen_tickets_by_id_status",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMealTicketResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMealTicketStatusRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/menu-items": {
+      "get": {
+        "operationId": "get_api_v1_dietary_menu_items",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant menu master list, filterable by meal_type, diet_type (suits-this-diet membership), and active."
+      },
+      "post": {
+        "operationId": "post_api_v1_dietary_menu_items",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates a menu item (dietary manager roles: DIETITIAN/ADMIN). One live item per (meal window, name); duplicates 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMenuItemCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/menu-items/{id}": {
+      "put": {
+        "operationId": "put_api_v1_dietary_menu_items_by_id",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Partially updates a menu item (dietary manager roles), including activate/deactivate via active.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMenuItemUpdateRequest"
               }
             }
           }

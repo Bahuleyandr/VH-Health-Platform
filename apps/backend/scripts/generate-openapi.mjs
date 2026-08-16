@@ -17,6 +17,7 @@ import * as abdm from './openapi/schemas/abdm.mjs';
 import * as ambulanceTracking from './openapi/schemas/ambulanceTracking.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as pharmacyCounterSale from './openapi/schemas/pharmacyCounterSale.mjs';
+import * as dietaryKitchen from './openapi/schemas/dietaryKitchen.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
 import * as payroll from './openapi/schemas/payroll.mjs';
@@ -98,7 +99,8 @@ const SCHEMA_MODULES = [
   referralFacilities,
   shiftSwapOnCall,
   ambulanceTracking,
-  pharmacyCounterSale
+  pharmacyCounterSale,
+  dietaryKitchen
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

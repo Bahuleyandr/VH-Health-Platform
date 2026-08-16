@@ -723,6 +723,20 @@ if (process.env.NODE_ENV !== 'test') {
     runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
   )));
 
+  // 🍽️ Daily at 05:00 IST (23:30 UTC) - cut the day's kitchen meal tickets
+  // (one per ACTIVE diet order x meal window for currently admitted
+  // patients; migration 685). One morning cut before the breakfast line
+  // starts; same-day churn is handled synchronously by the diet-order
+  // create/update sync and the manual /dietary/kitchen/generate endpoint.
+  // Idempotent per the live (diet_order, service_date, meal_type) unique.
+  registerCron('30 23 * * *', withJobLock('dietary-meal-ticket-generation', async () => {
+    const { generateMealTickets } = await import('../services/dietary/kitchenService.js');
+    const r = await runForEachTenant('dietary-meal-ticket-generation', (tenantId) => (
+      generateMealTickets({ tenantId, source: 'scheduler' })
+    ));
+    logger.info('dietary-meal-ticket-generation complete', r);
+  }));
+
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
   registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => (
     runForEachTenant('process-scheduled-notifications', tenantId => (

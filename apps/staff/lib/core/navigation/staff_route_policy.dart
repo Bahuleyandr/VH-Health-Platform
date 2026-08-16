@@ -318,6 +318,13 @@ class StaffRoutePolicy {
       anyFeatureIds: {'blood_bank'},
     ),
     StaffRouteMetadata('/dietary', anyFeatureIds: {'dietary'}),
+    // Kitchen board + ward tray tracking: kitchen staff via the dietary
+    // feature; ward staff reach the tray leg via the IP command-board
+    // feature (backend gates kitchen-phase transitions to dietary roles).
+    StaffRouteMetadata(
+      '/dietary/kitchen',
+      anyFeatureIds: {'dietary', 'patient_command_board'},
+    ),
     StaffRouteMetadata('/dental', anyFeatureIds: {'dental_charting'}),
     StaffRouteMetadata('/physiotherapy', anyFeatureIds: {'physiotherapy'}),
     StaffRouteMetadata('/transplant', anyFeatureIds: {'transplant_program'}),

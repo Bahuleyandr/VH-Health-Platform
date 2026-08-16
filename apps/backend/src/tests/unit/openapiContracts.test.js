@@ -37,6 +37,7 @@ import * as abdmAbhaRegistration from '../../../scripts/openapi/schemas/abdmAbha
 import * as devices from '../../../scripts/openapi/schemas/devices.mjs';
 import * as health from '../../../scripts/openapi/schemas/health.mjs';
 import * as pharmacyCounterSale from '../../../scripts/openapi/schemas/pharmacyCounterSale.mjs';
+import * as dietaryKitchen from '../../../scripts/openapi/schemas/dietaryKitchen.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -74,7 +75,8 @@ const MODULES = [
   abdmAbhaRegistration,
   devices,
   health,
-  pharmacyCounterSale
+  pharmacyCounterSale,
+  dietaryKitchen
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
