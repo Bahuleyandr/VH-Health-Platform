@@ -24,6 +24,21 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  ADMIN,
+  DOCTOR,
+  DUTY_DOCTOR,
+  IP_INCHARGE,
+  IP_STAFF_NURSE,
+  MEDICAL_SUPERINTENDENT,
+  NURSING_INCHARGE,
+  NURSING_STAFF,
+  OP_INCHARGE,
+  OP_STAFF_NURSE,
+  PHARMACY_INCHARGE,
+  PHARMACY_STAFF,
+  normalizeRole,
+} from '../../utils/roles.js';
 
 const ALLOWED_SCHEDULES = ['H', 'H1', 'X', 'OTC', null];
 const VALID_MOVEMENTS = [
@@ -378,6 +393,97 @@ export async function recordMovementTx(tx, {
  * evidence row; `require_usable_batch` adds recordMovementTx's expired/
  * non-in-stock batch rejection.
  */
+// ── Controlled-dispense witness validation (PR #875 follow-up) ────────────
+//
+// witness_uid/witness_name were previously stored as UNVALIDATED client text:
+// any uid (or garbage) landed on the statutory Schedule X / narcotic register
+// as the legally-required second signature. The witness must be a real,
+// active, clinically-appropriate staff identity of the SAME tenant, and a
+// different person than the dispenser — validated at dispense time, the same
+// posture as marService's retrospective MAR witness check (tenant + active +
+// role + FOR KEY SHARE) and taskService's requireAssignableTaskRole.
+//
+// Eligible roles: the pharmacy dispensing roster (a second pharmacist is the
+// normal counter witness) plus doctors and the nursing roster (the ward
+// controlled-dispense flow is witnessed at the bedside). Non-clinical
+// identities (reception, housekeeping, PATIENT, the PHARMACY_WALKIN anchor…)
+// can never witness a controlled dispense.
+export const CONTROLLED_DISPENSE_WITNESS_ROLES = [
+  ADMIN,
+  PHARMACY_STAFF,
+  PHARMACY_INCHARGE,
+  DOCTOR,
+  DUTY_DOCTOR,
+  MEDICAL_SUPERINTENDENT,
+  NURSING_STAFF,
+  NURSING_INCHARGE,
+  IP_STAFF_NURSE,
+  IP_INCHARGE,
+  OP_STAFF_NURSE,
+  OP_INCHARGE,
+];
+
+const WITNESS_ELIGIBLE_ROLE_SET = new Set(CONTROLLED_DISPENSE_WITNESS_ROLES);
+const WITNESS_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate a controlled-dispense witness identity against the live staff
+ * roster. Runs on the caller's client (`db` may be a transaction client or
+ * plain prisma — the counter-sale Phase-0 pre-flight uses the latter so an
+ * invalid witness rejects before any invoice is issued). Throws AppError 400
+ * with a machine-readable code; returns the validated witness row.
+ */
+export async function assertControlledDispenseWitness(db, {
+  tenantId, witnessUid, witnessName, performedBy,
+}) {
+  const uid = witnessUid == null ? '' : String(witnessUid).trim();
+  if (!WITNESS_UUID_RE.test(uid)) {
+    throw AppError.badRequest(
+      'witness.uid must be the staff uid (UUID) of the witnessing staff member',
+      'CONTROLLED_DISPENSE_WITNESS_INVALID',
+    );
+  }
+  if (performedBy && String(performedBy).trim() === uid) {
+    throw AppError.badRequest(
+      'The dispensing staff member cannot witness their own controlled dispense — name a second staff member',
+      'CONTROLLED_DISPENSE_WITNESS_SELF',
+    );
+  }
+  // FOR KEY SHARE (marService MAR-witness idiom): pin the witness row for the
+  // duration of the dispense transaction so a concurrent deactivation cannot
+  // race the register write.
+  const rows = await db.$queryRawUnsafe(
+    `SELECT uid::text AS uid, name, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = true
+        AND status = 'active'
+        AND COALESCE(is_deleted, false) = false
+      LIMIT 1
+      FOR KEY SHARE`,
+    tenantId,
+    uid,
+  );
+  if (!rows.length) {
+    throw AppError.badRequest(
+      'Witness is not an active staff member of this facility',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND',
+    );
+  }
+  const witness = rows[0];
+  const role = normalizeRole(witness.role);
+  if (!role || !WITNESS_ELIGIBLE_ROLE_SET.has(role)) {
+    throw AppError.badRequest(
+      'Witness must hold a pharmacy, medical, or nursing role to witness a controlled dispense',
+      'CONTROLLED_DISPENSE_WITNESS_ROLE_INELIGIBLE',
+      { witness_role: witness.role || null },
+    );
+  }
+  void witnessName; // display name stays a caller-supplied snapshot; identity is the uid
+  return witness;
+}
+
 export async function dispenseControlledTx(tx, {
   tenantId,
   inventory_item_id, inventory_batch_id,
@@ -408,6 +514,18 @@ export async function dispenseControlledTx(tx, {
   }
   if (!performed_by || !performed_by_name) {
     throw AppError.badRequest('performed_by + performed_by_name are required');
+  }
+  // Whenever a witness identity is supplied (mandatory for X/narcotic,
+  // optional evidence on H/H1), it must be a real, active, appropriately
+  // rolled staff member of THIS tenant and not the dispenser — never
+  // unvalidated client text on the statutory register (PR #875 follow-up).
+  if (witness_uid) {
+    await assertControlledDispenseWitness(tx, {
+      tenantId,
+      witnessUid: witness_uid,
+      witnessName: witness_name,
+      performedBy: performed_by,
+    });
   }
 
   {

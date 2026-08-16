@@ -50,7 +50,9 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { recordMovementTx, dispenseControlledTx } from './inventoryV2Service.js';
+import {
+  recordMovementTx, dispenseControlledTx, assertControlledDispenseWitness,
+} from './inventoryV2Service.js';
 import {
   createDraftInvoice, addInvoiceItem, issueInvoice, voidInvoice,
   collectPayment, raiseRefund, approveRefund, markRefundPaid, getInvoice,
@@ -414,6 +416,21 @@ export async function createCounterSale({
   enforceScheduleRules({
     itemsById, lines, rx, witness, patient_uid, customer_phone,
   });
+
+  // Witness identity validation (PR #875 follow-up): whenever a witness is
+  // named on the sale, it must be a real, active, clinically-appropriate
+  // staff member of this tenant and not the seller. Checked here in Phase 0
+  // so an invalid witness rejects before any invoice is issued or stock
+  // moves; dispenseControlledTx re-validates under the finalize transaction
+  // (FOR KEY SHARE) as the authoritative gate.
+  if (witness?.uid) {
+    await assertControlledDispenseWitness(prisma, {
+      tenantId: tenant,
+      witnessUid: witness.uid,
+      witnessName: witness.name,
+      performedBy: sold_by,
+    });
+  }
 
   // Identity snapshot for statutory register rows (H1/X/narcotic lines):
   // the registered patient's name/phone, or the captured walk-in identity.

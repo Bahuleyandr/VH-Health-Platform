@@ -17,6 +17,12 @@ const CASHIER = 'c0511111-1111-4111-8111-111111111111';
 const NO_DRAWER_CASHIER = 'c0522222-2222-4222-8222-222222222222';
 const WITNESS = 'c0533333-3333-4333-8333-333333333333';
 const PATIENT = 'c0544444-4444-4444-8444-444444444444';
+// Witness-validation fixtures (PR #875 follow-up: witness.uid must be a real,
+// active, appropriately-rolled staff member of the same tenant).
+const GHOST_WITNESS = 'c0555555-5555-4555-8555-555555555555'; // no users row
+const CLERK_WITNESS = 'c0566666-6666-4666-8666-666666666666'; // RECEPTIONIST
+const INACTIVE_WITNESS = 'c0577777-7777-4777-8777-777777777777'; // deactivated
+const FOREIGN_WITNESS = 'c0588888-8888-4888-8888-888888888888'; // other tenant
 
 const RX = { doctor_name: 'Dr. Test Prescriber', reference: 'RX-POS-001' };
 const WITNESS_ARG = { uid: WITNESS, name: 'Witness Pharmacist' };
@@ -137,6 +143,13 @@ async function cleanup() {
     `DELETE FROM users WHERE tenant_id = $1::uuid AND (role = 'PHARMACY_WALKIN' OR uid = $2::uuid)`,
     TENANT, PATIENT,
   ).catch(() => {});
+  // Witness-roster fixture rows (bound as one uuid[] param — the variable
+  // form is the sanctioned array-binding idiom, mirroring cleanupTenantIds).
+  const witnessFixtureUids = [WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS];
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
+    witnessFixtureUids,
+  ).catch(() => {});
 }
 
 beforeAll(async () => {
@@ -154,6 +167,26 @@ beforeAll(async () => {
      VALUES ($1::uuid, 'POS Registered Patient', '9812345670', 'PATIENT', $2::uuid, NOW())
      ON CONFLICT (uid) DO NOTHING`,
     PATIENT, TENANT,
+  );
+  // Witness roster: the valid witness is a real active pharmacist of the SAME
+  // tenant; the invalid ones exercise every rejection branch of
+  // assertControlledDispenseWitness (no row / wrong role / inactive / other
+  // tenant). The cashier also gets a users row so self-witness is testable.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users (uid, name, role, tenant_id, updated_at)
+     VALUES
+       ($1::uuid, 'Witness Pharmacist', 'PHARMACY_STAFF', $5::uuid, NOW()),
+       ($2::uuid, 'Counter Pharmacist', 'PHARMACY_STAFF', $5::uuid, NOW()),
+       ($3::uuid, 'Front Desk Clerk', 'RECEPTIONIST', $5::uuid, NOW()),
+       ($4::uuid, 'Foreign Pharmacist', 'PHARMACY_STAFF', $6::uuid, NOW())
+     ON CONFLICT (uid) DO NOTHING`,
+    WITNESS, CASHIER, CLERK_WITNESS, FOREIGN_WITNESS, TENANT, OTHER,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users (uid, name, role, tenant_id, is_active, updated_at)
+     VALUES ($1::uuid, 'Departed Pharmacist', 'PHARMACY_STAFF', $2::uuid, false, NOW())
+     ON CONFLICT (uid) DO NOTHING`,
+    INACTIVE_WITNESS, TENANT,
   );
 
   otcItem = await insertItem(TENANT, 'POS-OTC-1', { hsn: '3004' });
@@ -438,6 +471,67 @@ describe('schedule-class enforcement', () => {
     expect(register[0].patient_uid).toBeNull();
     expect(register[0].patient_name).toBe('X Buyer');
     expect(register[0].patient_phone).toBe('9800000042');
+  });
+
+  // PR #875 follow-up: witness.uid used to be stored unvalidated — any uid
+  // (or garbage) became the statutory register's second signature. Every
+  // rejection must fire in Phase 0, before any invoice/stock/register write.
+  describe('witness identity validation', () => {
+    const xSale = (witness) => createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: xItem, quantity: 1 }],
+      customer_name: 'X Buyer',
+      customer_phone: '9800000042',
+      rx: RX,
+      witness,
+      payment_mode: 'CARD',
+      sold_by: CASHIER,
+      sold_by_name: 'Counter Pharmacist',
+    });
+
+    async function expectNoSideEffects(before) {
+      // Phase-0 rejection: no stock moved and no sale header was written
+      // (the only 'X Buyer' sale is the COMPLETED witnessed one above).
+      expect((await remaining(xBatch)).qty).toBe(before);
+      const sales = await prisma.$queryRawUnsafe(
+        `SELECT status FROM pharmacy_counter_sales
+          WHERE tenant_id = $1::uuid AND customer_name = 'X Buyer' AND status <> 'COMPLETED'`,
+        TENANT,
+      );
+      expect(sales).toHaveLength(0);
+    }
+
+    test('rejects a witness uid with no staff row (ghost uid)', async () => {
+      const before = (await remaining(xBatch)).qty;
+      await expect(xSale({ uid: GHOST_WITNESS, name: 'Ghost' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
+      await expectNoSideEffects(before);
+    });
+
+    test('rejects a non-uuid witness uid without 500ing on the cast', async () => {
+      await expect(xSale({ uid: 'not-a-uuid', name: 'Garbage' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_INVALID' });
+    });
+
+    test('rejects a witness whose role cannot witness a controlled dispense', async () => {
+      await expect(xSale({ uid: CLERK_WITNESS, name: 'Front Desk Clerk' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_ROLE_INELIGIBLE' });
+    });
+
+    test('rejects a deactivated staff member as witness', async () => {
+      await expect(xSale({ uid: INACTIVE_WITNESS, name: 'Departed Pharmacist' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
+    });
+
+    test('rejects a witness from another tenant (tenant isolation)', async () => {
+      await expect(xSale({ uid: FOREIGN_WITNESS, name: 'Foreign Pharmacist' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
+    });
+
+    test('rejects the seller witnessing their own dispense', async () => {
+      await expect(xSale({ uid: CASHIER, name: 'Counter Pharmacist' }))
+        .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_SELF' });
+    });
   });
 });
 
