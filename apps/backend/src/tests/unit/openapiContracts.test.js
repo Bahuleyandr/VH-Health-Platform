@@ -38,6 +38,10 @@ import * as devices from '../../../scripts/openapi/schemas/devices.mjs';
 import * as health from '../../../scripts/openapi/schemas/health.mjs';
 import * as pharmacyCounterSale from '../../../scripts/openapi/schemas/pharmacyCounterSale.mjs';
 import * as dietaryKitchen from '../../../scripts/openapi/schemas/dietaryKitchen.mjs';
+import * as misReportSchedules from '../../../scripts/openapi/schemas/misReportSchedules.mjs';
+import * as referralFacilities from '../../../scripts/openapi/schemas/referralFacilities.mjs';
+import * as shiftSwapOnCall from '../../../scripts/openapi/schemas/shiftSwapOnCall.mjs';
+import * as ambulanceTracking from '../../../scripts/openapi/schemas/ambulanceTracking.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -76,7 +80,11 @@ const MODULES = [
   devices,
   health,
   pharmacyCounterSale,
-  dietaryKitchen
+  dietaryKitchen,
+  misReportSchedules,
+  referralFacilities,
+  shiftSwapOnCall,
+  ambulanceTracking
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
