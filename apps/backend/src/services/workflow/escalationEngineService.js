@@ -302,7 +302,15 @@ async function resolveRankedRecipients({
                  AND COALESCE(staff_state.on_leave, FALSE) = FALSE
                 THEN 0
                 ELSE 1
-              END AS presence_bucket
+              END AS presence_bucket,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM staff_on_call_assignments oc
+                 WHERE oc.tenant_id = u.tenant_id
+                   AND oc.staff_id = u.id
+                   AND oc.is_active
+                   AND oc.start_at <= $4::timestamptz
+                   AND oc.end_at > $4::timestamptz
+              ) THEN 0 ELSE 1 END AS on_call_bucket
          FROM users u
          LEFT JOIN LATERAL (
            SELECT COALESCE(
@@ -340,7 +348,8 @@ async function resolveRankedRecipients({
               COUNT(*) OVER () AS total_matched,
               COUNT(*) FILTER (WHERE effective_rank IS NOT NULL) OVER () AS ranked_candidates,
               ROW_NUMBER() OVER (
-                ORDER BY presence_bucket ASC,
+                ORDER BY on_call_bucket ASC,
+                         presence_bucket ASC,
                          effective_rank ASC NULLS LAST,
                          last_sign_in_at DESC NULLS LAST,
                          id ASC
@@ -393,15 +402,17 @@ async function resolveRankedRecipients({
 // LEADERSHIP tier always reaches a human. Returns [] only when the tenant truly
 // has no clinician in the role or its family (logged loudly by the caller).
 //
-// ORDERING. There is no on-duty / on-call roster this query can join — `users`
-// carries no shift or duty column — so the order is `last_sign_in_at DESC NULLS
-// LAST, id ASC`: an availability PROXY, not a duty signal. It puts the most
+// ORDERING. The on-call roster (staff_on_call_assignments, migration 682) is
+// the primary duty signal: a candidate holding an ACTIVE on-call stint at the
+// resolution instant sorts ahead of everyone else. It is an ordering signal,
+// not a filter — a tenant with no on-call rows behaves exactly as before.
+// Within each on-call bucket the order stays `last_sign_in_at DESC NULLS LAST,
+// id ASC`: an availability PROXY, not a duty signal. It puts the most
 // recently-signed-in clinicians first and sorts never-signed-in accounts (the
 // provisioned-but-dormant records, least likely to action a page) to the very
 // end, so when the cap does trim it trims the least-reachable people rather than
 // whoever happens to hold the highest user id. `id ASC` makes the order total,
-// so the page is deterministic across sweeps. If a real roster table ever lands,
-// this ORDER BY is the single place to join it.
+// so the page is deterministic across sweeps.
 async function resolveRecipientsForRole(tx, tenantId, roleCode, clock = new Date()) {
   const role = roleCode == null ? '' : String(roleCode).trim();
   if (!role) return [];
@@ -412,16 +423,25 @@ async function resolveRecipientsForRole(tx, tenantId, roleCode, clock = new Date
       tx, tenantId, role, arm: 'exact', roleValue: role, context, clock,
     })
     : await tx.$queryRawUnsafe(
-      `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
-         FROM users
-        WHERE tenant_id = $1::uuid
-          AND role = $2
-          AND is_active = TRUE
-        ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+      `SELECT u.id, u.uid, u.phone, u.role, COUNT(*) OVER () AS total_matched
+         FROM users u
+        WHERE u.tenant_id = $1::uuid
+          AND u.role = $2
+          AND u.is_active = TRUE
+        ORDER BY (EXISTS (
+                   SELECT 1 FROM staff_on_call_assignments oc
+                    WHERE oc.tenant_id = u.tenant_id
+                      AND oc.staff_id = u.id
+                      AND oc.is_active
+                      AND oc.start_at <= $4::timestamptz
+                      AND oc.end_at > $4::timestamptz
+                 )) DESC,
+                 u.last_sign_in_at DESC NULLS LAST, u.id ASC
         LIMIT $3::int`,
       tenantId,
       role,
       RECIPIENT_FANOUT_CAP,
+      clock.toISOString(),
     );
   if (Array.isArray(exact) && exact.length > 0) {
     return finishRecipients({ rows: exact, tenantId, role, arm: 'exact' });
@@ -440,16 +460,25 @@ async function resolveRecipientsForRole(tx, tenantId, roleCode, clock = new Date
       clock,
     })
     : await tx.$queryRawUnsafe(
-      `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
-         FROM users
-        WHERE tenant_id = $1::uuid
-          AND role = ANY($2::text[])
-          AND is_active = TRUE
-        ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+      `SELECT u.id, u.uid, u.phone, u.role, COUNT(*) OVER () AS total_matched
+         FROM users u
+        WHERE u.tenant_id = $1::uuid
+          AND u.role = ANY($2::text[])
+          AND u.is_active = TRUE
+        ORDER BY (EXISTS (
+                   SELECT 1 FROM staff_on_call_assignments oc
+                    WHERE oc.tenant_id = u.tenant_id
+                      AND oc.staff_id = u.id
+                      AND oc.is_active
+                      AND oc.start_at <= $4::timestamptz
+                      AND oc.end_at > $4::timestamptz
+                 )) DESC,
+                 u.last_sign_in_at DESC NULLS LAST, u.id ASC
         LIMIT $3::int`,
       tenantId,
       family.map(String),
       RECIPIENT_FANOUT_CAP,
+      clock.toISOString(),
     );
   return finishRecipients({ rows: widened, tenantId, role, arm: 'family' });
 }

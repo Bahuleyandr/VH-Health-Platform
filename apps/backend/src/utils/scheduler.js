@@ -252,6 +252,10 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // Staff roster deadline escalation — next week's roster must be published
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
+// Shift swap expiry — still-live swap requests whose earliest shift has
+// started can never complete; flip them to expired so they stop blocking
+// fresh proposals on the same roster assignments.
+import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
@@ -1096,6 +1100,15 @@ if (process.env.NODE_ENV !== 'test') {
     }),
     { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
   );
+
+  // 🗓️ Hourly at :20 — expire shift swap requests whose earliest shift has
+  // already started (they can never be approved; the live-swap unique indexes
+  // would otherwise keep blocking new proposals on those assignments).
+  registerCron('20 * * * *', withJobLock('shift-swap-expiry', async () => {
+    await runForEachTenant('shift-swap-expiry', tenantId => (
+      expireStaleShiftSwapRequests({ tenantId })
+    ));
+  }));
 
   // 🗓️ Daily at 03:30 - Apply tenant retention policies to all five audit sinks.
   // The service fails closed unless an active policy explicitly selects erase

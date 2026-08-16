@@ -234,6 +234,12 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/staff-directory', anyFeatureIds: {'staff_directory'}),
     StaffRouteMetadata('/schedule', anyFeatureIds: {'schedule'}),
     StaffRouteMetadata('/duty-preference', anyFeatureIds: {'duty_preference'}),
+    // Shift swaps + on-call: reached from the schedule screen's shift
+    // actions; backend enforces per-department swap/on-call authority.
+    StaffRouteMetadata(
+      '/shift-swaps',
+      anyFeatureIds: {'schedule', 'duty_preference'},
+    ),
     StaffRouteMetadata(
       '/handover',
       anyFeatureIds: {'handover'},

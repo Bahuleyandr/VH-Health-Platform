@@ -11081,6 +11081,7 @@ model tenants {
   staff_message_thread_participants                    staff_message_thread_participants[]
   staff_message_threads                                staff_message_threads[]
   staff_messages                                       staff_messages[]
+  staff_on_call_assignments                            staff_on_call_assignments[]
   staff_onboarding_tasks                               staff_onboarding_tasks[]
   staff_performance_reviews                            staff_performance_reviews[]
   staff_roster_preferences                             staff_roster_preferences[]
@@ -11092,6 +11093,8 @@ model tenants {
   staff_shift_roster_boards                            staff_shift_roster_boards[]
   staff_shift_roster_request_audit                     staff_shift_roster_request_audit[]
   staff_shift_roster_requests                          staff_shift_roster_requests[]
+  staff_shift_swap_request_audit                       staff_shift_swap_request_audit[]
+  staff_shift_swap_requests                            staff_shift_swap_requests[]
   staff_shifts                                         staff_shifts[]
   stemi_activations                                    stemi_activations[]
   stemi_pathway_events                                 stemi_pathway_events[]
@@ -13286,25 +13289,27 @@ model staff_shift_roster_assignment_audit {
 }
 
 model staff_shift_roster_assignments {
-  id                                  Int                                   @id @default(autoincrement())
-  roster_id                           Int
-  staff_id                            Int
-  staff_uid                           String?                               @db.Uuid
-  staff_role                          String?                               @db.VarChar(80)
-  assignment_target_type              String                                @db.VarChar(80)
-  assignment_target_id                Int?
-  assignment_target_label             String?                               @db.VarChar(255)
-  floor                               String?                               @db.VarChar(80)
-  building                            String?                               @db.VarChar(120)
-  is_lead                             Boolean                               @default(false)
-  status                              String                                @default("planned") @db.VarChar(20)
-  notes                               String?
-  created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
-  updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
-  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  staff_shift_roster_assignment_audit staff_shift_roster_assignment_audit[]
-  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignments_tenant")
-  staff_shift_roster_boards           staff_shift_roster_boards             @relation(fields: [roster_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                             Int                                   @id @default(autoincrement())
+  roster_id                                                                                                      Int
+  staff_id                                                                                                       Int
+  staff_uid                                                                                                      String?                               @db.Uuid
+  staff_role                                                                                                     String?                               @db.VarChar(80)
+  assignment_target_type                                                                                         String                                @db.VarChar(80)
+  assignment_target_id                                                                                           Int?
+  assignment_target_label                                                                                        String?                               @db.VarChar(255)
+  floor                                                                                                          String?                               @db.VarChar(80)
+  building                                                                                                       String?                               @db.VarChar(120)
+  is_lead                                                                                                        Boolean                               @default(false)
+  status                                                                                                         String                                @default("planned") @db.VarChar(20)
+  notes                                                                                                          String?
+  created_at                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  tenant_id                                                                                                      String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  staff_shift_roster_assignment_audit                                                                            staff_shift_roster_assignment_audit[]
+  tenants                                                                                                        tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignments_tenant")
+  staff_shift_roster_boards                                                                                      staff_shift_roster_boards             @relation(fields: [roster_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  staff_shift_swap_requests_staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments staff_shift_swap_requests[]           @relation("staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments")
+  staff_shift_swap_requests_staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments    staff_shift_swap_requests[]           @relation("staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments")
 
   @@index([roster_id], map: "idx_staff_shift_roster_assignments_roster")
   @@index([staff_id, status], map: "idx_staff_shift_roster_assignments_staff")
@@ -27710,6 +27715,94 @@ model referral_facilities {
 
   @@unique([tenant_id, id], map: "ux_referral_facilities_tenant_id")
   @@index([tenant_id, active, name], map: "idx_referral_facilities_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model staff_on_call_assignments {
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  department     String    @db.VarChar(80)
+  specialty      String?   @db.VarChar(120)
+  tier           Int       @default(1) @db.SmallInt
+  staff_id       Int
+  staff_uid      String?   @db.Uuid
+  staff_role     String?   @db.VarChar(80)
+  start_at       DateTime  @db.Timestamptz(6)
+  end_at         DateTime  @db.Timestamptz(6)
+  is_active      Boolean   @default(true)
+  notes          String?
+  created_by     Int?
+  created_by_uid String?   @db.Uuid
+  ended_by       Int?
+  ended_by_uid   String?   @db.Uuid
+  ended_at       DateTime? @db.Timestamptz(6)
+  end_reason     String?
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_on_call_assignments_tenant")
+
+  @@index([tenant_id, department, tier, start_at, end_at], map: "idx_staff_on_call_active_window", where: raw("is_active"))
+  @@index([staff_id, start_at(sort: Desc)], map: "idx_staff_on_call_staff")
+  @@index([tenant_id], map: "idx_staff_on_call_tenant_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model staff_shift_swap_request_audit {
+  id                        Int                        @id @default(autoincrement())
+  tenant_id                 String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  swap_request_id           Int?
+  actor_id                  Int?
+  actor_uid                 String?                    @db.Uuid
+  action                    String                     @db.VarChar(40)
+  reason                    String?
+  before_snapshot           Json                       @default("{}")
+  after_snapshot            Json                       @default("{}")
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  tenants                   tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_swap_request_audit_tenant")
+  staff_shift_swap_requests staff_shift_swap_requests? @relation(fields: [swap_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([swap_request_id, created_at(sort: Desc)], map: "idx_staff_shift_swap_request_audit_request")
+  @@index([tenant_id], map: "idx_staff_shift_swap_request_audit_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model staff_shift_swap_requests {
+  id                                                                                                                  Int                              @id @default(autoincrement())
+  tenant_id                                                                                                           String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  department                                                                                                          String                           @db.VarChar(80)
+  requester_id                                                                                                        Int
+  requester_uid                                                                                                       String?                          @db.Uuid
+  requester_assignment_id                                                                                             Int
+  counterparty_id                                                                                                     Int
+  counterparty_uid                                                                                                    String?                          @db.Uuid
+  counterparty_assignment_id                                                                                          Int
+  status                                                                                                              String                           @default("proposed") @db.VarChar(30)
+  reason                                                                                                              String?
+  counterparty_note                                                                                                   String?
+  counterparty_responded_at                                                                                           DateTime?                        @db.Timestamptz(6)
+  decided_by                                                                                                          Int?
+  decided_by_uid                                                                                                      String?                          @db.Uuid
+  decided_at                                                                                                          DateTime?                        @db.Timestamptz(6)
+  decision_notes                                                                                                      String?
+  expires_at                                                                                                          DateTime                         @db.Timestamptz(6)
+  created_at                                                                                                          DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                          DateTime                         @default(now()) @db.Timestamptz(6)
+  staff_shift_swap_request_audit                                                                                      staff_shift_swap_request_audit[]
+  tenants                                                                                                             tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_swap_requests_tenant")
+  staff_shift_roster_assignments_staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments staff_shift_roster_assignments   @relation("staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments", fields: [counterparty_assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  staff_shift_roster_assignments_staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments    staff_shift_roster_assignments   @relation("staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments", fields: [requester_assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([counterparty_id, status, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_counterparty")
+  @@index([department, status, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_dept_status")
+  @@index([expires_at], map: "idx_staff_shift_swap_requests_expiry", where: raw("((status)::text = ANY ((ARRAY['proposed'::character varying, 'counterparty_accepted'::character varying])::text[]))"))
+  @@index([requester_id, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_requester")
+  @@index([tenant_id], map: "idx_staff_shift_swap_requests_tenant_id")
 }
 
 enum transplant_organ_type {

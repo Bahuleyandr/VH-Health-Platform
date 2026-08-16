@@ -101,6 +101,7 @@ import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
 import '../../features/schedule/screens/duty_preference_screen.dart';
+import '../../features/schedule/screens/shift_swap_screen.dart';
 
 // Handover
 import '../../features/nursing/screens/handover_screen.dart';
@@ -899,6 +900,12 @@ final GoRouter appRouter = GoRouter(
           name: 'duty-preference',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DutyPreferenceScreen()),
+        ),
+        GoRoute(
+          path: '/shift-swaps',
+          name: 'shift-swaps',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ShiftSwapScreen()),
         ),
 
         // Handover — accepts optional `patient_ref` and `phone` query

@@ -286,6 +286,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         color: AppTheme.primaryBlue,
       ),
       _RosterAction(
+        icon: Icons.swap_horiz,
+        label: s.lookup('s4.lib.shift_swap.title'),
+        route: '/shift-swaps',
+        color: const Color(0xFF00695C),
+      ),
+      _RosterAction(
         icon: Icons.event_available_outlined,
         label: s.leaveTitle,
         route: '/leave',

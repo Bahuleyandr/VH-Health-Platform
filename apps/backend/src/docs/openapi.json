@@ -29080,6 +29080,181 @@
           }
         }
       },
+      "OnCallAssignment": {
+        "type": "object",
+        "required": [
+          "id",
+          "department",
+          "tier",
+          "staff_id",
+          "start_at",
+          "end_at",
+          "is_active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "department": {
+            "type": "string"
+          },
+          "specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "1 = primary on call, 2 = secondary/backup, 3+ = further escalation tiers."
+          },
+          "staff_id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "staff_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "created_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "end_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OnCallAssignmentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnCallAssignment"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "OnCallAssignmentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OnCallAssignment"
+          }
+        }
+      },
+      "OnCallCreateRequest": {
+        "type": "object",
+        "required": [
+          "staff_id",
+          "start_at",
+          "end_at"
+        ],
+        "properties": {
+          "staff_id": {
+            "type": "integer"
+          },
+          "specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OnCallEndRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "OpFollowUpPendingResult": {
         "type": "object",
         "additionalProperties": false,
@@ -36945,6 +37120,242 @@
           }
         }
       },
+      "ShiftSwapListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShiftSwapRequest"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ShiftSwapProposeRequest": {
+        "type": "object",
+        "required": [
+          "requester_assignment_id",
+          "counterparty_assignment_id"
+        ],
+        "properties": {
+          "requester_assignment_id": {
+            "type": "integer",
+            "description": "The requester's own published staff_shift_roster_assignments row being offered."
+          },
+          "counterparty_assignment_id": {
+            "type": "integer",
+            "description": "The colleague's published assignment (same department) the requester wants in exchange."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ShiftSwapRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "department",
+          "requester_id",
+          "counterparty_id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "department": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "integer"
+          },
+          "requester_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "requester_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_assignment_id": {
+            "type": "integer"
+          },
+          "requester_roster_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "requester_shift_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_id": {
+            "type": "integer"
+          },
+          "counterparty_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "counterparty_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_assignment_id": {
+            "type": "integer"
+          },
+          "counterparty_roster_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "counterparty_shift_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "counterparty_accepted",
+              "counterparty_declined",
+              "approved",
+              "rejected",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_responded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "decided_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "decided_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "decision_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ShiftSwapRespondRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "decline"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ShiftSwapResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ShiftSwapRequest"
+          }
+        }
+      },
+      "ShiftSwapReviewRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "SignDischargeRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -37768,6 +38179,85 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "SwapCandidate": {
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "staff_id",
+          "department",
+          "roster_date",
+          "shift_label"
+        ],
+        "properties": {
+          "assignment_id": {
+            "type": "integer"
+          },
+          "staff_id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string"
+          },
+          "roster_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "shift_label": {
+            "type": "string"
+          },
+          "shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "assignment_target_label": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SwapCandidateListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwapCandidate"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -129780,6 +130270,76 @@
         ]
       }
     },
+    "/api/v1/staff/roster-board/departments/{department}/on-call": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_departments_by_department_on_call",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists a department's on-call roster for its roster managers; active/upcoming stints by default, full history with include_ended=true.",
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_departments_by_department_on_call",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates an on-call stint (department roster managers only). The staff member must hold one of the department's roster staff roles; overlapping active stints for the same department/specialty/tier are rejected by a database exclusion constraint. The staff member is notified in-app.",
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnCallCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/roster-board/departments/{department}/requests": {
       "get": {
         "operationId": "get_api_v1_staff_roster_board_departments_by_department_requests",
@@ -129798,6 +130358,37 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/staff/roster-board/departments/{department}/swaps": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_departments_by_department_swaps",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists a department's shift swap requests for reviewers (the same authority that reviews duty preference and coverage requests), counterparty-accepted requests first. Optional status filter.",
         "parameters": [
           {
             "name": "department",
@@ -130014,6 +130605,89 @@
         }
       }
     },
+    "/api/v1/staff/roster-board/on-call/my": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_on_call_my",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the authenticated staff member's current and upcoming on-call stints (active rows ending within the last 7 days or later)."
+      }
+    },
+    "/api/v1/staff/roster-board/on-call/now": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_on_call_now",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Who is on call right now (or at an optional `at` instant) — active on-call assignments covering the instant, optionally filtered by department and tier. The escalation engine consults the same table to order notification recipients."
+      }
+    },
+    "/api/v1/staff/roster-board/on-call/{id}/end": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_on_call_by_id_end",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ends an on-call stint early (soft end: the row keeps ended-by/at evidence and stops counting as active for who-is-on-call and escalation ordering).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnCallEndRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/roster-board/requests": {
       "post": {
         "operationId": "post_api_v1_staff_roster_board_requests",
@@ -130082,6 +130756,192 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/staff/roster-board/swaps": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Proposes a shift-for-shift swap: the requester offers one of their own published roster assignments and names a colleague's published assignment in the same department. Both shifts must be in the future; the request expires when the earlier shift starts. The colleague is notified in-app.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapProposeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/candidates": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_swaps_candidates",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapCandidateListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Published future assignments of colleagues in the requester's own roster department — the pick-list for proposing a swap. Excludes rows that already carry a live swap request."
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/my": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_swaps_my",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the authenticated staff member's shift swap requests — both those they proposed and those proposed to them — with both shifts' roster context, live requests first."
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_cancel",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requester withdrawal of a still-live shift swap request. The counterparty is notified.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/respond": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_respond",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Counterparty accept/decline of a proposed shift swap. Only the invited colleague can respond; acceptance moves the request to counterparty_accepted and hands it to the department reviewer.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapRespondRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_review",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Department reviewer decision. Approval requires prior counterparty acceptance and atomically exchanges the two roster assignment rows (person fields only — slot targets and lead flags stay with the slot) in one transaction with audit rows on both boards; both parties are notified. Rejection is allowed from proposed or counterparty_accepted.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapReviewRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/shift/{shift}": {

@@ -14,6 +14,7 @@ const staffNavExcludedRoutes = <String, String>{
   '/vitals': 'patient-context clinical entry point',
   '/mar/due': 'medication administration contextual queue',
   '/reports-grievances/admin': 'reports hub administrative subpage',
+  '/shift-swaps': 'schedule contextual subpage (shift swaps + on-call)',
   '/payroll/queries': 'payroll self-service subpage',
   '/payroll/declarations': 'payroll self-service subpage',
   '/payroll/tax-summary': 'payroll self-service subpage',
