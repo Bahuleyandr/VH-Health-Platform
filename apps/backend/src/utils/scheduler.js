@@ -749,6 +749,18 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('drug-chart-missing-sla', () => runMissingDrugChartSweep());
   }));
 
+  // ⏱️ Every 5 minutes - Generic overdue closer for workflow_sla_instances:
+  // flips active past-due clocks to 'breached' (breached_at = due_at) so
+  // instances with no linked task (beds, housekeeping, referrals, stroke,
+  // discharge consults, cath-lab, ...) stop sitting 'active' forever. No
+  // notification here — the escalation engine consumes 'breached' status.
+  registerCron('*/5 * * * *', withJobLock('workflow-sla-overdue-sweep', async () => {
+    const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+    await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+      runWorkflowSlaOverdueSweep({ tenantId })
+    ));
+  }));
+
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
   registerCron('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
 
@@ -1399,6 +1411,14 @@ export async function runAllScheduledTasksNow() {
     ));
     await runManualTask('drug-chart-missing-sla', () => (
       withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep))
+    ));
+    await runManualTask('workflow-sla-overdue-sweep', () => (
+      withDbAdvisoryLock('workflow-sla-overdue-sweep', () => runWithSuperAdmin(async () => {
+        const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+        await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+          runWorkflowSlaOverdueSweep({ tenantId })
+        ));
+      }))
     ));
     await runManualTask('unread-critical-notification-escalation', () => (
       withDbAdvisoryLock('unread-critical-notification-escalation', () => (
