@@ -38,6 +38,10 @@ const PATIENT_UID = randomUUID();
 const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 12);
 const TEMPLATE_KEY = 'sms.investigation_booking_confirmed.v1';
 const REQUEST_ID = `msg91-req-${SUFFIX}`;
+// All-digit phone: the hex SUFFIX can contain a-f, which normalizePhone
+// strips — a letterful phone collapses below 10 digits and classifies as
+// phone_missing instead of reaching the provider.
+const PHONE = `98${String(Date.now()).slice(-8)}`;
 
 const realFetch = global.fetch;
 let callbackToken = null;
@@ -50,7 +54,7 @@ function intent(sourceEventKey, { templateVersion = TEMPLATE_KEY } = {}) {
     sourceEventKey,
     templateVersion,
     recipientId: PATIENT_UID,
-    recipientPhone: `98${SUFFIX.slice(0, 8)}00`,
+    recipientPhone: PHONE,
     title: 'Booking confirmed',
     body: 'Your investigation INV-9 is confirmed.',
     data: { tenant_id: TENANT_ID, event: sourceEventKey },
@@ -95,7 +99,7 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, phone, email, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, $3::text, $4::text, 'SMS deep patient', 'PATIENT', true, NOW())`,
-      PATIENT_UID, TENANT_ID, `98${SUFFIX.slice(0, 8)}00`, `sms-deep-${SUFFIX}@example.test`,
+      PATIENT_UID, TENANT_ID, PHONE, `sms-deep-${SUFFIX}@example.test`,
     );
 
     const view = await upsertSmsProviderConfig({
