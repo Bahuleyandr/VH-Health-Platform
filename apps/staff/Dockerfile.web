@@ -21,6 +21,17 @@
 # (tag list checked 2026-08-16), so the build stage installs the official
 # Flutter stable tarball — sha256-pinned from the Flutter release manifest —
 # onto a digest-pinned Debian base instead.
+#
+# ARCHITECTURE: this image is linux/amd64-ONLY. Flutter publishes no
+# linux-arm64 SDK tarball at all (releases_linux.json carries only
+# dart_sdk_arch=x64 entries — manifest checked 2026-08-16), so the build stage
+# below can only ever run x64 toolchain binaries. The release workflows
+# (.github/workflows/release-images.yml and .forgejo/workflows/
+# release-images.yml) therefore constrain the staff-web buildx platforms to
+# linux/amd64; check-infra-security-controls.mjs pins that constraint. If
+# Flutter ever ships official linux-arm64 stable tarballs, switch to
+# TARGETARCH-conditional tarball selection with per-arch sha256 pins and lift
+# the workflow constraint in the same commit.
 ARG BUILD_IMAGE=debian:12-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 ARG NGINX_IMAGE=nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 

@@ -244,9 +244,19 @@ jobs:
 
           docker buildx create --name vh-release-builder --use >/dev/null 2>&1 || docker buildx use vh-release-builder
           docker buildx inspect --bootstrap
+          # staff-web is amd64-only regardless of RELEASE_PLATFORMS:
+          # Dockerfile.web installs the official Flutter linux tarball, which
+          # is published for x64 ONLY (no linux-arm64 stable tarball exists in
+          # the Flutter release manifest — checked 2026-08-16). Pinned by
+          # check-infra-security-controls.mjs.
+          build_platforms="$RELEASE_PLATFORMS"
+          if [ "${{ matrix.app }}" = "staff-web" ]; then
+            build_platforms="linux/amd64"
+          fi
+          echo "BUILD_PLATFORMS=$build_platforms" >> "$GITHUB_ENV"
           docker buildx build \
             --pull \
-            --platform "$RELEASE_PLATFORMS" \
+            --platform "$build_platforms" \
             --metadata-file "output/release-images/${{ matrix.app }}/build-metadata.json" \
             --push \
             "${tag_args[@]}" \
@@ -305,7 +315,7 @@ jobs:
             echo "Primary tag: \`${PRIMARY_TAG}\`"
             if [ -n "${LATEST_TAG:-}" ]; then echo "Latest tag: \`${LATEST_TAG}\`"; fi
             echo "Digest: \`${IMAGE_DIGEST}\`"
-            echo "Platforms: \`${RELEASE_PLATFORMS}\`"
+            echo "Platforms: \`${BUILD_PLATFORMS:-$RELEASE_PLATFORMS}\`"
             echo "Signed: cosign key from Forgejo secret \`COSIGN_PRIVATE_KEY\`"
           } > "output/release-images/${{ matrix.app }}/SUMMARY.md"
 

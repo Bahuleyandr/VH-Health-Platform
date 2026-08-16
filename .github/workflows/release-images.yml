@@ -565,7 +565,13 @@ jobs:
           context: .
           file: ./apps/staff/Dockerfile.web
           push: true
-          platforms: linux/amd64,linux/arm64
+          # amd64-only: Dockerfile.web installs the official Flutter linux
+          # tarball, which is published for x64 ONLY (no linux-arm64 stable
+          # tarball exists in the Flutter release manifest — checked
+          # 2026-08-16). An arm64 platform build would run x64 toolchain
+          # binaries under an arm64 userland and claim an arch it never
+          # verified. Pinned by check-infra-security-controls.mjs.
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=staff-web
