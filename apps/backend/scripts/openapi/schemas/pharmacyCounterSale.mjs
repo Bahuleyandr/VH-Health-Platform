@@ -11,7 +11,7 @@ export const schemas = {
     required: ['inventory_item_id', 'quantity'],
     properties: {
       inventory_item_id: { type: 'integer' },
-      quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      quantity: { type: 'number', minimum: 0.0001 },
     },
   },
 
