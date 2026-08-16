@@ -9,7 +9,10 @@
 //   webhook_deliveries.status pending|failed|dead                 (dead = terminal undelivered)
 //   notification_outbox.status PENDING|CLAIMED|SENT|FAILED|RECONCILIATION_REQUIRED|SUPPRESSED (UPPERCASE;
 //     FAILED retries until retry_count>=3 then dead-letters; RECONCILIATION_REQUIRED
-//     is never auto-retried — de-facto dead letter, mig-609 contract)
+//     rows with a provider-uncertainty reason are auto-requeued as NEW intents by the
+//     bounded notification-outbox-auto-replay sweep (mig-690) — the row itself is never
+//     re-sent (mig-609 contract) and chains past the generation/age bound are terminal;
+//     SUPPRESSED is terminal-by-design (payroll supersede semantics — never retried))
 import prisma, { circuitBreakerStatus, setTenant } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import {
@@ -18,6 +21,11 @@ import {
 } from '../config/pathwayProjectorConfig.js';
 import { CANONICAL_PATHWAY_KEYS } from '../services/pathways/pathwayMode.js';
 import { pathwayReconciliationRegistry } from '../services/pathways/pathwayReconciliationRegistry.js';
+import {
+  AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+  NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+} from '../utils/notifications/terminalRejectionCodes.js';
 import { Gauge, Counter } from './metricPrimitives.js';
 
 // ---- Gauges (set by the collector) ----------------------------------------
@@ -28,8 +36,10 @@ const eventOutboxProcessing = new Gauge('event_outbox_processing_rows', 'event_o
 const eventOutboxStaleProcessing = new Gauge('event_outbox_stale_processing_rows', 'event_outbox processing rows whose lease has expired');
 const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 'notification_outbox rows in PENDING status');
 const notificationOutboxFailed = new Gauge('notification_outbox_failed_rows', 'notification_outbox rows in FAILED status (retrying until retry_count >= 3)');
-const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'notification_outbox rows in RECONCILIATION_REQUIRED status (never auto-retried — de-facto dead letters)');
+const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'notification_outbox rows in RECONCILIATION_REQUIRED status (the row itself is never re-sent; provider-uncertainty reasons are requeued as new intents by the bounded auto-replay sweep)');
 const notificationOutboxDeadLetter = new Gauge('notification_outbox_dead_letter_rows', 'notification_outbox rows no auto-path will retry: FAILED with retry_count >= 3 plus all RECONCILIATION_REQUIRED');
+const notificationOutboxSuppressed = new Gauge('notification_outbox_suppressed_rows', 'notification_outbox rows in SUPPRESSED status — intentional never-send cancellations (payroll supersede semantics), terminal by design and never counted as dead letters');
+const notificationOutboxTerminalDeadLetter = new Gauge('notification_outbox_terminal_dead_letter_rows', 'notification_outbox rows the auto-replay sweep will never touch and only operator action can resolve: unsuperseded RECONCILIATION_REQUIRED past the generation/age bound or outside the auto-replayable reason allowlist, plus FAILED terminal provider rejections at the retry ceiling');
 const notificationDeliveryPausedCursors = new Gauge('notification_delivery_paused_cursors', 'Notification delivery cursors paused on an unresolved provider outcome', ['state']);
 const reliabilityMetricsLastSuccess = new Gauge('reliability_metrics_last_success_timestamp_seconds', 'Unix timestamp of the last complete successful configured reliability-metric collection');
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
@@ -107,6 +117,7 @@ const eventDeadLettered = new Counter('event_outbox_dead_lettered_total', 'event
 const eventOutboxLeaseReaped = new Counter('event_outbox_stale_lease_reaped_total', 'Expired event_outbox processing leases recovered by the bounded source reaper', []);
 const webhookDeliveryLeaseReaped = new Counter('webhook_deliveries_stale_lease_reaped_total', 'Expired webhook delivery leases recovered by the bounded delivery reaper', []);
 const outboxOperatorRedrive = new Counter('outbox_operator_redrive_total', 'Audited operator dead-letter redrives by bounded queue kind', ['queue']);
+const notificationOutboxAutoReplay = new Counter('notification_outbox_auto_replay_total', 'notification-outbox-auto-replay sweep outcomes: requeued = a RECONCILIATION_REQUIRED row was superseded by a new bounded-generation intent; exhausted = a replay chain crossed the generation bound and is now terminal (operator-only). Distinct from outbox_operator_redrive_total, which means a human acted.', ['outcome']);
 const ledgerReconciliationDrift = new Counter('ledger_reconciliation_drift_total', 'Money-ledger reconciliation drift signals from the periodic sweep (ledger vs legacy event tables / unwired invoice / unbalanced trial balance). Hard-alerted (Sentry fatal) at enforce mode.', ['kind']);
 const noteDraftJanitorDeletions = new Counter('note_draft_janitor_deletions_total', 'Clinical note_drafts rows removed by the daily TTL janitor (purgeExpiredNoteDrafts). A private-scratchpad cleanup — no canonical clinical events.', []);
 const noteDraftSaveErrors = new Counter('note_draft_save_errors_total', 'Clinical note-draft (autosave) UPSERTs that failed on an UNEXPECTED error (real DB/write failure). Deliberate 400 validation rejections (AppError NOTE_DRAFT_*) are client faults and are NOT counted here.', []);
@@ -135,6 +146,16 @@ export function recordWebhookDeliveryLeaseReaped(count) {
 const OUTBOX_REDRIVE_QUEUES = new Set(['event_outbox', 'webhook_delivery', 'notification_outbox']);
 export function recordOutboxOperatorRedrive(queue) {
   outboxOperatorRedrive.inc({ queue: OUTBOX_REDRIVE_QUEUES.has(queue) ? queue : 'other' });
+}
+// outcome is a bounded, low-cardinality label; anything unexpected collapses to 'other'.
+const AUTO_REPLAY_OUTCOMES = new Set(['requeued', 'exhausted']);
+export function recordNotificationOutboxAutoReplay(outcome, count = 1) {
+  const n = Number(count);
+  if (!Number.isSafeInteger(n) || n <= 0) return;
+  notificationOutboxAutoReplay.inc(
+    { outcome: AUTO_REPLAY_OUTCOMES.has(outcome) ? outcome : 'other' },
+    n,
+  );
 }
 const LEDGER_DRIFT_KINDS = new Set(['mismatch', 'unwired', 'events', 'trial_balance']);
 export function recordLedgerReconciliationDrift(kind) {
@@ -405,6 +426,8 @@ export async function collectReliabilityMetrics() {
       failed: 0,
       reconciliationRequired: 0,
       deadLetter: 0,
+      suppressed: 0,
+      terminalDeadLetter: 0,
       pausedRejected: 0,
       pausedUncertain: 0,
     };
@@ -420,16 +443,33 @@ export async function collectReliabilityMetrics() {
             (SELECT COUNT(*) FROM notification_outbox
               WHERE (status = 'FAILED' AND retry_count >= 3)
                  OR status = 'RECONCILIATION_REQUIRED') AS dead_letter,
+            (SELECT COUNT(*) FROM notification_outbox
+              WHERE status = 'SUPPRESSED') AS suppressed,
+            (SELECT COUNT(*) FROM notification_outbox
+              WHERE (status = 'FAILED' AND retry_count >= 3
+                     AND failure_reason = 'provider_terminal_rejection')
+                 OR (status = 'RECONCILIATION_REQUIRED'
+                     AND COALESCE(failure_reason, '') <> $1::text
+                     AND (replay_generation >= $2::smallint
+                          OR created_at <= NOW() - INTERVAL '24 hours'
+                          OR COALESCE(failure_reason, '') <> ALL($3::text[])))
+            ) AS terminal_dead_letter,
             (SELECT COUNT(*) FROM notification_delivery_cursors
               WHERE state = 'paused_rejected') AS paused_rejected,
             (SELECT COUNT(*) FROM notification_delivery_cursors
               WHERE state = 'paused_uncertain') AS paused_uncertain
-        `),
+        `,
+        OPERATOR_REPLAY_SUPERSEDED_REASON,
+        NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+        AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+        ),
       );
       totals.pending += Number(row?.pending ?? 0);
       totals.failed += Number(row?.failed ?? 0);
       totals.reconciliationRequired += Number(row?.reconciliation_required ?? 0);
       totals.deadLetter += Number(row?.dead_letter ?? 0);
+      totals.suppressed += Number(row?.suppressed ?? 0);
+      totals.terminalDeadLetter += Number(row?.terminal_dead_letter ?? 0);
       totals.pausedRejected += Number(row?.paused_rejected ?? 0);
       totals.pausedUncertain += Number(row?.paused_uncertain ?? 0);
     }
@@ -437,6 +477,8 @@ export async function collectReliabilityMetrics() {
     notificationOutboxFailed.set({}, totals.failed);
     notificationOutboxReconciliationRequired.set({}, totals.reconciliationRequired);
     notificationOutboxDeadLetter.set({}, totals.deadLetter);
+    notificationOutboxSuppressed.set({}, totals.suppressed);
+    notificationOutboxTerminalDeadLetter.set({}, totals.terminalDeadLetter);
     notificationDeliveryPausedCursors.replace([
       { labels: { state: 'paused_rejected' }, value: totals.pausedRejected },
       { labels: { state: 'paused_uncertain' }, value: totals.pausedUncertain },
@@ -672,6 +714,7 @@ export function serializeReliabilityMetrics() {
     eventOutboxProcessing, eventOutboxStaleProcessing,
     notificationOutboxPending, notificationOutboxFailed,
     notificationOutboxReconciliationRequired, notificationOutboxDeadLetter,
+    notificationOutboxSuppressed, notificationOutboxTerminalDeadLetter,
     notificationDeliveryPausedCursors, reliabilityMetricsLastSuccess,
     webhookPending, webhookFailed, webhookDead,
     webhookInFlight, webhookStaleInFlight, webhookParked,
@@ -698,6 +741,7 @@ export function serializeReliabilityMetrics() {
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
     eventOutboxLeaseReaped, webhookDeliveryLeaseReaped, outboxOperatorRedrive,
+    notificationOutboxAutoReplay,
     ledgerReconciliationDrift,
     noteDraftJanitorDeletions, noteDraftSaveErrors,
   ];

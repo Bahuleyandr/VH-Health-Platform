@@ -127,6 +127,15 @@ spec:
           annotations:
             summary: "Notification provider outcomes are uncertain and require evidence-led reconciliation"
             runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxreconciliationrequired"
+        - alert: NotificationOutboxTerminalDeadLetters
+          expr: max(notification_outbox_terminal_dead_letter_rows) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "notification_outbox rows have exhausted the bounded auto-replay path and require operator resolution"
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxterminaldeadletters"
         - alert: NotificationDeliveryCursorPaused
           expr: max by (state) (notification_delivery_paused_cursors) > 0
           for: 5m

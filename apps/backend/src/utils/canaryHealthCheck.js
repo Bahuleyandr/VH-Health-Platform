@@ -1,6 +1,11 @@
 import prisma from '../lib/prisma.js';
 import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
+import {
+  AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+  NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+} from './notifications/terminalRejectionCodes.js';
 
 /**
  * Runs synthetic tests against critical paths to detect silent failures.
@@ -39,10 +44,15 @@ async function runCanaryChecksInner() {
 
   // 3. Notification outbox health (F7/F11, audit 2026-08-10): stuck PENDING
   //    rows AND the dead-letter states. FAILED rows with retry_count >= 3 are
-  //    never re-claimed by the drain, and RECONCILIATION_REQUIRED rows are
-  //    never auto-retried at all (mig-609 contract) — both are undelivered
-  //    notifications no automatic path will ever send, so the canary must
-  //    surface them instead of counting only PENDING.
+  //    never re-claimed by the drain. RECONCILIATION_REQUIRED rows are split
+  //    since the bounded auto-replay sweep (mig-690): rows the sweep can still
+  //    requeue as new intents stay in the aggregate 'warn' bucket, while
+  //    terminal rows — past the generation/age bound or outside the
+  //    auto-replayable reason allowlist, plus terminal provider rejections —
+  //    have no automatic path left and go 'critical' (operator-only).
+  //    notification_dead_letters keeps its original aggregate shape;
+  //    notification_dead_letters_terminal is additive (contract tests and
+  //    dashboards pin the existing keys).
   try {
     const [outbox] = await prisma.$queryRawUnsafe(
       `SELECT
@@ -50,12 +60,25 @@ async function runCanaryChecksInner() {
            WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL '30 minutes'
          ) AS stuck_pending,
          COUNT(*) FILTER (WHERE status = 'FAILED' AND retry_count >= 3) AS failed_dead_letters,
-         COUNT(*) FILTER (WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required
-       FROM notification_outbox`
+         COUNT(*) FILTER (WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required,
+         COUNT(*) FILTER (
+           WHERE (status = 'FAILED' AND retry_count >= 3
+                  AND failure_reason = 'provider_terminal_rejection')
+              OR (status = 'RECONCILIATION_REQUIRED'
+                  AND COALESCE(failure_reason, '') <> $1::text
+                  AND (replay_generation >= $2::smallint
+                       OR created_at <= NOW() - INTERVAL '24 hours'
+                       OR COALESCE(failure_reason, '') <> ALL($3::text[])))
+         ) AS terminal_dead_letters
+       FROM notification_outbox`,
+      OPERATOR_REPLAY_SUPERSEDED_REASON,
+      NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+      AUTO_REPLAYABLE_RECONCILIATION_REASONS,
     );
     const stuckCount = parseInt(outbox?.stuck_pending || 0);
     const failedDeadLetters = parseInt(outbox?.failed_dead_letters || 0);
     const reconciliationRequired = parseInt(outbox?.reconciliation_required || 0);
+    const terminalDeadLetters = parseInt(outbox?.terminal_dead_letters || 0);
     results.stuck_notifications = {
       status: stuckCount > 50 ? 'warn' : 'ok',
       count: stuckCount
@@ -66,9 +89,14 @@ async function runCanaryChecksInner() {
       failed: failedDeadLetters,
       reconciliation_required: reconciliationRequired
     };
+    results.notification_dead_letters_terminal = {
+      status: terminalDeadLetters > 0 ? 'critical' : 'ok',
+      count: terminalDeadLetters
+    };
   } catch (err) {
     results.stuck_notifications = { status: 'skip', error: err.message };
     results.notification_dead_letters = { status: 'skip', error: err.message };
+    results.notification_dead_letters_terminal = { status: 'skip', error: err.message };
   }
 
   // 4. Check for unprocessed clinical alerts (older than 15 min)

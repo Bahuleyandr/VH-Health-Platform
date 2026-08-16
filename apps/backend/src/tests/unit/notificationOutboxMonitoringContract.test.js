@@ -18,6 +18,7 @@ describe('notification outbox operational monitoring contract', () => {
     for (const alert of [
       'NotificationOutboxDeadLetters',
       'NotificationOutboxReconciliationRequired',
+      'NotificationOutboxTerminalDeadLetters',
       'NotificationDeliveryCursorPaused',
       'ReliabilityMetricsStale',
     ]) {
@@ -26,11 +27,17 @@ describe('notification outbox operational monitoring contract', () => {
     }
     expect(alerts).toContain('reliability_metrics_last_success_timestamp_seconds');
     expect(alerts).toContain('max(time() - reliability_metrics_last_success_timestamp_seconds) > 300');
+    // Terminal rows have no automatic path left (auto-replay bound crossed,
+    // aged out, or terminal provider rejection) — operator-only, so critical.
+    expect(alerts).toContain('max(notification_outbox_terminal_dead_letter_rows) > 0');
   });
 
   it('shows the notification delivery ledger and collector freshness on the reliability dashboard', () => {
     expect(dashboard).toContain('notification_outbox_dead_letter_rows');
     expect(dashboard).toContain('notification_outbox_reconciliation_required_rows');
+    expect(dashboard).toContain('notification_outbox_terminal_dead_letter_rows');
+    expect(dashboard).toContain('notification_outbox_suppressed_rows');
+    expect(dashboard).toContain('notification_outbox_auto_replay_total');
     expect(dashboard).toContain('notification_delivery_paused_cursors');
     expect(dashboard).toContain('max(time() - reliability_metrics_last_success_timestamp_seconds)');
   });

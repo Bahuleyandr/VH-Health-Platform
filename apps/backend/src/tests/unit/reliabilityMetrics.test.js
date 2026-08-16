@@ -6,6 +6,7 @@ import {
   recordEventOutboxLeaseReaped,
   recordNoteDraftJanitorDeletions,
   recordNoteDraftSaveError,
+  recordNotificationOutboxAutoReplay,
   recordOutboxOperatorRedrive,
   recordWebhookDeliveryLeaseReaped,
   serializeReliabilityMetrics,
@@ -24,6 +25,9 @@ describe('reliabilityMetrics serialization', () => {
       'notification_outbox_failed_rows',
       'notification_outbox_reconciliation_required_rows',
       'notification_outbox_dead_letter_rows',
+      'notification_outbox_suppressed_rows',
+      'notification_outbox_terminal_dead_letter_rows',
+      'notification_outbox_auto_replay_total',
       'webhook_deliveries_pending_rows',
       'webhook_deliveries_failed_rows',
       'webhook_deliveries_dead_rows',
@@ -76,6 +80,18 @@ describe('reliabilityMetrics serialization', () => {
     expect(out).toContain('outbox_operator_redrive_total{queue="event_outbox"} 1');
     expect(out).toContain('outbox_operator_redrive_total{queue="notification_outbox"} 1');
     expect(out).toContain('outbox_operator_redrive_total{queue="other"} 1');
+  });
+
+  it('recordNotificationOutboxAutoReplay increments by count with bounded outcomes', () => {
+    recordNotificationOutboxAutoReplay('requeued', 2);
+    recordNotificationOutboxAutoReplay('exhausted', 1);
+    recordNotificationOutboxAutoReplay('unexpected-outcome', 1);
+    recordNotificationOutboxAutoReplay('requeued', 0); // no-op
+    recordNotificationOutboxAutoReplay('exhausted', -3); // no-op
+    const out = serializeReliabilityMetrics();
+    expect(out).toContain('notification_outbox_auto_replay_total{outcome="requeued"} 2');
+    expect(out).toContain('notification_outbox_auto_replay_total{outcome="exhausted"} 1');
+    expect(out).toContain('notification_outbox_auto_replay_total{outcome="other"} 1');
   });
 
   // Read a no-label counter's current value from the serialized exposition text
