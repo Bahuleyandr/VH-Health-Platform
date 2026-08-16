@@ -3435,6 +3435,10 @@ class AppLocalizationsTe extends AppLocalizations {
   String get splashUpdateButton => 'VH Health అప్‌డేట్ చేయండి';
 
   @override
+  String get splashUpdateNoStoreBody =>
+      'అప్‌డేట్ చేసిన వెర్షన్ ఈ పరికరంలో డౌన్‌లోడ్ కోసం ఇంకా అందుబాటులో లేదు. VH Health తాజా వెర్షన్ ఇన్‌స్టాల్ చేయడంలో సహాయం కోసం దయచేసి ఆసుపత్రి రిసెప్షన్‌ను సంప్రదించండి.';
+
+  @override
   String get yourHealthTimelineFilterAll => 'అన్నీ';
 
   @override

@@ -2419,6 +2419,7 @@
   "splashUpdateRequired": "అప్‌డేట్ అవసరం",
   "splashUpdateBody": "VH Health ఈ వెర్షన్ ఇక మద్దతు ఇవ్వబడదు. కొనసాగించడానికి తాజా వెర్షన్ ఇన్‌స్టాల్ చేయండి.",
   "splashUpdateButton": "VH Health అప్‌డేట్ చేయండి",
+  "splashUpdateNoStoreBody": "అప్‌డేట్ చేసిన వెర్షన్ ఈ పరికరంలో డౌన్‌లోడ్ కోసం ఇంకా అందుబాటులో లేదు. VH Health తాజా వెర్షన్ ఇన్‌స్టాల్ చేయడంలో సహాయం కోసం దయచేసి ఆసుపత్రి రిసెప్షన్‌ను సంప్రదించండి.",
   "yourHealthTimelineFilterAll": "అన్నీ",
   "yourHealthTimelineFilterVisits": "సందర్శనలు",
   "yourHealthTimelineFilterPrescriptions": "ప్రిస్క్రిప్షన్లు",
