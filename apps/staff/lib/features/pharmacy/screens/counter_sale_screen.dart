@@ -122,10 +122,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   bool get _needsRx => _cart.any((l) => l.isScheduled);
   bool get _needsWitness => _cart.any((l) => l.isWitnessed);
 
-  double get _estimatedTotal => _cart.fold(
-    0,
-    (sum, line) => sum + (line.unitPrice ?? 0) * line.quantity,
-  );
+  double get _estimatedTotal =>
+      _cart.fold(0, (sum, line) => sum + (line.unitPrice ?? 0) * line.quantity);
 
   void _snack(String message, {bool error = false}) {
     if (!mounted) return;
@@ -206,14 +204,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       final witnessName = _witnessNameCtrl.text.trim();
       final result = await creator(
         lines: _cart
-            .map(
-              (l) => {'inventory_item_id': l.itemId, 'quantity': l.quantity},
-            )
+            .map((l) => {'inventory_item_id': l.itemId, 'quantity': l.quantity})
             .toList(),
         patientUid: _walkIn ? null : _patientUidCtrl.text.trim(),
         customerName: _walkIn ? _customerNameCtrl.text.trim() : null,
-        customerPhone:
-            _walkIn && _customerPhoneCtrl.text.trim().isNotEmpty
+        customerPhone: _walkIn && _customerPhoneCtrl.text.trim().isNotEmpty
             ? _customerPhoneCtrl.text.trim()
             : null,
         rx: _needsRx
@@ -237,9 +232,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       final invoiceNumber = invoice is Map
           ? (invoice['invoice_number']?.toString() ?? '—')
           : '—';
-      _snack(
-        s.format('s4.lib.counter_sale.sold', {'invoice': invoiceNumber}),
-      );
+      _snack(s.format('s4.lib.counter_sale.sold', {'invoice': invoiceNumber}));
       setState(() {
         _cart.clear();
         _rxDoctorCtrl.clear();
@@ -359,9 +352,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 )
               : const Icon(Icons.point_of_sale),
           label: Text(s.lookup('s4.lib.counter_sale.sell')),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
-          ),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
         ),
         const SizedBox(height: 24),
       ],
@@ -398,8 +389,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               ),
             ),
             ..._results.take(8).map((item) {
-              final inStock =
-                  ((item['in_stock_quantity'] as num?) ?? 0).toDouble();
+              final inStock = ((item['in_stock_quantity'] as num?) ?? 0)
+                  .toDouble();
               final schedule = item['schedule_class']?.toString();
               final price = (item['fefo_unit_price'] as num?)?.toDouble();
               final expiry = item['fefo_expiry_date']
@@ -427,9 +418,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 leading: schedule != null || item['is_narcotic'] == true
                     ? Chip(
                         label: Text(
-                          item['is_narcotic'] == true
-                              ? 'X'
-                              : schedule ?? '',
+                          item['is_narcotic'] == true ? 'X' : schedule ?? '',
                           style: const TextStyle(fontSize: 11),
                         ),
                         backgroundColor: Colors.red.shade50,
@@ -496,8 +485,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                             ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline),
-                            onPressed: () =>
-                                setState(() => _cart.remove(line)),
+                            onPressed: () => setState(() => _cart.remove(line)),
                           ),
                         ],
                       ),
@@ -665,10 +653,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   s.lookup('s4.lib.counter_sale.cash_drawer_hint'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.orange.shade800,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
                 ),
               )
             else ...[
@@ -727,9 +712,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                   ? TextButton(
                       key: ValueKey('counter-sale-void-${sale['id']}'),
                       onPressed: () => _voidSale(sale),
-                      child: Text(
-                        s.lookup('s4.lib.counter_sale.void_action'),
-                      ),
+                      child: Text(s.lookup('s4.lib.counter_sale.void_action')),
                     )
                   : null,
             ),

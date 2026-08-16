@@ -140,9 +140,7 @@ void main() {
       find.byKey(const ValueKey('counter-sale-customer-name')),
       'Walk-in Customer',
     );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('counter-sale-sell')),
-    );
+    await tester.ensureVisible(find.byKey(const ValueKey('counter-sale-sell')));
     await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
     await tester.pumpAndSettle();
 
@@ -175,9 +173,7 @@ void main() {
     },
   );
 
-  testWidgets('recent tab lists sales and voids with a reason', (
-    tester,
-  ) async {
+  testWidgets('recent tab lists sales and voids with a reason', (tester) async {
     String? voidedId;
     String? voidedReason;
     await tester.pumpWidget(
