@@ -504,14 +504,30 @@ export async function createCounterSale({
     return { sale: saleRow, lineRows: inserted };
   });
 
+  // ★ Only an IN_PROGRESS sale may be demoted. Migration 684's contract is
+  // "FAILED rows hold no stock and no money"; without the status predicate a
+  // compensation path could overwrite a COMPLETED, paid, stock-decremented
+  // sale — leaving cash in the drawer against a row that reads as failed, and
+  // one that voidCounterSale then refuses to refund because it is not
+  // COMPLETED. The predicate makes the compensation a no-op once the sale is
+  // real, which is the only safe direction.
   const markSale = async (status) => {
-    await prisma.$executeRawUnsafe(
+    const changed = await prisma.$executeRawUnsafe(
       `UPDATE pharmacy_counter_sales SET status = $1, updated_at = NOW()
-        WHERE id = $2::bigint AND tenant_id = $3::uuid`,
+        WHERE id = $2::bigint AND tenant_id = $3::uuid
+          AND status = 'IN_PROGRESS'`,
       status, sale.id, tenant,
-    ).catch((err) => logger.error('counter sale status update failed', {
-      sale_id: sale.id, status, error: err.message,
-    }));
+    ).catch((err) => {
+      logger.error('counter sale status update failed', {
+        sale_id: sale.id, status, error: err.message,
+      });
+      return 0;
+    });
+    if (!changed) {
+      logger.warn('counter sale status update skipped — sale is no longer IN_PROGRESS', {
+        sale_id: sale.id, attempted_status: status,
+      });
+    }
   };
 
   // ── Phase 2: billingV2 invoice (draft → items → issue) ────────────────
@@ -695,11 +711,28 @@ export async function createCounterSale({
       }
     }
 
-    return {
-      sale: result.sale,
-      invoice: await getInvoice(invoice.id, { tenantId: tenant }),
-      payment: result.payment,
-    };
+    // ★ Response assembly is OUTSIDE the compensating try.
+    //
+    // Everything above has COMMITTED: stock is decremented, money is recorded,
+    // the statutory register is written. getInvoice makes five further
+    // round-trips purely to enrich the response. Leaving it inside the catch
+    // below meant a transient read error flipped a COMPLETED, paid,
+    // stock-decremented sale to FAILED and returned a 500 — the cashier then
+    // rings it up again (double dispense, double charge), and the original can
+    // never be voided because voidCounterSale only accepts COMPLETED.
+    //
+    // A read failure here costs the caller a richer invoice object, nothing
+    // more. The sale is already real, so we degrade to the invoice we already
+    // hold rather than failing a transaction that succeeded.
+    let invoiceView = invoice;
+    try {
+      invoiceView = await getInvoice(invoice.id, { tenantId: tenant });
+    } catch (readErr) {
+      logger.warn('Counter sale committed; invoice re-read failed — returning the issued invoice', {
+        counter_sale_id: sale.id, invoice_id: invoice.id, error: readErr.message,
+      });
+    }
+    return { sale: result.sale, invoice: invoiceView, payment: result.payment };
   } catch (err) {
     // Compensation: the issued invoice holds no payment (the payment was part
     // of the rolled-back tx), so it can still be voided cleanly.

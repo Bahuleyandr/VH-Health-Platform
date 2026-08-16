@@ -78,7 +78,11 @@ router.get('/items', requireRead, wrap(async (req) => ({
 // replay return the cached original sale and a concurrent duplicate a 409,
 // never a second sale.
 router.post('/', requireSell, requireIdempotencyKey({
-  required: true, scope: 'pharmacy_counter_sale',
+  // retainOnServerError: this handler commits stock, money and the statutory
+  // register, then assembles its response — a 5xx here does NOT mean "nothing
+  // happened". Releasing the claim would let the transport's automatic replay
+  // dispense and charge a second time.
+  required: true, scope: 'pharmacy_counter_sale', retainOnServerError: true,
 }), wrap(async (req) => counterSales.createCounterSale({
   tenantId: tenantOf(req),
   lines: req.body.lines,
@@ -115,7 +119,9 @@ router.get('/:id', requireRead, wrap(async (req) => counterSales.getCounterSale(
 // stock (restock); a transport replay must return the original void result,
 // not race a second attempt.
 router.post('/:id/void', requireVoid, requireIdempotencyKey({
-  required: true, scope: 'pharmacy_counter_sale_void',
+  // Same reasoning as the sale: a void moves money (refund) and stock
+  // (restock), so a post-commit 5xx must not be replayed into a second void.
+  required: true, scope: 'pharmacy_counter_sale_void', retainOnServerError: true,
 }), wrap(async (req) => counterSales.voidCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
