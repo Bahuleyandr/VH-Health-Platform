@@ -242,8 +242,41 @@ jobs:
               ;;
           esac
 
-          docker buildx create --name vh-release-builder --use >/dev/null 2>&1 || docker buildx use vh-release-builder
-          docker buildx inspect --bootstrap
+          # Use a new builder name so the uncapped builder remains available
+          # for an operator-directed rollback.
+          builder_name="vh-release-builder-v2"
+          if docker buildx inspect "$builder_name" >/dev/null 2>&1; then
+            docker buildx use "$builder_name"
+          else
+            docker buildx create \
+              --name "$builder_name" \
+              --driver docker-container \
+              --buildkitd-config .forgejo/buildkitd-dalekdefender.toml \
+              --use
+          fi
+          docker buildx inspect "$builder_name" --bootstrap
+
+          builder_container="buildx_buildkit_${builder_name}0"
+          worker_json="$(docker exec "$builder_container" buildctl debug workers --format '{{json .}}')"
+          WORKER_JSON="$worker_json" node -e '
+            const workers = JSON.parse(process.env.WORKER_JSON);
+            const valid = Array.isArray(workers) && workers.length > 0 && workers.every(
+              worker => Array.isArray(worker.gcPolicy) && worker.gcPolicy.some(
+                policy => policy.all === true &&
+                  policy.reservedSpace === 8000000000 &&
+                  policy.maxUsedSpace === 30000000000 &&
+                  policy.minFreeSpace === 300000000000,
+              ),
+            );
+            if (!valid) {
+              console.error("BuildKit v2 GC policy does not match the Dalekdefender cap");
+              process.exit(1);
+            }
+          '
+          if [ "$(docker inspect -f '{{.HostConfig.LogConfig.Type}}' "$builder_container")" != "local" ]; then
+            echo "::error::BuildKit v2 is not using the bounded local log driver"
+            exit 1
+          fi
           # staff-web is amd64-only regardless of RELEASE_PLATFORMS:
           # Dockerfile.web installs the official Flutter linux tarball, which
           # is published for x64 ONLY (no linux-arm64 stable tarball exists in
