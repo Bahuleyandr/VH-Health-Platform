@@ -14375,6 +14375,8 @@ model pharmacy_schedule_register {
   reference_movement_id   Int?
   notes                   String?
   created_at              DateTime @default(now()) @db.Timestamptz(6)
+  patient_name            String?  @db.VarChar(255)
+  patient_phone           String?  @db.VarChar(20)
 
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_schedule_register_item")
   @@index([tenant_id, schedule_class, created_at(sort: Desc)], map: "idx_schedule_register_tenant_class_time")

@@ -9,6 +9,7 @@ import {
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
   searchSellableItems, ensureWalkInAnchorUid,
 } from '../services/pharmacy/counterSaleService.js';
+import { authClient } from './testClient.js';
 
 const TENANT = '00000000-0000-4000-8000-0000c05a1e01';
 const OTHER = '00000000-0000-4000-8000-0000c05a1e99';
@@ -61,6 +62,28 @@ async function insertBatch(tenant, itemId, batchNumber, {
 }
 
 async function cleanup() {
+  // Ledger entries this suite posted (append-only → audit_bypass), collected
+  // by tenant BEFORE the billing rows they reference are deleted.
+  const cleanupTenantIds = [TENANT, OTHER];
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    const entryRows = await tx.$queryRawUnsafe(
+      `SELECT id FROM ledger_entries WHERE tenant_id = ANY($1::uuid[])`,
+      cleanupTenantIds,
+    );
+    const entryIds = entryRows.map((r) => Number(r.id));
+    if (entryIds.length) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds,
+      );
+    }
+  }).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM idempotency_keys WHERE request_key LIKE 'pos-idem-%'`,
+  ).catch(() => {});
   for (const tid of [TENANT, OTHER]) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM pharmacy_counter_sale_allocations WHERE tenant_id = $1::uuid`, tid,
@@ -329,7 +352,8 @@ describe('schedule-class enforcement', () => {
     expect((await remaining(h1Batch)).qty).toBe(58);
 
     const register = await prisma.$queryRawUnsafe(
-      `SELECT schedule_class, movement_kind, quantity, prescription_number, prescriber_name, patient_uid
+      `SELECT schedule_class, movement_kind, quantity, prescription_number, prescriber_name,
+              patient_uid, patient_name, patient_phone
          FROM pharmacy_schedule_register
         WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int AND movement_kind = 'dispense'`,
       TENANT, h1Item,
@@ -340,6 +364,9 @@ describe('schedule-class enforcement', () => {
     expect(register[0].prescription_number).toBe('RX-POS-001');
     expect(register[0].prescriber_name).toBe('Dr. Test Prescriber');
     expect(String(register[0].patient_uid)).toBe(PATIENT);
+    // Statutory identity snapshot: registered patient's name/phone.
+    expect(register[0].patient_name).toBe('POS Registered Patient');
+    expect(register[0].patient_phone).toBe('9812345670');
 
     // Registered-patient sale writes the canonical timeline + audit pair.
     const timeline = await prisma.$queryRawUnsafe(
@@ -387,6 +414,7 @@ describe('schedule-class enforcement', () => {
       tenantId: TENANT,
       lines: [{ inventory_item_id: xItem, quantity: 1 }],
       customer_name: 'X Buyer',
+      customer_phone: '9800000042',
       rx: RX,
       witness: WITNESS_ARG,
       payment_mode: 'CARD',
@@ -397,7 +425,8 @@ describe('schedule-class enforcement', () => {
     expect((await remaining(xBatch)).qty).toBe(29);
 
     const register = await prisma.$queryRawUnsafe(
-      `SELECT schedule_class, witness_name, witness_uid FROM pharmacy_schedule_register
+      `SELECT schedule_class, witness_name, witness_uid, patient_uid, patient_name, patient_phone
+         FROM pharmacy_schedule_register
         WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int AND movement_kind = 'dispense'`,
       TENANT, xItem,
     );
@@ -405,6 +434,10 @@ describe('schedule-class enforcement', () => {
     expect(register[0].schedule_class).toBe('X');
     expect(register[0].witness_name).toBe('Witness Pharmacist');
     expect(String(register[0].witness_uid)).toBe(WITNESS);
+    // Anonymous walk-in: the captured identity lands on the statutory row.
+    expect(register[0].patient_uid).toBeNull();
+    expect(register[0].patient_name).toBe('X Buyer');
+    expect(register[0].patient_phone).toBe('9800000042');
   });
 });
 
@@ -484,5 +517,310 @@ describe('atomicity + isolation', () => {
     // Foreign tenant sees nothing.
     const foreign = await searchSellableItems({ tenantId: OTHER, search: 'POS-OTC-1' });
     expect(foreign).toHaveLength(0);
+  });
+});
+
+// ── Idempotent POS mutations (route-level) ────────────────────────────
+//
+// The shared Flutter transport auto-mints an Idempotency-Key and replays the
+// identical body up to 3x on timeout/socket-drop/5xx. The POS create/void
+// routes must honour it: a replay returns the cached original response and
+// never dispenses/charges (or refunds/restocks) a second time.
+describe('idempotent counter-sale mutations (route-level)', () => {
+  const BASE = '/api/v1/pharmacy-orders/counter-sales';
+  const staff = () => authClient('PHARMACY_STAFF', { uid: CASHIER, tenant_id: TENANT });
+  const incharge = () => authClient('PHARMACY_INCHARGE', { uid: CASHIER, tenant_id: TENANT });
+
+  const saleBody = (name, ref) => ({
+    lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+    customer_name: name,
+    customer_phone: '9800000077',
+    payment_mode: 'UPI',
+    payment_reference: ref,
+  });
+
+  // finaliseIdempotencyKey persists the cached response asynchronously after
+  // res.json; wait for it so a sequential replay deterministically hits the
+  // 'replay' branch instead of racing 'in_flight'.
+  async function waitForIdemComplete(key) {
+    for (let i = 0; i < 60; i += 1) {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT status FROM idempotency_keys WHERE request_key = $1`, key,
+      );
+      if (rows.length && rows[0].status !== 'in_flight') return rows[0].status;
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+    }
+    throw new Error(`idempotency claim for ${key} never finalised`);
+  }
+
+  test('create without an Idempotency-Key is rejected 400', async () => {
+    const res = await staff().post(BASE).send(saleBody('No Key Customer', 'upi-idem-0'));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Idempotency-Key/);
+  });
+
+  test('replayed create returns the original sale — single decrement, invoice, payment', async () => {
+    const key = `pos-idem-${process.pid}-create-1`;
+    const before = (await remaining(otcNear)).qty + (await remaining(otcFar)).qty;
+
+    const first = await staff().post(BASE).set('Idempotency-Key', key)
+      .send(saleBody('Replay Customer', 'upi-idem-1'));
+    expect(first.status).toBe(200);
+    expect(first.body.data.sale.status).toBe('COMPLETED');
+    const saleId = first.body.data.sale.id;
+    const invoiceId = Number(first.body.data.invoice.id);
+    await waitForIdemComplete(key);
+
+    const replay = await staff().post(BASE).set('Idempotency-Key', key)
+      .send(saleBody('Replay Customer', 'upi-idem-1'));
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.sale.id).toBe(saleId);
+    expect(Number(replay.body.data.invoice.id)).toBe(invoiceId);
+
+    const sales = await prisma.$queryRawUnsafe(
+      `SELECT id FROM pharmacy_counter_sales
+        WHERE tenant_id = $1::uuid AND customer_name = 'Replay Customer'`,
+      TENANT,
+    );
+    expect(sales).toHaveLength(1);
+    const payments = await prisma.$queryRawUnsafe(
+      `SELECT id FROM billing_payments WHERE invoice_id = $1::int AND tenant_id = $2::uuid`,
+      invoiceId, TENANT,
+    );
+    expect(payments).toHaveLength(1);
+    const after = (await remaining(otcNear)).qty + (await remaining(otcFar)).qty;
+    expect(after).toBe(before - 1);
+  });
+
+  test('same key with a different body is a 422 idempotency violation', async () => {
+    const key = `pos-idem-${process.pid}-create-1`; // finalised by the previous test
+    const res = await staff().post(BASE).set('Idempotency-Key', key)
+      .send(saleBody('Different Customer', 'upi-idem-2'));
+    expect(res.status).toBe(422);
+  });
+
+  test('two concurrent creates with one key produce exactly one sale', async () => {
+    const key = `pos-idem-${process.pid}-race-1`;
+    const body = saleBody('Race Idem Customer', 'upi-idem-3');
+    const [a, b] = await Promise.all([
+      staff().post(BASE).set('Idempotency-Key', key).send(body),
+      staff().post(BASE).set('Idempotency-Key', key).send(body),
+    ]);
+    // The winner completes the sale. The loser is either the in-flight 409
+    // (claim still executing) or, if the winner already finalised, a replay
+    // of the identical 200 — never a second sale, never a 500.
+    const statuses = [a.status, b.status].sort((x, y) => x - y);
+    expect(statuses[0]).toBe(200);
+    expect([200, 409]).toContain(statuses[1]);
+    const winner = a.status === 200 ? a : b;
+    const other = winner === a ? b : a;
+    if (other.status === 200) {
+      expect(other.body.data.sale.id).toBe(winner.body.data.sale.id);
+    }
+
+    const sales = await prisma.$queryRawUnsafe(
+      `SELECT id, invoice_id FROM pharmacy_counter_sales
+        WHERE tenant_id = $1::uuid AND customer_name = 'Race Idem Customer'`,
+      TENANT,
+    );
+    expect(sales).toHaveLength(1);
+    const payments = await prisma.$queryRawUnsafe(
+      `SELECT id FROM billing_payments WHERE invoice_id = $1::int AND tenant_id = $2::uuid`,
+      Number(sales[0].invoice_id), TENANT,
+    );
+    expect(payments).toHaveLength(1);
+  });
+
+  test('void replay returns the original void — refund raised exactly once', async () => {
+    const createKey = `pos-idem-${process.pid}-create-void`;
+    const created = await staff().post(BASE).set('Idempotency-Key', createKey)
+      .send(saleBody('Void Idem Customer', 'upi-idem-4'));
+    expect(created.status).toBe(200);
+    const saleId = created.body.data.sale.id;
+    const invoiceId = Number(created.body.data.invoice.id);
+
+    const voidKey = `pos-idem-${process.pid}-void-1`;
+    const voidBody = { reason: 'replay-safety check' };
+    const firstVoid = await incharge().post(`${BASE}/${saleId}/void`)
+      .set('Idempotency-Key', voidKey).send(voidBody);
+    expect(firstVoid.status).toBe(200);
+    expect(firstVoid.body.data.sale.status).toBe('VOIDED');
+    await waitForIdemComplete(voidKey);
+
+    const replayVoid = await incharge().post(`${BASE}/${saleId}/void`)
+      .set('Idempotency-Key', voidKey).send(voidBody);
+    expect(replayVoid.status).toBe(200);
+    expect(replayVoid.body.data.sale.status).toBe('VOIDED');
+    expect(replayVoid.body.data.refund.id).toBe(firstVoid.body.data.refund.id);
+
+    const refunds = await prisma.$queryRawUnsafe(
+      `SELECT id FROM billing_refunds WHERE invoice_id = $1::int AND tenant_id = $2::uuid`,
+      invoiceId, TENANT,
+    );
+    expect(refunds).toHaveLength(1);
+
+    // Void without a key is refused outright.
+    const noKey = await incharge().post(`${BASE}/${saleId}/void`).send(voidBody);
+    expect(noKey.status).toBe(400);
+  });
+});
+
+// ── Ledger postings ───────────────────────────────────────────────────
+//
+// collectPayment skips its own ledger wiring when handed a caller tx, so the
+// counter-sale finalize must post the PAYMENT leg itself (issue leg debits
+// PATIENT_AR; without the payment credit every walk-in sale corrupts the
+// tenant's AR opening state).
+describe('counter-sale ledger postings', () => {
+  async function paymentEntryPostings(paymentId) {
+    const entries = await prisma.$queryRawUnsafe(
+      `SELECT id, entry_type FROM ledger_entries
+        WHERE tenant_id = $1::uuid AND idempotency_key = $2`,
+      TENANT, `payment-${paymentId}`,
+    );
+    if (!entries.length) return null;
+    const postings = await prisma.$queryRawUnsafe(
+      `SELECT a.code, p.amount_paise, p.invoice_id
+         FROM ledger_postings p JOIN ledger_accounts a ON a.id = p.account_id
+        WHERE p.entry_id = $1::bigint
+        ORDER BY a.code`,
+      Number(entries[0].id),
+    );
+    return { entry: entries[0], postings };
+  }
+
+  async function patientArNet(invoiceId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(p.amount_paise), 0)::bigint AS net
+         FROM ledger_postings p JOIN ledger_accounts a ON a.id = p.account_id
+        WHERE a.code = 'PATIENT_AR' AND p.invoice_id = $1::int`,
+      invoiceId,
+    );
+    return Number(rows[0].net);
+  }
+
+  test('shadow mode (default): PAYMENT leg posts post-commit and PATIENT_AR nets to zero', async () => {
+    const result = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 2 }],
+      customer_name: 'Ledger Shadow Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-ledger-1',
+      sold_by: CASHIER,
+    });
+    expect(result.sale.status).toBe('COMPLETED');
+    const invoiceId = Number(result.invoice.id);
+    const totalPaise = Math.round(Number(result.invoice.total_amount) * 100);
+
+    const paymentLeg = await paymentEntryPostings(result.payment.id);
+    expect(paymentLeg).not.toBeNull();
+    expect(paymentLeg.entry.entry_type).toBe('PAYMENT');
+    const bank = paymentLeg.postings.find((p) => p.code === 'BANK');
+    const ar = paymentLeg.postings.find((p) => p.code === 'PATIENT_AR');
+    expect(Number(bank.amount_paise)).toBe(totalPaise);
+    expect(Number(ar.amount_paise)).toBe(-totalPaise);
+    expect(Number(ar.invoice_id)).toBe(invoiceId);
+
+    // INVOICE_ISSUE debited PATIENT_AR by the total; the payment credit
+    // brings the invoice's AR to zero — the trial-balance invariant the
+    // drift oracle relies on before any tenant flips enforce mode.
+    expect(await patientArNet(invoiceId)).toBe(0);
+  });
+
+  test('enforce mode: PAYMENT leg posts inside the finalize tx and AR still nets to zero', async () => {
+    const prev = process.env.LEDGER_AUTHORITATIVE_MODE;
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'enforce';
+    try {
+      const result = await createCounterSale({
+        tenantId: TENANT,
+        lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+        customer_name: 'Ledger Enforce Customer',
+        payment_mode: 'CASH',
+        sold_by: CASHIER,
+      });
+      expect(result.sale.status).toBe('COMPLETED');
+      expect(result.invoice.status).toBe('PAID');
+      const paymentLeg = await paymentEntryPostings(result.payment.id);
+      expect(paymentLeg).not.toBeNull();
+      expect(paymentLeg.entry.entry_type).toBe('PAYMENT');
+      const cash = paymentLeg.postings.find((p) => p.code === 'CASH');
+      expect(Number(cash.amount_paise))
+        .toBe(Math.round(Number(result.invoice.total_amount) * 100));
+      expect(await patientArNet(Number(result.invoice.id))).toBe(0);
+    } finally {
+      if (prev === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
+      else process.env.LEDGER_AUTHORITATIVE_MODE = prev;
+    }
+  });
+});
+
+// ── Scheduled-drug walk-in identity (statutory register) ──────────────
+//
+// The H1 register and Schedule X account must name the patient. Anonymous
+// H1/X/narcotic sales require captured name+phone (a registered patient
+// linkage suffices by itself); OTC and plain Schedule H stay untouched.
+describe('scheduled-drug walk-in identity', () => {
+  test('anonymous H1 sale without a phone is rejected', async () => {
+    await expect(createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: h1Item, quantity: 1 }],
+      customer_name: 'Anon H1 Buyer',
+      rx: RX,
+      payment_mode: 'UPI',
+      payment_reference: 'upi-anon-h1-0',
+      sold_by: CASHIER,
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_SCHEDULED_IDENTITY_REQUIRED' });
+  });
+
+  test('anonymous OTC sale without a phone still completes', async () => {
+    const result = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Anon OTC Buyer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-anon-otc-1',
+      sold_by: CASHIER,
+    });
+    expect(result.sale.status).toBe('COMPLETED');
+  });
+
+  test('anonymous H1 sale with name+phone writes the identity into the register, both directions', async () => {
+    const result = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: h1Item, quantity: 3 }],
+      customer_name: 'Anon H1 Buyer',
+      customer_phone: '9800000088',
+      rx: RX,
+      payment_mode: 'UPI',
+      payment_reference: 'upi-anon-h1-1',
+      sold_by: CASHIER,
+    });
+    expect(result.sale.status).toBe('COMPLETED');
+    const dispense = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid, patient_name, patient_phone FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
+          AND movement_kind = 'dispense' AND patient_uid IS NULL`,
+      TENANT, h1Item,
+    );
+    expect(dispense).toHaveLength(1);
+    expect(dispense[0].patient_name).toBe('Anon H1 Buyer');
+    expect(dispense[0].patient_phone).toBe('9800000088');
+
+    const voided = await voidCounterSale({
+      tenantId: TENANT,
+      id: result.sale.id,
+      reason: 'identity return check',
+      voided_by: CASHIER,
+    });
+    expect(voided.sale.status).toBe('VOIDED');
+    const returned = await prisma.$queryRawUnsafe(
+      `SELECT patient_name, patient_phone FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
+          AND movement_kind = 'return' AND patient_uid IS NULL`,
+      TENANT, h1Item,
+    );
+    expect(returned).toHaveLength(1);
+    expect(returned[0].patient_name).toBe('Anon H1 Buyer');
+    expect(returned[0].patient_phone).toBe('9800000088');
   });
 });

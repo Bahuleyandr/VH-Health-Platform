@@ -302,12 +302,18 @@ async function loadSaleItems(db, tenantId, lines) {
   return byId;
 }
 
-function enforceScheduleRules({ itemsById, lines, rx, witness }) {
+function enforceScheduleRules({
+  itemsById, lines, rx, witness, patient_uid, customer_phone,
+}) {
   const scheduled = [];
+  const registerStrict = [];
   let needsWitness = false;
   for (const line of lines) {
     const item = itemsById.get(Number(line.inventory_item_id));
     if (isControlled(item)) scheduled.push(item);
+    // H1/X/narcotic: the statutory register entry must name the patient
+    // (H1 register + Schedule X account both record who received the drug).
+    if (item.schedule_class === 'H1' || isWitnessed(item)) registerStrict.push(item);
     if (isWitnessed(item)) needsWitness = true;
   }
   if (scheduled.length) {
@@ -327,6 +333,18 @@ function enforceScheduleRules({ itemsById, lines, rx, witness }) {
     throw AppError.badRequest(
       'Schedule X / narcotic items require a witnessed dispense: witness.uid + witness.name',
       'COUNTER_SALE_WITNESS_REQUIRED',
+    );
+  }
+  // Anonymous H1/X/narcotic sale: the walk-in identity must be complete
+  // (name is already mandatory for every anonymous sale; the register entry
+  // additionally needs a contact). A registered patient linkage satisfies
+  // this by itself. Plain Schedule H and OTC anonymous sales are unchanged.
+  if (registerStrict.length && !patient_uid
+      && !(customer_phone && String(customer_phone).trim())) {
+    throw AppError.badRequest(
+      'Schedule H1/X items require the patient identity on the statutory register: pass patient_uid (registered patient) or customer_name plus customer_phone',
+      'COUNTER_SALE_SCHEDULED_IDENTITY_REQUIRED',
+      { scheduled_items: registerStrict.map((i) => i.display_name) },
     );
   }
   return { hasScheduled: scheduled.length > 0, needsWitness };
@@ -393,7 +411,18 @@ export async function createCounterSale({
   }
 
   const itemsById = await loadSaleItems(prisma, tenant, lines);
-  enforceScheduleRules({ itemsById, lines, rx, witness });
+  enforceScheduleRules({
+    itemsById, lines, rx, witness, patient_uid, customer_phone,
+  });
+
+  // Identity snapshot for statutory register rows (H1/X/narcotic lines):
+  // the registered patient's name/phone, or the captured walk-in identity.
+  const registerPatientName = registeredPatient
+    ? registeredPatient.name
+    : (customer_name ? String(customer_name).trim() : null);
+  const registerPatientPhone = registeredPatient
+    ? (registeredPatient.phone || null)
+    : (customer_phone ? String(customer_phone).trim() : null);
 
   let drawer = null;
   if (payment_mode === 'CASH') {
@@ -553,6 +582,8 @@ export async function createCounterSale({
               inventory_batch_id: alloc.inventory_batch_id,
               quantity: alloc.quantity,
               patient_uid: registeredPatient ? registeredPatient.uid : null,
+              patient_name: registerPatientName,
+              patient_phone: registerPatientPhone,
               prescription_number: rx?.reference || null,
               prescriber_name: rx?.doctor_name || null,
               patient_id_proof_type: rx?.id_proof_type || null,
@@ -805,6 +836,24 @@ export async function voidCounterSale({
 
   const invoice = await getInvoice(sale.invoice_id, { tenantId: tenant });
 
+  // Identity snapshot for the statutory register return rows: mirror the
+  // dispense direction (registered patient's name/phone, else the captured
+  // walk-in identity from the sale header).
+  let registerPatientName = sale.customer_name || null;
+  let registerPatientPhone = sale.customer_phone || null;
+  if (sale.patient_uid) {
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT name, phone FROM users
+        WHERE uid = $1::uuid AND tenant_id = $2::uuid
+        LIMIT 1`,
+      String(sale.patient_uid), tenant,
+    );
+    if (patientRows.length) {
+      registerPatientName = patientRows[0].name || registerPatientName;
+      registerPatientPhone = patientRows[0].phone || registerPatientPhone;
+    }
+  }
+
   // ── Refund (billing's mechanism; reuse a prior attempt's refund) ──────
   let refund = null;
   const priorRefunds = await prisma.$queryRawUnsafe(
@@ -894,18 +943,20 @@ export async function voidCounterSale({
             `INSERT INTO pharmacy_schedule_register
                (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
                 movement_kind, quantity, unit_label, running_balance,
-                patient_uid, prescription_number, prescriber_name,
+                patient_uid, patient_name, patient_phone,
+                prescription_number, prescriber_name,
                 performed_by, performed_by_name, reference_movement_id, notes)
              SELECT $1::uuid, $2::int, $3::int,
                     COALESCE($4, CASE WHEN $5 THEN 'X' ELSE 'H1' END),
                     'return', $6::numeric, i.unit_label, $7::numeric,
-                    $8::uuid, $9, $10, $11::uuid, $12, $13::int, $14
+                    $8::uuid, $9, $10, $11, $12, $13::uuid, $14, $15::int, $16
                FROM pharmacy_inventory_items i
               WHERE i.id = $2::int AND i.tenant_id = $1::uuid`,
             tenant, Number(line.inventory_item_id), Number(alloc.inventory_batch_id),
             line.schedule_class || null, line.is_narcotic === true,
             Number(alloc.quantity), Number(balance[0].bal),
-            sale.patient_uid || null, sale.rx_reference || null, sale.rx_doctor_name || null,
+            sale.patient_uid || null, registerPatientName, registerPatientPhone,
+            sale.rx_reference || null, sale.rx_doctor_name || null,
             String(voided_by), voided_by_name || 'Pharmacy counter',
             movement.id, `Counter sale #${sale.id} void restock`,
           );

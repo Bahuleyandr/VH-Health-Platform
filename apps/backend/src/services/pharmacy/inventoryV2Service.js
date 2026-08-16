@@ -381,7 +381,8 @@ export async function recordMovementTx(tx, {
 export async function dispenseControlledTx(tx, {
   tenantId,
   inventory_item_id, inventory_batch_id,
-  quantity, patient_uid, prescription_id, prescription_number,
+  quantity, patient_uid, patient_name, patient_phone,
+  prescription_id, prescription_number,
   prescriber_uid, prescriber_name, prescriber_registration,
   patient_id_proof_type, patient_id_proof_last4,
   performed_by, performed_by_name,
@@ -437,14 +438,15 @@ export async function dispenseControlledTx(tx, {
       `INSERT INTO pharmacy_schedule_register
          (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
           movement_kind, quantity, unit_label, running_balance,
-          patient_uid, prescription_id, prescription_number,
+          patient_uid, patient_name, patient_phone,
+          prescription_id, prescription_number,
           prescriber_uid, prescriber_name, prescriber_registration,
           patient_id_proof_type, patient_id_proof_last4,
           performed_by, performed_by_name, witness_uid, witness_name,
           reference_movement_id, notes)
        VALUES ($1::uuid, $2::int, $3, $4, 'dispense', $5::numeric, $6, $7::numeric,
-               $8::uuid, $9, $10, $11::uuid, $12, $13, $14, $15,
-               $16::uuid, $17, $18::uuid, $19, $20::int, $21)
+               $8::uuid, $9, $10, $11, $12, $13::uuid, $14, $15, $16, $17,
+               $18::uuid, $19, $20::uuid, $21, $22::int, $23)
        RETURNING *`,
       tenantId,
       Number(inventory_item_id),
@@ -454,6 +456,8 @@ export async function dispenseControlledTx(tx, {
       item.unit_label,
       Number(balance[0].bal),
       patient_uid ? String(patient_uid) : null,
+      patient_name ? String(patient_name).trim().slice(0, 255) : null,
+      patient_phone ? String(patient_phone).trim().slice(0, 20) : null,
       prescription_id ? Number(prescription_id) : null,
       prescription_number || null,
       prescriber_uid ? String(prescriber_uid) : null,
