@@ -5586,21 +5586,28 @@ model fall_risk_assessments {
   @@index([tenant_id, risk_level, recorded_at(sort: Desc)], map: "idx_fall_high_risk", where: raw("((risk_level)::text = ANY (ARRAY[('high'::character varying)::text, ('very_high'::character varying)::text]))"))
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model family_members {
-  id            BigInt    @id @default(autoincrement())
-  patient_uid   String    @db.Uuid
-  name          String    @db.VarChar(255)
-  phone         String?   @db.VarChar(20)
-  relationship  String?   @db.VarChar(50)
-  date_of_birth DateTime? @db.Date
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-  updated_at    DateTime  @default(now()) @db.Timestamp(6)
-  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  users         users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_family_members_tenant")
+  id                                               BigInt    @id @default(autoincrement())
+  patient_uid                                      String    @db.Uuid
+  name                                             String    @db.VarChar(255)
+  phone                                            String?   @db.VarChar(20)
+  relationship                                     String?   @db.VarChar(50)
+  date_of_birth                                    DateTime? @db.Date
+  created_at                                       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                                       DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id                                        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  linked_dependent_uid                             String?   @db.Uuid
+  linked_at                                        DateTime? @db.Timestamptz(6)
+  link_consent_method                              String?   @db.VarChar(30)
+  link_consent_ref                                 String?   @db.VarChar(200)
+  users                                            users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
+  users_family_members_linked_dependent_uidTousers users?    @relation("family_members_linked_dependent_uidTousers", fields: [linked_dependent_uid], references: [uid], onUpdate: NoAction, map: "fk_family_members_linked_dependent")
+  tenants                                          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_family_members_tenant")
 
   @@index([patient_uid], map: "idx_family_members_patient_uid")
   @@index([tenant_id], map: "idx_family_members_tenant_id")
+  @@index([linked_dependent_uid], map: "idx_family_members_linked_dependent_uid", where: raw("(linked_dependent_uid IS NOT NULL)"))
 }
 
 model feedback {
@@ -11763,6 +11770,7 @@ model users {
   external_recovery_critical_acknowledgements                                                                                      external_recovery_critical_review_acknowledgements[]
   external_recovery_operability_actions                                                                                            external_recovery_operability_actions[]
   family_members                                                                                                                   family_members[]
+  family_members_family_members_linked_dependent_uidTousers                                                                        family_members[]                                       @relation("family_members_linked_dependent_uidTousers")
   feedback_nps_responses                                                                                                           feedback_nps_responses[]
   fhir_allergy_intolerance_receipts                                                                                                fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                                                                                                  fhir_vital_observation_receipts[]                      @relation("fhir_vital_observation_receipt_patient")

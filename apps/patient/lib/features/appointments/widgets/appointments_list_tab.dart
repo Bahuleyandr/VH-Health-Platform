@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -50,6 +51,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   String? _error;
   WebSocketProvider? _webSocketProvider;
   int _lastAppointmentEventRevision = 0;
+  DependentsProvider? _dependentsProvider;
+  String? _lastProfileUid;
 
   @override
   void initState() {
@@ -61,17 +64,37 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final provider = context.read<WebSocketProvider>();
-    if (_webSocketProvider == provider) return;
-    _webSocketProvider?.removeListener(_onWsEvent);
-    _webSocketProvider = provider;
-    _lastAppointmentEventRevision = provider.appointmentEventRevision;
-    // Refresh when the backend pushes a personal appointment/queue event.
-    _webSocketProvider?.addListener(_onWsEvent);
+    if (_webSocketProvider != provider) {
+      _webSocketProvider?.removeListener(_onWsEvent);
+      _webSocketProvider = provider;
+      _lastAppointmentEventRevision = provider.appointmentEventRevision;
+      // Refresh when the backend pushes a personal appointment/queue event.
+      _webSocketProvider?.addListener(_onWsEvent);
+    }
+
+    // Track the active acting-as profile: when the guardian switches
+    // between self and a linked dependent, re-fetch so the list shows the
+    // selected profile's appointments (labelled in build()).
+    final depProvider = context.read<DependentsProvider>();
+    if (_dependentsProvider != depProvider) {
+      _dependentsProvider?.removeListener(_onProfileChanged);
+      _dependentsProvider = depProvider;
+      _lastProfileUid = depProvider.activeDependent?.uid;
+      _dependentsProvider?.addListener(_onProfileChanged);
+    }
+  }
+
+  void _onProfileChanged() {
+    final uid = _dependentsProvider?.activeDependent?.uid;
+    if (uid == _lastProfileUid) return;
+    _lastProfileUid = uid;
+    if (mounted) _fetchAppointments();
   }
 
   @override
   void dispose() {
     _webSocketProvider?.removeListener(_onWsEvent);
+    _dependentsProvider?.removeListener(_onProfileChanged);
     super.dispose();
   }
 
@@ -100,14 +123,24 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   }
 
   Future<void> _fetchAppointments() async {
-    if (_patientId == null) return;
+    // The active dependent's appointments when a dependent profile is
+    // selected (the request also carries the acting-as header, so the
+    // backend authorizes the guardian link); the guardian's own otherwise.
+    // Read through the listener-cached provider — this method runs after
+    // awaits (e.g. from _loadPatientId), when context lookups are unsafe.
+    if (!mounted) return;
+    final activeDep = _dependentsProvider?.activeDependent;
+    final effectivePatientId = activeDep?.id.toString() ?? _patientId;
+    if (effectivePatientId == null) return;
     final l = AppLocalizations.of(context)!;
     setState(() {
       _loadingAppointments = true;
       _error = null;
     });
     try {
-      final resp = await ApiClient.get('/appointments/patient/$_patientId');
+      final resp = await ApiClient.get(
+        '/appointments/patient/$effectivePatientId',
+      );
       if (resp.isSuccess) {
         final data = resp.data ?? {};
         final List<dynamic> raw = data is List
@@ -517,8 +550,9 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final activeDep = context.watch<DependentsProvider>().activeDependent;
 
-    return DataStateBuilder<AppointmentInfo>(
+    final body = DataStateBuilder<AppointmentInfo>(
       isLoading: _loadingAppointments,
       error: _patientId == null ? l10n.appointmentsLogOutAndBack : _error,
       data: _appointments,
@@ -577,6 +611,41 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
           ),
         );
       },
+    );
+
+    if (activeDep == null) return body;
+
+    // Clear labelling when viewing a dependent's appointments.
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: cs.tertiary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.escalator_warning, size: 18, color: cs.tertiary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Showing appointments for ${activeDep.name}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.tertiary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: body),
+      ],
     );
   }
 }

@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -79,6 +81,30 @@ class _FamilyScreenState extends State<FamilyScreen> {
     );
     if (result == true && mounted) {
       unawaited(_fetchMembers());
+    }
+  }
+
+  /// Promote a contact into a *linked dependent*: a real minor patient
+  /// profile this guardian can act for (book appointments, view records)
+  /// through the platform's guardian→minor delegation. Captures an explicit
+  /// consent declaration before calling the backend.
+  Future<void> _promoteMember(Map<String, dynamic> member) async {
+    final promoted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: _PromoteDependentSheet(member: member),
+      ),
+    );
+    if (promoted == true && mounted) {
+      // Refresh both the contact list (linked badge) and the acting-as
+      // roster (profile switcher / booking-for selector pick it up).
+      unawaited(_fetchMembers());
+      unawaited(context.read<DependentsProvider>().loadDependents(force: true));
     }
   }
 
@@ -212,6 +238,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
               return _FamilyMemberCard(
                 member: member,
                 onRemove: () => _removeMember(member),
+                onPromote: () => _promoteMember(member),
               );
             },
           ),
@@ -226,8 +253,13 @@ class _FamilyScreenState extends State<FamilyScreen> {
 class _FamilyMemberCard extends StatelessWidget {
   final Map<String, dynamic> member;
   final VoidCallback onRemove;
+  final VoidCallback onPromote;
 
-  const _FamilyMemberCard({required this.member, required this.onRemove});
+  const _FamilyMemberCard({
+    required this.member,
+    required this.onRemove,
+    required this.onPromote,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +270,8 @@ class _FamilyMemberCard extends StatelessWidget {
     final relationship = member['relationship'] as String? ?? '';
     final phone = member['phone'] as String? ?? '';
     final dobRaw = member['dateOfBirth'] as String? ?? '';
+    final isLinked =
+        (member['linkedDependentUid'] as String?)?.isNotEmpty == true;
 
     String dob = '';
     if (dobRaw.isNotEmpty) {
@@ -307,9 +341,46 @@ class _FamilyMemberCard extends StatelessWidget {
                       ),
                     ),
                   ],
+                  if (isLinked) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.tertiary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.escalator_warning,
+                            size: 14,
+                            color: colors.tertiary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Linked dependent',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colors.tertiary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+            if (!isLinked)
+              IconButton(
+                onPressed: onPromote,
+                icon: Icon(Icons.escalator_warning, color: colors.tertiary),
+                tooltip: 'Set up as linked dependent',
+              ),
             IconButton(
               onPressed: onRemove,
               icon: Icon(Icons.delete_outline, color: colors.error),
@@ -528,6 +599,254 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                   : const Icon(Icons.person_add),
               label: Text(
                 _submitting ? l.familyAdding : l.familyAddMemberShort,
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.tertiary,
+                foregroundColor: colors.onTertiary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Promote-to-linked-dependent Sheet ───────────────────────────────────────
+//
+// Consent-first promotion: the guardian declares their relationship to the
+// minor and explicitly confirms guardianship before the backend mints (or
+// links) the dependent patient identity. The declaration is persisted on the
+// contact row and in the audit trail (link_consent_method =
+// 'guardian_declaration').
+
+class _PromoteDependentSheet extends StatefulWidget {
+  final Map<String, dynamic> member;
+
+  const _PromoteDependentSheet({required this.member});
+
+  @override
+  State<_PromoteDependentSheet> createState() => _PromoteDependentSheetState();
+}
+
+class _PromoteDependentSheetState extends State<_PromoteDependentSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _dobCtrl = TextEditingController();
+  String _relationship = 'parent';
+  bool _consentConfirmed = false;
+  bool _submitting = false;
+  DateTime? _selectedDob;
+
+  // Guardian → dependent relationship (what the GUARDIAN is to the minor),
+  // matching the backend's VALID_LINK_RELATIONSHIPS enum.
+  static const _relationships = [
+    'parent',
+    'mother',
+    'father',
+    'legal_guardian',
+    'grandparent',
+    'sibling',
+    'spouse',
+    'other',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final dobRaw = widget.member['dateOfBirth'] as String? ?? '';
+    if (dobRaw.isNotEmpty) {
+      final parsed = DateTime.tryParse(dobRaw);
+      if (parsed != null) {
+        _selectedDob = parsed;
+        _dobCtrl.text = DateFormat('yyyy-MM-dd').format(parsed);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _dobCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDob ?? DateTime(now.year - 8),
+      firstDate: DateTime(now.year - 18, now.month, now.day),
+      lastDate: now,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _selectedDob = picked;
+        _dobCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (!_consentConfirmed) return;
+
+    final id = widget.member['id']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    setState(() => _submitting = true);
+    try {
+      final body = <String, dynamic>{
+        'relationship': _relationship,
+        'consent_confirmed': true,
+      };
+      if (_dobCtrl.text.isNotEmpty) {
+        body['birthday'] = _dobCtrl.text;
+      }
+      final response = await ApiClient.post(
+        '/users/family-members/$id/promote',
+        body: body,
+      );
+      if (!mounted) return;
+
+      if (response.isSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message:
+                '${widget.member['name'] ?? 'Family member'} is now a linked '
+                'dependent. You can book appointments and view records for '
+                'them from your account.',
+          ),
+        );
+        Navigator.pop(context, true);
+      } else {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: response.failureMessage(
+              'Could not set up the linked dependent',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('PromoteDependentSheet: submit error: $e');
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: 'Could not set up the linked dependent. Please retry.',
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final name = widget.member['name'] as String? ?? 'this family member';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Set up linked dependent',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This creates a patient profile for $name under your '
+              'guardianship. You will be able to book appointments and view '
+              'their records from your own login. Only minors (under 18) can '
+              'be linked, and every access is recorded.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Date of birth (required — must be a minor)
+            TextFormField(
+              controller: _dobCtrl,
+              readOnly: true,
+              onTap: _pickDate,
+              decoration: const InputDecoration(
+                labelText: 'Date of birth',
+                prefixIcon: Icon(Icons.cake_outlined),
+                border: OutlineInputBorder(),
+                hintText: 'Tap to select',
+              ),
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Date of birth is required' : null,
+            ),
+            const SizedBox(height: 16),
+
+            // Guardian relationship (the declaration)
+            DropdownButtonFormField<String>(
+              initialValue: _relationship,
+              decoration: const InputDecoration(
+                labelText: 'You are their…',
+                prefixIcon: Icon(Icons.people_outline),
+                border: OutlineInputBorder(),
+              ),
+              items: _relationships
+                  .map(
+                    (r) => DropdownMenuItem(
+                      value: r,
+                      child: Text(r.replaceAll('_', ' ')),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) setState(() => _relationship = v);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Consent declaration
+            CheckboxListTile(
+              value: _consentConfirmed,
+              onChanged: (v) => setState(() => _consentConfirmed = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'I confirm that I am the parent or legal guardian of $name '
+                'and I consent to managing their care from my account.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            FilledButton.icon(
+              onPressed: (_submitting || !_consentConfirmed) ? null : _submit,
+              icon: _submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.escalator_warning),
+              label: Text(
+                _submitting ? 'Setting up…' : 'Set up linked dependent',
               ),
               style: FilledButton.styleFrom(
                 backgroundColor: colors.tertiary,

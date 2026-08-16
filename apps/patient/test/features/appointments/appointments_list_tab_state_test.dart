@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/features/appointments/widgets/appointments_list_tab.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -108,8 +109,13 @@ class _Harness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => WebSocketProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => WebSocketProvider()),
+        // The list tab reads the acting-as roster to label / scope a
+        // dependent profile's appointments.
+        ChangeNotifierProvider(create: (_) => DependentsProvider()),
+      ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
