@@ -28,6 +28,9 @@ router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'pat
       patientId: patientUid,
       recordType: 'clinical_timeline',
       action: 'VIEW',
+      // Same tenant resolution as the data read above — the audit row must
+      // attribute the access to the tenant whose data was served.
+      tenantId: req.tenantId || req.user?.tenant_id,
       ip: req.ip,
       requestId: req.id,
     });
