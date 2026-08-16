@@ -17,7 +17,15 @@ import { Mail, Pencil, Play, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 const QUERY_KEY = ["mis-report-schedules"];
 
 interface FormState {
@@ -84,7 +92,11 @@ function cadenceLabel(schedule: MisReportSchedule) {
 
 function StatusBadge({ status }: { status: MisReportSchedule["lastStatus"] }) {
   if (!status) {
-    return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">Never run</span>;
+    return (
+      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+        Never run
+      </span>
+    );
   }
   const styles: Record<string, string> = {
     sent: "bg-emerald-100 text-emerald-800",
@@ -93,7 +105,9 @@ function StatusBadge({ status }: { status: MisReportSchedule["lastStatus"] }) {
     running: "bg-sky-100 text-sky-800",
   };
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${styles[status] ?? "bg-slate-100 text-slate-600"}`}>
+    <span
+      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${styles[status] ?? "bg-slate-100 text-slate-600"}`}
+    >
       {status}
     </span>
   );
@@ -129,17 +143,26 @@ function ScheduleForm({
     <div className="rounded border bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-base font-bold">{title}</h3>
-        <button type="button" onClick={onCancel} className="rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Close form">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded p-1 text-slate-500 hover:bg-slate-100"
+          aria-label="Close form"
+        >
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule name</span>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Schedule name
+            </span>
             <input
               value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, name: event.target.value }))
+              }
               aria-label="Schedule name"
               placeholder="e.g. Morning management brief"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -151,7 +174,12 @@ function ScheduleForm({
             </span>
             <textarea
               value={form.recipientsText}
-              onChange={(event) => setForm((prev) => ({ ...prev, recipientsText: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  recipientsText: event.target.value,
+                }))
+              }
               aria-label="Recipients (comma-separated emails)"
               placeholder="cmo@hospital.example, finance@hospital.example"
               rows={3}
@@ -160,10 +188,17 @@ function ScheduleForm({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Cadence</span>
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Cadence
+              </span>
               <select
                 value={form.cadence}
-                onChange={(event) => setForm((prev) => ({ ...prev, cadence: event.target.value as MisReportCadence }))}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    cadence: event.target.value as MisReportCadence,
+                  }))
+                }
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 <option value="daily">Daily</option>
@@ -172,42 +207,71 @@ function ScheduleForm({
               </select>
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Send hour (local)</span>
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Send hour (local)
+              </span>
               <select
                 value={form.sendHour}
-                onChange={(event) => setForm((prev) => ({ ...prev, sendHour: Number(event.target.value) }))}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    sendHour: Number(event.target.value),
+                  }))
+                }
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 {Array.from({ length: 24 }, (_, hour) => (
-                  <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
+                  <option key={hour} value={hour}>
+                    {String(hour).padStart(2, "0")}:00
+                  </option>
                 ))}
               </select>
             </label>
             {form.cadence === "weekly" ? (
               <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Day of week</span>
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Day of week
+                </span>
                 <select
                   value={form.sendWeekday}
-                  onChange={(event) => setForm((prev) => ({ ...prev, sendWeekday: Number(event.target.value) }))}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      sendWeekday: Number(event.target.value),
+                    }))
+                  }
                   className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
                   {WEEKDAYS.map((day, index) => (
-                    <option key={day} value={index}>{day}</option>
+                    <option key={day} value={index}>
+                      {day}
+                    </option>
                   ))}
                 </select>
               </label>
             ) : null}
             {form.cadence === "monthly" ? (
               <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Day of month</span>
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Day of month
+                </span>
                 <select
                   value={form.sendDayOfMonth}
-                  onChange={(event) => setForm((prev) => ({ ...prev, sendDayOfMonth: Number(event.target.value) }))}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      sendDayOfMonth: Number(event.target.value),
+                    }))
+                  }
                   className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
-                  {Array.from({ length: 28 }, (_, index) => index + 1).map((day) => (
-                    <option key={day} value={day}>{day}</option>
-                  ))}
+                  {Array.from({ length: 28 }, (_, index) => index + 1).map(
+                    (day) => (
+                      <option key={day} value={day}>
+                        {day}
+                      </option>
+                    ),
+                  )}
                 </select>
               </label>
             ) : null}
@@ -216,7 +280,9 @@ function ScheduleForm({
             <input
               type="checkbox"
               checked={form.enabled}
-              onChange={(event) => setForm((prev) => ({ ...prev, enabled: event.target.checked }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, enabled: event.target.checked }))
+              }
               aria-label="Enabled"
               className="h-4 w-4 rounded border-slate-300"
             />
@@ -224,10 +290,15 @@ function ScheduleForm({
           </label>
         </div>
         <div>
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Reports to include</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Reports to include
+          </span>
           <div className="space-y-2 rounded border border-slate-200 p-3">
             {reports.map((report) => (
-              <label key={report.key} className="flex items-center gap-2 text-sm text-slate-700">
+              <label
+                key={report.key}
+                className="flex items-center gap-2 text-sm text-slate-700"
+              >
                 <input
                   type="checkbox"
                   checked={form.reportKeys.includes(report.key)}
@@ -267,11 +338,21 @@ export default function MisReportSchedulesPage() {
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
-  const listQuery = useQuery({ queryKey: QUERY_KEY, queryFn: listMisReportSchedules });
-  const schedules = useMemo(() => listQuery.data?.schedules ?? [], [listQuery.data]);
-  const reports = useMemo(() => listQuery.data?.reports ?? [], [listQuery.data]);
+  const listQuery = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: listMisReportSchedules,
+  });
+  const schedules = useMemo(
+    () => listQuery.data?.schedules ?? [],
+    [listQuery.data],
+  );
+  const reports = useMemo(
+    () => listQuery.data?.reports ?? [],
+    [listQuery.data],
+  );
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: QUERY_KEY });
 
   const saveMutation = useMutation({
     mutationFn: async (payload: MisReportScheduleWrite) =>
@@ -283,14 +364,20 @@ export default function MisReportSchedulesPage() {
       setEditingId(null);
       void invalidate();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to save schedule"),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save schedule",
+      ),
   });
 
   const toggleMutation = useMutation({
     mutationFn: async (schedule: MisReportSchedule) =>
       updateMisReportSchedule(schedule.id, { enabled: !schedule.enabled }),
     onSuccess: () => void invalidate(),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to update schedule"),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update schedule",
+      ),
   });
 
   const deleteMutation = useMutation({
@@ -299,18 +386,28 @@ export default function MisReportSchedulesPage() {
       toast.success("Schedule deleted");
       void invalidate();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to delete schedule"),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete schedule",
+      ),
   });
 
   const runNowMutation = useMutation({
     mutationFn: runMisReportScheduleNow,
     onSuccess: (result) => {
-      if (result.status === "sent") toast.success(`Reports emailed (${result.deliveries.length} recipient${result.deliveries.length === 1 ? "" : "s"})`);
-      else if (result.status === "partial") toast.error("Some recipients did not receive the email — check last-run detail");
+      if (result.status === "sent")
+        toast.success(
+          `Reports emailed (${result.deliveries.length} recipient${result.deliveries.length === 1 ? "" : "s"})`,
+        );
+      else if (result.status === "partial")
+        toast.error(
+          "Some recipients did not receive the email — check last-run detail",
+        );
       else toast.error("Delivery failed — no recipient was acknowledged");
       void invalidate();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Run failed"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Run failed"),
   });
 
   const startCreate = () => {
@@ -326,8 +423,10 @@ export default function MisReportSchedulesPage() {
   const submit = () => {
     const payload = toPayload(form);
     if (!payload.name) return void toast.error("Schedule name is required");
-    if (!payload.reportKeys || payload.reportKeys.length === 0) return void toast.error("Select at least one report");
-    if (!payload.recipients || payload.recipients.length === 0) return void toast.error("Add at least one recipient email");
+    if (!payload.reportKeys || payload.reportKeys.length === 0)
+      return void toast.error("Select at least one report");
+    if (!payload.recipients || payload.recipients.length === 0)
+      return void toast.error("Add at least one recipient email");
     saveMutation.mutate(payload);
   };
 
@@ -339,9 +438,12 @@ export default function MisReportSchedulesPage() {
             <Mail className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-normal">MIS Report Emails</h2>
+            <h2 className="text-xl font-bold tracking-normal">
+              MIS Report Emails
+            </h2>
             <p className="text-sm text-slate-600">
-              Scheduled census, revenue, and department snapshot reports delivered to management by email.
+              Scheduled census, revenue, and department snapshot reports
+              delivered to management by email.
             </p>
           </div>
         </div>
@@ -373,11 +475,14 @@ export default function MisReportSchedulesPage() {
         <Skeleton className="h-72 w-full" />
       ) : listQuery.isError ? (
         <div className="rounded border border-amber-300 bg-amber-50 p-8 text-amber-900">
-          {listQuery.error instanceof Error ? listQuery.error.message : "Failed to load schedules"}
+          {listQuery.error instanceof Error
+            ? listQuery.error.message
+            : "Failed to load schedules"}
         </div>
       ) : schedules.length === 0 ? (
         <div className="rounded border bg-white p-12 text-center text-slate-600">
-          No report schedules yet. Create one to email MIS snapshots to management automatically.
+          No report schedules yet. Create one to email MIS snapshots to
+          management automatically.
         </div>
       ) : (
         <div className="overflow-x-auto rounded border bg-white">
@@ -399,16 +504,26 @@ export default function MisReportSchedulesPage() {
                   <td className="px-4 py-3 font-semibold">{schedule.name}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {schedule.reportKeys
-                      .map((key) => reports.find((report) => report.key === key)?.title ?? key)
+                      .map(
+                        (key) =>
+                          reports.find((report) => report.key === key)?.title ??
+                          key,
+                      )
                       .join(", ")}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{cadenceLabel(schedule)}</td>
-                  <td className="px-4 py-3 text-slate-600">{schedule.recipients.join(", ")}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {cadenceLabel(schedule)}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {schedule.recipients.join(", ")}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={schedule.lastStatus} />
                       {schedule.lastRunAt ? (
-                        <span className="text-xs text-slate-500">{new Date(schedule.lastRunAt).toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">
+                          {new Date(schedule.lastRunAt).toLocaleString()}
+                        </span>
                       ) : null}
                     </div>
                   </td>
@@ -418,7 +533,9 @@ export default function MisReportSchedulesPage() {
                       onClick={() => toggleMutation.mutate(schedule)}
                       disabled={toggleMutation.isPending}
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        schedule.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
+                        schedule.enabled
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-slate-200 text-slate-600"
                       }`}
                     >
                       {schedule.enabled ? "Enabled" : "Disabled"}
@@ -448,7 +565,11 @@ export default function MisReportSchedulesPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm(`Delete schedule "${schedule.name}"?`)) {
+                          if (
+                            window.confirm(
+                              `Delete schedule "${schedule.name}"?`,
+                            )
+                          ) {
                             deleteMutation.mutate(schedule.id);
                           }
                         }}

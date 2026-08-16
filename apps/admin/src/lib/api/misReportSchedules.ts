@@ -67,7 +67,9 @@ export interface MisReportScheduleRunResult {
 }
 
 export async function listMisReportSchedules() {
-  return fetchAdminAPI<MisReportScheduleList>("/dashboards/mis-report-schedules");
+  return fetchAdminAPI<MisReportScheduleList>(
+    "/dashboards/mis-report-schedules",
+  );
 }
 
 export async function createMisReportSchedule(payload: MisReportScheduleWrite) {
@@ -77,11 +79,17 @@ export async function createMisReportSchedule(payload: MisReportScheduleWrite) {
   });
 }
 
-export async function updateMisReportSchedule(id: number, payload: MisReportScheduleWrite) {
-  return fetchAdminAPI<MisReportSchedule>(`/dashboards/mis-report-schedules/${id}`, {
-    method: "PATCH",
-    body: payload,
-  });
+export async function updateMisReportSchedule(
+  id: number,
+  payload: MisReportScheduleWrite,
+) {
+  return fetchAdminAPI<MisReportSchedule>(
+    `/dashboards/mis-report-schedules/${id}`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
 export async function deleteMisReportSchedule(id: number) {
