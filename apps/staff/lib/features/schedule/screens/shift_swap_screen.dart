@@ -6,6 +6,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// Shift-for-shift swaps + on-call roster (backend migration 682).
@@ -532,9 +533,8 @@ class _ShiftSwapScreenState extends State<ShiftSwapScreen> {
   String _formatStamp(dynamic value) {
     if (value == null) return '-';
     try {
-      return DateFormat(
-        'd MMM HH:mm',
-      ).format(DateTime.parse(value.toString()).toLocal());
+      return DateFormat('d MMM HH:mm')
+          .format(DateTime.parse(value.toString()).toLocal());
     } catch (_) {
       return value.toString();
     }

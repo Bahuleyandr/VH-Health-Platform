@@ -6,6 +6,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class WardModeScreen extends StatefulWidget {
@@ -105,9 +106,8 @@ class _WardModeScreenState extends State<WardModeScreen> {
               children: [
                 AppText(
                   's4.lib.ward_mode.ward_workbench',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 AppText(
                   _role == StaffRole.nurse ||
@@ -321,9 +321,8 @@ class _WardActionTile extends StatelessWidget {
                   action.titleKey,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 4),
                 AppText(

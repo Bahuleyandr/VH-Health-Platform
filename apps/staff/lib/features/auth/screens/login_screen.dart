@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show BiometricAuthResult, BiometricAuthService, RealtimeProvider;
+
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/providers/notification_provider.dart';

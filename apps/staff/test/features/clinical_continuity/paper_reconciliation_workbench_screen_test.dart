@@ -88,9 +88,8 @@ Widget _host(Widget child, {double textScale = 1}) {
     create: (_) => ThemeProvider(),
     child: MaterialApp(
       builder: (context, built) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
         child: built!,
       ),
       home: child,

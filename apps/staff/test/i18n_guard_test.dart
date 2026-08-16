@@ -333,9 +333,8 @@ void main() {
       reason: 'StaffRole display names should resolve through AppStrings keys.',
     );
     expect(
-      RegExp(
-        r'''String\s+get\s+rosterDepartmentLabel\s*=>''',
-      ).hasMatch(roleConfigSource),
+      RegExp(r'''String\s+get\s+rosterDepartmentLabel\s*=>''')
+          .hasMatch(roleConfigSource),
       isFalse,
       reason:
           'Roster department display names should resolve through AppStrings '
@@ -466,8 +465,7 @@ void main() {
     expect(
       hits,
       isEmpty,
-      reason:
-          'S4 HR slice metadata and small display labels should use AppStrings.',
+      reason: 'S4 HR slice metadata and small display labels should use AppStrings.',
     );
     expect(
       _missingLocaleEntries(keys),
@@ -570,9 +568,8 @@ void main() {
   );
 
   test('bed board surfaces denial of its realtime refresh channel', () {
-    final source = File(
-      'lib/features/beds/screens/bed_board_screen.dart',
-    ).readAsStringSync();
+    final source = File('lib/features/beds/screens/bed_board_screen.dart')
+        .readAsStringSync();
 
     expect(source, contains("_bedBoardRealtimeChannels = {'staff:beds'}"));
     expect(source, contains('watchChannels: _bedBoardRealtimeChannels'));
@@ -582,9 +579,8 @@ void main() {
     );
 
     for (final locale in AppStrings.supportedLocales) {
-      final copy = AppStrings.forLocale(
-        locale,
-      ).lookup('s4.lib.realtime_status.beds_denied');
+      final copy = AppStrings.forLocale(locale)
+          .lookup('s4.lib.realtime_status.beds_denied');
       expect(
         copy,
         isNot('s4.lib.realtime_status.beds_denied'),
@@ -1355,135 +1351,128 @@ void main() {
     );
   });
 
-  test(
-    'S4 appointments and lab bookings copy stores keys with required locale entries',
-    () {
-      final files = [
-        File('lib/features/appointments/screens/appointments_screen.dart'),
-        File('lib/features/investigations/screens/lab_bookings_screen.dart'),
-      ];
-      final allowedPrefixes = [
-        'appt_queue.',
-        'lab_bookings.',
-        'reception_counter.',
-        's4.dynamic.appointments.',
-        's4.dynamic.lab_bookings.',
-        's4.lib.appointments.',
-        's4.lib.lab_bookings.',
-      ];
-      final rawFragments = [
-        "'Enter phone to check registered patient'",
-        "'Checking patient registry...'",
-        "'New patient - enter name to register while booking'",
-        "'Existing patient found'",
-        "'Existing patient found: #",
-        "'Could not check registry now; new-patient booking is available'",
-        "'Enter a valid phone number'",
-        "'Enter patient name for new patient'",
-        "'Select a doctor or department'",
-        "'Enter at least 3 characters'",
-        "'Creating...'",
-        "'Create Appointment'",
-        "'Attach prescription'",
-        "'Booking...'",
-        "'Book Lab'",
-        "'Lab booking created'",
-        "'Scan and collect'",
-        "'Error: \$e'",
-        "'Specimen collected, but queue update failed:",
-      ];
+  test('S4 appointments and lab bookings copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/appointments/screens/appointments_screen.dart'),
+      File('lib/features/investigations/screens/lab_bookings_screen.dart'),
+    ];
+    final allowedPrefixes = [
+      'appt_queue.',
+      'lab_bookings.',
+      'reception_counter.',
+      's4.dynamic.appointments.',
+      's4.dynamic.lab_bookings.',
+      's4.lib.appointments.',
+      's4.lib.lab_bookings.',
+    ];
+    final rawFragments = [
+      "'Enter phone to check registered patient'",
+      "'Checking patient registry...'",
+      "'New patient - enter name to register while booking'",
+      "'Existing patient found'",
+      "'Existing patient found: #",
+      "'Could not check registry now; new-patient booking is available'",
+      "'Enter a valid phone number'",
+      "'Enter patient name for new patient'",
+      "'Select a doctor or department'",
+      "'Enter at least 3 characters'",
+      "'Creating...'",
+      "'Create Appointment'",
+      "'Attach prescription'",
+      "'Booking...'",
+      "'Book Lab'",
+      "'Lab booking created'",
+      "'Scan and collect'",
+      "'Error: \$e'",
+      "'Specimen collected, but queue update failed:",
+    ];
 
-      final keys = <String>{};
-      for (final file in files) {
-        final source = file.readAsStringSync();
-        keys
-          ..addAll(_appStringKeysFrom(source, allowedPrefixes))
-          ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
-          ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
-        for (final rawCopy in rawFragments) {
-          expect(
-            source,
-            isNot(contains(rawCopy)),
-            reason:
-                'Appointments and lab bookings display copy should use '
-                'AppStrings keys: $rawCopy',
-          );
-        }
+    final keys = <String>{};
+    for (final file in files) {
+      final source = file.readAsStringSync();
+      keys
+        ..addAll(_appStringKeysFrom(source, allowedPrefixes))
+        ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
+        ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
+      for (final rawCopy in rawFragments) {
+        expect(
+          source,
+          isNot(contains(rawCopy)),
+          reason:
+              'Appointments and lab bookings display copy should use '
+              'AppStrings keys: $rawCopy',
+        );
       }
+    }
 
-      expect(
-        _missingLocaleEntries(keys),
-        isEmpty,
-        reason:
-            'S4 appointments/lab booking keys must have en/hi/ta/te entries.',
-      );
-    },
-  );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 appointments/lab booking keys must have en/hi/ta/te entries.',
+    );
+  });
 
-  test(
-    'S4 EMR notes admissions and discharge copy stores keys with required locale entries',
-    () {
-      final files = [
-        File('lib/features/emr/screens/clinical_notes_screen.dart'),
-        File('lib/features/emr/screens/admission_screen.dart'),
-        File('lib/features/emr/screens/discharge_summary_screen.dart'),
-      ];
-      final allowedPrefixes = [
-        'admission.',
-        'ai_assist.',
-        'clinical_notes.',
-        'discharge.',
-        's4.dynamic.admission.',
-        's4.dynamic.clinical_notes.',
-        's4.dynamic.discharge_summary.',
-        's4.lib.admission.',
-        's4.lib.clinical_notes.',
-        's4.lib.discharge_hub.',
-        's4.lib.discharge_summary.',
-      ];
-      final rawFragments = [
-        "'This OP visit is",
-        "'OP Consultation'",
-        "'review: pending'",
-        "'gen #",
-        "'Consultation note updated'",
-        "'Could not load existing summary:",
-        "'Failed to generate summary:",
-        "'Hospital formatted summary'",
-        "'AI-generated draft - doctor review required'",
-        "'No safety flags'",
-        "'All active inpatients'",
-        "'Admitting doctor is required'",
-        "'Hospital ID'",
-        "'Admission status'",
-        "'No discharged admissions'",
-      ];
+  test('S4 EMR notes admissions and discharge copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/emr/screens/clinical_notes_screen.dart'),
+      File('lib/features/emr/screens/admission_screen.dart'),
+      File('lib/features/emr/screens/discharge_summary_screen.dart'),
+    ];
+    final allowedPrefixes = [
+      'admission.',
+      'ai_assist.',
+      'clinical_notes.',
+      'discharge.',
+      's4.dynamic.admission.',
+      's4.dynamic.clinical_notes.',
+      's4.dynamic.discharge_summary.',
+      's4.lib.admission.',
+      's4.lib.clinical_notes.',
+      's4.lib.discharge_hub.',
+      's4.lib.discharge_summary.',
+    ];
+    final rawFragments = [
+      "'This OP visit is",
+      "'OP Consultation'",
+      "'review: pending'",
+      "'gen #",
+      "'Consultation note updated'",
+      "'Could not load existing summary:",
+      "'Failed to generate summary:",
+      "'Hospital formatted summary'",
+      "'AI-generated draft - doctor review required'",
+      "'No safety flags'",
+      "'All active inpatients'",
+      "'Admitting doctor is required'",
+      "'Hospital ID'",
+      "'Admission status'",
+      "'No discharged admissions'",
+    ];
 
-      final keys = <String>{};
-      for (final file in files) {
-        final source = file.readAsStringSync();
-        keys
-          ..addAll(_appStringKeysFrom(source, allowedPrefixes))
-          ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
-          ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
-        for (final rawCopy in rawFragments) {
-          expect(
-            source,
-            isNot(contains(rawCopy)),
-            reason:
-                'S4 EMR notes/admissions/discharge copy should use '
-                'AppStrings keys: $rawCopy',
-          );
-        }
+    final keys = <String>{};
+    for (final file in files) {
+      final source = file.readAsStringSync();
+      keys
+        ..addAll(_appStringKeysFrom(source, allowedPrefixes))
+        ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
+        ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
+      for (final rawCopy in rawFragments) {
+        expect(
+          source,
+          isNot(contains(rawCopy)),
+          reason:
+              'S4 EMR notes/admissions/discharge copy should use '
+              'AppStrings keys: $rawCopy',
+        );
       }
+    }
 
-      expect(
-        _missingLocaleEntries(keys),
-        isEmpty,
-        reason: 'S4 EMR copy keys must have en/hi/ta/te entries.',
-      );
-    },
-  );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 EMR copy keys must have en/hi/ta/te entries.',
+    );
+  });
 
   test('S4 bed board sheet copy stores keys with required locale entries', () {
     final file = File('lib/features/beds/screens/bed_board_screen.dart');
@@ -1800,9 +1789,8 @@ List<String> _missingLocaleEntries(
   final appStringsSource = File('lib/l10n/app_strings.dart').readAsStringSync();
   final missingKeys = <String>[];
   for (final key in keys) {
-    final occurrences = RegExp(
-      "'${RegExp.escape(key)}'",
-    ).allMatches(appStringsSource);
+    final occurrences = RegExp("'${RegExp.escape(key)}'")
+        .allMatches(appStringsSource);
     if (occurrences.length < requiredLocales) {
       missingKeys.add('$key (${occurrences.length}/$requiredLocales locales)');
     }

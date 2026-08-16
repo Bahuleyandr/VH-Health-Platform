@@ -399,9 +399,10 @@ class StaffRoutePolicy {
                 false,
           )
         : metadata.anyFeatureIds.any(
-            RoleFeatures.getFeaturesForRole(
-              role,
-            ).map((feature) => feature.id).toSet().contains,
+            RoleFeatures.getFeaturesForRole(role)
+                .map((feature) => feature.id)
+                .toSet()
+                .contains,
           );
     if (featureAllowed) {
       return const StaffRouteDecision.allow();

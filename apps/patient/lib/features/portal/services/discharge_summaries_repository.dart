@@ -82,8 +82,9 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   }
 }
 
-typedef DischargeSummaryPdfOpener =
-    Future<void> Function(DischargeSummary summary);
+typedef DischargeSummaryPdfOpener = Future<void> Function(
+  DischargeSummary summary,
+);
 
 Future<void> openDischargeSummaryPdf(DischargeSummary summary) async {
   final response = await VHHttpClient.getBytes(

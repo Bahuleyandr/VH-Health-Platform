@@ -149,9 +149,8 @@ class _ClinicalAutocompleteFieldState extends State<ClinicalAutocompleteField> {
                 child: Text(
                   _previewSuggestion!,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.68),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant
+                        .withValues(alpha: 0.68),
                   ),
                 ),
               ),

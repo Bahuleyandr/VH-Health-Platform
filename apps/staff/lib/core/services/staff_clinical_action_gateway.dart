@@ -37,8 +37,9 @@ extension StaffCaptureCallSiteContract on StaffCaptureCallSite {
 
 typedef StaffCaptureContextResolver =
     Future<StaffOfflineCaptureContext> Function(String appVersion);
-typedef StaffPreparedCapture =
-    Future<PersistedOfflineCommand> Function(OfflineCommandDraft draft);
+typedef StaffPreparedCapture = Future<PersistedOfflineCommand> Function(
+  OfflineCommandDraft draft,
+);
 
 @immutable
 class StaffActionGatewayResult {

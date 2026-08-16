@@ -3,8 +3,9 @@ import 'package:flutter/services.dart';
 
 import '../../../l10n/app_strings.dart';
 
-typedef OphthalmologyExamSubmit =
-    Future<void> Function(Map<String, dynamic> payload);
+typedef OphthalmologyExamSubmit = Future<void> Function(
+  Map<String, dynamic> payload,
+);
 
 class OphthalmologyEyeEntryPanel extends StatefulWidget {
   final OphthalmologyExamSubmit onSubmit;

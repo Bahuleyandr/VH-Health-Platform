@@ -176,9 +176,8 @@ void main() {
     // the guard being dropped from the production redirect would silently
     // re-open the deep-link cold-start bypass while every harness test here
     // kept passing.
-    final routerSource = File(
-      'lib/core/navigation/app_router.dart',
-    ).readAsStringSync();
+    final routerSource = File('lib/core/navigation/app_router.dart')
+        .readAsStringSync();
     expect(
       RegExp(r'await startupGateRedirect\(location\)').hasMatch(routerSource),
       isTrue,

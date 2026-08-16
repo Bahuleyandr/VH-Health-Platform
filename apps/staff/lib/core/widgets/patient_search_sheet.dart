@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../l10n/app_strings.dart';
 import '../config/api_config.dart';
 import '../config/role_config.dart';
@@ -18,8 +19,9 @@ import '../utils/patient_identity.dart';
 ///
 /// Open via [PatientSearchSheet.show] from any screen — typically a
 /// magnifier icon in the AppBar or a Cmd+K shortcut.
-typedef PatientLookup =
-    Future<List<Map<String, dynamic>>> Function(String query);
+typedef PatientLookup = Future<List<Map<String, dynamic>>> Function(
+  String query,
+);
 
 class PatientSearchSheet extends StatefulWidget {
   final bool pickOnly;

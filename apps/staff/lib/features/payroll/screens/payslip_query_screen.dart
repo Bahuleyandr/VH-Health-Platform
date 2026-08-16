@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -6,10 +7,12 @@ import '../../../l10n/app_strings.dart';
 import '../payroll_amounts.dart';
 
 typedef PayrollQueriesLoader = Future<List<dynamic>> Function();
-typedef PayrollQueryPayslipsLoader =
-    Future<List<dynamic>> Function({int months});
-typedef RaisePayslipQueryAction =
-    Future<Object?> Function(Map<String, dynamic> data);
+typedef PayrollQueryPayslipsLoader = Future<List<dynamic>> Function({
+  int months,
+});
+typedef RaisePayslipQueryAction = Future<Object?> Function(
+  Map<String, dynamic> data,
+);
 
 class PayslipQueryScreen extends StatefulWidget {
   final PayrollQueriesLoader? loadQueries;
@@ -264,9 +267,8 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: isStaff
-                                      ? const Color(
-                                          0xFF007A64,
-                                        ).withValues(alpha: 0.1)
+                                      ? const Color(0xFF007A64)
+                                            .withValues(alpha: 0.1)
                                       : Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(10),
                                 ),

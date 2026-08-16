@@ -109,9 +109,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   /// Center itself, so the entry point only renders for authorized roles.
   Future<void> _loadSosEntitlement() async {
     final role = await AuthService.getRole();
-    final allowed = RoleFeatures.getFeaturesForRawRole(
-      role,
-    ).any((feature) => feature.id == 'sos_response');
+    final allowed = RoleFeatures.getFeaturesForRawRole(role)
+        .any((feature) => feature.id == 'sos_response');
     if (mounted) setState(() => _canRespondSos = allowed);
   }
 
@@ -153,9 +152,9 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
 
       final housekeeping = _asMap(results[2]);
       final assigned =
-          _asMapList(
-              housekeeping['assigned'],
-            ).where((task) => !_isFinishedStatus(task['status'])).toList()
+          _asMapList(housekeeping['assigned'])
+              .where((task) => !_isFinishedStatus(task['status']))
+              .toList()
             ..sort(_sortHousekeepingBySla);
 
       if (!mounted) return;

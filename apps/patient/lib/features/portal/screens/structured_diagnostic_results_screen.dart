@@ -388,7 +388,7 @@ String _resultSubtitle(
 
 String _formatDateTime(BuildContext context, DateTime? value) {
   if (value == null) return AppLocalizations.of(context)!.notAvailable;
-  return DateFormat.yMMMd(
-    Localizations.localeOf(context).toString(),
-  ).add_jm().format(value);
+  return DateFormat.yMMMd(Localizations.localeOf(context).toString())
+      .add_jm()
+      .format(value);
 }

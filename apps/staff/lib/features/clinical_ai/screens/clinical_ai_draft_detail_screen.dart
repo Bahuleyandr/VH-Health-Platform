@@ -15,7 +15,9 @@
 // the same patient + similar context.
 
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';

@@ -58,8 +58,8 @@ jobs:
           # Pin the exact Flutter (Dart) version so `dart format` is
           # deterministic. CI was on the floating `stable` channel, whose
           # formatter drifts with each Dart release and silently re-breaks the
-          # format check; 3.44.0 is the owner-approved workspace toolchain.
-          flutter-version: 3.44.0
+          # format check; 3.47.0 is the owner-approved workspace toolchain.
+          flutter-version: 3.47.0
           cache: true
 
       - name: Print versions
@@ -147,7 +147,7 @@ jobs:
           # Same pin as the workspace job above and every other Flutter site in
           # the repo (ci.yml, .forgejo/workflows/ci.yml, deploy-*-staging.yml,
           # release-*.yml) — bump them together.
-          flutter-version: 3.44.0
+          flutter-version: 3.47.0
           cache: true
 
       - name: Activate Melos

@@ -9,15 +9,14 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
 typedef ActiveTrackingLoader = Future<Map<String, dynamic>> Function();
-typedef PositionPoster =
-    Future<Map<String, dynamic>> Function({
-      required int ambulanceRequestId,
-      required double latitude,
-      required double longitude,
-      double? speedKmh,
-      double? headingDeg,
-      double? accuracyM,
-    });
+typedef PositionPoster = Future<Map<String, dynamic>> Function({
+  required int ambulanceRequestId,
+  required double latitude,
+  required double longitude,
+  double? speedKmh,
+  double? headingDeg,
+  double? accuracyM,
+});
 typedef DevicePositionProvider = Future<Position> Function();
 
 /// Live view of actively-transporting ambulance requests (ED side) plus the
@@ -368,9 +367,8 @@ class _AmbulanceCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
                   s.format('s4.lib.ambulance_tracking.eta', {
-                    'time': TimeOfDay.fromDateTime(
-                      etaAt.toLocal(),
-                    ).format(context),
+                    'time': TimeOfDay.fromDateTime(etaAt.toLocal())
+                        .format(context),
                   }),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,

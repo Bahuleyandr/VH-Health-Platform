@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+
 import 'api_client.dart';
 
 /// Leave-related API calls: apply, balance, history, approvals, replacements.

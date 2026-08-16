@@ -18,10 +18,13 @@ import '../providers/websocket_provider.dart';
 /// app's session-scoped realtime adapter. This listener only owns presentation
 /// and cancels its relay subscription as soon as that authenticated session
 /// ends.
-typedef CodeBlueNotificationPresenter =
-    Future<void> Function(Map<String, dynamic> data);
-typedef CodeBlueDialogPresenter =
-    CodeBluePresentation Function(BuildContext context, RealtimeEvent event);
+typedef CodeBlueNotificationPresenter = Future<void> Function(
+  Map<String, dynamic> data,
+);
+typedef CodeBlueDialogPresenter = CodeBluePresentation Function(
+  BuildContext context,
+  RealtimeEvent event,
+);
 
 abstract interface class CodeBluePresentation {
   Future<void> get completed;

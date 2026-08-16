@@ -7,6 +7,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class PhonePatientLookupScreen extends StatefulWidget {
@@ -132,9 +133,8 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
             controller: _ctrl,
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
-              labelText: AppStrings.of(
-                context,
-              ).lookup('reception_counter.patient_lookup.hint'),
+              labelText: AppStrings.of(context)
+                  .lookup('reception_counter.patient_lookup.hint'),
               suffixIcon: _loading
                   ? const Padding(
                       padding: EdgeInsets.all(12),

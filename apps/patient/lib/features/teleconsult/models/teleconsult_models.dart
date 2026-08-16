@@ -147,8 +147,7 @@ class TeleconsultConsentPayload {
       'recording_enabled': false,
       'consent_method': 'checkbox',
       'purpose': 'Remote video/audio consultation',
-      'statement':
-          'Patient accepted remote consultation, degradation fallback, emergency limitations, and recording-off terms.',
+      'statement': 'Patient accepted remote consultation, degradation fallback, emergency limitations, and recording-off terms.',
     };
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/services/radiology_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -714,9 +715,8 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         reason: reason,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
       await _fetchWorklist();
     } catch (e) {
       if (!mounted) return;
@@ -734,9 +734,8 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     try {
       await RadiologyApiService.releaseToPatientNow(generationId);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(s.radiologyReleaseUpdated)));
       await _fetchWorklist();
     } catch (e) {
       if (!mounted) return;
@@ -1167,9 +1166,8 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     try {
       await RadiologyApiService.cancelOrder(id);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(s.radiologyOrderCancelled)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(s.radiologyOrderCancelled)));
       }
       unawaited(_fetchWorklist());
     } catch (e) {

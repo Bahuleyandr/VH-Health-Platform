@@ -17,8 +17,9 @@ import 'offline_write_containment.dart';
 import 'secure_storage.dart';
 
 typedef OfflineQueueTenantIdResolver = String? Function();
-typedef OfflineQueueReconciliationOwnerResolver =
-    String? Function(String tenantId);
+typedef OfflineQueueReconciliationOwnerResolver = String? Function(
+  String tenantId,
+);
 typedef OfflineQueueCurrentActorUidResolver = Future<String?> Function();
 typedef OfflineQueueCurrentActorRoleResolver = Future<String?> Function();
 

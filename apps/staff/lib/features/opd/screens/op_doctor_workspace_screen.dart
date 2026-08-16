@@ -27,6 +27,7 @@ import '../../../core/widgets/voice_dictate_button.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
 import '../widgets/care_pathway_action_dialogs.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 @visibleForTesting
@@ -668,9 +669,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
   String get _opSessionClosedReason {
     if (_isTerminalStatus(_status)) {
       return _format('s4.dynamic.op_doctor_workspace.visit_closed_status', {
-        'status': AppStrings.of(
-          context,
-        ).frontOfficeAppointmentStatusLabel(_status),
+        'status': AppStrings.of(context)
+            .frontOfficeAppointmentStatusLabel(_status),
       });
     }
     return _label('s4.lib.op_doctor_workspace.visit_not_today');
@@ -1244,9 +1244,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                             ),
                       ),
                       _StatusPill(
-                        label: AppStrings.of(
-                          context,
-                        ).frontOfficeAppointmentStatusLabel(_status),
+                        label: AppStrings.of(context)
+                            .frontOfficeAppointmentStatusLabel(_status),
                         color: statusColor,
                       ),
                     ],
@@ -1558,9 +1557,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                         ? _format(
                             's4.dynamic.op_doctor_workspace.consultation_status',
                             {
-                              'status': AppStrings.of(
-                                context,
-                              ).frontOfficeAppointmentStatusLabel(_status),
+                              'status': AppStrings.of(context)
+                                  .frontOfficeAppointmentStatusLabel(_status),
                             },
                           )
                         : _label(

@@ -34,9 +34,9 @@ class ClinicalPlatformApiService {
       queryParameters: {'limit': limit.toString()},
     );
     final data = _dataMap(resp);
-    return _listOfMaps(
-      data['events'],
-    ).map(ClinicalAuditEvent.fromJson).toList();
+    return _listOfMaps(data['events'])
+        .map(ClinicalAuditEvent.fromJson)
+        .toList();
   }
 
   static Future<List<WorkflowSlaInstance>> getEncounterWorkflowSlas(
@@ -71,9 +71,9 @@ class ClinicalPlatformApiService {
       },
     );
     final data = _dataMap(resp);
-    return _listOfMaps(
-      data['reviews'],
-    ).map(MedicationSafetyReview.fromJson).toList();
+    return _listOfMaps(data['reviews'])
+        .map(MedicationSafetyReview.fromJson)
+        .toList();
   }
 
   static Future<MedicationSafetyEvaluation> evaluateMedicationSafety({
@@ -115,9 +115,9 @@ class ClinicalPlatformApiService {
       },
     );
     final data = _dataMap(resp);
-    return _listOfMaps(
-      data['templates'],
-    ).map(ClinicalDocumentationTemplate.fromJson).toList();
+    return _listOfMaps(data['templates'])
+        .map(ClinicalDocumentationTemplate.fromJson)
+        .toList();
   }
 
   static Future<RolePolicySnapshot> getRolePolicySnapshot() async {

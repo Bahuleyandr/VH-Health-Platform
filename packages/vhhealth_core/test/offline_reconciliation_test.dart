@@ -79,11 +79,9 @@ void main() {
       final event = (await OfflineQueue.debugStateEvents()).last;
       expect(event['actor_uid'], harness.currentActorUid);
       expect(event['reason_code'], 'draft_cancelled');
-      final detail =
-          jsonDecode(
-                await harness.decryptV1(event['detail_ciphertext'] as String),
-              )
-              as Map<String, dynamic>;
+      final detail = jsonDecode(
+        await harness.decryptV1(event['detail_ciphertext'] as String),
+      ) as Map<String, dynamic>;
       expect(detail['confirmed_not_recorded_on_server'], isTrue);
       expect(detail['reason'], 'draft_cancelled');
     },

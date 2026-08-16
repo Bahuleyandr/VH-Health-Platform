@@ -384,9 +384,8 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                                         Padding(
                                           padding: const EdgeInsets.all(16),
                                           child: Text(
-                                            AppLocalizations.of(
-                                              context,
-                                            )!.departmentsNoDoctors,
+                                            AppLocalizations.of(context)!
+                                                .departmentsNoDoctors,
                                             style: _theme.textTheme.bodySmall
                                                 ?.copyWith(
                                                   color: cs.onSurfaceVariant,

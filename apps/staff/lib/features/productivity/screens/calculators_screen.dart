@@ -540,9 +540,8 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
       } else {
         setState(() {
           _error = response.failureMessage(
-            AppStrings.of(
-              context,
-            ).lookup('s4.lib.calculators.calculation_failed'),
+            AppStrings.of(context)
+                .lookup('s4.lib.calculators.calculation_failed'),
           );
           _computing = false;
         });

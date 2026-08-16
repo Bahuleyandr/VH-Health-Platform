@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/dictation/dictation_section_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -114,9 +115,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   String get _patientTitle {
     final name = widget.patientName?.trim() ?? '';
     return name.isEmpty
-        ? AppStrings.of(
-            context,
-          ).lookup('s4.lib.clinical_notes.patient_fallback')
+        ? AppStrings.of(context)
+              .lookup('s4.lib.clinical_notes.patient_fallback')
         : name;
   }
 
@@ -609,9 +609,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                                         size: 18,
                                       ),
                                       label: Text(
-                                        AppStrings.of(
-                                          ctx,
-                                        ).clinicalNotesSignNote,
+                                        AppStrings.of(ctx)
+                                            .clinicalNotesSignNote,
                                       ),
                                       style: TextButton.styleFrom(
                                         foregroundColor: AppTheme.successGreen,
@@ -2393,9 +2392,8 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
     if (reason == null) return;
     if (reason.length < 5) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.aiAssistRejectMinChars)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(s.aiAssistRejectMinChars)));
       return;
     }
     await _decide('rejected', rejectionReason: reason);

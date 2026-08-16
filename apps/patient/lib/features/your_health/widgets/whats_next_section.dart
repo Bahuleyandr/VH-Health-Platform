@@ -363,9 +363,8 @@ class _WhatsNextError extends StatelessWidget {
 }
 
 String _formatDate(BuildContext context, DateTime date) {
-  return DateFormat.yMMMd(
-    Localizations.localeOf(context).toString(),
-  ).format(date);
+  return DateFormat.yMMMd(Localizations.localeOf(context).toString())
+      .format(date);
 }
 
 String _statusLabel(AppLocalizations l10n, String raw) {

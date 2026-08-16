@@ -5,23 +5,23 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef KitchenTicketLister =
-    Future<List<Map<String, dynamic>>> Function({
-      String? date,
-      String? mealType,
-      String? status,
-      String? ward,
-    });
-typedef KitchenSummaryFetcher =
-    Future<Map<String, dynamic>> Function({String? date});
-typedef KitchenTicketTransitioner =
-    Future<Map<String, dynamic>> Function(
-      String id,
-      String status, {
-      String? reason,
-    });
-typedef KitchenGenerator =
-    Future<Map<String, dynamic>> Function({String? date});
+typedef KitchenTicketLister = Future<List<Map<String, dynamic>>> Function({
+  String? date,
+  String? mealType,
+  String? status,
+  String? ward,
+});
+typedef KitchenSummaryFetcher = Future<Map<String, dynamic>> Function({
+  String? date,
+});
+typedef KitchenTicketTransitioner = Future<Map<String, dynamic>> Function(
+  String id,
+  String status, {
+  String? reason,
+});
+typedef KitchenGenerator = Future<Map<String, dynamic>> Function({
+  String? date,
+});
 
 const _kMealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
 

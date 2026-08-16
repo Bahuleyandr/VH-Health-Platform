@@ -82,66 +82,64 @@ void main() {
     expect(find.textContaining('HTTP 500'), findsNothing, reason: context);
   }
 
-  testWidgets(
-    'staff Windows app logs in every seeded role account',
-    (tester) async {
-      if (password.isEmpty) {
-        markTestSkipped(
-          'Set --dart-define=VH_STAFF_TEST_PASSWORD for seeded staff login smoke tests.',
-        );
-        return;
-      }
+  testWidgets('staff Windows app logs in every seeded role account', (
+    tester,
+  ) async {
+    if (password.isEmpty) {
+      markTestSkipped(
+        'Set --dart-define=VH_STAFF_TEST_PASSWORD for seeded staff login smoke tests.',
+      );
+      return;
+    }
 
-      await ApiConfig.clearSessionIdentity();
+    await ApiConfig.clearSessionIdentity();
+    await RealtimeClient.instance.disconnect();
+    final previousErrorWidgetBuilder = ErrorWidget.builder;
+    addTearDown(() async {
+      ErrorWidget.builder = previousErrorWidgetBuilder;
       await RealtimeClient.instance.disconnect();
-      final previousErrorWidgetBuilder = ErrorWidget.builder;
-      addTearDown(() async {
-        ErrorWidget.builder = previousErrorWidgetBuilder;
-        await RealtimeClient.instance.disconnect();
-        await ApiConfig.clearSessionIdentity();
-      });
+      await ApiConfig.clearSessionIdentity();
+    });
 
-      unawaited(app.main());
+    unawaited(app.main());
+
+    await waitFor(
+      tester,
+      find.byType(TextFormField),
+      reason: 'Login form did not render',
+    );
+    ErrorWidget.builder = previousErrorWidgetBuilder;
+
+    for (final account in accounts) {
+      debugPrint('Staff all-logins smoke: ${account.employeeId}');
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        account.employeeDigits,
+      );
+      await tester.enterText(find.byType(TextFormField).at(1), password);
+      await tester.tap(find.byType(ElevatedButton).last);
 
       await waitFor(
         tester,
-        find.byType(TextFormField),
-        reason: 'Login form did not render',
+        find.text('Daily Work'),
+        timeout: const Duration(seconds: 35),
+        reason: 'Dashboard did not render for ${account.employeeId}',
       );
-      ErrorWidget.builder = previousErrorWidgetBuilder;
+      await pumpFor(tester, const Duration(seconds: 1));
 
-      for (final account in accounts) {
-        debugPrint('Staff all-logins smoke: ${account.employeeId}');
-        await tester.enterText(
-          find.byType(TextFormField).at(0),
-          account.employeeDigits,
-        );
-        await tester.enterText(find.byType(TextFormField).at(1), password);
-        await tester.tap(find.byType(ElevatedButton).last);
+      expectCleanLoginResult(tester, account.employeeId);
+      expect(await ApiConfig.getEmployeeId(), account.employeeId);
+      expect(await ApiConfig.getRole(), account.expectedRole);
 
-        await waitFor(
-          tester,
-          find.text('Daily Work'),
-          timeout: const Duration(seconds: 35),
-          reason: 'Dashboard did not render for ${account.employeeId}',
-        );
-        await pumpFor(tester, const Duration(seconds: 1));
-
-        expectCleanLoginResult(tester, account.employeeId);
-        expect(await ApiConfig.getEmployeeId(), account.employeeId);
-        expect(await ApiConfig.getRole(), account.expectedRole);
-
-        await ApiConfig.clearSessionIdentity();
-        await RealtimeClient.instance.disconnect();
-        GoRouter.of(tester.element(find.byType(Scaffold).first)).go('/login');
-        await pumpFor(tester, const Duration(seconds: 2));
-        await waitFor(
-          tester,
-          find.byType(TextFormField),
-          reason: 'Login form did not render after ${account.employeeId}',
-        );
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 10)),
-  );
+      await ApiConfig.clearSessionIdentity();
+      await RealtimeClient.instance.disconnect();
+      GoRouter.of(tester.element(find.byType(Scaffold).first)).go('/login');
+      await pumpFor(tester, const Duration(seconds: 2));
+      await waitFor(
+        tester,
+        find.byType(TextFormField),
+        reason: 'Login form did not render after ${account.employeeId}',
+      );
+    }
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }

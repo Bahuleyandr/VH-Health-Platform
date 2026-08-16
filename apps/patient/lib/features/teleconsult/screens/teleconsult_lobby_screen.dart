@@ -191,9 +191,8 @@ class _TeleconsultLobbyScreenState extends State<TeleconsultLobbyScreen> {
         children: [
           Text(
             widget.appointment.doctorName,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text('${widget.appointment.date} • ${widget.appointment.time}'),
@@ -351,9 +350,8 @@ class _ConsentCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
               child: Text(
                 l.teleconsultConsentTitle,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
             _ConsentCheckbox(

@@ -664,16 +664,15 @@ class _SectionCard extends StatelessWidget {
 
 String _formatDate(BuildContext context, DateTime? value) {
   if (value == null) return AppLocalizations.of(context)!.notAvailable;
-  return DateFormat.yMMMd(
-    Localizations.localeOf(context).toString(),
-  ).format(value);
+  return DateFormat.yMMMd(Localizations.localeOf(context).toString())
+      .format(value);
 }
 
 String _formatDateTime(BuildContext context, DateTime? value) {
   if (value == null) return AppLocalizations.of(context)!.notAvailable;
-  return DateFormat.yMMMd(
-    Localizations.localeOf(context).toString(),
-  ).add_jm().format(value);
+  return DateFormat.yMMMd(Localizations.localeOf(context).toString())
+      .add_jm()
+      .format(value);
 }
 
 String _titleize(String raw) {

@@ -1,7 +1,9 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../services/http_client.dart';
 import '../services/secure_storage.dart';
 
@@ -49,12 +51,11 @@ class SosTriggerResult {
 /// a swallowed error here is exactly the dishonest-success bug this contract
 /// exists to prevent. The patient app injects its throwing
 /// `SosApiService.triggerAlert` here.
-typedef SosBackendPoster =
-    Future<void> Function({
-      required String phone,
-      double? latitude,
-      double? longitude,
-    });
+typedef SosBackendPoster = Future<void> Function({
+  required String phone,
+  double? latitude,
+  double? longitude,
+});
 
 Future<void> _defaultBackendPoster({
   required String phone,
@@ -145,9 +146,8 @@ Future<SosTriggerResult> triggerSOS([
   if (!dialerLaunched) {
     debugPrint('⚠️  Could not launch dialer for $kSosEmergencyNumber');
     if (ctx != null && ctx.mounted) {
-      ScaffoldMessenger.of(
-        ctx,
-      ).showSnackBar(const SnackBar(content: Text('Unable to open dialer')));
+      ScaffoldMessenger.of(ctx)
+          .showSnackBar(const SnackBar(content: Text('Unable to open dialer')));
     }
   }
 

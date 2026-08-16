@@ -61,12 +61,12 @@ class _BiomedWorkOrdersScreenState extends State<BiomedWorkOrdersScreen>
       final data = await BiomedCmmsApiService.getMyWorkOrders();
       if (!mounted) return;
       setState(() {
-        _active = _asMapList(
-          data['assigned'],
-        ).map(_BiomedWorkOrder.fromJson).toList(growable: false);
-        _completed = _asMapList(
-          data['completed'],
-        ).map(_BiomedWorkOrder.fromJson).toList(growable: false);
+        _active = _asMapList(data['assigned'])
+            .map(_BiomedWorkOrder.fromJson)
+            .toList(growable: false);
+        _completed = _asMapList(data['completed'])
+            .map(_BiomedWorkOrder.fromJson)
+            .toList(growable: false);
       });
     } catch (e) {
       if (!mounted) return;
@@ -135,9 +135,8 @@ class _BiomedWorkOrdersScreenState extends State<BiomedWorkOrdersScreen>
             controller: controller,
             maxLines: 3,
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('biomed.work_orders.completion_notes'),
+              labelText: AppStrings.of(context)
+                  .lookup('biomed.work_orders.completion_notes'),
               border: const OutlineInputBorder(),
             ),
           ),
@@ -305,9 +304,8 @@ class _BiomedWorkOrderList extends StatelessWidget {
               height: MediaQuery.sizeOf(context).height * 0.5,
               child: EmptyState(
                 icon: Icons.build_circle_outlined,
-                title: AppStrings.of(
-                  context,
-                ).lookup('biomed.work_orders.empty'),
+                title: AppStrings.of(context)
+                    .lookup('biomed.work_orders.empty'),
               ),
             ),
           ],

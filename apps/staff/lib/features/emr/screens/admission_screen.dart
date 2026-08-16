@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
@@ -474,9 +475,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                           return DropdownButtonFormField<String>(
                             initialValue: selectedDoctorUid,
                             decoration: InputDecoration(
-                              labelText: AppStrings.of(
-                                context,
-                              ).lookup('s4.lib.admission.admitting_doctor'),
+                              labelText: AppStrings.of(context)
+                                  .lookup('s4.lib.admission.admitting_doctor'),
                               prefixIcon: const Icon(
                                 Icons.medical_services_outlined,
                               ),
@@ -532,9 +532,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                             child: TextFormField(
                               controller: bed,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  ctx,
-                                ).admissionBedNumber,
+                                labelText: AppStrings.of(ctx)
+                                    .admissionBedNumber,
                                 border: const OutlineInputBorder(),
                               ),
                             ),
@@ -846,9 +845,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                 vertical: 8,
               ),
               leading: CircleAvatar(
-                backgroundColor: _priorityColor(
-                  a['priority'] as String?,
-                ).withValues(alpha: 0.15),
+                backgroundColor: _priorityColor(a['priority'] as String?)
+                    .withValues(alpha: 0.15),
                 child: Icon(
                   Icons.local_hospital,
                   color: _priorityColor(a['priority'] as String?),
@@ -1030,9 +1028,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   const SizedBox(height: 8),
                   _infoRow(
-                    AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.admission.hospital_id'),
+                    AppStrings.of(context)
+                        .lookup('s4.lib.admission.hospital_id'),
                     _firstText([
                       _detail?['patient_hospital_number'],
                       _detail?['hospital_number'],

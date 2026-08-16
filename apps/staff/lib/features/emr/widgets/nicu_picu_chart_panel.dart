@@ -144,9 +144,8 @@ class NicuPicuChartPanel extends StatelessWidget {
                     's4.lib.patient_command_board.nicu_not_charted',
                   )
                 : _compactJoin([
-                    _text(
-                      latestThermal['care_environment'],
-                    ).replaceAll('_', ' '),
+                    _text(latestThermal['care_environment'])
+                        .replaceAll('_', ' '),
                     if (_text(latestThermal['skin_temperature_c']).isNotEmpty)
                       'skin ${_text(latestThermal['skin_temperature_c'])}°C',
                     if (_text(latestThermal['humidity_pct']).isNotEmpty)
@@ -162,14 +161,12 @@ class NicuPicuChartPanel extends StatelessWidget {
                   )
                 : _compactJoin([
                     _text(latestJaundice['event_kind']).replaceAll('_', ' '),
-                    if (_text(
-                      latestJaundice['bilirubin_total_mgdl'],
-                    ).isNotEmpty)
+                    if (_text(latestJaundice['bilirubin_total_mgdl'])
+                        .isNotEmpty)
                       'TSB ${_text(latestJaundice['bilirubin_total_mgdl'])} mg/dL',
                     if (_text(latestJaundice['phototherapy_type']).isNotEmpty)
-                      _text(
-                        latestJaundice['phototherapy_type'],
-                      ).replaceAll('_', ' '),
+                      _text(latestJaundice['phototherapy_type'])
+                          .replaceAll('_', ' '),
                   ]),
           ),
           _DetailLine(

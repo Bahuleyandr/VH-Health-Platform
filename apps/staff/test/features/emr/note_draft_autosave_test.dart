@@ -323,25 +323,22 @@ void main() {
     test('a failed PUT sets status=error and never throws', () {
       fakeAsync((async) {
         final api = NoteDraftApi(
-          put:
-              ({
-                required String patientUid,
-                int? appointmentId,
-                required String noteType,
-                required Map<String, dynamic> content,
-              }) async => throw Exception('network down'),
-          get:
-              ({
-                required String patientUid,
-                int? appointmentId,
-                required String noteType,
-              }) async => null,
-          delete:
-              ({
-                required String patientUid,
-                int? appointmentId,
-                required String noteType,
-              }) async => {'removed': false},
+          put: ({
+            required String patientUid,
+            int? appointmentId,
+            required String noteType,
+            required Map<String, dynamic> content,
+          }) async => throw Exception('network down'),
+          get: ({
+            required String patientUid,
+            int? appointmentId,
+            required String noteType,
+          }) async => null,
+          delete: ({
+            required String patientUid,
+            int? appointmentId,
+            required String noteType,
+          }) async => {'removed': false},
         );
         final autosave = NoteDraftAutosave(
           captureCallSite: _testCaptureCallSite,
@@ -509,18 +506,16 @@ void main() {
                   }
                   return {'id': 1, 'updated_at': '2026-06-17T10:00:00Z'};
                 },
-            get:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => null,
-            delete:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => {'removed': false},
+            get: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => null,
+            delete: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => {'removed': false},
           );
           final autosave = NoteDraftAutosave(
             captureCallSite: _testCaptureCallSite,
@@ -763,18 +758,16 @@ void main() {
                     'updated_at': '2026-06-17T10:00:00Z',
                   });
                 },
-            get:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => null,
-            delete:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => {'removed': false},
+            get: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => null,
+            delete: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => {'removed': false},
           );
           var body = 'A';
           final autosave = NoteDraftAutosave(
@@ -969,18 +962,16 @@ void main() {
                   puts.add(Map<String, dynamic>.from(content));
                   return gate.future;
                 },
-            get:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => null,
-            delete:
-                ({
-                  required String patientUid,
-                  int? appointmentId,
-                  required String noteType,
-                }) async => {'removed': true},
+            get: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => null,
+            delete: ({
+              required String patientUid,
+              int? appointmentId,
+              required String noteType,
+            }) async => {'removed': true},
           );
           final autosave = NoteDraftAutosave(
             captureCallSite: _testCaptureCallSite,
@@ -1332,47 +1323,44 @@ void main() {
         });
       });
 
-      test(
-        'a null-appointment draft omits appointment_id and dequeues by null',
-        () {
-          fakeAsync((async) {
-            // Nursing drafts carry no appointment_id. The enqueued body must OMIT
-            // the key (not send null), and the discard predicate must still match
-            // that null context (absent key == null appointmentId).
-            final sync = _FakeSync(online: false);
-            final autosave = NoteDraftAutosave(
-              captureCallSite: _testCaptureCallSite,
-              patientUid: 'pt-1',
-              noteType: 'nursing_note',
-              snapshot: () => {'free_text': 'obs'},
-              api: fake.build(),
-              sync: sync.build(),
-              deviceType: () => 'desktop',
-              debounce: const Duration(seconds: 3),
-            );
+      test('a null-appointment draft omits appointment_id and dequeues by null', () {
+        fakeAsync((async) {
+          // Nursing drafts carry no appointment_id. The enqueued body must OMIT
+          // the key (not send null), and the discard predicate must still match
+          // that null context (absent key == null appointmentId).
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            captureCallSite: _testCaptureCallSite,
+            patientUid: 'pt-1',
+            noteType: 'nursing_note',
+            snapshot: () => {'free_text': 'obs'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
 
-            autosave.onContentChanged();
-            async.elapse(const Duration(seconds: 3));
-            async.flushMicrotasks();
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
 
-            expect(sync.enqueues, hasLength(1));
-            final body = sync.enqueues.single['body'] as Map;
-            expect(
-              body.containsKey('appointment_id'),
-              isFalse,
-              reason: 'a null appointmentId must be OMITTED, not sent as null',
-            );
+          expect(sync.enqueues, hasLength(1));
+          final body = sync.enqueues.single['body'] as Map;
+          expect(
+            body.containsKey('appointment_id'),
+            isFalse,
+            reason: 'a null appointmentId must be OMITTED, not sent as null',
+          );
 
-            // Discard offline preserves the null appointment in the typed key.
-            autosave.clear();
-            async.flushMicrotasks();
-            expect(sync.removals.single['patientReference'], 'pt-1');
-            expect(sync.removals.single['appointmentId'], isNull);
+          // Discard offline preserves the null appointment in the typed key.
+          autosave.clear();
+          async.flushMicrotasks();
+          expect(sync.removals.single['patientReference'], 'pt-1');
+          expect(sync.removals.single['appointmentId'], isNull);
 
-            autosave.dispose();
-          });
-        },
-      );
+          autosave.dispose();
+        });
+      });
     });
   });
 }

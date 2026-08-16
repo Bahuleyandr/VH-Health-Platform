@@ -9,15 +9,14 @@ import 'package:vhhealth/core/services/backend_api_service.dart';
 /// Signature of [FirebaseAuth.verifyPhoneNumber] (the subset this app uses).
 /// Injectable so unit tests can drive the codeSent/verificationFailed paths
 /// without a Firebase app.
-typedef VerifyPhoneNumberFn =
-    Future<void> Function({
-      required String phoneNumber,
-      required PhoneVerificationCompleted verificationCompleted,
-      required PhoneVerificationFailed verificationFailed,
-      required PhoneCodeSent codeSent,
-      required PhoneCodeAutoRetrievalTimeout codeAutoRetrievalTimeout,
-      int? forceResendingToken,
-    });
+typedef VerifyPhoneNumberFn = Future<void> Function({
+  required String phoneNumber,
+  required PhoneVerificationCompleted verificationCompleted,
+  required PhoneVerificationFailed verificationFailed,
+  required PhoneCodeSent codeSent,
+  required PhoneCodeAutoRetrievalTimeout codeAutoRetrievalTimeout,
+  int? forceResendingToken,
+});
 
 class OtpService {
   OtpService({VerifyPhoneNumberFn? verifyPhoneNumber})
@@ -117,8 +116,7 @@ class OtpService {
       'app-not-authorized' ||
       'captcha-check-failed' ||
       'invalid-app-credential' ||
-      'missing-client-identifier' =>
-        'This app cannot send OTPs right now. Please update the app or contact support.',
+      'missing-client-identifier' => 'This app cannot send OTPs right now. Please update the app or contact support.',
       _ => 'Unable to send OTP. Please try again.',
     };
   }
@@ -139,8 +137,7 @@ class OtpService {
         'Too many verification attempts. Please wait and try again.',
       'quota-exceeded' =>
         'OTP service is temporarily unavailable. Please try again later.',
-      'network-request-failed' =>
-        'Network error while verifying OTP. Check your connection and try again.',
+      'network-request-failed' => 'Network error while verifying OTP. Check your connection and try again.',
       'user-disabled' =>
         'This account has been disabled. Please contact the hospital for help.',
       _ => 'Unable to verify OTP. Please try again.',

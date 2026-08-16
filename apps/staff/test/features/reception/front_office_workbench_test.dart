@@ -218,25 +218,22 @@ void main() {
       );
     });
 
-    test(
-      'doctor OP queue remains visible but nurse ward work stays out of Front Office',
-      () {
-        expect(
-          frontOfficeQueueScopeForRole(StaffRole.doctor),
-          FrontOfficeQueueScope.mine,
-        );
-        expect(
-          frontOfficeQueueScopeForRole(StaffRole.receptionist),
-          FrontOfficeQueueScope.full,
-        );
-        expect(
-          frontOfficeQueueScopeForRole(StaffRole.nurse),
-          FrontOfficeQueueScope.none,
-        );
-        expect(frontOfficeCanBookOp(StaffRole.receptionist), isTrue);
-        expect(frontOfficeCanBookOp(StaffRole.nurse), isFalse);
-      },
-    );
+    test('doctor OP queue remains visible but nurse ward work stays out of Front Office', () {
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.doctor),
+        FrontOfficeQueueScope.mine,
+      );
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.receptionist),
+        FrontOfficeQueueScope.full,
+      );
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.nurse),
+        FrontOfficeQueueScope.none,
+      );
+      expect(frontOfficeCanBookOp(StaffRole.receptionist), isTrue);
+      expect(frontOfficeCanBookOp(StaffRole.nurse), isFalse);
+    });
   });
 
   group('frontOfficeSupervisedKioskCheckinPayload', () {

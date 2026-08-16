@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -180,9 +181,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           CircleAvatar(
             radius: 44,
-            backgroundColor: Theme.of(
-              context,
-            ).colorScheme.onPrimary.withValues(alpha: 0.25),
+            backgroundColor: Theme.of(context).colorScheme.onPrimary
+                .withValues(alpha: 0.25),
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : 'S',
               style: const TextStyle(

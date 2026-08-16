@@ -213,9 +213,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         }
       }
       if (_preferredDate != null) {
-        fields['preferred_date'] = DateFormat(
-          'yyyy-MM-dd',
-        ).format(_preferredDate!);
+        fields['preferred_date'] = DateFormat('yyyy-MM-dd')
+            .format(_preferredDate!);
       }
       if (_preferredTimeSlot != null) {
         fields['preferred_time_slot'] = _preferredTimeSlot!;

@@ -56,13 +56,12 @@ Widget _screen({
 }) {
   return MaterialApp(
     home: KitchenScreen(
-      listTickets:
-          ({
-            String? date,
-            String? mealType,
-            String? status,
-            String? ward,
-          }) async => tickets ?? [_ticket()],
+      listTickets: ({
+        String? date,
+        String? mealType,
+        String? status,
+        String? ward,
+      }) async => tickets ?? [_ticket()],
       fetchSummary: ({String? date}) async => summary ?? _summary(),
       transitionTicket:
           transition ?? (id, status, {String? reason}) async => {'id': id},

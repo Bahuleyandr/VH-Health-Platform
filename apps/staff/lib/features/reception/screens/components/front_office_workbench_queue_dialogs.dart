@@ -224,9 +224,8 @@ extension _FrontOfficeWorkbenchQueueDialogs
                       Expanded(
                         child: _DateTimeButton(
                           icon: Icons.calendar_today,
-                          label: DateFormat(
-                            'dd MMM yyyy',
-                          ).format(appointmentDate),
+                          label: DateFormat('dd MMM yyyy')
+                              .format(appointmentDate),
                           onTap: pickDate,
                         ),
                       ),

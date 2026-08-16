@@ -451,9 +451,8 @@ class SettingsController {
 
   void _showSnackBar(String message) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(LiveRegionSnackBar.build(message: message));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(LiveRegionSnackBar.build(message: message));
   }
 
   Future<void> triggerSOS() async {

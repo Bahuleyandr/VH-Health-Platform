@@ -5,6 +5,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DutyPreferenceScreen extends StatefulWidget {
@@ -232,9 +233,8 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                     const SizedBox(height: 12),
                     InputDecorator(
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('profile.field.department'),
+                        labelText: AppStrings.of(context)
+                            .lookup('profile.field.department'),
                         prefixIcon: const Icon(Icons.apartment_outlined),
                       ),
                       child: Text(
@@ -333,9 +333,8 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                       controller: _reasonController,
                       maxLines: 3,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('drug_chart.stop_reason_label'),
+                        labelText: AppStrings.of(context)
+                            .lookup('drug_chart.stop_reason_label'),
                         prefixIcon: const Icon(Icons.notes_outlined),
                       ),
                     ),

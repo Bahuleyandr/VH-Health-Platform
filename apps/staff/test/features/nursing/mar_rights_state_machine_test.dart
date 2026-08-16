@@ -107,8 +107,7 @@ void main() {
       expect(
         m.onScan('REJECTED-BARCODE'),
         isFalse,
-        reason:
-            'Additional scans must be ignored while backend verify is in-flight',
+        reason: 'Additional scans must be ignored while backend verify is in-flight',
       );
       expect(m.step, MarStep.verify);
       // Captured state unchanged.

@@ -6,6 +6,7 @@ import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class OrganizationHierarchyScreen extends StatefulWidget {
@@ -1391,9 +1392,8 @@ String _staffText(Map<String, dynamic> member, String key) {
 String _staffName(BuildContext context, Map<String, dynamic> member) {
   return _staffText(member, 'name').isNotEmpty
       ? _staffText(member, 'name')
-      : AppStrings.of(
-          context,
-        ).lookup('s4.lib.organization_hierarchy.unnamed_staff');
+      : AppStrings.of(context)
+            .lookup('s4.lib.organization_hierarchy.unnamed_staff');
 }
 
 String _roleDisplayLabel(BuildContext context, String? roleCode) {

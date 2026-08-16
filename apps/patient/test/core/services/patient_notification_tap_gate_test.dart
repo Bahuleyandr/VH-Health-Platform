@@ -86,9 +86,8 @@ void main() {
   test(
     'notification inbox route keeps cache reads behind the biometric gate',
     () {
-      final source = File(
-        'lib/core/navigation/app_router.dart',
-      ).readAsStringSync();
+      final source = File('lib/core/navigation/app_router.dart')
+          .readAsStringSync();
 
       expect(
         RegExp(
@@ -100,9 +99,8 @@ void main() {
   );
 
   test('push tap handlers use the current-session gate', () {
-    final source = File(
-      'lib/core/services/push_notification_service.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/services/push_notification_service.dart')
+        .readAsStringSync();
 
     expect(
       source,

@@ -99,5 +99,6 @@ class SOSService {
   }
 }
 
-typedef SosTrigger =
-    Future<core.SosTriggerResult> Function([BuildContext? ctx]);
+typedef SosTrigger = Future<core.SosTriggerResult> Function([
+  BuildContext? ctx,
+]);

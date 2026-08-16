@@ -17,11 +17,40 @@
 # The same Flutter source can be rebuilt with a different, versioned
 # VH_BASE_URL for a reviewed internal or tenant API origin.
 
-ARG FLUTTER_IMAGE=ghcr.io/cirruslabs/flutter:3.44.0@sha256:46691e311715845de03a3ba4753a475476936805b29431b1f00f1816981033f8
+# ghcr.io/cirruslabs/flutter has published no stable version tag past 3.44.0
+# (tag list checked 2026-08-16), so the build stage installs the official
+# Flutter stable tarball — sha256-pinned from the Flutter release manifest —
+# onto a digest-pinned Debian base instead.
+ARG BUILD_IMAGE=debian:12-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 ARG NGINX_IMAGE=nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 
 # ---- Stage 1: Flutter build ------------------------------------------
-FROM ${FLUTTER_IMAGE} AS flutter-build
+FROM ${BUILD_IMAGE} AS flutter-build
+
+# Pinned Flutter SDK. Version and archive sha256 both come from the official
+# release manifest:
+# https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json
+# Keep FLUTTER_VERSION in lockstep with the workspace toolchain pin in
+# .github/workflows/_reusable-flutter-workspace.yml.
+ARG FLUTTER_VERSION=3.47.0
+ARG FLUTTER_SHA256=26cd99d3d94b1367e6b50535a18aeef0282c10a535bbe3ec493534dcdab75296
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates curl git unzip xz-utils zip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /tmp/flutter.tar.xz \
+      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+    && echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/flutter.tar.xz -C /opt \
+    && rm /tmp/flutter.tar.xz
+
+ENV PATH=/opt/flutter/bin:$PATH
+# The tarball extracts as a git checkout; the flutter tool refuses to run in a
+# repo owned by a different user without this marker.
+RUN git config --global --add safe.directory /opt/flutter \
+    && flutter --version
 
 WORKDIR /workspace
 
@@ -63,7 +92,7 @@ COPY apps/staff/ apps/staff/
 # has neither melos nor Node, and adding either would mean an unpinned package
 # install in a stage whose bases are deliberately digest-pinned, so we invoke
 # the same build_runner command that driver ends up spawning. That equivalence
-# was verified natively on Dart 3.12.0 — the same Dart this pinned image ships:
+# was verified natively on Dart 3.13.0 — the same Dart this pinned SDK ships:
 # all 7 files in lib/api/generated/ came out sha256-identical either way.
 # KEEP IN SYNC with the `args` array at the bottom of scripts/codegen.mjs.
 # The only thing skipped is that script's exclude_paths "dropped operations"

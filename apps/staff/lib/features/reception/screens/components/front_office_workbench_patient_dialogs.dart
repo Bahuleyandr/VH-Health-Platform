@@ -268,9 +268,8 @@ extension _FrontOfficeWorkbenchPatientDialogs
                         controller: nameCtrl,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.patient.name'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.patient.name'),
                           prefixIcon: const Icon(Icons.badge_outlined),
                         ),
                       ),
@@ -280,9 +279,8 @@ extension _FrontOfficeWorkbenchPatientDialogs
                         keyboardType: TextInputType.phone,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('profile.field.phone'),
+                          labelText: AppStrings.of(context)
+                              .lookup('profile.field.phone'),
                           prefixIcon: const Icon(Icons.phone_outlined),
                         ),
                       ),
@@ -294,9 +292,8 @@ extension _FrontOfficeWorkbenchPatientDialogs
                               controller: genderCtrl,
                               textInputAction: TextInputAction.next,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('bed_sheet.field.gender'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('bed_sheet.field.gender'),
                                 prefixIcon: const Icon(Icons.wc_outlined),
                               ),
                             ),
@@ -326,9 +323,8 @@ extension _FrontOfficeWorkbenchPatientDialogs
                         minLines: 2,
                         maxLines: 3,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('profile.field.address'),
+                          labelText: AppStrings.of(context)
+                              .lookup('profile.field.address'),
                           prefixIcon: const Icon(Icons.home_outlined),
                         ),
                       ),

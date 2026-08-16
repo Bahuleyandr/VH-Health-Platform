@@ -122,9 +122,8 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
                 const SizedBox(height: 6),
                 Text(
                   message,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.onErrorContainer,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.onErrorContainer),
                 ),
                 const SizedBox(height: 4),
                 Wrap(
@@ -205,9 +204,9 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
                                 Expanded(
                                   child: Text(
                                     l.patientOutageDialogTitle,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge,
                                   ),
                                 ),
                                 IconButton(

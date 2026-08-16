@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/online_only_action_state.dart';
@@ -251,9 +252,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('staff_mgmt.clear_filter'),
+                    tooltip: AppStrings.of(context)
+                        .lookup('staff_mgmt.clear_filter'),
                     onPressed: () => setState(() {
                       _deptSummary = null;
                       _selectedDept = null;
@@ -713,9 +713,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     controller: _phoneCtrl,
                     keyboardType: TextInputType.phone,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('profile.field.phone'),
+                      labelText: AppStrings.of(context)
+                          .lookup('profile.field.phone'),
                     ),
                     validator: (v) => (v == null || v.trim().isEmpty)
                         ? s.lookup('staff_mgmt.phone_required')
@@ -726,18 +725,16 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     controller: _emailCtrl,
                     keyboardType: TextInputType.emailAddress,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('profile.field.email'),
+                      labelText: AppStrings.of(context)
+                          .lookup('profile.field.email'),
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _employeeIdCtrl,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('login.employee_id_label'),
+                      labelText: AppStrings.of(context)
+                          .lookup('login.employee_id_label'),
                       helperText: AppStrings.of(context).lookup(
                         's4.lib.staff_management.leave_blank_to_auto_generate',
                       ),
@@ -747,9 +744,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   DropdownButtonFormField<String>(
                     initialValue: _role,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('profile.field.role'),
+                      labelText: AppStrings.of(context)
+                          .lookup('profile.field.role'),
                     ),
                     items: [
                       for (final option in widget.roleOptions)
@@ -790,9 +786,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                 TextFormField(
                   controller: _positionCtrl,
                   decoration: InputDecoration(
-                    labelText: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.staff_management.position'),
+                    labelText: AppStrings.of(context)
+                        .lookup('s4.lib.staff_management.position'),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? s.lookup('staff_mgmt.position_required')
@@ -802,9 +797,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                 DropdownButtonFormField<String>(
                   initialValue: _shift,
                   decoration: InputDecoration(
-                    labelText: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.staff_management.default_shift'),
+                    labelText: AppStrings.of(context)
+                        .lookup('s4.lib.staff_management.default_shift'),
                   ),
                   items: [
                     for (final shift in _shiftOptions)
@@ -823,9 +817,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     controller: _passwordCtrl,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.staff_management.temporary_password'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.staff_management.temporary_password'),
                     ),
                     validator: (v) => (v == null || v.trim().length < 6)
                         ? s.lookup('staff_mgmt.password_min_length')

@@ -85,12 +85,12 @@ class AncTimelineData {
         visits: const [],
         supplements: const [],
         fetalKicks: const [],
-        packages: listOfMaps(
-          packagesData,
-        ).map(MaternityPackage.fromJson).toList(growable: false),
-        advice: listOfMaps(
-          adviceMap?['advice'],
-        ).map(AncAdvice.fromJson).toList(growable: false),
+        packages: listOfMaps(packagesData)
+            .map(MaternityPackage.fromJson)
+            .toList(growable: false),
+        advice: listOfMaps(adviceMap?['advice'])
+            .map(AncAdvice.fromJson)
+            .toList(growable: false),
         contentPendingReview: adviceMap?['content_pending_review'] == true,
         adviceLoadFailed: adviceLoadFailed,
         staleLabel: staleLabel,
@@ -102,29 +102,29 @@ class AncTimelineData {
       pregnancy: AncPregnancy.fromJson(
         asStringMap(timeline['pregnancy']) ?? const {},
       ),
-      visits: listOfMaps(
-        timeline['visits'],
-      ).map(AncVisit.fromJson).toList(growable: false),
-      supplements: listOfMaps(
-        timeline['supplements'],
-      ).map(AncSupplement.fromJson).toList(growable: false),
-      fetalKicks: listOfMaps(
-        timeline['fetal_kicks'],
-      ).map(AncFetalKick.fromJson).toList(growable: false),
+      visits: listOfMaps(timeline['visits'])
+          .map(AncVisit.fromJson)
+          .toList(growable: false),
+      supplements: listOfMaps(timeline['supplements'])
+          .map(AncSupplement.fromJson)
+          .toList(growable: false),
+      fetalKicks: listOfMaps(timeline['fetal_kicks'])
+          .map(AncFetalKick.fromJson)
+          .toList(growable: false),
       // Optional in older responses; absent or malformed values fall back
       // to empty lists so the rest of the timeline still renders.
-      bookedVisits: listOfMaps(
-        timeline['booked_visits'],
-      ).map(AncBookedVisit.fromJson).toList(growable: false),
-      generalVitals: listOfMaps(
-        timeline['general_vitals'],
-      ).map(AncGeneralVital.fromJson).toList(growable: false),
-      packages: listOfMaps(
-        packagesData,
-      ).map(MaternityPackage.fromJson).toList(growable: false),
-      advice: listOfMaps(
-        adviceMap?['advice'],
-      ).map(AncAdvice.fromJson).toList(growable: false),
+      bookedVisits: listOfMaps(timeline['booked_visits'])
+          .map(AncBookedVisit.fromJson)
+          .toList(growable: false),
+      generalVitals: listOfMaps(timeline['general_vitals'])
+          .map(AncGeneralVital.fromJson)
+          .toList(growable: false),
+      packages: listOfMaps(packagesData)
+          .map(MaternityPackage.fromJson)
+          .toList(growable: false),
+      advice: listOfMaps(adviceMap?['advice'])
+          .map(AncAdvice.fromJson)
+          .toList(growable: false),
       contentPendingReview: adviceMap?['content_pending_review'] == true,
       adviceLoadFailed: adviceLoadFailed,
       staleLabel: staleLabel,

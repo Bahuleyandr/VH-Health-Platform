@@ -123,9 +123,8 @@ void main() {
       // The appointment's backend date remains the displayed calendar day;
       // its attached offset must not move it into the following day.
       final expectedDate = DateFormat.yMMMd('en').format(semanticFutureDate);
-      final shiftedDate = DateFormat.yMMMd(
-        'en',
-      ).format(semanticFutureDate.add(const Duration(days: 1)));
+      final shiftedDate = DateFormat.yMMMd('en')
+          .format(semanticFutureDate.add(const Duration(days: 1)));
       expect(find.textContaining(expectedDate), findsOneWidget);
       expect(find.textContaining(shiftedDate), findsNothing);
 

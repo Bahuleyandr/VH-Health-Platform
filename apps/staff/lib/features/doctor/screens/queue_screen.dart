@@ -1,7 +1,9 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -14,12 +16,11 @@ const queueInProgressFilterStatus = 'IN_PROGRESS';
 @visibleForTesting
 const queueInProgressUpdateStatus = 'IN_PROGRESS';
 
-typedef QueueAppointmentsLoader =
-    Future<Map<String, dynamic>> Function({
-      required String date,
-      required String status,
-      required int limit,
-    });
+typedef QueueAppointmentsLoader = Future<Map<String, dynamic>> Function({
+  required String date,
+  required String status,
+  required int limit,
+});
 
 String? _queueText(dynamic value) {
   final text = value?.toString().trim() ?? '';

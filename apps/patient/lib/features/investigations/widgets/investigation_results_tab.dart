@@ -322,9 +322,8 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
                     },
                     icon: const Icon(Icons.download_outlined),
                     label: Text(
-                      AppLocalizations.of(
-                        context,
-                      )!.investigationsViewDownloadReport,
+                      AppLocalizations.of(context)!
+                          .investigationsViewDownloadReport,
                     ),
                   ),
                 ),
@@ -467,9 +466,8 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
           if (collectionDeadlineRaw != null &&
               collectionDeadlineRaw.isNotEmpty) {
             try {
-              collectionDeadline = DateTime.parse(
-                collectionDeadlineRaw,
-              ).toLocal();
+              collectionDeadline = DateTime.parse(collectionDeadlineRaw)
+                  .toLocal();
             } catch (_) {
               collectionDeadline = null;
             }

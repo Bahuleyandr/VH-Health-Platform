@@ -85,9 +85,11 @@ check('admin Dockerfile does not persist SENTRY_AUTH_TOKEN as ARG/ENV', () =>
 check('release Dockerfiles use digest-pinned base image defaults', () =>
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
-  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.44\\.0${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  new RegExp(`^ARG BUILD_IMAGE=debian:12-slim${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  /^ARG FLUTTER_VERSION=3\.47\.0$/m.test(staffWebDockerfile) &&
+  /^ARG FLUTTER_SHA256=[a-f0-9]{64}$/m.test(staffWebDockerfile) &&
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
-  !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
+  !/^FROM (node|nginx|debian|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
 
 check('container npm postinstall hooks remain inside each Docker build context', () =>
   backendPackage.scripts.postinstall ===

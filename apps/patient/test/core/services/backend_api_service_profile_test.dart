@@ -38,9 +38,8 @@ void main() {
   });
 
   test('profile completion uses the authenticated patient API client', () {
-    final source = File(
-      'lib/core/services/backend_api_service.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/services/backend_api_service.dart')
+        .readAsStringSync();
 
     expect(source, contains("import 'api_client.dart';"));
     expect(

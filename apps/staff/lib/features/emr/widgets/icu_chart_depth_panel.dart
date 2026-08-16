@@ -136,9 +136,8 @@ class IcuChartDepthPanel extends StatelessWidget {
                       .map(
                         (line) => _compactJoin([
                           _text(line['display_label']).isEmpty
-                              ? _text(
-                                  line['presence_kind'],
-                                ).replaceAll('_', ' ')
+                              ? _text(line['presence_kind'])
+                                    .replaceAll('_', ' ')
                               : _text(line['display_label']),
                           _text(line['denominator_device_type']),
                         ]),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 typedef CompositionAlternativesLoader =

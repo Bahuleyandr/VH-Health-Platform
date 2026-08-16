@@ -427,9 +427,8 @@ Map<String, dynamic> _map(Object? value) {
 
 Map<String, String> _narrativeMap(Object? value) {
   if (value is Map) {
-    return Map<String, dynamic>.from(
-      value,
-    ).map((key, sectionValue) => MapEntry(key, _text(sectionValue)));
+    return Map<String, dynamic>.from(value)
+        .map((key, sectionValue) => MapEntry(key, _text(sectionValue)));
   }
   if (value is! List) return <String, String>{};
   final sections = <String, String>{};

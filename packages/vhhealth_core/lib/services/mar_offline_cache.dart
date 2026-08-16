@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'auth_service.dart';
 import 'secure_blob.dart';
 import 'secure_storage.dart';

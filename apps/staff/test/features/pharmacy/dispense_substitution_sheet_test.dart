@@ -112,8 +112,7 @@ void main() {
       await tester.ensureVisible(swapBtn);
       await tester.pumpAndSettle();
       await tester.tap(swapBtn);
-      await tester
-          .pumpAndSettle(); // onSwap → batchLoader → batch picker + enabled dispense
+      await tester.pumpAndSettle(); // onSwap → batchLoader → batch picker + enabled dispense
 
       final dispenseBtn = find.widgetWithText(
         FilledButton,

@@ -100,18 +100,16 @@ void main() {
       expect(source, contains(entry.value.$2), reason: path);
     }
 
-    final marDecision = File(
-      'lib/features/nursing/mar_offline_administer.dart',
-    ).readAsStringSync();
+    final marDecision = File('lib/features/nursing/mar_offline_administer.dart')
+        .readAsStringSync();
     expect(marDecision, isNot(contains('endpoint:')));
     expect(marDecision, isNot(contains('body:')));
     expect(marDecision, isNot(contains('enqueue')));
   });
 
   test('both missing MAR-cache branches retain the paper fallback', () {
-    final source = File(
-      'lib/features/nursing/screens/mar_scan_screen.dart',
-    ).readAsStringSync();
+    final source = File('lib/features/nursing/screens/mar_scan_screen.dart')
+        .readAsStringSync();
     final missingCacheFallback = RegExp(
       r'if \(dose == null\) \{\s+await _showAndRetainMarFallback\(\);\s+return;\s+\}',
     );
@@ -121,9 +119,8 @@ void main() {
   });
 
   test('MAR renders hard stop then offline paper before online administer', () {
-    final source = File(
-      'lib/features/nursing/screens/mar_scan_screen.dart',
-    ).readAsStringSync();
+    final source = File('lib/features/nursing/screens/mar_scan_screen.dart')
+        .readAsStringSync();
     final actionPrecedence = RegExp(
       r'if \(marIsIdentityMismatch\(rights\)\).*?'
       r'else if \(!ConnectivitySyncService\.instance\.isOnline\).*?'

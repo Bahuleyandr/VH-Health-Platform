@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/attendance_api_service.dart';
@@ -232,9 +233,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void _showPhoneOnlyAttendanceMessage() {
     if (!mounted) return;
     final s = AppStrings.of(context);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(s.attendancePhoneOnlyReadOnly)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(s.attendancePhoneOnlyReadOnly)));
   }
 
   Color _getDayColor(String status) {
@@ -289,9 +289,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Widget _buildTodayTab() {
     final s = AppStrings.of(context);
-    final canMarkAttendance = appDeviceModeForContext(
-      context,
-    ).canMarkAttendance;
+    final canMarkAttendance = appDeviceModeForContext(context)
+        .canMarkAttendance;
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(

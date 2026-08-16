@@ -271,9 +271,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                 children: [
                   Text(
                     l.appointmentsDocumentsTitle,
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(ctx).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   ...docs.map((d) {
@@ -540,9 +539,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(fontWeight: FontWeight.bold),
       ),
     );
   }

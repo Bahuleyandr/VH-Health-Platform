@@ -34,9 +34,8 @@ void main() {
     await pump(tester, const NoteDraftStatus.dirty());
     expect(
       find.text(
-        AppStrings.forLocale(
-          const Locale('en'),
-        ).lookup('s4.lib.note_draft_status.unsaved_changes'),
+        AppStrings.forLocale(const Locale('en'))
+            .lookup('s4.lib.note_draft_status.unsaved_changes'),
       ),
       findsOneWidget,
     );

@@ -7,6 +7,7 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
@@ -43,11 +44,10 @@ class StaffSsoProvider {
   }
 }
 
-typedef StaffSsoBrowser =
-    Future<String> Function({
-      required String url,
-      required String callbackUrlScheme,
-    });
+typedef StaffSsoBrowser = Future<String> Function({
+  required String url,
+  required String callbackUrlScheme,
+});
 typedef StaffPreLogoutCleanup = Future<void> Function();
 
 enum StaffLogoutStatus { blocked, signedOut }

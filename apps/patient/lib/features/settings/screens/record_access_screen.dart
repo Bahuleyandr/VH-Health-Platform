@@ -575,9 +575,8 @@ class _GrantAccessSheetState extends State<_GrantAccessSheet> {
               children: [
                 Text(
                   l10n.recordAccessGrantSheetTitle,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
                 Text(l10n.recordAccessGrantSheetBody),

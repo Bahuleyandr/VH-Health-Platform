@@ -77,30 +77,27 @@ void main() {
       expect(loaded.periodLength, 6);
     });
 
-    test(
-      'cycle data is written ONLY to secure storage, never to SharedPreferences',
-      () async {
-        await CycleTrackerStore.save(
-          CycleTrackerSnapshot(
-            ownerKey: '9876543210',
-            lastPeriodStart: DateTime(2026, 6, 1),
-            cycleLength: 30,
-            periodLength: 6,
-          ),
-        );
+    test('cycle data is written ONLY to secure storage, never to SharedPreferences', () async {
+      await CycleTrackerStore.save(
+        CycleTrackerSnapshot(
+          ownerKey: '9876543210',
+          lastPeriodStart: DateTime(2026, 6, 1),
+          cycleLength: 30,
+          periodLength: 6,
+        ),
+      );
 
-        // The snapshot lives under the secure-storage key.
-        expect(secureStore.containsKey('period_tracker_9876543210'), isTrue);
+      // The snapshot lives under the secure-storage key.
+      expect(secureStore.containsKey('period_tracker_9876543210'), isTrue);
 
-        // Nothing cycle-related was written to plaintext SharedPreferences.
-        final prefs = await SharedPreferences.getInstance();
-        final leaked = prefs
-            .getKeys()
-            .where((k) => k.startsWith('period_tracker_'))
-            .toList();
-        expect(leaked, isEmpty);
-      },
-    );
+      // Nothing cycle-related was written to plaintext SharedPreferences.
+      final prefs = await SharedPreferences.getInstance();
+      final leaked = prefs
+          .getKeys()
+          .where((k) => k.startsWith('period_tracker_'))
+          .toList();
+      expect(leaked, isEmpty);
+    });
 
     test('defaults when nothing is stored', () async {
       final loaded = await CycleTrackerStore.load(userPhone: '9876543210');
@@ -160,34 +157,31 @@ void main() {
   });
 
   group('one-time plaintext -> encrypted migration', () {
-    test(
-      'migrates legacy SharedPreferences data and PURGES the plaintext copy',
-      () async {
-        // Seed a legacy plaintext record the way the old implementation wrote it.
-        SharedPreferences.setMockInitialValues({
-          'period_tracker_9876543210_last_start': '2026-04-15',
-          'period_tracker_9876543210_cycle_length': 31,
-          'period_tracker_9876543210_period_length': 7,
-        });
+    test('migrates legacy SharedPreferences data and PURGES the plaintext copy', () async {
+      // Seed a legacy plaintext record the way the old implementation wrote it.
+      SharedPreferences.setMockInitialValues({
+        'period_tracker_9876543210_last_start': '2026-04-15',
+        'period_tracker_9876543210_cycle_length': 31,
+        'period_tracker_9876543210_period_length': 7,
+      });
 
-        // First read after upgrade.
-        final loaded = await CycleTrackerStore.load(userPhone: '9876543210');
+      // First read after upgrade.
+      final loaded = await CycleTrackerStore.load(userPhone: '9876543210');
 
-        // Data preserved.
-        expect(loaded.lastPeriodStart, DateTime(2026, 4, 15));
-        expect(loaded.cycleLength, 31);
-        expect(loaded.periodLength, 7);
+      // Data preserved.
+      expect(loaded.lastPeriodStart, DateTime(2026, 4, 15));
+      expect(loaded.cycleLength, 31);
+      expect(loaded.periodLength, 7);
 
-        // Now lives in the encrypted store.
-        expect(secureStore.containsKey('period_tracker_9876543210'), isTrue);
+      // Now lives in the encrypted store.
+      expect(secureStore.containsKey('period_tracker_9876543210'), isTrue);
 
-        // Plaintext copy is gone.
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('period_tracker_9876543210_last_start'), isNull);
-        expect(prefs.getInt('period_tracker_9876543210_cycle_length'), isNull);
-        expect(prefs.getInt('period_tracker_9876543210_period_length'), isNull);
-      },
-    );
+      // Plaintext copy is gone.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('period_tracker_9876543210_last_start'), isNull);
+      expect(prefs.getInt('period_tracker_9876543210_cycle_length'), isNull);
+      expect(prefs.getInt('period_tracker_9876543210_period_length'), isNull);
+    });
 
     test(
       'migration survives a subsequent load (data not re-read from plaintext)',

@@ -3,7 +3,7 @@ publish_to: none
 description: Root pubspec for the VH Health Flutter monorepo (Melos 8 + pub workspace).
 
 environment:
-  sdk: ^3.11.0
+  sdk: ^3.13.0
 
 workspace:
   - apps/patient

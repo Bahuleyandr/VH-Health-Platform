@@ -13,11 +13,10 @@ const clinicalContinuityPolicyDeliveryMediaType =
     'application/vnd.vhhealth.clinical-continuity-policy+json';
 const clinicalContinuityPolicyDeliveryMaxBytes = 256 * 1024;
 
-typedef ClinicalContinuityPolicyHttpGet =
-    Future<http.Response> Function(
-      String path, {
-      Map<String, String>? additionalHeaders,
-    });
+typedef ClinicalContinuityPolicyHttpGet = Future<http.Response> Function(
+  String path, {
+  Map<String, String>? additionalHeaders,
+});
 
 class ClinicalContinuityPolicyDeliveryResult {
   const ClinicalContinuityPolicyDeliveryResult({
@@ -139,9 +138,8 @@ class ClinicalContinuityPolicyDeliveryClient {
     final digest = await Sha256().hash(bytes);
     final digestHex = _hex(digest.bytes);
     final digestHeader = 'sha-256=:${base64Encode(digest.bytes)}:';
-    final etagMatch = RegExp(
-      r'^"pc-([a-f0-9]{64})\.rep-([a-f0-9]{64})"$',
-    ).firstMatch(etag);
+    final etagMatch = RegExp(r'^"pc-([a-f0-9]{64})\.rep-([a-f0-9]{64})"$')
+        .firstMatch(etag);
     if (contentDigest != digestHeader ||
         etagMatch == null ||
         etagMatch.group(2) != digestHex) {

@@ -81,14 +81,14 @@ void main() {
         'MEDICAL_SUPERINTENDENT',
         'SUPER_ADMIN',
       ]) {
-        final ids = RoleFeatures.getFeaturesForRawRole(
-          rawRole,
-        ).map((feature) => feature.id).toSet();
+        final ids = RoleFeatures.getFeaturesForRawRole(rawRole)
+            .map((feature) => feature.id)
+            .toSet();
         expect(ids, contains('sos_response'), reason: rawRole);
       }
-      final nurseIds = RoleFeatures.getFeaturesForRawRole(
-        'NURSING_STAFF',
-      ).map((feature) => feature.id).toSet();
+      final nurseIds = RoleFeatures.getFeaturesForRawRole('NURSING_STAFF')
+          .map((feature) => feature.id)
+          .toSet();
       expect(nurseIds, isNot(contains('sos_response')));
     });
   });

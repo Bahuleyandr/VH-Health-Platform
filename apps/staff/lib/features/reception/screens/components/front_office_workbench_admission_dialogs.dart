@@ -114,9 +114,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                   doctorId: doctorId,
                   doctorUid: doctor == null ? null : _doctorUid(doctor),
                   department: department.isEmpty ? null : department,
-                  appointmentDate: DateFormat(
-                    'yyyy-MM-dd',
-                  ).format(appointmentDate),
+                  appointmentDate: DateFormat('yyyy-MM-dd')
+                      .format(appointmentDate),
                   appointmentTime: _formatTime(appointmentTime),
                   reason: reason,
                   notes: notesCtrl.text.trim().isEmpty
@@ -225,9 +224,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                           Expanded(
                             child: _DateTimeButton(
                               icon: Icons.calendar_today,
-                              label: DateFormat(
-                                'dd MMM yyyy',
-                              ).format(appointmentDate),
+                              label: DateFormat('dd MMM yyyy')
+                                  .format(appointmentDate),
                               onTap: saving ? null : pickDate,
                             ),
                           ),
@@ -294,9 +292,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                         controller: reasonCtrl,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.opd.reason'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.opd.reason'),
                           prefixIcon: const Icon(Icons.short_text),
                         ),
                       ),
@@ -306,9 +303,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                         minLines: 2,
                         maxLines: 3,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.opd.notes'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.opd.notes'),
                           prefixIcon: const Icon(Icons.notes_outlined),
                         ),
                       ),
@@ -516,9 +512,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                   'counter_consent_captured': consentCaptured,
                 });
                 if (dialogContext.mounted) {
-                  Navigator.of(
-                    dialogContext,
-                  ).pop(_admissionFromResponse(result));
+                  Navigator.of(dialogContext)
+                      .pop(_admissionFromResponse(result));
                 }
               } catch (e) {
                 setDialogState(() {
@@ -587,9 +582,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                             doctors: doctors,
                             selectedDoctor: selectedDoctor,
                             enabled: !saving,
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.admission.admitting_doctor'),
+                            labelText: AppStrings.of(context)
+                                .lookup('s4.lib.admission.admitting_doctor'),
                             requireUid: true,
                             onSelected: (doctor) {
                               setDialogState(() => selectedDoctor = doctor);
@@ -604,9 +598,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                         maxLines: 3,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('bed_sheet.field.chief_complaint'),
+                          labelText: AppStrings.of(context)
+                              .lookup('bed_sheet.field.chief_complaint'),
                           prefixIcon: const Icon(Icons.report_problem_outlined),
                         ),
                       ),
@@ -615,9 +608,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                         controller: diagnosisCtrl,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.ip.diagnosis'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.ip.diagnosis'),
                           prefixIcon: const Icon(Icons.assignment_outlined),
                         ),
                       ),
@@ -639,9 +631,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                                 initialValue: _wardId(selectedWard),
                                 isExpanded: true,
                                 decoration: InputDecoration(
-                                  labelText: AppStrings.of(
-                                    context,
-                                  ).lookup('reception_counter.ip.ward'),
+                                  labelText: AppStrings.of(context)
+                                      .lookup('reception_counter.ip.ward'),
                                   prefixIcon: const Icon(
                                     Icons.apartment_outlined,
                                   ),
@@ -706,9 +697,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                                     initialValue: _bedId(selectedBed),
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      labelText: AppStrings.of(
-                                        context,
-                                      ).lookup('bed.label'),
+                                      labelText: AppStrings.of(context)
+                                          .lookup('bed.label'),
                                       prefixIcon: const Icon(
                                         Icons.bed_outlined,
                                       ),
@@ -767,9 +757,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                             child: DropdownButtonFormField<String>(
                               initialValue: priority,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('clinical_inbox.priority'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('clinical_inbox.priority'),
                               ),
                               items: _FrontOfficeWorkbenchScreenState
                                   ._admissionPriorities
@@ -797,9 +786,8 @@ extension _FrontOfficeWorkbenchAdmissionDialogs
                             child: DropdownButtonFormField<String>(
                               initialValue: codeStatus,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('reception_counter.ip.code_status'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('reception_counter.ip.code_status'),
                               ),
                               items: _FrontOfficeWorkbenchScreenState
                                   ._codeStatuses

@@ -203,59 +203,53 @@ void main() {
       },
     );
 
-    test(
-      'default idle cleanup clears recents and credentials but preserves owner-scoped queue',
-      () async {
-        FlutterSecureStorage.setMockInitialValues({
-          'jwt': 'header.payload.signature',
-          'staff_id': 'staff-unindexed',
-          'staffId': 'staff-unindexed',
-        });
-        await core_auth.AuthService.setStaffId('staff-unindexed');
-        SharedPreferences.setMockInitialValues({
-          'recent_patients:staff:staff-unindexed': jsonEncode([
-            {'uid': 'patient-a', 'name': 'Alice'},
-          ]),
-        });
-        await OfflineQueue.enqueue(
-          endpoint: '/health/records',
-          method: 'POST',
-          body: {
-            'patient_uid': 'patient-a',
-            'vital_signs': {'pulse': 88},
-          },
-          contextLabel: 'Vitals for patient-a',
-        );
+    test('default idle cleanup clears recents and credentials but preserves owner-scoped queue', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'jwt': 'header.payload.signature',
+        'staff_id': 'staff-unindexed',
+        'staffId': 'staff-unindexed',
+      });
+      await core_auth.AuthService.setStaffId('staff-unindexed');
+      SharedPreferences.setMockInitialValues({
+        'recent_patients:staff:staff-unindexed': jsonEncode([
+          {'uid': 'patient-a', 'name': 'Alice'},
+        ]),
+      });
+      await OfflineQueue.enqueue(
+        endpoint: '/health/records',
+        method: 'POST',
+        body: {
+          'patient_uid': 'patient-a',
+          'vital_signs': {'pulse': 88},
+        },
+        contextLabel: 'Vitals for patient-a',
+      );
 
-        final provider = SessionTimeoutProvider(
-          timeoutDuration: const Duration(milliseconds: 10),
-        );
-        addTearDown(provider.dispose);
+      final provider = SessionTimeoutProvider(
+        timeoutDuration: const Duration(milliseconds: 10),
+      );
+      addTearDown(provider.dispose);
 
-        provider.startTracking();
-        await Future<void>.delayed(const Duration(milliseconds: 40));
+      provider.startTracking();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
 
-        final prefs = await SharedPreferences.getInstance();
-        const storage = FlutterSecureStorage();
-        expect(provider.isSessionExpired, isTrue);
-        expect(
-          prefs.getString('recent_patients:staff:staff-unindexed'),
-          isNull,
-        );
-        expect(await storage.read(key: 'staff_id'), isNull);
-        expect(await storage.read(key: 'staffId'), isNull);
-        expect(await storage.read(key: 'jwt'), isNull);
-        expect(provider.preservedOfflineWriteCount, 1);
+      final prefs = await SharedPreferences.getInstance();
+      const storage = FlutterSecureStorage();
+      expect(provider.isSessionExpired, isTrue);
+      expect(prefs.getString('recent_patients:staff:staff-unindexed'), isNull);
+      expect(await storage.read(key: 'staff_id'), isNull);
+      expect(await storage.read(key: 'staffId'), isNull);
+      expect(await storage.read(key: 'jwt'), isNull);
+      expect(provider.preservedOfflineWriteCount, 1);
 
-        await core_auth.AuthService.setStaffId('staff-unindexed');
-        final pending = await OfflineQueue.getPending();
-        expect(pending, hasLength(1));
-        final decoded = await OfflineQueue.decodeBody(
-          pending.single['body'] as String,
-        );
-        expect(decoded['patient_uid'], 'patient-a');
-      },
-    );
+      await core_auth.AuthService.setStaffId('staff-unindexed');
+      final pending = await OfflineQueue.getPending();
+      expect(pending, hasLength(1));
+      final decoded = await OfflineQueue.decodeBody(
+        pending.single['body'] as String,
+      );
+      expect(decoded['patient_uid'], 'patient-a');
+    });
 
     test('recordActivity does not start tracking before login', () async {
       var cleanupCount = 0;

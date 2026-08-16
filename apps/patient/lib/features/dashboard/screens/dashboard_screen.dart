@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -569,9 +570,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         LiveRegionSnackBar.build(
-          message: AppLocalizations.of(
-            context,
-          )!.dashboardHealthConnectOpenFailed,
+          message: AppLocalizations.of(context)!
+              .dashboardHealthConnectOpenFailed,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -633,9 +633,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() => _cycleTrackerSnapshot = updated);
       ScaffoldMessenger.of(context).showSnackBar(
         LiveRegionSnackBar.build(
-          message: AppLocalizations.of(
-            context,
-          )!.periodTrackerCycleStartRecorded,
+          message: AppLocalizations.of(context)!
+              .periodTrackerCycleStartRecorded,
         ),
       );
     } catch (e) {
@@ -643,9 +642,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         LiveRegionSnackBar.build(
-          message: AppLocalizations.of(
-            context,
-          )!.periodTrackerCycleStartSaveFailed,
+          message: AppLocalizations.of(context)!
+              .periodTrackerCycleStartSaveFailed,
         ),
       );
     }

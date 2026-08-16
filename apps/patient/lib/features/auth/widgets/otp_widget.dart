@@ -8,10 +8,12 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'package:vhhealth/features/auth/services/resend_cooldown.dart';
+
 import 'dart:developer' as developer;
 
-typedef OtpCredentialHandler =
-    Future<void> Function(PhoneAuthCredential credential);
+typedef OtpCredentialHandler = Future<void> Function(
+  PhoneAuthCredential credential,
+);
 
 class OtpWidget extends StatefulWidget {
   final String phoneNumber;

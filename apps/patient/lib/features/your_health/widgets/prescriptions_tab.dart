@@ -118,9 +118,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
           final pharmacyState = _pharmacyState(rx);
           final meds = rx['medications'] as List? ?? [];
           final createdAt = rx['created_at'] != null
-              ? DateFormat(
-                  'dd MMM yyyy',
-                ).format(DateTime.parse(rx['created_at']).toLocal())
+              ? DateFormat('dd MMM yyyy')
+                    .format(DateTime.parse(rx['created_at']).toLocal())
               : '';
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -145,9 +144,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                         DateTime? start;
                         if (startStr != null) {
                           try {
-                            start = DateTime.parse(
-                              startStr.toString(),
-                            ).toLocal();
+                            start = DateTime.parse(startStr.toString())
+                                .toLocal();
                           } catch (_) {}
                         }
                         if (days != null && start != null) {
@@ -267,9 +265,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             ),
             if (rx['created_at'] != null)
               Text(
-                DateFormat(
-                  'dd MMM yyyy, hh:mm a',
-                ).format(DateTime.parse(rx['created_at']).toLocal()),
+                DateFormat('dd MMM yyyy, hh:mm a')
+                    .format(DateTime.parse(rx['created_at']).toLocal()),
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.onSurfaceVariant,
@@ -313,9 +310,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                           height: 22,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: const Color(
-                              0xFF00838F,
-                            ).withValues(alpha: 0.1),
+                            color: const Color(0xFF00838F)
+                                .withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
                           child: Text(

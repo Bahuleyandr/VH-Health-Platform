@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/widgets/data_state_builder.dart';
+
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/staff_clinical_action_gateway.dart';
@@ -15,17 +16,17 @@ import '../../../l10n/app_strings.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
 
-typedef RecentNursingNotesLoader =
-    Future<Map<String, dynamic>> Function(
-      String patientUid, {
-      int page,
-      int limit,
-      String? noteType,
-    });
+typedef RecentNursingNotesLoader = Future<Map<String, dynamic>> Function(
+  String patientUid, {
+  int page,
+  int limit,
+  String? noteType,
+});
 
 typedef NursingNotesOnlineProbe = bool Function();
-typedef NursingNoteCreator =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> body);
+typedef NursingNoteCreator = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> body,
+);
 
 bool defaultNursingNotesOnlineProbe() =>
     ConnectivitySyncService.instance.isOnline;
@@ -122,9 +123,8 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
                 Tab(text: s.nursingNotesTabAdd),
                 Tab(text: s.nursingNotesTabRecent),
                 Tab(
-                  text: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.nursing_notes.all_notes'),
+                  text: AppStrings.of(context)
+                      .lookup('s4.lib.nursing_notes.all_notes'),
                 ),
               ],
             ),
@@ -875,9 +875,8 @@ class _RecentNursingNotesTabState extends State<RecentNursingNotesTab> {
                     label: Text(
                       _loadingMore
                           ? AppStrings.of(context).labelLoading
-                          : AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.nursing_notes.load_more'),
+                          : AppStrings.of(context)
+                                .lookup('s4.lib.nursing_notes.load_more'),
                     ),
                   ),
                 );
@@ -937,9 +936,8 @@ class _RecentNursingNoteCard extends StatelessWidget {
                 if (signed) ...[
                   const SizedBox(width: 6),
                   _RecentNoteBadge(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.nursing_notes.signed'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.nursing_notes.signed'),
                     color: AppTheme.successOnSurface,
                   ),
                 ],

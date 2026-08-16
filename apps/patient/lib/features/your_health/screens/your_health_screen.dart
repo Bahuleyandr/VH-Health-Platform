@@ -614,9 +614,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                     DateTime? uploaded;
                     if (item['uploaded_at'] != null) {
                       try {
-                        uploaded = DateTime.parse(
-                          item['uploaded_at'],
-                        ).toLocal();
+                        uploaded = DateTime.parse(item['uploaded_at'])
+                            .toLocal();
                       } catch (e) {
                         debugPrint('Upload date parse failed: $e');
                       }
@@ -676,9 +675,9 @@ class _RecordTimestamp extends StatelessWidget {
         final cachedAt = snapshot.data;
         if (cachedAt == null) return Text(uploadedLabel);
         final locale = Localizations.localeOf(context).toLanguageTag();
-        final timestamp = DateFormat.yMMMd(
-          locale,
-        ).add_jm().format(cachedAt.toLocal());
+        final timestamp = DateFormat.yMMMd(locale)
+            .add_jm()
+            .format(cachedAt.toLocal());
         return Text(
           '$uploadedLabel\n${AppLocalizations.of(context)!.patientOutageDownloadedAt(timestamp)}',
         );

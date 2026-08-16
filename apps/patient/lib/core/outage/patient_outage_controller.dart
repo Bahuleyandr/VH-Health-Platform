@@ -41,8 +41,11 @@ typedef PatientReadinessRequest = Future<ApiResponse> Function();
 typedef PatientIdentity = Future<String?> Function();
 typedef PatientDelay = Future<void> Function(Duration duration);
 typedef PatientClock = DateTime Function();
-typedef PatientSessionConfirmation =
-    Future<bool> Function(String jwt, String tenantId, DateTime confirmedAt);
+typedef PatientSessionConfirmation = Future<bool> Function(
+  String jwt,
+  String tenantId,
+  DateTime confirmedAt,
+);
 
 class PatientOutageController extends ChangeNotifier {
   PatientOutageController._production()

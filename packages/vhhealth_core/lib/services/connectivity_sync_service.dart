@@ -47,8 +47,9 @@ class PreparedDrainGateDecision {
   final String reasonCode;
 }
 
-typedef PreparedDrainGate =
-    Future<PreparedDrainGateDecision> Function(OfflineCommandEnvelope envelope);
+typedef PreparedDrainGate = Future<PreparedDrainGateDecision> Function(
+  OfflineCommandEnvelope envelope,
+);
 
 SyncDisposition dispositionForStatus(int statusCode) {
   if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;

@@ -11,6 +11,7 @@ import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class ReferralsScreen extends StatefulWidget {
@@ -332,9 +333,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                     minLines: 3,
                     maxLines: 6,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.assessment'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.assessment'),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -343,18 +343,16 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                     minLines: 3,
                     maxLines: 6,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.recommendations'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.recommendations'),
                     ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: followUp,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.follow_up_plan'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.follow_up_plan'),
                     ),
                   ),
                   SwitchListTile.adaptive(
@@ -375,9 +373,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                       minLines: 2,
                       maxLines: 5,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('s4.lib.referrals.patient_summary'),
+                        labelText: AppStrings.of(context)
+                            .lookup('s4.lib.referrals.patient_summary'),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -386,9 +383,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                       minLines: 2,
                       maxLines: 5,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('s4.lib.referrals.patient_instructions'),
+                        labelText: AppStrings.of(context)
+                            .lookup('s4.lib.referrals.patient_instructions'),
                       ),
                     ),
                   ],
@@ -458,18 +454,16 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                   TextField(
                     controller: department,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.department_specialty'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.department_specialty'),
                     ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: search,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.consultant_name'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.consultant_name'),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.search),
                         onPressed: () async {
@@ -505,9 +499,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                     minLines: 2,
                     maxLines: 5,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.referrals.reroute_reason'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.referrals.reroute_reason'),
                     ),
                   ),
                 ],
@@ -749,16 +742,14 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             children: [
               _ReferralList(
                 rows: _incoming,
-                empty: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.no_incoming_referrals'),
+                empty: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.no_incoming_referrals'),
                 onTap: _markSeenAndOpen,
               ),
               _ReferralList(
                 rows: _outgoing,
-                empty: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.no_outgoing_referrals'),
+                empty: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.no_outgoing_referrals'),
                 onTap: (row) =>
                     _showReferralSheet(row, actionContext: 'outgoing'),
               ),
@@ -799,9 +790,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                   children: [
                     Text(
                       patient,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -823,9 +813,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               controller: _departmentCtrl,
               onChanged: _debouncedSearch,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.department_specialty'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.department_specialty'),
                 prefixIcon: const Icon(Icons.apartment_outlined),
                 helperText: AppStrings.of(context).lookup(
                   's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart',
@@ -837,9 +826,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               controller: _consultantSearchCtrl,
               onChanged: _debouncedSearch,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.consultant_name'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.consultant_name'),
                 prefixIcon: const Icon(Icons.search),
               ),
             ),
@@ -883,9 +871,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               minLines: 2,
               maxLines: 4,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.reason_for_referral'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.reason_for_referral'),
                 prefixIcon: const Icon(Icons.report_outlined),
               ),
             ),
@@ -895,9 +882,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               minLines: 3,
               maxLines: 6,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.referrals.clinical_summary'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.referrals.clinical_summary'),
                 prefixIcon: const Icon(Icons.notes_outlined),
               ),
             ),
@@ -1018,9 +1004,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                 minLines: 8,
                 maxLines: 14,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.referrals.referral_clinical_summary'),
+                  labelText: AppStrings.of(context)
+                      .lookup('s4.lib.referrals.referral_clinical_summary'),
                   alignLabelWithHint: true,
                 ),
               ),
