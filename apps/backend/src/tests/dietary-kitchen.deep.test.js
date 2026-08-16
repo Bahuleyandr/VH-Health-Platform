@@ -9,6 +9,7 @@ import {
   createMenuItem, updateMenuItem, listMenuItems,
   generateMealTickets, syncTicketsForOrder,
   listMealTickets, getProductionSummary, transitionTicket,
+  buildAllergenTerms, menuItemAllergenConflict, screenMenuItems,
   MEAL_TYPES,
 } from '../services/dietary/kitchenService.js';
 import { istDateString } from '../utils/dateUtils.js';
@@ -21,6 +22,7 @@ const P_DISCHARGED = 'd1e72222-2222-4222-8222-222222222222'; // active order, bu
 const P_NPO = 'd1e73333-3333-4333-8333-333333333333'; // admitted, npo order
 const P_ONHOLD = 'd1e74444-4444-4444-8444-444444444444'; // admitted, on_hold order
 const P_FOREIGN = 'd1e75555-5555-4555-8555-555555555555'; // other tenant, admitted + active
+const P_UNIFIED = 'd1e76666-6666-4666-8666-666666666666'; // allergy only in patient_allergies
 
 const DIETITIAN_ACTOR = { uid: 'd1e7aaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'DIETITIAN' };
 const KITCHEN_ACTOR = { uid: 'd1e7bbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', role: 'DIETARY_STAFF' };
@@ -61,7 +63,7 @@ async function insertAdmission(tenant, patientUid, {
 async function ticketsFor(orderId) {
   return prisma.$queryRawUnsafe(
     `SELECT id::text AS id, meal_type, status, diet_type, ward, bed_number, patient_name,
-            allergies, menu_selections, diet_spec, service_date::text AS service_date
+            allergies, menu_selections, diet_spec, allergy_screen, service_date::text AS service_date
        FROM dietary_meal_tickets
       WHERE diet_order_id = $1::int
       ORDER BY array_position(ARRAY['breakfast','lunch','dinner','snack']::text[], meal_type), id`,
@@ -70,7 +72,7 @@ async function ticketsFor(orderId) {
 }
 
 async function cleanup() {
-  const patients = [P_ADMITTED, P_DISCHARGED, P_NPO, P_ONHOLD, P_FOREIGN];
+  const patients = [P_ADMITTED, P_DISCHARGED, P_NPO, P_ONHOLD, P_FOREIGN, P_UNIFIED];
   for (const tid of [TENANT, OTHER]) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM dietary_meal_tickets WHERE tenant_id = $1::uuid`, tid,
@@ -94,6 +96,9 @@ async function cleanup() {
       `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, uid,
     ).catch(() => {});
   }
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM patient_allergies WHERE patient_uid = ANY($1::uuid[])`, patients,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`, patients,
   ).catch(() => {});
@@ -120,6 +125,9 @@ beforeAll(async () => {
   await seedPatient(P_NPO, 'Kitchen NPO', '9821000003', TENANT);
   await seedPatient(P_ONHOLD, 'Kitchen OnHold', '9821000004', TENANT);
   await seedPatient(P_FOREIGN, 'Kitchen Foreign', '9821000005', OTHER);
+  // Admission + diet order for this one are created inside its own describe
+  // so the earlier generation-count assertions stay exact.
+  await seedPatient(P_UNIFIED, 'Kitchen Unified Allergy', '9821000006', TENANT);
 
   await insertAdmission(TENANT, P_ADMITTED, { ward: 'Ward A', bed: 'A-101' });
   await insertAdmission(TENANT, P_DISCHARGED, { status: 'discharged', dischargedAt: true });
@@ -221,6 +229,18 @@ describe('meal ticket generation', () => {
     expect(names).toContain('Ragi Porridge');
     expect(names).not.toContain('Peanut Chikki Oats');
     expect(breakfast.diet_spec).toBeNull();
+
+    // Screen evidence persisted on the ticket (radiology idiom): a clean
+    // (non-degraded) screen recording exactly which item was withheld.
+    expect(breakfast.allergy_screen.degraded).toBe(false);
+    expect(breakfast.allergy_screen.sources_failed).toEqual([]);
+    expect(breakfast.allergy_screen.patient_allergies).toEqual(['Peanut']);
+    const withheld = breakfast.allergy_screen.excluded;
+    expect(withheld.length).toBe(1);
+    expect(withheld[0].name).toBe('Peanut Chikki Oats');
+    expect(withheld[0].tag).toBe('peanut');
+    expect(withheld[0].matched).toBe('peanut');
+
 
     // No diabetic lunch item exists → empty selections + free-text spec.
     const lunch = tickets.find((t) => t.meal_type === 'lunch');
@@ -413,5 +433,104 @@ describe('kitchen board + production summary', () => {
     expect(board.tickets).toEqual([]);
     const summary = await getProductionSummary({ tenantId: OTHER, date: TODAY });
     expect(summary.totalLive).toBe(0);
+  });
+});
+
+describe('allergen matching (pure, fail-closed)', () => {
+  test('bidirectional substring and food-allergen class synonyms both exclude', () => {
+    const item = { id: '1', name: 'Kheer', allergen_tags: ['milk'] };
+    // Free-text "dairy" never contains "milk" — only the class map catches it.
+    expect(menuItemAllergenConflict(item, ['dairy'])).toMatchObject({
+      tag: 'milk', matched: 'dairy', via: 'class:milk',
+    });
+    // Substring both directions: "peanuts" ⊃ "peanut" tag…
+    const chikki = { id: '2', name: 'Chikki', allergen_tags: ['peanut'] };
+    expect(menuItemAllergenConflict(chikki, ['peanuts'])).toMatchObject({ via: 'substring' });
+    // …and "nut" tag ⊂ "peanut allergy (anaphylaxis)".
+    const laddu = { id: '3', name: 'Laddu', allergen_tags: ['nut'] };
+    expect(menuItemAllergenConflict(laddu, ['peanut allergy (anaphylaxis)'])).toMatchObject({ via: 'substring' });
+    // Indian-formulary synonym: groundnut is the peanut class.
+    const poha = { id: '4', name: 'Poha', allergen_tags: ['groundnut'] };
+    expect(menuItemAllergenConflict(poha, ['peanuts'])).toMatchObject({ via: 'class:peanut' });
+    // No conflict → null.
+    expect(menuItemAllergenConflict(item, ['penicillin'])).toBeNull();
+  });
+
+  test('degraded screen fails CLOSED: every allergen-tagged item excluded, untagged items pass', () => {
+    const tagged = { id: '1', name: 'Kheer', allergen_tags: ['milk'] };
+    const untagged = { id: '2', name: 'Plain Rice', allergen_tags: [] };
+    expect(menuItemAllergenConflict(tagged, [], { degraded: true }))
+      .toMatchObject({ via: 'screen_degraded', matched: null });
+    expect(menuItemAllergenConflict(untagged, [], { degraded: true })).toBeNull();
+
+    const { selections, excluded } = screenMenuItems(
+      [
+        { id: '1', name: 'Kheer', meal_type: 'dinner', diet_types: ['regular'], is_veg: true, allergen_tags: ['milk'] },
+        { id: '2', name: 'Plain Rice', meal_type: 'dinner', diet_types: ['regular'], is_veg: true, allergen_tags: [] },
+      ],
+      { mealType: 'dinner', dietType: 'regular', terms: [], degraded: true },
+    );
+    expect(selections.map((s) => s.name)).toEqual(['Plain Rice']);
+    expect(excluded.map((e) => e.name)).toEqual(['Kheer']);
+  });
+
+  test('terms union includes unified allergies, order free text, AND restrictions; degenerate terms dropped', () => {
+    const terms = buildAllergenTerms({
+      unifiedAllergies: [{ allergen: 'Peanuts', severity: 'ANAPHYLAXIS' }],
+      orderAllergies: ['Shellfish'],
+      orderRestrictions: ['no nuts', 'ab'], // 'ab' is too short to match anything
+    });
+    expect(terms).toContain('peanuts');
+    expect(terms).toContain('shellfish');
+    expect(terms).toContain('no nuts');
+    expect(terms).not.toContain('ab');
+    // A "no nuts" restriction excludes nut-tagged items.
+    expect(menuItemAllergenConflict(
+      { id: '1', name: 'Badam Halwa', allergen_tags: ['nut'] }, terms,
+    )).toMatchObject({ via: 'substring' });
+  });
+});
+
+describe('unified allergy stores gate menu selection (migration 687)', () => {
+  let orderUnified;
+
+  beforeAll(async () => {
+    // The allergy lives ONLY in patient_allergies — the diet order carries
+    // no free text. Pre-687 this patient's peanut anaphylaxis never reached
+    // the kitchen.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (tenant_id, patient_uid, allergy_name, severity, is_active)
+       VALUES ($1::uuid, $2::uuid, 'Peanuts', 'ANAPHYLAXIS', TRUE)`,
+      TENANT, P_UNIFIED,
+    );
+    await createMenuItem({
+      tenant_id: TENANT, name: 'Groundnut Poha', meal_type: 'breakfast',
+      diet_types: ['regular'], allergen_tags: ['groundnut'],
+    });
+    await insertAdmission(TENANT, P_UNIFIED, { ward: 'Ward C', bed: 'C-301' });
+    orderUnified = await insertDietOrder(TENANT, P_UNIFIED, { dietType: 'regular' });
+  });
+
+  test('a patient_allergies-only allergy excludes matching menu items and lands on the ticket snapshot', async () => {
+    const result = await generateMealTickets({
+      tenantId: TENANT, source: 'manual', generatedBy: DIETITIAN_ACTOR.uid,
+      dietOrderId: orderUnified,
+    });
+    expect(result.created).toBe(MEAL_TYPES.length);
+
+    const tickets = await ticketsFor(orderUnified);
+    const breakfast = tickets.find((t) => t.meal_type === 'breakfast');
+    // Kitchen staff see the unified allergy on the tray ticket…
+    expect(breakfast.allergies).toEqual(['Peanuts']);
+    // …the groundnut (peanut-class) item is withheld…
+    const names = breakfast.menu_selections.map((s) => s.name);
+    expect(names).not.toContain('Groundnut Poha');
+    // ('Ragi Porridge' suits regular and only carries a milk tag — kept.)
+    expect(names).toContain('Ragi Porridge');
+    // …and the evidence names the store-sourced match.
+    expect(breakfast.allergy_screen.degraded).toBe(false);
+    expect(breakfast.allergy_screen.patient_allergies).toEqual(['Peanuts']);
+    const hit = breakfast.allergy_screen.excluded.find((e) => e.name === 'Groundnut Poha');
+    expect(hit).toMatchObject({ tag: 'groundnut', matched: 'peanuts', via: 'class:peanut' });
   });
 });

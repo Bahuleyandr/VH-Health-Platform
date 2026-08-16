@@ -16,6 +16,16 @@
 //     re-cut for whatever meals lack a live ticket. Tickets already
 //     preparing/ready/dispatched are left alone — the tray is already in
 //     flight; the kitchen cancels manually if needed.
+//   - Allergen screening (migration 687): menu selection screens against the
+//     UNION of the platform's canonical allergy answer
+//     (getUnifiedActiveAllergiesDetailed — all four allergy stores) and the
+//     diet order's free-text allergies/restrictions. diet_orders.allergies
+//     alone is NOT sufficient: no first-party client writes it. Matching
+//     errs toward exclusion (bidirectional substring + curated food-allergen
+//     class synonyms), a degraded screen (any unified source failed) fails
+//     CLOSED by excluding every allergen-tagged item, and the screen
+//     evidence persists on the ticket (allergy_screen, the
+//     radiology contrast_allergy_screen idiom).
 //   - POST /dietary/kitchen/generate re-runs generation manually (new
 //     admissions after the morning cut, or a missed scheduler tick).
 //     Generation is idempotent: the live-uniqueness index absorbs re-runs.
@@ -40,6 +50,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { getUnifiedActiveAllergiesDetailed } from '../clinical/allergySourceService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   SUPER_ADMIN, ADMIN, DIETITIAN, DIETARY_STAFF, hasRole,
@@ -83,7 +94,7 @@ const TICKET_SELECT = `
   id::text AS id, tenant_id, diet_order_id, patient_uid, service_date::text AS service_date,
   meal_type, admission_id, ward, bed_number, patient_name, diet_type,
   restrictions, allergies, calories_target, menu_selections, diet_spec,
-  special_instructions, status, generated_source, generated_by,
+  special_instructions, allergy_screen, status, generated_source, generated_by,
   preparing_at, ready_at, dispatched_at, delivered_at, collected_at,
   cancelled_at, cancelled_by, cancel_reason, created_at, updated_at`;
 
@@ -264,17 +275,190 @@ export async function listMenuItems(filters = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Ticket generation
+// Allergen screening (migration 687)
 // ---------------------------------------------------------------------------
 
-function matchMenuSelections(menuItems, mealType, dietType, allergies) {
-  const allergySet = lowerSet(allergies);
-  return menuItems
-    .filter((item) => item.meal_type === mealType
-      && (item.diet_types || []).includes(dietType)
-      && !(item.allergen_tags || []).some((tag) => allergySet.has(String(tag).toLowerCase())))
-    .map((item) => ({ id: Number(item.id), name: item.name, is_veg: item.is_veg }));
+const lower = (value) => String(value ?? '').trim().toLowerCase();
+
+// Curated food-allergen synonym classes, the CONTRAST_AGENTS idiom from
+// utils/clinical/contrastAllergyCheck.js: free-text allergy stores and menu
+// allergen tags rarely use the same word, so exact/substring matching alone
+// misses "dairy" vs a 'milk' tag. India-first vocabulary (paneer, til,
+// maida…). Matching errs toward exclusion — a false exclusion costs a menu
+// choice, a false pass serves an allergen.
+export const FOOD_ALLERGEN_CLASSES = {
+  peanut: ['peanut', 'groundnut', 'arachis', 'moongphali'],
+  milk: ['milk', 'dairy', 'lactose', 'casein', 'whey', 'paneer', 'curd',
+    'yogurt', 'yoghurt', 'ghee', 'butter', 'cheese', 'cream', 'khoya', 'dahi'],
+  egg: ['egg', 'albumin', 'anda'],
+  gluten: ['gluten', 'wheat', 'maida', 'atta', 'suji', 'sooji', 'semolina',
+    'rava', 'barley', 'rye', 'gehu'],
+  soy: ['soy', 'soya', 'soybean'],
+  fish: ['fish', 'anchovy', 'sardine', 'mackerel', 'salmon', 'tuna', 'machli'],
+  shellfish: ['shellfish', 'prawn', 'shrimp', 'crab', 'lobster', 'crustacean',
+    'oyster', 'clam', 'mussel', 'squid'],
+  tree_nut: ['tree nut', 'treenut', 'nut', 'almond', 'cashew', 'walnut',
+    'pistachio', 'hazelnut', 'pecan', 'macadamia', 'badam', 'kaju', 'akhrot'],
+  sesame: ['sesame', 'til', 'gingelly', 'tahini'],
+  mustard: ['mustard', 'sarson'],
+};
+
+// Terms shorter than this are too degenerate for substring/class matching
+// ("e" would exclude everything); real allergen words are >= 3 chars.
+const MIN_MATCH_TERM_LENGTH = 3;
+
+function allergenClassesOf(text) {
+  const value = lower(text);
+  if (value.length < MIN_MATCH_TERM_LENGTH) return [];
+  return Object.entries(FOOD_ALLERGEN_CLASSES)
+    .filter(([, aliases]) => aliases.some(
+      (alias) => value.includes(alias) || alias.includes(value),
+    ))
+    .map(([klass]) => klass);
 }
+
+/**
+ * Collect the patient's allergen terms for menu matching: the unified-store
+ * allergen names plus the diet order's free-text allergies AND restrictions
+ * (a "no nuts" restriction must exclude nut-tagged items). Pure — exported
+ * for unit tests.
+ */
+export function buildAllergenTerms({
+  unifiedAllergies = [], orderAllergies = [], orderRestrictions = [],
+} = {}) {
+  const terms = new Set();
+  for (const allergy of unifiedAllergies) {
+    const term = lower(allergy?.allergen);
+    if (term.length >= MIN_MATCH_TERM_LENGTH) terms.add(term);
+  }
+  for (const value of [...(orderAllergies || []), ...(orderRestrictions || [])]) {
+    const term = lower(value);
+    if (term.length >= MIN_MATCH_TERM_LENGTH) terms.add(term);
+  }
+  return [...terms];
+}
+
+/**
+ * Does a menu item's allergen tagging conflict with the patient's allergen
+ * terms? Bidirectional substring (the prescription/contrast gate rule) plus
+ * shared food-allergen class. A DEGRADED screen (an allergy source failed —
+ * the union may be incomplete) fails closed: every allergen-tagged item is
+ * excluded. Pure — exported for unit tests.
+ *
+ * @returns {{ tag:string, matched:string|null, via:string }|null}
+ */
+export function menuItemAllergenConflict(item, terms, { degraded = false } = {}) {
+  const tags = (item?.allergen_tags || []).map(lower).filter(Boolean);
+  if (!tags.length) return null;
+  if (degraded) return { tag: tags[0], matched: null, via: 'screen_degraded' };
+  for (const tag of tags) {
+    for (const term of terms || []) {
+      if (tag.includes(term) || term.includes(tag)) {
+        return { tag, matched: term, via: 'substring' };
+      }
+      const shared = allergenClassesOf(tag).filter(
+        (klass) => allergenClassesOf(term).includes(klass),
+      );
+      if (shared.length) return { tag, matched: term, via: `class:${shared[0]}` };
+    }
+  }
+  return null;
+}
+
+/**
+ * Screen one meal window's menu against a diet type + allergen terms.
+ * Pure — exported for unit tests.
+ *
+ * @returns {{ selections:Array, excluded:Array }} excluded carries the
+ *   per-item evidence ({ id, name, tag, matched, via }) persisted into
+ *   allergy_screen.
+ */
+export function screenMenuItems(menuItems, {
+  mealType, dietType, terms = [], degraded = false,
+} = {}) {
+  const selections = [];
+  const excluded = [];
+  for (const item of menuItems || []) {
+    if (item.meal_type !== mealType || !(item.diet_types || []).includes(dietType)) continue;
+    const conflict = menuItemAllergenConflict(item, terms, { degraded });
+    if (conflict) {
+      excluded.push({ id: Number(item.id), name: item.name, ...conflict });
+    } else {
+      selections.push({ id: Number(item.id), name: item.name, is_veg: item.is_veg });
+    }
+  }
+  return { selections, excluded };
+}
+
+/**
+ * Resolve the full allergy picture for one diet order's patient: the unified
+ * four-store answer + the order's own free text. Never throws — a failed
+ * unified lookup degrades the screen, which then fails CLOSED at matching.
+ */
+async function loadOrderAllergyContext(order, { db = prisma } = {}) {
+  const orderAllergies = order.allergies || [];
+  const orderRestrictions = order.restrictions || [];
+  let unified = [];
+  let sourcesFailed = [];
+  let degraded = false;
+  try {
+    const detailed = await getUnifiedActiveAllergiesDetailed(db, {
+      patientUid: order.patient_uid,
+    });
+    unified = detailed.allergies || [];
+    sourcesFailed = detailed.sourcesFailed || [];
+    degraded = sourcesFailed.length > 0 || !detailed.patientResolved;
+  } catch (err) {
+    degraded = true;
+    sourcesFailed = ['unified_lookup'];
+    logger.warn('Dietary allergy screen: unified allergy lookup failed — failing closed', {
+      dietOrderId: order.id, error: err?.message,
+    });
+  }
+
+  // Ticket snapshot: unified names + order free-text, deduped
+  // case-insensitively with original casing kept, so kitchen staff see the
+  // whole allergy picture on the ticket.
+  const allergyNames = [];
+  const seen = new Set();
+  for (const name of [...unified.map((a) => a.allergen), ...orderAllergies]) {
+    const key = lower(name);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      allergyNames.push(String(name).trim());
+    }
+  }
+
+  return {
+    allergyNames,
+    terms: buildAllergenTerms({
+      unifiedAllergies: unified, orderAllergies, orderRestrictions,
+    }),
+    degraded,
+    sourcesFailed,
+    orderAllergies,
+    orderRestrictions,
+  };
+}
+
+// Evidence blob persisted to dietary_meal_tickets.allergy_screen — the
+// radiology contrast_allergy_screen idiom: the immutable record of what the
+// screen knew when the ticket was cut.
+function buildAllergyScreenEvidence(ctx, excluded) {
+  return {
+    screened_at: new Date().toISOString(),
+    degraded: ctx.degraded,
+    sources_failed: ctx.sourcesFailed,
+    patient_allergies: ctx.allergyNames,
+    order_allergies: ctx.orderAllergies,
+    order_restrictions: ctx.orderRestrictions,
+    excluded,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ticket generation
+// ---------------------------------------------------------------------------
 
 /**
  * Cut meal tickets for every ACTIVE diet order of a currently admitted
@@ -347,31 +531,48 @@ export async function generateMealTickets({
   let created = 0;
   const byMeal = {};
   for (const order of orders) {
+    // One unified-allergy resolution per order (not per meal); a degraded
+    // screen fails closed inside screenMenuItems.
+    const allergyCtx = await loadOrderAllergyContext(order);
     for (const mealType of MEAL_TYPES) {
-      const selections = matchMenuSelections(menuItems, mealType, order.diet_type, order.allergies);
-      const dietSpec = selections.length
-        ? null
-        : `${order.diet_type} diet — no matching menu item; prepare per diet spec`
+      const { selections, excluded } = screenMenuItems(menuItems, {
+        mealType,
+        dietType: order.diet_type,
+        terms: allergyCtx.terms,
+        degraded: allergyCtx.degraded,
+      });
+      let dietSpec = null;
+      if (!selections.length) {
+        dietSpec = `${order.diet_type} diet — no matching menu item; prepare per diet spec`
           + (order.meal_preferences ? `; preference: ${order.meal_preferences}` : '');
+        if (excluded.length) {
+          dietSpec += allergyCtx.degraded
+            ? `; ${excluded.length} menu item(s) withheld — allergy screen degraded, verify patient allergies before preparing`
+            : `; ${excluded.length} menu item(s) withheld on allergen match`;
+        }
+      }
+      const allergyScreen = buildAllergyScreenEvidence(allergyCtx, excluded);
 
       const rows = await prisma.$queryRawUnsafe(
         `INSERT INTO dietary_meal_tickets
            (tenant_id, diet_order_id, patient_uid, service_date, meal_type,
             admission_id, ward, bed_number, patient_name, diet_type,
             restrictions, allergies, calories_target, menu_selections,
-            diet_spec, special_instructions, generated_source, generated_by)
+            diet_spec, special_instructions, allergy_screen,
+            generated_source, generated_by)
          VALUES ($1::uuid, $2::int, $3::uuid, $4::date, $5,
                  $6::int, $7, $8, $9, $10,
                  $11::text[], $12::text[], $13::numeric, $14::jsonb,
-                 $15, $16, $17, $18::uuid)
+                 $15, $16, $17::jsonb, $18, $19::uuid)
          ON CONFLICT DO NOTHING
          RETURNING id::text AS id`,
         tenantId, order.id, order.patient_uid, date, mealType,
         order.admission_id, order.ward || null, order.bed_number || null,
         order.patient_name || null, order.diet_type,
-        order.restrictions || [], order.allergies || [],
+        order.restrictions || [], allergyCtx.allergyNames,
         order.calories_target ?? null, JSON.stringify(selections),
-        dietSpec, order.special_instructions || null, source, generatedBy || null,
+        dietSpec, order.special_instructions || null, JSON.stringify(allergyScreen),
+        source, generatedBy || null,
       );
       if (rows.length) {
         created += 1;
@@ -630,6 +831,10 @@ export default {
   TICKET_TRANSITIONS,
   KITCHEN_ROLES,
   MENU_MANAGE_ROLES,
+  FOOD_ALLERGEN_CLASSES,
+  buildAllergenTerms,
+  menuItemAllergenConflict,
+  screenMenuItems,
   createMenuItem,
   updateMenuItem,
   listMenuItems,

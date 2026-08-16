@@ -100,6 +100,34 @@ export const schemas = {
       },
       diet_spec: { type: 'string', nullable: true },
       special_instructions: { type: 'string', nullable: true },
+      allergy_screen: {
+        type: 'object',
+        nullable: true,
+        description:
+          'Generation-time allergen screen evidence: the unified four-store allergy union plus order free-text screened against menu allergen tags. degraded=true means an allergy source failed and the screen failed closed (every allergen-tagged item excluded).',
+        properties: {
+          screened_at: { type: 'string', format: 'date-time' },
+          degraded: { type: 'boolean' },
+          sources_failed: { type: 'array', items: { type: 'string' } },
+          patient_allergies: { type: 'array', items: { type: 'string' } },
+          order_allergies: { type: 'array', items: { type: 'string' } },
+          order_restrictions: { type: 'array', items: { type: 'string' } },
+          excluded: {
+            type: 'array',
+            description: 'Menu items withheld on allergen match: { id, name, tag, matched, via }.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                name: { type: 'string' },
+                tag: { type: 'string' },
+                matched: { type: 'string', nullable: true },
+                via: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
       status: { type: 'string', enum: TICKET_STATUSES },
       generated_source: { type: 'string', enum: ['scheduler', 'manual', 'order_change'] },
       generated_by: { type: 'string', format: 'uuid', nullable: true },
