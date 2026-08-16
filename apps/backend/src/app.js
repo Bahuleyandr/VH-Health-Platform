@@ -128,6 +128,7 @@ import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoute
 import { abdmEnrolmentPortalRouter, abdmEnrolmentStaffRouter } from './routes/abdm/abdmEnrolmentRoutes.js';
 import abdmShareIntakeRoutes from './routes/abdm/abdmShareIntakeRoutes.js';
 import abdmHiuRoutes from './routes/abdm/abdmHiuRoutes.js';
+import { callbackRouter as uhiCallbackRoutes, adminRouter as uhiAdminRoutes } from './routes/uhi/uhiRoutes.js';
 import adoptionRoutes from './routes/adoption/adoptionRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
 import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
@@ -151,6 +152,7 @@ import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
 import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
 import ambulanceTrackingRoutes from './routes/ed/ambulanceTrackingRoutes.js';
+import facilityAssetRoutes from './routes/facility/facilityAssetRoutes.js';
 import ipdSupportRoutes from './routes/ipd/ipdSupportRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
@@ -605,6 +607,16 @@ function captureJsonRawBody(req, body) {
   if (path.startsWith('/webhooks/payments/')) {
     req.paymentGatewayRawBody = Buffer.from(body);
   }
+  // UHI webhook legs (migration 705): the beckn ed25519 signature covers a
+  // BLAKE-512 digest of these EXACT bytes. Every entry in UHI_CALLBACK_PATHS
+  // (uhiRoutes.js) must appear here with the /api/v1/uhi mount prefix.
+  if (path === '/api/v1/uhi/search'
+      || path === '/api/v1/uhi/init'
+      || path === '/api/v1/uhi/confirm'
+      || path === '/api/v1/uhi/status'
+      || path === '/api/v1/uhi/cancel') {
+    req.uhiRawBody = Buffer.from(body);
+  }
 }
 
 function legacyBodyLimitError(length) {
@@ -813,6 +825,11 @@ app.use('/api/v1/scim/v2', scimRateLimiter, scimRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);
+// UHI network webhooks (public — no JWT/API key; beckn ed25519 signature over
+// the captured raw bytes, fail-closed per-tenant resolution, env + tenant
+// kill switches default OFF). Pre-RLS mount: every write inside carries an
+// explicit tenant_id.
+app.use('/api/v1/uhi', uhiCallbackRoutes);
 // NHCX gateway callbacks (public — no JWT/API key, tenant-scoped signed callback)
 app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
 // NL11-S11 interface-engine ingress (public connector, HMAC-signed per tenant/channel).
@@ -1234,6 +1251,12 @@ app.use(
   ambulanceTrackingRoutes,
 );
 
+// General (non-biomedical) facility asset register (migration 704). Role
+// gates (manage vs read arrays) live in the router; no PHI logger — the
+// register has no patient linkage, mutations write ordinary audit_logs rows
+// plus the append-only facility_asset_events domain history.
+app.use('/api/v1/facility/assets', facilityAssetRoutes);
+
 // IPD support subsystem — advance deposits, attendant passes, ward
 // indents (architectural item A4 / migration 174). RBAC is broad
 // because the routes file fans out into operations owned by different
@@ -1619,6 +1642,8 @@ app.use('/api/v1/admin/surgical', (req, res) => {
 // REQUIRE_MFA_FOR_SUPER_ADMIN login flag — see docs/GO_LIVE_ACTIVATION_CHECKLIST.md.
 app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
+// UHI evidence/dedupe ledger (migration 705) — read-only ops debugging surface.
+app.use('/api/v1/admin/uhi', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, uhiAdminRoutes);
 
 // System settings + status — admin-portal surface, so IP-allowlisted like
 // /api/v1/admin (fails closed in production until ADMIN_IP_ALLOWLIST is set;

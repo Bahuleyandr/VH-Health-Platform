@@ -23619,6 +23619,630 @@
           }
         }
       },
+      "FacilityAsset": {
+        "type": "object",
+        "required": [
+          "id",
+          "assetTag",
+          "name",
+          "category",
+          "condition",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "assetTag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "furniture",
+              "hvac",
+              "electrical",
+              "plumbing",
+              "it_equipment",
+              "generator",
+              "vehicle",
+              "kitchen",
+              "laundry",
+              "safety",
+              "infrastructure",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "nullable": true
+          },
+          "locationDepartment": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "locationRoom": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "custodianUid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 160,
+            "nullable": true
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "purchaseCost": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "warrantyUntil": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "good",
+              "fair",
+              "poor"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "under_repair",
+              "condemned",
+              "disposed"
+            ],
+            "description": "State machine: active ⇄ under_repair → condemned → disposed (direct disposal allowed; disposed is terminal and evidence-pinned)."
+          },
+          "disposalReason": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "disposedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "disposedBy": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "FacilityAssetCreateRequest": {
+        "type": "object",
+        "required": [
+          "assetTag",
+          "name",
+          "category"
+        ],
+        "properties": {
+          "assetTag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "furniture",
+              "hvac",
+              "electrical",
+              "plumbing",
+              "it_equipment",
+              "generator",
+              "vehicle",
+              "kitchen",
+              "laundry",
+              "safety",
+              "infrastructure",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "nullable": true
+          },
+          "locationDepartment": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "locationRoom": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "custodianUid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 160,
+            "nullable": true
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "purchaseCost": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "warrantyUntil": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "good",
+              "fair",
+              "poor"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "FacilityAssetDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/FacilityAsset"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "events": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FacilityAssetEvent"
+                },
+                "description": "Most recent history events (newest first)."
+              }
+            }
+          }
+        ]
+      },
+      "FacilityAssetDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAssetDetail"
+          }
+        }
+      },
+      "FacilityAssetEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "assetTag",
+          "assetName",
+          "eventType"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "assetId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Null after the asset row was hard-deleted; the tag/name snapshots keep the history readable."
+          },
+          "assetTag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "assetName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "moved",
+              "custodian_assigned",
+              "condition_changed",
+              "status_changed",
+              "repair_opened",
+              "repair_closed",
+              "maintenance",
+              "condemned",
+              "disposed"
+            ]
+          },
+          "fromStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "under_repair",
+              "condemned",
+              "disposed"
+            ],
+            "nullable": true
+          },
+          "toStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "under_repair",
+              "condemned",
+              "disposed"
+            ],
+            "nullable": true
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "actorUid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "actorRole": {
+            "type": "string",
+            "maxLength": 60,
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "FacilityAssetEventListPayload": {
+        "type": "object",
+        "required": [
+          "events",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacilityAssetEvent"
+            }
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "FacilityAssetEventListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAssetEventListPayload"
+          }
+        }
+      },
+      "FacilityAssetListPayload": {
+        "type": "object",
+        "required": [
+          "assets",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacilityAsset"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "FacilityAssetListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAssetListPayload"
+          }
+        }
+      },
+      "FacilityAssetMaintenancePayload": {
+        "type": "object",
+        "required": [
+          "asset"
+        ],
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/FacilityAsset"
+          },
+          "event": {
+            "$ref": "#/components/schemas/FacilityAssetEvent"
+          }
+        }
+      },
+      "FacilityAssetMaintenanceRequest": {
+        "type": "object",
+        "required": [
+          "notes"
+        ],
+        "properties": {
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "cost": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 160,
+            "nullable": true
+          }
+        }
+      },
+      "FacilityAssetMaintenanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAssetMaintenancePayload"
+          }
+        }
+      },
+      "FacilityAssetResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAsset"
+          }
+        }
+      },
+      "FacilityAssetTransitionRequest": {
+        "type": "object",
+        "required": [
+          "toStatus"
+        ],
+        "properties": {
+          "toStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "under_repair",
+              "condemned",
+              "disposed"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true,
+            "description": "Required when toStatus is disposed — becomes the durable disposal evidence."
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "FacilityAssetUpdateRequest": {
+        "type": "object",
+        "description": "Master-field update; omitted fields keep their current values. Status is deliberately excluded — use the status transition endpoint.",
+        "properties": {
+          "assetTag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "furniture",
+              "hvac",
+              "electrical",
+              "plumbing",
+              "it_equipment",
+              "generator",
+              "vehicle",
+              "kitchen",
+              "laundry",
+              "safety",
+              "infrastructure",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "nullable": true
+          },
+          "locationDepartment": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "locationRoom": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "custodianUid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 160,
+            "nullable": true
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "purchaseCost": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "warrantyUntil": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "good",
+              "fair",
+              "poor"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
       "FamilyMemberPromoteRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -43102,6 +43726,291 @@
           }
         }
       },
+      "UhiAckPayload": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "object",
+            "required": [
+              "ack"
+            ],
+            "properties": {
+              "ack": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACK",
+                      "NACK"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "error": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "UhiAckResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UhiAckPayload"
+          }
+        }
+      },
+      "UhiContext": {
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "message_id"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true
+          },
+          "action": {
+            "type": "string",
+            "nullable": true
+          },
+          "transaction_id": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Spans the whole search→init→confirm journey."
+          },
+          "message_id": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "bpp_id": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true,
+            "description": "Provider (HSP) subscriber id — resolves the tenant before any write."
+          },
+          "bap_id": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "bap_uri": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "UhiInboundMessage": {
+        "type": "object",
+        "required": [
+          "context"
+        ],
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/UhiContext"
+          },
+          "message": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Beckn message body (intent for search, order for init/confirm, order_id for status/cancel)."
+          }
+        }
+      },
+      "UhiTransaction": {
+        "type": "object",
+        "required": [
+          "id",
+          "environment",
+          "transactionId",
+          "messageId",
+          "action",
+          "direction",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "transactionId": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "messageId": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "on_search",
+              "init",
+              "on_init",
+              "confirm",
+              "on_confirm",
+              "status",
+              "on_status",
+              "cancel",
+              "on_cancel"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "counterpartySubscriberId": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "signatureVerified": {
+            "type": "boolean"
+          },
+          "verificationFailureReason": {
+            "type": "string",
+            "maxLength": 300,
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "received",
+              "processed",
+              "failed",
+              "rejected"
+            ]
+          },
+          "ack": {
+            "type": "string",
+            "enum": [
+              "ACK",
+              "NACK"
+            ],
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "string",
+            "maxLength": 80,
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "appointmentId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Set on the confirm leg after booking through the existing appointment service."
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "processedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "UhiTransactionListPayload": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "False when the adapter is disabled (env kill switch or tenant setting) — the list is then empty rather than an error."
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UhiTransaction"
+            }
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "UhiTransactionListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UhiTransactionListPayload"
+          }
+        }
+      },
       "UpdateAppointmentResponse": {
         "type": "object",
         "required": [
@@ -44877,6 +45786,9 @@
       "name": "facility"
     },
     {
+      "name": "facility-asset"
+    },
+    {
       "name": "facility-risk"
     },
     {
@@ -45169,6 +46081,9 @@
     },
     {
       "name": "trial-safety-operations"
+    },
+    {
+      "name": "uhi"
     },
     {
       "name": "unclassified"
@@ -66678,6 +67593,27 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/admin/uhi/transactions": {
+      "get": {
+        "operationId": "get_api_v1_admin_uhi_transactions",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiTransactionListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the tenant's UHI protocol-leg evidence/dedupe ledger (inbound intents and outbound on_* callbacks) for ops debugging, filterable by status/action/transaction id. ADMIN or SUPER_ADMIN. Returns an enabled:false marker instead of erroring while the adapter is disabled."
       }
     },
     "/api/v1/admin/upload/cleanup": {
@@ -103204,6 +104140,239 @@
         }
       }
     },
+    "/api/v1/facility/assets": {
+      "get": {
+        "operationId": "get_api_v1_facility_assets",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the tenant's general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here."
+      },
+      "post": {
+        "operationId": "post_api_v1_facility_assets",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Registers a general facility asset (furniture, HVAC, electrical/plumbing plant, IT, generators, vehicles, kitchen/laundry, safety, infrastructure). Asset tag is unique per tenant. Writes the asset row plus a created history event in the same transaction. ADMIN/SUPER_ADMIN/MAINTENANCE/BIOMEDICAL_STAFF.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacilityAssetCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/facility/assets/{id}": {
+      "get": {
+        "operationId": "get_api_v1_facility_assets_by_id",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetDetailResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Fetches one facility asset with its most recent history events.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_facility_assets_by_id",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Updates master fields; location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacilityAssetUpdateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/facility/assets/{id}/events": {
+      "get": {
+        "operationId": "get_api_v1_facility_assets_by_id_events",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetEventListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pages through the asset's full append-only history (newest first).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/facility/assets/{id}/maintenance": {
+      "post": {
+        "operationId": "post_api_v1_facility_assets_by_id_maintenance",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetMaintenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records a maintenance action (cost/vendor/notes) against a non-disposed asset as an append-only history event without changing status.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacilityAssetMaintenanceRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/facility/assets/{id}/status": {
+      "post": {
+        "operationId": "post_api_v1_facility_assets_by_id_status",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Transitions the asset status through the guarded state machine (active ⇄ under_repair → condemned → disposed; direct disposal allowed). Disposal requires a reason and stamps the disposal evidence columns; disposed is terminal. The transition event is written in the same transaction.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacilityAssetTransitionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/feedback": {
       "post": {
         "operationId": "post_api_v1_feedback",
@@ -138708,6 +139877,161 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uhi/cancel": {
+      "post": {
+        "operationId": "post_api_v1_uhi_cancel",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancels the booking confirmed under this transaction through the existing appointment transition path (canonical evidence inherited) and answers on_cancel. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UhiInboundMessage"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uhi/confirm": {
+      "post": {
+        "operationId": "post_api_v1_uhi_confirm",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Receives a UHI booking confirm and books through the platform's existing appointment service (canonical clinical timeline + audit evidence inherited), stamping appointment correlation + booking snapshot on the evidence row, then answers on_confirm. Unregistered customers are NACKed (UHI_PATIENT_NOT_REGISTERED). Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UhiInboundMessage"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uhi/init": {
+      "post": {
+        "operationId": "post_api_v1_uhi_init",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Receives a UHI booking init, soft-validates the requested slot, and answers an on_init quote. No hold rows are created (thin adapter scope). Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UhiInboundMessage"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uhi/search": {
+      "post": {
+        "operationId": "post_api_v1_uhi_search",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Receives a UHI discovery intent and answers an on_search catalog of matching doctors and open slots. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UhiInboundMessage"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uhi/status": {
+      "post": {
+        "operationId": "post_api_v1_uhi_status",
+        "tags": [
+          "uhi"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Answers on_status with the state of the booking confirmed under this transaction. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UhiInboundMessage"
               }
             }
           }

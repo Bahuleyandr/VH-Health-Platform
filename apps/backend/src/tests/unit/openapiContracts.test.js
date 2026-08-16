@@ -45,6 +45,8 @@ import * as ambulanceTracking from '../../../scripts/openapi/schemas/ambulanceTr
 import * as paymentGateway from '../../../scripts/openapi/schemas/paymentGateway.mjs';
 import * as smsConfig from '../../../scripts/openapi/schemas/smsConfig.mjs';
 import * as abdmCompletion from '../../../scripts/openapi/schemas/abdmCompletion.mjs';
+import * as facilityAssets from '../../../scripts/openapi/schemas/facilityAssets.mjs';
+import * as uhi from '../../../scripts/openapi/schemas/uhi.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -90,7 +92,9 @@ const MODULES = [
   ambulanceTracking,
   paymentGateway,
   smsConfig,
-  abdmCompletion
+  abdmCompletion,
+  facilityAssets,
+  uhi
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -664,6 +664,38 @@ export const envSchema = Joi.object({
     .label('ABHA_ENROLMENT_BASE_URL'),
   // Thin-HIU identity; defaults to ABDM_HIP_ID in abdmConfig when unset.
   ABDM_HIU_ID: Joi.string().allow('').optional().label('ABDM_HIU_ID'),
+
+  // UHI (Unified Health Interface / DHP-beckn) adapter — migration 705.
+  // Deployment kill switch, default OFF (ship-disabled, zero live
+  // credentials). When enabled, the network identity + signing key become
+  // mandatory (ABDM_ENABLED conditional-Joi precedent); the gateway public
+  // key stays optional because per-tenant verification keys live in
+  // tenant_interop_secrets (kind 'uhi_callback').
+  UHI_ENABLED: Joi.string().valid('true', 'false').default('false').label('UHI_ENABLED'),
+  UHI_GATEWAY_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://gateway.uhi.abdm.gov.in/api/v1')
+    .label('UHI_GATEWAY_URL'),
+  UHI_SUBSCRIBER_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SUBSCRIBER_ID'),
+  UHI_SIGNING_PRIVATE_KEY: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_PRIVATE_KEY'),
+  UHI_SIGNING_KEY_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_KEY_ID'),
+  UHI_GATEWAY_PUBLIC_KEY: Joi.string().allow('').optional().label('UHI_GATEWAY_PUBLIC_KEY'),
+  UHI_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('UHI_ENVIRONMENT'),
 }).unknown(true);
 
 // Validate the current environment variables

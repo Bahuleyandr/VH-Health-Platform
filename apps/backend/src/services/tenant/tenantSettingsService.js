@@ -53,6 +53,13 @@
 //       enabled?: boolean,                // default false — thin HIU consent/fetch
 //                                         // legs. Effective only with ABDM_ENABLED=true.
 //     },
+//     uhi?: {
+//       enabled?: boolean,                // default false — UHI (DHP/beckn) network
+//                                         // adapter webhook legs. Effective only with
+//                                         // UHI_ENABLED=true; sandbox unless
+//                                         // environment: 'production'.
+//       environment?: 'sandbox'|'production',
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -243,6 +250,23 @@ export async function getAbdmHiuSettings(tenantId) {
   const defaults = { enabled: false };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
   return { enabled: raw.enabled === true };
+}
+
+// UHI (Unified Health Interface / DHP-beckn) adapter (migration 705).
+// Disabled by default — the webhook legs answer the national UHI network, so
+// a tenant opts in via a settings write only after the deployment sets
+// UHI_ENABLED (env is the kill switch, this is the per-hospital enable).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getUhiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.uhi;
+  const defaults = { enabled: false, environment: 'sandbox' };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    enabled: raw.enabled === true,
+    environment: raw.environment === 'production' ? 'production' : 'sandbox',
+  };
 }
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {

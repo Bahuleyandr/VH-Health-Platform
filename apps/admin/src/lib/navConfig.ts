@@ -171,6 +171,11 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredRole: "ADMIN",
       },
       { name: "Devices", href: "/dashboard/devices", minRole: "STAFF" },
+      {
+        name: "Facility Assets",
+        href: "/dashboard/facility-assets",
+        requiredRole: "ADMIN",
+      },
     ],
   },
   {
