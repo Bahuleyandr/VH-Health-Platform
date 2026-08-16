@@ -15,6 +15,8 @@ const staffNavExcludedRoutes = <String, String>{
   '/mar/due': 'medication administration contextual queue',
   '/reports-grievances/admin': 'reports hub administrative subpage',
   '/shift-swaps': 'schedule contextual subpage (shift swaps + on-call)',
+  '/ambulance-tracking':
+      'ED workbench contextual subpage (ambulance live GPS tracking)',
   '/payroll/queries': 'payroll self-service subpage',
   '/payroll/declarations': 'payroll self-service subpage',
   '/payroll/tax-summary': 'payroll self-service subpage',

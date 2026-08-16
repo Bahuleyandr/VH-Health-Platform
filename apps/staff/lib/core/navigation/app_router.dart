@@ -93,6 +93,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
 import '../../features/safety/screens/resus_documentation_screen.dart';
+import '../../features/emergency/screens/ambulance_tracking_screen.dart';
 import '../../features/emergency/screens/ed_trauma_workbench_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
 import '../../features/safety/screens/sos_response_screen.dart';
@@ -485,6 +486,12 @@ final GoRouter appRouter = GoRouter(
           name: 'ed-trauma',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: EdTraumaWorkbenchScreen()),
+        ),
+        GoRoute(
+          path: '/ambulance-tracking',
+          name: 'ambulance-tracking',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AmbulanceTrackingScreen()),
         ),
 
         // Doctor

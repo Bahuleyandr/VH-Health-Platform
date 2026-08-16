@@ -117,6 +117,13 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/billing-desk', anyFeatureIds: {'billing_desk'}),
     StaffRouteMetadata('/ward-mode', anyFeatureIds: {'ward_mode'}),
     StaffRouteMetadata('/ed-trauma', anyFeatureIds: {'ed_trauma_workbench'}),
+    // Ambulance live tracking: ED workbench holders (live view) plus the
+    // SOS-responder roster, which carries DRIVER — the crew role that posts
+    // positions. Mirrors backend AMBULANCE_TRACKING_ROUTE_ROLES.
+    StaffRouteMetadata(
+      '/ambulance-tracking',
+      anyFeatureIds: {'ed_trauma_workbench', 'sos_response'},
+    ),
     StaffRouteMetadata('/patient-records', anyFeatureIds: {'patient_records'}),
     StaffRouteMetadata('/prescriptions', anyFeatureIds: {'prescriptions'}),
     StaffRouteMetadata(

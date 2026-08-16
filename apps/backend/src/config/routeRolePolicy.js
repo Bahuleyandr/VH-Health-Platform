@@ -359,6 +359,13 @@ export const ED_ROUTE_ROLES = mergeRoles(
   rolesFrom(['MEDICAL_RECORDS']),
 );
 
+// Ambulance live GPS tracking (migration 683): the ED roster plus the crew
+// roles that actually ride the ambulance and post fixes from the staff app.
+export const AMBULANCE_TRACKING_ROUTE_ROLES = mergeRoles(
+  ED_ROUTE_ROLES,
+  rolesFrom(['DRIVER', 'EMERGENCY_RESPONDER']),
+);
+
 export const IPD_SUPPORT_ROUTE_ROLES = mergeRoles(
   BILLING_ROUTE_ROLES,
   getRolesForCapabilityGroups(['ip_flow', 'pharmacy']),

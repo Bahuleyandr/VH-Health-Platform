@@ -79,6 +79,7 @@ import {
   CLINICAL_CONTINUITY_RECONCILIATION_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COMPLIANCE_ROUTE_ROLES,
+  AMBULANCE_TRACKING_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
   CSSD_ROUTE_ROLES,
   DELIVERY_ROUTE_ROLES,
@@ -146,6 +147,7 @@ import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
 import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
+import ambulanceTrackingRoutes from './routes/ed/ambulanceTrackingRoutes.js';
 import ipdSupportRoutes from './routes/ipd/ipdSupportRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
@@ -1156,6 +1158,18 @@ app.use(
   requireRole(...ED_ROUTE_ROLES),
   phiAccessLogger('ER_TRIAGE'),
   edRoutesForClinicalStaff,
+);
+
+// Ambulance live GPS tracking (migration 683, config-gated per tenant). A
+// separate mount because the crew posting fixes (DRIVER /
+// EMERGENCY_RESPONDER) is not part of the ED clinical roster that gates
+// /api/v1/ed. Position fixes attach to ambulance_requests rows that can
+// carry a patient linkage, so the PHI access log covers the surface.
+app.use(
+  '/api/v1/ambulance',
+  requireRole(...AMBULANCE_TRACKING_ROUTE_ROLES),
+  phiAccessLogger('AMBULANCE_TRACKING'),
+  ambulanceTrackingRoutes,
 );
 
 // IPD support subsystem — advance deposits, attendant passes, ward

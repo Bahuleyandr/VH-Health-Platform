@@ -256,6 +256,10 @@ import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineSer
 // started can never complete; flip them to expired so they stop blocking
 // fresh proposals on the same roster assignments.
 import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
+// Ambulance GPS position retention — the fix stream (migration 683) is
+// high-volume operational telemetry; keep only the tenant-configured window
+// (default 7 days).
+import { sweepAmbulancePositionEvents } from '../services/ed/ambulanceTrackingService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
@@ -1108,6 +1112,18 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('shift-swap-expiry', tenantId => (
       expireStaleShiftSwapRequests({ tenantId })
     ));
+  }));
+
+  // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).
+  // Position fixes are operational telemetry, not chart content; delete rows
+  // older than the tenant's ambulanceGpsTracking.retentionDays (default 7).
+  // Runs even for tenants with the feature disabled so a later disable still
+  // drains the already-ingested backlog. Self-batched inside the service.
+  registerCron('25 * * * *', withJobLock('ambulance-position-retention', async () => {
+    const result = await runForEachTenant('ambulance-position-retention', tenantId => (
+      sweepAmbulancePositionEvents({ tenantId })
+    ));
+    logger.info('ambulance-position-retention sweep complete', result);
   }));
 
   // 🗓️ Daily at 03:30 - Apply tenant retention policies to all five audit sinks.

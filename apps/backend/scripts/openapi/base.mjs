@@ -7,6 +7,7 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'abdm' },
   { slug: 'abdm-full' },
   { slug: 'adoption' },
+  { slug: 'ambulance' },
   { slug: 'analytics' },
   { slug: 'appointment' },
   { slug: 'attendance' },

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/services/ed_trauma_api_service.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
@@ -581,6 +582,12 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
         leading: const NavigationBackAction(),
         title: Text(s.lookup('ed_trauma.title')),
         actions: [
+          IconButton(
+            key: const ValueKey('ed-trauma-ambulance-tracking'),
+            tooltip: s.lookup('s4.lib.ambulance_tracking.title'),
+            onPressed: () => context.push('/ambulance-tracking'),
+            icon: const Icon(Icons.local_shipping_outlined),
+          ),
           IconButton(
             tooltip: s.actionRefresh,
             onPressed: _loading ? null : _loadPolicy,

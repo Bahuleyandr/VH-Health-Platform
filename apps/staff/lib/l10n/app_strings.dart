@@ -7587,6 +7587,18 @@ class AppStrings {
       's4.lib.duty_preference.no_duty_requests_yet': "No duty requests yet",
       's4.lib.duty_preference.request_preferred_duty': "Request preferred duty",
       's4.lib.duty_preference.submit_request': "Submit request",
+      's4.lib.ambulance_tracking.title': "Ambulance Live Tracking",
+      's4.lib.ambulance_tracking.disabled':
+          "Live GPS tracking is not enabled for this hospital yet. An administrator can enable it in tenant settings when GPS devices are available.",
+      's4.lib.ambulance_tracking.no_active':
+          "No ambulances are actively transporting right now.",
+      's4.lib.ambulance_tracking.no_fix': "No position received yet",
+      's4.lib.ambulance_tracking.distance': "{km} km from hospital",
+      's4.lib.ambulance_tracking.updated': "updated {age} ago",
+      's4.lib.ambulance_tracking.eta': "ETA {time}",
+      's4.lib.ambulance_tracking.share': "Share my location for this unit",
+      's4.lib.ambulance_tracking.share_hint':
+          "Posts this device's GPS position every 20 seconds while the unit is en route. Turn off after handover.",
       's4.lib.shift_swap.title': "Shift Swaps & On-Call",
       's4.lib.shift_swap.propose_title': "Propose a shift swap",
       's4.lib.shift_swap.my_shift': "My shift",

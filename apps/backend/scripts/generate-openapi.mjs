@@ -14,6 +14,7 @@ import {
 } from './openapi/buildSpec.mjs';
 import { OPENAPI_BASE } from './openapi/base.mjs';
 import * as abdm from './openapi/schemas/abdm.mjs';
+import * as ambulanceTracking from './openapi/schemas/ambulanceTracking.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
@@ -94,7 +95,8 @@ const SCHEMA_MODULES = [
   radiology,
   misReportSchedules,
   referralFacilities,
-  shiftSwapOnCall
+  shiftSwapOnCall,
+  ambulanceTracking
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
