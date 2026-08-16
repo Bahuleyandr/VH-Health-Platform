@@ -469,6 +469,13 @@ class _KitchenScreenState extends State<KitchenScreen>
         : '';
     final allergies = ticket['allergies'];
     final allergyText = allergies is List ? allergies.join(', ') : '';
+    // The backend records whether the allergy screen actually completed. A
+    // degraded screen (an allergy source was unreachable) must never look like
+    // a clean one on the tray card — "no allergies listed" and "we could not
+    // check" are different facts, and only one of them is safe to plate.
+    final allergyScreen = ticket['allergy_screen'];
+    final allergyScreenDegraded =
+        allergyScreen is Map && allergyScreen['degraded'] == true;
     final recalled = ticket['recalled_at'] != null;
     final rawNext = kitchen
         ? _kKitchenNextAction[status]
@@ -608,6 +615,32 @@ class _KitchenScreenState extends State<KitchenScreen>
                   fontStyle: FontStyle.italic,
                   color: AppTheme.textSecondary,
                 ),
+              ),
+            ],
+            // Rendered independently of allergyText: the dangerous case is a
+            // degraded screen that produced an EMPTY list, which would
+            // otherwise render nothing at all.
+            if (allergyScreenDegraded) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.gpp_maybe,
+                    size: 14,
+                    color: Color(0xFFC62828),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      s.lookup('s4.lib.kitchen.allergy_screen_degraded'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFC62828),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
             if (allergyText.isNotEmpty) ...[

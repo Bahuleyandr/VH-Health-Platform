@@ -8916,6 +8916,8 @@ class AppStrings {
       's4.lib.kitchen.transition_done': "Ticket marked {status}",
       's4.lib.kitchen.allergies': "Allergies: {list}",
       's4.lib.kitchen.recalled_banner': "RECALLED — do not serve. {reason}",
+      's4.lib.kitchen.allergy_screen_degraded':
+          "ALLERGY CHECK INCOMPLETE — an allergy source was unavailable when this tray was selected. Confirm allergies with the ward before serving.",
       's4.lib.kitchen.cancel_ticket': "Cancel ticket",
       's4.lib.kitchen.cancel_reason': "Cancellation reason",
       's4.lib.kitchen.cancel_reason_required':
