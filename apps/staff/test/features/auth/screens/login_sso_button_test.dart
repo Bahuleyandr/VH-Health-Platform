@@ -66,8 +66,7 @@ Future<void> _pumpLogin(
       if (request.method == 'POST' &&
           request.url.path.endsWith('/auth/staff/register-device')) {
         return _ok({
-          'accessToken':
-              'eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFmZi11aWQiLCJyb2xlIjoiTlVSU0lOR19TVEFGRiJ9.sig',
+          'accessToken': 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFmZi11aWQiLCJyb2xlIjoiTlVSU0lOR19TVEFGRiJ9.sig',
           'refreshToken': 'refresh-token',
           'deviceToken': 'trusted-device-token',
           'staff': {

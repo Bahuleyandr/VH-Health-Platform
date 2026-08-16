@@ -13,24 +13,30 @@ import '../models/cath_report_models.dart';
 import '../services/cath_lab_api_service.dart';
 import 'cath_report_editor.dart';
 
-typedef CathReportsLoader =
-    Future<List<CathProcedureReport>> Function(int caseId);
+typedef CathReportsLoader = Future<List<CathProcedureReport>> Function(
+  int caseId,
+);
 typedef CathReportTemplatesLoader = Future<List<CathReportTemplate>> Function();
-typedef CathReportCreator =
-    Future<CathProcedureReport> Function(int caseId, CathReportDraft draft);
-typedef CathReportUpdater =
-    Future<CathProcedureReport> Function(int reportId, CathReportDraft draft);
-typedef CathReportTransition =
-    Future<CathProcedureReport> Function(int reportId);
-typedef CathReportAddendumCreator =
-    Future<CathReportAddendum> Function(
-      int reportId,
-      CathReportAddendumDraft draft,
-    );
+typedef CathReportCreator = Future<CathProcedureReport> Function(
+  int caseId,
+  CathReportDraft draft,
+);
+typedef CathReportUpdater = Future<CathProcedureReport> Function(
+  int reportId,
+  CathReportDraft draft,
+);
+typedef CathReportTransition = Future<CathProcedureReport> Function(
+  int reportId,
+);
+typedef CathReportAddendumCreator = Future<CathReportAddendum> Function(
+  int reportId,
+  CathReportAddendumDraft draft,
+);
 typedef CathViewerLinkLoader = Future<CathViewerLink> Function(int caseId);
 typedef CathViewerLauncher = Future<void> Function(Uri uri);
-typedef CathReportPdfPrinter =
-    Future<void> Function(CathProcedureReport report);
+typedef CathReportPdfPrinter = Future<void> Function(
+  CathProcedureReport report,
+);
 
 class CathReportDependencies {
   const CathReportDependencies({
@@ -355,9 +361,8 @@ class _CathCaseReportsPanelState extends State<CathCaseReportsPanel> {
     } catch (error) {
       if (mounted) {
         _showActionError(
-          AppStrings.of(
-            context,
-          ).lookup('s4.lib.clinical_print_pdf_action.print_share_pdf'),
+          AppStrings.of(context)
+              .lookup('s4.lib.clinical_print_pdf_action.print_share_pdf'),
           error,
         );
       }
@@ -535,9 +540,8 @@ class _CathCaseReportsPanelState extends State<CathCaseReportsPanel> {
                   if (report.signedAt != null)
                     _MetaLine(
                       icon: Icons.schedule_outlined,
-                      text: DateFormat(
-                        'dd MMM yyyy, hh:mm a',
-                      ).format(report.signedAt!),
+                      text: DateFormat('dd MMM yyyy, hh:mm a')
+                          .format(report.signedAt!),
                     ),
                   if (report.reportTatMinutes != null)
                     _MetaLine(
@@ -640,9 +644,8 @@ class _ReportCountBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        AppStrings.of(
-          context,
-        ).format('s4.dynamic.cath_lab.report.count', {'count': count}),
+        AppStrings.of(context)
+            .format('s4.dynamic.cath_lab.report.count', {'count': count}),
       ),
     );
   }

@@ -186,8 +186,12 @@ export async function recordMovement(params) {
  * INSERT) open one setTenantTx themselves and call this directly. The public
  * recordMovement() wrapper above preserves the original single-movement
  * behaviour for every other caller.
+ *
+ * Exported for same-transaction composers (counterSaleService's walk-in POS
+ * finalize/void) that must commit several movements atomically with their own
+ * evidence rows.
  */
-async function recordMovementTx(tx, {
+export async function recordMovementTx(tx, {
   tenantId, inventory_item_id, inventory_batch_id, movement_kind,
   quantity, reference_type, reference_id, notes, performed_by,
   require_usable_batch = false,
@@ -358,17 +362,36 @@ async function recordMovementTx(tx, {
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
 
-export async function dispenseControlled({
+/**
+ * Transaction-scoped core of dispenseControlled. Runs the controlled-substance
+ * pre-conditions, the stock decrement (recordMovementTx) and the statutory
+ * pharmacy_schedule_register INSERT against a caller-supplied `tx`. Callers
+ * that must commit a controlled dispense atomically with other writes in the
+ * same unit (the walk-in POS finalize, which pairs it with sale evidence and
+ * the invoice payment) open one setTenantTx themselves and call this directly
+ * — there is deliberately no second controlled-dispense mechanism. The public
+ * dispenseControlled() wrapper below preserves the original single-dispense
+ * behaviour for every other caller.
+ *
+ * `reference_id` optionally overrides the movement's reference (defaults to
+ * the prescription number) so composers can point the movement at their own
+ * evidence row; `require_usable_batch` adds recordMovementTx's expired/
+ * non-in-stock batch rejection.
+ */
+export async function dispenseControlledTx(tx, {
   tenantId,
   inventory_item_id, inventory_batch_id,
-  quantity, patient_uid, prescription_id, prescription_number,
+  quantity, patient_uid, patient_name, patient_phone,
+  prescription_id, prescription_number,
   prescriber_uid, prescriber_name, prescriber_registration,
   patient_id_proof_type, patient_id_proof_last4,
   performed_by, performed_by_name,
   witness_uid, witness_name, notes,
+  reference_id = null,
+  require_usable_batch = false,
 }) {
-  // Pre-conditions: item must be Schedule H1 or X (or marked narcotic).
-  const items = await prisma.$queryRawUnsafe(
+  // Pre-conditions: item must be Schedule H/H1/X (or marked narcotic).
+  const items = await tx.$queryRawUnsafe(
     `SELECT id, schedule_class, is_narcotic, unit_label
        FROM pharmacy_inventory_items
       WHERE id = $1::int AND tenant_id = $2::uuid`,
@@ -387,15 +410,7 @@ export async function dispenseControlled({
     throw AppError.badRequest('performed_by + performed_by_name are required');
   }
 
-  // The stock decrement and the statutory Schedule H1/X/narcotic register
-  // entry MUST commit as a single unit: a controlled substance can never be
-  // decremented off the shelf without its register row (dispensing off the
-  // statutory register), and a register row must never outlive a rolled-back
-  // decrement. Open ONE tenant-scoped transaction and do both inside it — the
-  // batch FOR UPDATE lock, insufficient-stock guard and decrement (via
-  // recordMovementTx), the running-balance read, and the register INSERT — so
-  // a crash between them rolls the whole thing back with no compensating step.
-  return setTenantTx(tenantId, async (tx) => {
+  {
     // Record the underlying stock movement (decrements batch) inside the tx.
     const { movement } = await recordMovementTx(tx, {
       tenantId,
@@ -404,9 +419,10 @@ export async function dispenseControlled({
       movement_kind: 'issue',
       quantity,
       reference_type: 'controlled_dispense',
-      reference_id: prescription_number || `pres-${prescription_id || ''}`,
+      reference_id: reference_id || prescription_number || `pres-${prescription_id || ''}`,
       performed_by,
       notes: `Schedule ${item.schedule_class} dispense; witness ${witness_name || 'n/a'}`,
+      require_usable_batch,
     });
 
     // Compute running balance across batches, read inside the same tx so it
@@ -422,14 +438,15 @@ export async function dispenseControlled({
       `INSERT INTO pharmacy_schedule_register
          (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
           movement_kind, quantity, unit_label, running_balance,
-          patient_uid, prescription_id, prescription_number,
+          patient_uid, patient_name, patient_phone,
+          prescription_id, prescription_number,
           prescriber_uid, prescriber_name, prescriber_registration,
           patient_id_proof_type, patient_id_proof_last4,
           performed_by, performed_by_name, witness_uid, witness_name,
           reference_movement_id, notes)
        VALUES ($1::uuid, $2::int, $3, $4, 'dispense', $5::numeric, $6, $7::numeric,
-               $8::uuid, $9, $10, $11::uuid, $12, $13, $14, $15,
-               $16::uuid, $17, $18::uuid, $19, $20::int, $21)
+               $8::uuid, $9, $10, $11, $12, $13::uuid, $14, $15, $16, $17,
+               $18::uuid, $19, $20::uuid, $21, $22::int, $23)
        RETURNING *`,
       tenantId,
       Number(inventory_item_id),
@@ -439,6 +456,8 @@ export async function dispenseControlled({
       item.unit_label,
       Number(balance[0].bal),
       patient_uid ? String(patient_uid) : null,
+      patient_name ? String(patient_name).trim().slice(0, 255) : null,
+      patient_phone ? String(patient_phone).trim().slice(0, 20) : null,
       prescription_id ? Number(prescription_id) : null,
       prescription_number || null,
       prescriber_uid ? String(prescriber_uid) : null,
@@ -455,7 +474,19 @@ export async function dispenseControlled({
     );
 
     return { register_entry: reg[0], movement };
-  });
+  }
+}
+
+export async function dispenseControlled(params) {
+  // The stock decrement and the statutory Schedule H/H1/X/narcotic register
+  // entry MUST commit as a single unit: a controlled substance can never be
+  // decremented off the shelf without its register row (dispensing off the
+  // statutory register), and a register row must never outlive a rolled-back
+  // decrement. Open ONE tenant-scoped transaction and do both inside it — the
+  // batch FOR UPDATE lock, insufficient-stock guard and decrement (via
+  // recordMovementTx), the running-balance read, and the register INSERT — so
+  // a crash between them rolls the whole thing back with no compensating step.
+  return setTenantTx(params.tenantId, async (tx) => dispenseControlledTx(tx, params));
 }
 
 export async function listScheduleRegister({ tenantId, schedule_class, item_id, date_from, date_to, limit = 200 }) {

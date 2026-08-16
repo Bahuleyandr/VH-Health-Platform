@@ -28,9 +28,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
               children: [
                 AppText(
                   's4.lib.front_office_workbench.front_office_workbench',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 Text(
                   s.lookup(_role.displayNameKey),
@@ -124,9 +123,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                       patientNameFrom(patient),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900),
                     ),
                     if (demographics.isNotEmpty)
                       Text(
@@ -264,9 +262,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
               children: [
                 if (selected != null && _canPatientRegistryWrite)
                   IconButton.filledTonal(
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.front_office_workbench.edit_patient'),
+                    tooltip: AppStrings.of(context)
+                        .lookup('s4.lib.front_office_workbench.edit_patient'),
                     onPressed: () => _showPatientDialog(patient: selected),
                     icon: const Icon(Icons.edit_outlined),
                   ),
@@ -303,9 +300,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                       onChanged: _queuePatientLookup,
                       onSubmitted: _handlePatientSearchSubmitted,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('reception_counter.patient_lookup.hint'),
+                        labelText: AppStrings.of(context)
+                            .lookup('reception_counter.patient_lookup.hint'),
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: _lookupBusy
                             ? const Padding(
@@ -637,9 +633,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: _appointmentStatusColor(
-                        status,
-                      ).withValues(alpha: 0.12),
+                      backgroundColor: _appointmentStatusColor(status)
+                          .withValues(alpha: 0.12),
                       child: busy
                           ? const SizedBox(
                               width: 16,
@@ -809,9 +804,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
     final actions = <Widget>[
       if (canPrintTax)
         IconButton.filledTonal(
-          tooltip: AppStrings.of(
-            context,
-          ).lookup('s4.lib.billing_desk.print_tax_invoice'),
+          tooltip: AppStrings.of(context)
+              .lookup('s4.lib.billing_desk.print_tax_invoice'),
           onPressed: _billingActionBusy
               ? null
               : () => _printInvoiceDocument(
@@ -822,9 +816,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
         ),
       if (canPrintReceipt)
         IconButton.filledTonal(
-          tooltip: AppStrings.of(
-            context,
-          ).lookup('s4.lib.billing_desk.print_receipt'),
+          tooltip: AppStrings.of(context)
+              .lookup('s4.lib.billing_desk.print_receipt'),
           onPressed: _billingActionBusy
               ? null
               : () =>
@@ -854,9 +847,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Theme.of(context).dividerColor),
-          color: Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest
+              .withValues(alpha: 0.26),
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -990,9 +982,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                 Expanded(
                   child: AppText(
                     's4.lib.front_office_workbench.opd_ipd_handoff',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -1028,9 +1019,8 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                     'total': _activeAdmissionsTotal,
                   },
                 ),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: AppTheme.textSecondary),
               ),
             ],
           ],

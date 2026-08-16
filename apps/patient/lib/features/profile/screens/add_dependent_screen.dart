@@ -167,9 +167,8 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
                   r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                   caseSensitive: false,
                 ).hasMatch(value);
-                final isPhone = RegExp(
-                  r'^[+]?[0-9]{10,15}$',
-                ).hasMatch(value.replaceAll(RegExp(r'\s'), ''));
+                final isPhone = RegExp(r'^[+]?[0-9]{10,15}$')
+                    .hasMatch(value.replaceAll(RegExp(r'\s'), ''));
                 if (!isUuid && !isPhone) {
                   return l.addDependentIdentifierInvalid;
                 }

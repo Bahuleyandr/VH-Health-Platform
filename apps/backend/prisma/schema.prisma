@@ -497,6 +497,7 @@ model admissions {
   clinical_continuity_replay_receipts     clinical_continuity_replay_receipts[]
   device_presence_logs                    device_presence_logs[]
   diagnostic_result_generations           diagnostic_result_generations[]
+  dietary_meal_tickets                    dietary_meal_tickets[]
   discharge_consults                      discharge_consults[]
   discharge_pending_result_handoffs       discharge_pending_result_handoffs[]
   hai_cases                               hai_cases[]
@@ -597,39 +598,40 @@ model allergies {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model ambulance_requests {
-  id                       Int                        @id @default(autoincrement())
-  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_id              Int?
-  request_number           String                     @db.VarChar(80)
-  request_kind             String                     @default("pickup") @db.VarChar(40)
-  priority                 String                     @default("medium") @db.VarChar(20)
-  caller_name              String?                    @db.VarChar(255)
-  caller_phone             String?                    @db.VarChar(40)
-  patient_uid              String?                    @db.Uuid
-  patient_name             String?                    @db.VarChar(255)
-  pickup_address           String?
-  pickup_geo_lat           Decimal?                   @db.Decimal(10, 6)
-  pickup_geo_lng           Decimal?                   @db.Decimal(10, 6)
-  destination              String?                    @db.VarChar(255)
-  destination_facility_id  Int?
-  ambulance_unit_id        String?                    @db.VarChar(80)
-  driver_name              String?                    @db.VarChar(255)
-  attendant_name           String?                    @db.VarChar(255)
-  status                   String                     @default("requested") @db.VarChar(20)
-  requested_at             DateTime                   @default(now()) @db.Timestamptz(6)
-  dispatched_at            DateTime?                  @db.Timestamptz(6)
-  on_scene_at              DateTime?                  @db.Timestamptz(6)
-  arrived_at               DateTime?                  @db.Timestamptz(6)
-  cancelled_reason         String?
-  presenting_complaint     String?
-  metadata                 Json                       @default("{}")
-  created_by               String?                    @db.Uuid
-  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
-  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  ed_closure_evidence      ed_closure_evidence[]
-  prehospital_device_links prehospital_device_links[]
-  prehospital_handovers    prehospital_handovers[]
+  id                        Int                         @id @default(autoincrement())
+  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id               Int?
+  request_number            String                      @db.VarChar(80)
+  request_kind              String                      @default("pickup") @db.VarChar(40)
+  priority                  String                      @default("medium") @db.VarChar(20)
+  caller_name               String?                     @db.VarChar(255)
+  caller_phone              String?                     @db.VarChar(40)
+  patient_uid               String?                     @db.Uuid
+  patient_name              String?                     @db.VarChar(255)
+  pickup_address            String?
+  pickup_geo_lat            Decimal?                    @db.Decimal(10, 6)
+  pickup_geo_lng            Decimal?                    @db.Decimal(10, 6)
+  destination               String?                     @db.VarChar(255)
+  destination_facility_id   Int?
+  ambulance_unit_id         String?                     @db.VarChar(80)
+  driver_name               String?                     @db.VarChar(255)
+  attendant_name            String?                     @db.VarChar(255)
+  status                    String                      @default("requested") @db.VarChar(20)
+  requested_at              DateTime                    @default(now()) @db.Timestamptz(6)
+  dispatched_at             DateTime?                   @db.Timestamptz(6)
+  on_scene_at               DateTime?                   @db.Timestamptz(6)
+  arrived_at                DateTime?                   @db.Timestamptz(6)
+  cancelled_reason          String?
+  presenting_complaint      String?
+  metadata                  Json                        @default("{}")
+  created_by                String?                     @db.Uuid
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  ambulance_position_events ambulance_position_events[]
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ed_closure_evidence       ed_closure_evidence[]
+  prehospital_device_links  prehospital_device_links[]
+  prehospital_handovers     prehospital_handovers[]
 
   @@unique([tenant_id, request_number])
   @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_ambulance_tenant_status")
@@ -4686,22 +4688,23 @@ model diagnoses {
 }
 
 model diet_orders {
-  id                   Int      @id @default(autoincrement())
-  patient_uid          String   @db.Uuid
-  encounter_id         String?  @db.Uuid
-  diet_type            String   @db.VarChar(50)
-  restrictions         String[] @default([])
-  allergies            String[] @default([])
+  id                   Int                    @id @default(autoincrement())
+  patient_uid          String                 @db.Uuid
+  encounter_id         String?                @db.Uuid
+  diet_type            String                 @db.VarChar(50)
+  restrictions         String[]               @default([])
+  allergies            String[]               @default([])
   meal_preferences     String?
-  calories_target      Decimal? @db.Decimal(8, 2)
+  calories_target      Decimal?               @db.Decimal(8, 2)
   special_instructions String?
-  status               String   @default("active") @db.VarChar(50)
-  ordered_by           String   @db.Uuid
-  reviewed_by          String?  @db.Uuid
-  created_at           DateTime @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime @default(now()) @db.Timestamptz(6)
-  tenant_id            String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants              tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diet_orders_tenant")
+  status               String                 @default("active") @db.VarChar(50)
+  ordered_by           String                 @db.Uuid
+  reviewed_by          String?                @db.Uuid
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diet_orders_tenant")
+  dietary_meal_tickets dietary_meal_tickets[]
 
   @@index([created_at(sort: Desc)], map: "idx_diet_orders_created_at")
   @@index([patient_uid], map: "idx_diet_orders_patient_uid")
@@ -5586,21 +5589,28 @@ model fall_risk_assessments {
   @@index([tenant_id, risk_level, recorded_at(sort: Desc)], map: "idx_fall_high_risk", where: raw("((risk_level)::text = ANY (ARRAY[('high'::character varying)::text, ('very_high'::character varying)::text]))"))
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model family_members {
-  id            BigInt    @id @default(autoincrement())
-  patient_uid   String    @db.Uuid
-  name          String    @db.VarChar(255)
-  phone         String?   @db.VarChar(20)
-  relationship  String?   @db.VarChar(50)
-  date_of_birth DateTime? @db.Date
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-  updated_at    DateTime  @default(now()) @db.Timestamp(6)
-  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  users         users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_family_members_tenant")
+  id                                               BigInt    @id @default(autoincrement())
+  patient_uid                                      String    @db.Uuid
+  name                                             String    @db.VarChar(255)
+  phone                                            String?   @db.VarChar(20)
+  relationship                                     String?   @db.VarChar(50)
+  date_of_birth                                    DateTime? @db.Date
+  created_at                                       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                                       DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id                                        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  linked_dependent_uid                             String?   @db.Uuid
+  linked_at                                        DateTime? @db.Timestamptz(6)
+  link_consent_method                              String?   @db.VarChar(30)
+  link_consent_ref                                 String?   @db.VarChar(200)
+  users                                            users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
+  users_family_members_linked_dependent_uidTousers users?    @relation("family_members_linked_dependent_uidTousers", fields: [linked_dependent_uid], references: [uid], onUpdate: NoAction, map: "fk_family_members_linked_dependent")
+  tenants                                          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_family_members_tenant")
 
   @@index([patient_uid], map: "idx_family_members_patient_uid")
   @@index([tenant_id], map: "idx_family_members_tenant_id")
+  @@index([linked_dependent_uid], map: "idx_family_members_linked_dependent_uid", where: raw("(linked_dependent_uid IS NOT NULL)"))
 }
 
 model feedback {
@@ -8398,33 +8408,34 @@ model pharmacy_goods_receipts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model pharmacy_inventory_batches {
-  id                                                                                                             Int                            @id @default(autoincrement())
-  tenant_id                                                                                                      String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                                                                                                             Int                                 @id @default(autoincrement())
+  tenant_id                                                                                                      String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   inventory_item_id                                                                                              Int
   facility_id                                                                                                    Int?
-  batch_number                                                                                                   String                         @db.VarChar(120)
-  lot_number                                                                                                     String?                        @db.VarChar(120)
-  manufacture_date                                                                                               DateTime?                      @db.Date
-  expiry_date                                                                                                    DateTime                       @db.Date
-  received_quantity                                                                                              Decimal                        @db.Decimal(14, 4)
-  remaining_quantity                                                                                             Decimal                        @db.Decimal(14, 4)
+  batch_number                                                                                                   String                              @db.VarChar(120)
+  lot_number                                                                                                     String?                             @db.VarChar(120)
+  manufacture_date                                                                                               DateTime?                           @db.Date
+  expiry_date                                                                                                    DateTime                            @db.Date
+  received_quantity                                                                                              Decimal                             @db.Decimal(14, 4)
+  remaining_quantity                                                                                             Decimal                             @db.Decimal(14, 4)
   unit_cost_minor                                                                                                BigInt?
   mrp_minor                                                                                                      BigInt?
   supplier_id                                                                                                    Int?
   goods_receipt_id                                                                                               Int?
   storage_location_id                                                                                            Int?
-  status                                                                                                         String                         @default("in_stock") @db.VarChar(20)
-  recall_reference                                                                                               String?                        @db.VarChar(255)
-  metadata                                                                                                       Json                           @default("{}")
-  created_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
-  updated_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
-  cath_case_consumable_usage_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches           cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches")
-  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches cath_case_consumable_usage[]   @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches")
+  status                                                                                                         String                              @default("in_stock") @db.VarChar(20)
+  recall_reference                                                                                               String?                             @db.VarChar(255)
+  metadata                                                                                                       Json                                @default("{}")
+  created_at                                                                                                     DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                     DateTime                            @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches           cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_inventory_batch_idTopharmacy_inventory_batches")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_tenant_id_inventory_batch_idTopharmacy_inventory_batches")
+  pharmacy_counter_sale_allocations                                                                              pharmacy_counter_sale_allocations[]
   pharmacy_expiry_alerts                                                                                         pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                                                                                   pharmacy_goods_receipt_items[]
-  pharmacy_inventory_items                                                                                       pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pharmacy_suppliers                                                                                             pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
-  tenants                                                                                                        tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items                                                                                       pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_suppliers                                                                                             pharmacy_suppliers?                 @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                                        tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   pharmacy_stock_movements                                                                                       pharmacy_stock_movements[]
 
   @@unique([inventory_item_id, batch_number])
@@ -8464,6 +8475,7 @@ model pharmacy_inventory_items {
   catalog_id                                                                                            Int?
   cath_consumable_catalog_cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items           cath_consumable_catalog[]       @relation("cath_consumable_catalog_inventory_item_idTopharmacy_inventory_items")
   cath_consumable_catalog_cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items cath_consumable_catalog[]       @relation("cath_consumable_catalog_tenant_id_inventory_item_idTopharmacy_inventory_items")
+  pharmacy_counter_sale_lines                                                                           pharmacy_counter_sale_lines[]
   pharmacy_expiry_alerts                                                                                pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                                                                          pharmacy_goods_receipt_items[]
   pharmacy_inventory_batches                                                                            pharmacy_inventory_batches[]
@@ -8646,23 +8658,25 @@ model pharmacy_purchase_orders {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model pharmacy_stock_movements {
-  id                                                                                                              Int                          @id @default(autoincrement())
-  tenant_id                                                                                                       String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  inventory_item_id                                                                                               Int
-  inventory_batch_id                                                                                              Int?
-  movement_kind                                                                                                   String                       @db.VarChar(40)
-  quantity_delta                                                                                                  Decimal                      @db.Decimal(14, 4)
-  reference_type                                                                                                  String?                      @db.VarChar(60)
-  reference_id                                                                                                    String?                      @db.VarChar(120)
-  performed_by                                                                                                    String?                      @db.Uuid
-  notes                                                                                                           String?
-  metadata                                                                                                        Json                         @default("{}")
-  created_at                                                                                                      DateTime                     @default(now()) @db.Timestamptz(6)
-  cath_case_consumable_usage_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements           cath_case_consumable_usage[] @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements")
-  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements cath_case_consumable_usage[] @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements")
-  pharmacy_inventory_batches                                                                                      pharmacy_inventory_batches?  @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
-  pharmacy_inventory_items                                                                                        pharmacy_inventory_items     @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                                                                                                         tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                               Int                                 @id @default(autoincrement())
+  tenant_id                                                                                                        String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  inventory_item_id                                                                                                Int
+  inventory_batch_id                                                                                               Int?
+  movement_kind                                                                                                    String                              @db.VarChar(40)
+  quantity_delta                                                                                                   Decimal                             @db.Decimal(14, 4)
+  reference_type                                                                                                   String?                             @db.VarChar(60)
+  reference_id                                                                                                     String?                             @db.VarChar(120)
+  performed_by                                                                                                     String?                             @db.Uuid
+  notes                                                                                                            String?
+  metadata                                                                                                         Json                                @default("{}")
+  created_at                                                                                                       DateTime                            @default(now()) @db.Timestamptz(6)
+  cath_case_consumable_usage_cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements            cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_inventory_movement_idTopharmacy_stock_movements")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements  cath_case_consumable_usage[]        @relation("cath_case_consumable_usage_tenant_id_inventory_movement_idTopharmacy_stock_movements")
+  pharmacy_counter_sale_allocations_pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements        pharmacy_counter_sale_allocations[] @relation("pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements")
+  pharmacy_counter_sale_allocations_pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements pharmacy_counter_sale_allocations[] @relation("pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements")
+  pharmacy_inventory_batches                                                                                       pharmacy_inventory_batches?         @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items                                                                                         pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                                          tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, id], map: "ux_pharmacy_stock_movements_tenant_id_for_cath")
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_item_time")
@@ -9079,6 +9093,12 @@ model radiology_orders {
   signoff_idempotency_key              String?                                @db.VarChar(200)
   signoff_request_sha256               String?                                @db.Char(64)
   admission_id                         Int?
+  contrast_planned                     Boolean                                @default(false)
+  contrast_agent                       String?                                @db.VarChar(120)
+  contrast_allergy_screen              Json                                   @default("{}")
+  contrast_override_reason             String?
+  contrast_override_by                 String?                                @db.Uuid
+  contrast_override_at                 DateTime?                              @db.Timestamptz(6)
   diagnostic_result_generations        diagnostic_result_generations[]
   imaging_study_link_recovery_receipts imaging_study_link_recovery_receipts[]
   users                                users?                                 @relation(fields: [tenant_id, classification_signed_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_classification_signer")
@@ -9097,6 +9117,7 @@ model radiology_orders {
   @@index([report_completed_at], map: "idx_radiology_orders_signoff_pending", where: raw("((report_completed_at IS NOT NULL) AND (report_signed_off_at IS NULL))"))
   @@index([tenant_id, template_id], map: "idx_radiology_orders_template", where: raw("(template_id IS NOT NULL)"))
   @@index([tenant_id, admission_id, id], map: "idx_radiology_orders_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_radiology_orders_contrast_override", where: raw("(contrast_override_at IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9179,12 +9200,14 @@ model referrals {
   replacement_of_referral_id                         Int?
   repeat_reason                                      String?
   ownership_accepted_at                              DateTime?                    @db.Timestamptz(6)
+  destination_facility_id                            Int?
   physio_assessments                                 physio_assessments[]
   referral_responses                                 referral_responses[]
   referral_transition_events                         referral_transition_events[]
   appointments                                       appointments?                @relation(fields: [tenant_id, appointment_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_appointment")
   users_referrals_tenant_id_closed_byTousers         users?                       @relation("referrals_tenant_id_closed_byTousers", fields: [tenant_id, closed_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_closed_by")
   users_referrals_tenant_id_current_owner_uidTousers users?                       @relation("referrals_tenant_id_current_owner_uidTousers", fields: [tenant_id, current_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_referrals_current_owner")
+  referral_facilities                                referral_facilities?         @relation(fields: [tenant_id, destination_facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_destination_facility")
   referrals                                          referrals?                   @relation("referralsToreferrals", fields: [tenant_id, replacement_of_referral_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_referrals_replacement")
   other_referrals                                    referrals[]                  @relation("referralsToreferrals")
   tenants                                            tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
@@ -9208,6 +9231,7 @@ model referrals {
   @@index([tenant_id, status, referred_to_department, created_at(sort: Desc)], map: "idx_referrals_tenant_status_department_created")
   @@index([tenant_id, appointment_id], map: "idx_referrals_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, current_owner_uid, created_at(sort: Desc)], map: "idx_referrals_tenant_owner_open", where: raw("((closure_status)::text = 'open'::text)"))
+  @@index([tenant_id, destination_facility_id], map: "idx_referrals_tenant_destination_facility", where: raw("(destination_facility_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10467,6 +10491,7 @@ model tenants {
   advance_deductions                                   advance_deductions[]
   allergies                                            allergies[]
   ambulance_partner_fleet_configs                      ambulance_partner_fleet_configs[]
+  ambulance_position_events                            ambulance_position_events[]
   ambulance_requests                                   ambulance_requests[]
   anesthesia_records                                   anesthesia_records[]
   annual_review_reminders                              annual_review_reminders[]
@@ -10705,6 +10730,8 @@ model tenants {
   dialysis_session_events                              dialysis_session_events[]
   dialyzer_reuse_register                              dialyzer_reuse_register[]
   diet_orders                                          diet_orders[]
+  dietary_meal_tickets                                 dietary_meal_tickets[]
+  dietary_menu_items                                   dietary_menu_items[]
   discharge_consults                                   discharge_consults[]
   discharge_summary_sections                           discharge_summary_sections[]
   doctors                                              doctors[]
@@ -10873,6 +10900,8 @@ model tenants {
   migration_rehearsal_reports                          migration_rehearsal_reports[]
   migration_source_files                               migration_source_files[]
   migration_validation_findings                        migration_validation_findings[]
+  mis_report_deliveries                                mis_report_deliveries[]
+  mis_report_schedules                                 mis_report_schedules[]
   mlc_completeness_audit_events                        mlc_completeness_audit_events[]
   mlc_completeness_reviews                             mlc_completeness_reviews[]
   mlc_records                                          mlc_records[]
@@ -10951,6 +10980,9 @@ model tenants {
   perfusion_signoffs                                   perfusion_signoffs[]
   pharmacy_activity_logs                               pharmacy_activity_logs[]
   pharmacy_catalog                                     pharmacy_catalog[]
+  pharmacy_counter_sale_allocations                    pharmacy_counter_sale_allocations[]
+  pharmacy_counter_sale_lines                          pharmacy_counter_sale_lines[]
+  pharmacy_counter_sales                               pharmacy_counter_sales[]
   pharmacy_expiry_alerts                               pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items                         pharmacy_goods_receipt_items[]
   pharmacy_goods_receipts                              pharmacy_goods_receipts[]
@@ -11002,6 +11034,7 @@ model tenants {
   radiology_tat_thresholds                             radiology_tat_thresholds[]
   radiotherapy_fraction_schedules                      radiotherapy_fraction_schedules[]
   radiotherapy_plan_refs                               radiotherapy_plan_refs[]
+  referral_facilities                                  referral_facilities[]
   referrals                                            referrals[]
   remote_prescriptions                                 remote_prescriptions[]
   replacement_requests                                 replacement_requests[]
@@ -11061,6 +11094,7 @@ model tenants {
   staff_message_thread_participants                    staff_message_thread_participants[]
   staff_message_threads                                staff_message_threads[]
   staff_messages                                       staff_messages[]
+  staff_on_call_assignments                            staff_on_call_assignments[]
   staff_onboarding_tasks                               staff_onboarding_tasks[]
   staff_performance_reviews                            staff_performance_reviews[]
   staff_roster_preferences                             staff_roster_preferences[]
@@ -11072,6 +11106,8 @@ model tenants {
   staff_shift_roster_boards                            staff_shift_roster_boards[]
   staff_shift_roster_request_audit                     staff_shift_roster_request_audit[]
   staff_shift_roster_requests                          staff_shift_roster_requests[]
+  staff_shift_swap_request_audit                       staff_shift_swap_request_audit[]
+  staff_shift_swap_requests                            staff_shift_swap_requests[]
   staff_shifts                                         staff_shifts[]
   stemi_activations                                    stemi_activations[]
   stemi_pathway_events                                 stemi_pathway_events[]
@@ -11736,6 +11772,7 @@ model users {
   diagnostic_result_release_states_diagnostic_result_release_states_tenant_id_release_hold_byTousers                               diagnostic_result_release_states[]                     @relation("diagnostic_result_release_states_tenant_id_release_hold_byTousers")
   diagnostic_result_release_states_diagnostic_result_release_states_tenant_id_patient_uidTousers                                   diagnostic_result_release_states[]                     @relation("diagnostic_result_release_states_tenant_id_patient_uidTousers")
   diagnostic_result_release_states_diagnostic_result_release_states_tenant_id_released_byTousers                                   diagnostic_result_release_states[]                     @relation("diagnostic_result_release_states_tenant_id_released_byTousers")
+  dietary_meal_tickets                                                                                                             dietary_meal_tickets[]
   discharge_pending_result_handoffs_discharge_pending_result_handoffs_tenant_id_created_by_uidTousers                              discharge_pending_result_handoffs[]                    @relation("discharge_pending_result_handoffs_tenant_id_created_by_uidTousers")
   discharge_pending_result_handoffs_discharge_pending_result_handoffs_tenant_id_patient_uidTousers                                 discharge_pending_result_handoffs[]                    @relation("discharge_pending_result_handoffs_tenant_id_patient_uidTousers")
   discharge_pending_result_handoffs_discharge_pending_result_handoffs_tenant_id_resolved_by_uidTousers                             discharge_pending_result_handoffs[]                    @relation("discharge_pending_result_handoffs_tenant_id_resolved_by_uidTousers")
@@ -11750,6 +11787,7 @@ model users {
   external_recovery_critical_acknowledgements                                                                                      external_recovery_critical_review_acknowledgements[]
   external_recovery_operability_actions                                                                                            external_recovery_operability_actions[]
   family_members                                                                                                                   family_members[]
+  family_members_family_members_linked_dependent_uidTousers                                                                        family_members[]                                       @relation("family_members_linked_dependent_uidTousers")
   feedback_nps_responses                                                                                                           feedback_nps_responses[]
   fhir_allergy_intolerance_receipts                                                                                                fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                                                                                                  fhir_vital_observation_receipts[]                      @relation("fhir_vital_observation_receipt_patient")
@@ -11849,6 +11887,7 @@ model users {
   perfusion_signoffs_perfusion_signoffs_patient_uidTousers                                                                         perfusion_signoffs[]                                   @relation("perfusion_signoffs_patient_uidTousers")
   perfusion_signoffs_perfusion_signoffs_perfusionist_signed_byTousers                                                              perfusion_signoffs[]                                   @relation("perfusion_signoffs_perfusionist_signed_byTousers")
   perfusion_signoffs_perfusion_signoffs_surgeon_reviewed_byTousers                                                                 perfusion_signoffs[]                                   @relation("perfusion_signoffs_surgeon_reviewed_byTousers")
+  pharmacy_counter_sales                                                                                                           pharmacy_counter_sales[]
   pharmacy_order_history                                                                                                           pharmacy_order_history[]
   pharmacy_orders_pharmacy_orders_dispensed_byTousers                                                                              pharmacy_orders[]                                      @relation("pharmacy_orders_dispensed_byTousers")
   pharmacy_orders_pharmacy_orders_patient_idTousers                                                                                pharmacy_orders[]                                      @relation("pharmacy_orders_patient_idTousers")
@@ -12911,6 +12950,7 @@ model billing_invoices {
   billing_payments            billing_payments[]
   billing_refunds             billing_refunds[]
   patient_message_threads     patient_message_threads[]
+  pharmacy_counter_sales      pharmacy_counter_sales[]
   tpa_claims                  tpa_claims[]
 
   @@unique([tenant_id, invoice_number], map: "uniq_billing_invoices_tenant_invoice_number", where: raw("(invoice_number IS NOT NULL)"))
@@ -12992,29 +13032,30 @@ model billing_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model billing_refunds {
-  id               Int               @id @default(autoincrement())
-  patient_uid      String            @db.Uuid
-  invoice_id       Int?
-  advance_id       Int?
-  amount           Decimal           @db.Decimal(12, 2)
-  reason           String            @db.VarChar(500)
-  mode             String            @db.VarChar(20)
-  reference        String?           @db.VarChar(255)
-  approval_status  String            @default("PENDING") @db.VarChar(20)
-  raised_by        String?           @db.Uuid
-  raised_at        DateTime?         @default(now()) @db.Timestamptz(6)
-  approved_by      String?           @db.Uuid
-  approved_at      DateTime?         @db.Timestamptz(6)
-  rejected_by      String?           @db.Uuid
-  rejected_at      DateTime?         @db.Timestamptz(6)
-  rejection_reason String?           @db.VarChar(255)
-  paid_at          DateTime?         @db.Timestamptz(6)
-  paid_by          String?           @db.Uuid
-  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at       DateTime?         @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime?         @default(now()) @db.Timestamptz(6)
-  billing_advances billing_advances? @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
-  billing_invoices billing_invoices? @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  id                     Int                      @id @default(autoincrement())
+  patient_uid            String                   @db.Uuid
+  invoice_id             Int?
+  advance_id             Int?
+  amount                 Decimal                  @db.Decimal(12, 2)
+  reason                 String                   @db.VarChar(500)
+  mode                   String                   @db.VarChar(20)
+  reference              String?                  @db.VarChar(255)
+  approval_status        String                   @default("PENDING") @db.VarChar(20)
+  raised_by              String?                  @db.Uuid
+  raised_at              DateTime?                @default(now()) @db.Timestamptz(6)
+  approved_by            String?                  @db.Uuid
+  approved_at            DateTime?                @db.Timestamptz(6)
+  rejected_by            String?                  @db.Uuid
+  rejected_at            DateTime?                @db.Timestamptz(6)
+  rejection_reason       String?                  @db.VarChar(255)
+  paid_at                DateTime?                @db.Timestamptz(6)
+  paid_by                String?                  @db.Uuid
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  billing_advances       billing_advances?        @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
+  billing_invoices       billing_invoices?        @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  pharmacy_counter_sales pharmacy_counter_sales[]
 
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
@@ -13265,25 +13306,27 @@ model staff_shift_roster_assignment_audit {
 }
 
 model staff_shift_roster_assignments {
-  id                                  Int                                   @id @default(autoincrement())
-  roster_id                           Int
-  staff_id                            Int
-  staff_uid                           String?                               @db.Uuid
-  staff_role                          String?                               @db.VarChar(80)
-  assignment_target_type              String                                @db.VarChar(80)
-  assignment_target_id                Int?
-  assignment_target_label             String?                               @db.VarChar(255)
-  floor                               String?                               @db.VarChar(80)
-  building                            String?                               @db.VarChar(120)
-  is_lead                             Boolean                               @default(false)
-  status                              String                                @default("planned") @db.VarChar(20)
-  notes                               String?
-  created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
-  updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
-  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  staff_shift_roster_assignment_audit staff_shift_roster_assignment_audit[]
-  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignments_tenant")
-  staff_shift_roster_boards           staff_shift_roster_boards             @relation(fields: [roster_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                                             Int                                   @id @default(autoincrement())
+  roster_id                                                                                                      Int
+  staff_id                                                                                                       Int
+  staff_uid                                                                                                      String?                               @db.Uuid
+  staff_role                                                                                                     String?                               @db.VarChar(80)
+  assignment_target_type                                                                                         String                                @db.VarChar(80)
+  assignment_target_id                                                                                           Int?
+  assignment_target_label                                                                                        String?                               @db.VarChar(255)
+  floor                                                                                                          String?                               @db.VarChar(80)
+  building                                                                                                       String?                               @db.VarChar(120)
+  is_lead                                                                                                        Boolean                               @default(false)
+  status                                                                                                         String                                @default("planned") @db.VarChar(20)
+  notes                                                                                                          String?
+  created_at                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                     DateTime                              @default(now()) @db.Timestamptz(6)
+  tenant_id                                                                                                      String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  staff_shift_roster_assignment_audit                                                                            staff_shift_roster_assignment_audit[]
+  tenants                                                                                                        tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignments_tenant")
+  staff_shift_roster_boards                                                                                      staff_shift_roster_boards             @relation(fields: [roster_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  staff_shift_swap_requests_staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments staff_shift_swap_requests[]           @relation("staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments")
+  staff_shift_swap_requests_staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments    staff_shift_swap_requests[]           @relation("staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments")
 
   @@index([roster_id], map: "idx_staff_shift_roster_assignments_roster")
   @@index([staff_id, status], map: "idx_staff_shift_roster_assignments_staff")
@@ -14332,6 +14375,8 @@ model pharmacy_schedule_register {
   reference_movement_id   Int?
   notes                   String?
   created_at              DateTime @default(now()) @db.Timestamptz(6)
+  patient_name            String?  @db.VarChar(255)
+  patient_phone           String?  @db.VarChar(20)
 
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_schedule_register_item")
   @@index([tenant_id, schedule_class, created_at(sort: Desc)], map: "idx_schedule_register_tenant_class_time")
@@ -27609,6 +27654,369 @@ model scheduled_job_tenant_runs {
 
   @@id([run_id, tenant_id])
   @@index([tenant_id, started_at(sort: Desc)], map: "idx_scheduled_job_tenant_runs_tenant_started")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model mis_report_deliveries {
+  id                   BigInt                @id @default(autoincrement())
+  tenant_id            String                @db.Uuid
+  schedule_id          BigInt?
+  occurrence_key       String                @db.VarChar(20)
+  recipient_email      String                @db.VarChar(320)
+  report_keys          String[]
+  outcome              String                @db.VarChar(20)
+  provider_message_id  String?
+  failure_code         String?               @db.VarChar(120)
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  schedule_name        String?               @db.VarChar(160)
+  mis_report_schedules mis_report_schedules? @relation(fields: [schedule_id], references: [id], onUpdate: NoAction)
+  tenants              tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, schedule_id, created_at(sort: Desc)], map: "idx_mis_report_deliveries_schedule")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model mis_report_schedules {
+  id                    BigInt                  @id @default(autoincrement())
+  tenant_id             String                  @db.Uuid
+  name                  String                  @db.VarChar(160)
+  report_keys           String[]
+  cadence               String                  @db.VarChar(10)
+  send_hour             Int                     @default(7)
+  send_weekday          Int?
+  send_day_of_month     Int?
+  recipients            String[]
+  enabled               Boolean                 @default(true)
+  last_run_at           DateTime?               @db.Timestamptz(6)
+  last_status           String?                 @db.VarChar(20)
+  last_run_detail       Json?
+  last_occurrence_key   String?                 @db.VarChar(20)
+  created_by            String?                 @db.Uuid
+  updated_by            String?                 @db.Uuid
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  mis_report_deliveries mis_report_deliveries[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, enabled], map: "idx_mis_report_schedules_enabled")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model referral_facilities {
+  id             Int         @id @default(autoincrement())
+  tenant_id      String      @db.Uuid
+  name           String      @db.VarChar(200)
+  facility_type  String      @default("hospital") @db.VarChar(20)
+  specialties    String[]    @default([])
+  address_line1  String?     @db.VarChar(300)
+  address_line2  String?     @db.VarChar(300)
+  city           String?     @db.VarChar(120)
+  state          String?     @db.VarChar(120)
+  pincode        String?     @db.VarChar(10)
+  phone          String?     @db.VarChar(20)
+  email          String?     @db.VarChar(320)
+  contact_person String?     @db.VarChar(120)
+  notes          String?
+  active         Boolean     @default(true)
+  created_by     String?     @db.Uuid
+  updated_by     String?     @db.Uuid
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
+  tenants        tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  referrals      referrals[]
+
+  @@unique([tenant_id, id], map: "ux_referral_facilities_tenant_id")
+  @@index([tenant_id, active, name], map: "idx_referral_facilities_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model staff_on_call_assignments {
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  department     String    @db.VarChar(80)
+  specialty      String?   @db.VarChar(120)
+  tier           Int       @default(1) @db.SmallInt
+  staff_id       Int
+  staff_uid      String?   @db.Uuid
+  staff_role     String?   @db.VarChar(80)
+  start_at       DateTime  @db.Timestamptz(6)
+  end_at         DateTime  @db.Timestamptz(6)
+  is_active      Boolean   @default(true)
+  notes          String?
+  created_by     Int?
+  created_by_uid String?   @db.Uuid
+  ended_by       Int?
+  ended_by_uid   String?   @db.Uuid
+  ended_at       DateTime? @db.Timestamptz(6)
+  end_reason     String?
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_on_call_assignments_tenant")
+
+  @@index([tenant_id, department, tier, start_at, end_at], map: "idx_staff_on_call_active_window", where: raw("is_active"))
+  @@index([staff_id, start_at(sort: Desc)], map: "idx_staff_on_call_staff")
+  @@index([tenant_id], map: "idx_staff_on_call_tenant_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model staff_shift_swap_request_audit {
+  id                        Int                        @id @default(autoincrement())
+  tenant_id                 String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  swap_request_id           Int?
+  actor_id                  Int?
+  actor_uid                 String?                    @db.Uuid
+  action                    String                     @db.VarChar(40)
+  reason                    String?
+  before_snapshot           Json                       @default("{}")
+  after_snapshot            Json                       @default("{}")
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  tenants                   tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_swap_request_audit_tenant")
+  staff_shift_swap_requests staff_shift_swap_requests? @relation(fields: [swap_request_id], references: [id], onUpdate: NoAction)
+
+  @@index([swap_request_id, created_at(sort: Desc)], map: "idx_staff_shift_swap_request_audit_request")
+  @@index([tenant_id], map: "idx_staff_shift_swap_request_audit_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model staff_shift_swap_requests {
+  id                                                                                                                  Int                              @id @default(autoincrement())
+  tenant_id                                                                                                           String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  department                                                                                                          String                           @db.VarChar(80)
+  requester_id                                                                                                        Int
+  requester_uid                                                                                                       String?                          @db.Uuid
+  requester_assignment_id                                                                                             Int?
+  counterparty_id                                                                                                     Int
+  counterparty_uid                                                                                                    String?                          @db.Uuid
+  counterparty_assignment_id                                                                                          Int?
+  status                                                                                                              String                           @default("proposed") @db.VarChar(30)
+  reason                                                                                                              String?
+  counterparty_note                                                                                                   String?
+  counterparty_responded_at                                                                                           DateTime?                        @db.Timestamptz(6)
+  decided_by                                                                                                          Int?
+  decided_by_uid                                                                                                      String?                          @db.Uuid
+  decided_at                                                                                                          DateTime?                        @db.Timestamptz(6)
+  decision_notes                                                                                                      String?
+  expires_at                                                                                                          DateTime                         @db.Timestamptz(6)
+  created_at                                                                                                          DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                          DateTime                         @default(now()) @db.Timestamptz(6)
+  requester_shift_snapshot                                                                                            Json                             @default("{}")
+  counterparty_shift_snapshot                                                                                         Json                             @default("{}")
+  staff_shift_swap_request_audit                                                                                      staff_shift_swap_request_audit[]
+  tenants                                                                                                             tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_swap_requests_tenant")
+  staff_shift_roster_assignments_staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments staff_shift_roster_assignments?  @relation("staff_shift_swap_requests_counterparty_assignment_idTostaff_shift_roster_assignments", fields: [counterparty_assignment_id], references: [id], onUpdate: NoAction)
+  staff_shift_roster_assignments_staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments    staff_shift_roster_assignments?  @relation("staff_shift_swap_requests_requester_assignment_idTostaff_shift_roster_assignments", fields: [requester_assignment_id], references: [id], onUpdate: NoAction)
+
+  @@index([counterparty_id, status, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_counterparty")
+  @@index([department, status, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_dept_status")
+  @@index([expires_at], map: "idx_staff_shift_swap_requests_expiry", where: raw("((status)::text = ANY ((ARRAY['proposed'::character varying, 'counterparty_accepted'::character varying])::text[]))"))
+  @@index([requester_id, created_at(sort: Desc)], map: "idx_staff_shift_swap_requests_requester")
+  @@index([tenant_id], map: "idx_staff_shift_swap_requests_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ambulance_position_events {
+  id                   BigInt             @id @default(autoincrement())
+  tenant_id            String             @db.Uuid
+  ambulance_request_id Int
+  ambulance_unit_id    String?            @db.VarChar(80)
+  latitude             Decimal            @db.Decimal(10, 6)
+  longitude            Decimal            @db.Decimal(10, 6)
+  speed_kmh            Decimal?           @db.Decimal(6, 2)
+  heading_deg          Decimal?           @db.Decimal(5, 2)
+  accuracy_m           Decimal?           @db.Decimal(8, 2)
+  recorded_at          DateTime           @db.Timestamptz(6)
+  received_at          DateTime           @default(now()) @db.Timestamptz(6)
+  source               String             @default("driver_app") @db.VarChar(20)
+  reported_by_uid      String?            @db.Uuid
+  metadata             Json               @default("{}")
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  ambulance_requests   ambulance_requests @relation(fields: [ambulance_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([received_at], map: "idx_ambulance_position_received")
+  @@index([tenant_id, ambulance_request_id, recorded_at(sort: Desc), id(sort: Desc)], map: "idx_ambulance_position_request_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sale_allocations {
+  id                                                                                                      BigInt                      @id @default(autoincrement())
+  tenant_id                                                                                               String                      @db.Uuid
+  counter_sale_line_id                                                                                    BigInt
+  inventory_batch_id                                                                                      Int
+  batch_number                                                                                            String                      @db.VarChar(120)
+  expiry_date                                                                                             DateTime                    @db.Date
+  quantity                                                                                                Decimal                     @db.Decimal(14, 4)
+  unit_price                                                                                              Decimal                     @db.Decimal(12, 2)
+  movement_id                                                                                             Int
+  return_movement_id                                                                                      Int?
+  created_at                                                                                              DateTime                    @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_lines                                                                             pharmacy_counter_sale_lines @relation(fields: [counter_sale_line_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_batches                                                                              pharmacy_inventory_batches  @relation(fields: [inventory_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_stock_movements_pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements        pharmacy_stock_movements    @relation("pharmacy_counter_sale_allocations_movement_idTopharmacy_stock_movements", fields: [movement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_stock_movements_pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements pharmacy_stock_movements?   @relation("pharmacy_counter_sale_allocations_return_movement_idTopharmacy_stock_movements", fields: [return_movement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                                                                                                 tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([inventory_batch_id], map: "idx_pharmacy_counter_sale_allocations_batch")
+  @@index([counter_sale_line_id], map: "idx_pharmacy_counter_sale_allocations_line")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sale_lines {
+  id                                BigInt                              @id @default(autoincrement())
+  tenant_id                         String                              @db.Uuid
+  counter_sale_id                   BigInt
+  inventory_item_id                 Int
+  item_name                         String                              @db.VarChar(255)
+  schedule_class                    String?                             @db.VarChar(20)
+  is_narcotic                       Boolean                             @default(false)
+  quantity                          Decimal                             @db.Decimal(14, 4)
+  unit_price                        Decimal                             @db.Decimal(12, 2)
+  gst_rate                          Decimal                             @default(0) @db.Decimal(5, 2)
+  line_total                        Decimal                             @default(0) @db.Decimal(12, 2)
+  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_allocations pharmacy_counter_sale_allocations[]
+  pharmacy_counter_sales            pharmacy_counter_sales              @relation(fields: [counter_sale_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items          pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, inventory_item_id], map: "idx_pharmacy_counter_sale_lines_item")
+  @@index([counter_sale_id], map: "idx_pharmacy_counter_sale_lines_sale")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_counter_sales {
+  id                          BigInt                        @id @default(autoincrement())
+  tenant_id                   String                        @db.Uuid
+  patient_uid                 String?                       @db.Uuid
+  customer_name               String?                       @db.VarChar(255)
+  customer_phone              String?                       @db.VarChar(20)
+  rx_doctor_name              String?                       @db.VarChar(255)
+  rx_reference                String?                       @db.VarChar(255)
+  rx_upload_id                BigInt?
+  status                      String                        @default("IN_PROGRESS") @db.VarChar(20)
+  invoice_id                  Int?
+  payment_mode                String?                       @db.VarChar(20)
+  payment_reference           String?                       @db.VarChar(120)
+  cash_shift                  String?                       @db.VarChar(20)
+  total_amount                Decimal                       @default(0) @db.Decimal(12, 2)
+  sold_by                     String                        @db.Uuid
+  sold_by_name                String?                       @db.VarChar(255)
+  notes                       String?
+  voided_at                   DateTime?                     @db.Timestamptz(6)
+  voided_by                   String?                       @db.Uuid
+  void_reason                 String?                       @db.VarChar(255)
+  void_refund_id              Int?
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  pharmacy_counter_sale_lines pharmacy_counter_sale_lines[]
+  billing_invoices            billing_invoices?             @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                       users?                        @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  billing_refunds             billing_refunds?              @relation(fields: [void_refund_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([invoice_id], map: "idx_pharmacy_counter_sales_invoice", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([patient_uid], map: "idx_pharmacy_counter_sales_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, status], map: "idx_pharmacy_counter_sales_tenant_status")
+  @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_pharmacy_counter_sales_tenant_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model dietary_meal_tickets {
+  id                   BigInt      @id @default(autoincrement())
+  tenant_id            String      @db.Uuid
+  diet_order_id        Int
+  patient_uid          String      @db.Uuid
+  service_date         DateTime    @db.Date
+  meal_type            String      @db.VarChar(20)
+  admission_id         Int?
+  ward                 String?     @db.VarChar(255)
+  bed_number           String?     @db.VarChar(50)
+  patient_name         String?     @db.VarChar(255)
+  diet_type            String      @db.VarChar(50)
+  restrictions         String[]    @default([])
+  allergies            String[]    @default([])
+  calories_target      Decimal?    @db.Decimal(8, 2)
+  menu_selections      Json        @default("[]")
+  diet_spec            String?
+  special_instructions String?
+  status               String      @default("pending") @db.VarChar(20)
+  generated_source     String      @default("scheduler") @db.VarChar(20)
+  generated_by         String?     @db.Uuid
+  preparing_at         DateTime?   @db.Timestamptz(6)
+  preparing_by         String?     @db.Uuid
+  ready_at             DateTime?   @db.Timestamptz(6)
+  ready_by             String?     @db.Uuid
+  dispatched_at        DateTime?   @db.Timestamptz(6)
+  dispatched_by        String?     @db.Uuid
+  delivered_at         DateTime?   @db.Timestamptz(6)
+  delivered_by         String?     @db.Uuid
+  collected_at         DateTime?   @db.Timestamptz(6)
+  collected_by         String?     @db.Uuid
+  cancelled_at         DateTime?   @db.Timestamptz(6)
+  cancelled_by         String?     @db.Uuid
+  cancel_reason        String?     @db.VarChar(255)
+  created_at           DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime    @default(now()) @db.Timestamptz(6)
+  allergy_screen       Json?
+  recalled_at          DateTime?   @db.Timestamptz(6)
+  recalled_by          String?     @db.Uuid
+  recall_reason        String?     @db.VarChar(255)
+  recall_ack_at        DateTime?   @db.Timestamptz(6)
+  recall_ack_by        String?     @db.Uuid
+  admissions           admissions? @relation(fields: [admission_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  diet_orders          diet_orders @relation(fields: [diet_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                users       @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  tenants              tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, service_date, meal_type, status], map: "idx_dietary_meal_tickets_board")
+  @@index([diet_order_id], map: "idx_dietary_meal_tickets_order")
+  @@index([patient_uid], map: "idx_dietary_meal_tickets_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model dietary_menu_items {
+  id            BigInt   @id @default(autoincrement())
+  tenant_id     String   @db.Uuid
+  name          String   @db.VarChar(255)
+  meal_type     String   @db.VarChar(20)
+  diet_types    String[] @default([])
+  is_veg        Boolean  @default(true)
+  allergen_tags String[] @default([])
+  active        Boolean  @default(true)
+  notes         String?
+  created_by    String?  @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, meal_type], map: "idx_dietary_menu_items_tenant_meal", where: raw("active"))
 }
 
 enum transplant_organ_type {

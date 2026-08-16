@@ -3818,6 +3818,26 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
     logger.warn(`dischargePatient: attendant-pass expiry failed for admission ${admissionId}: ${e.message}`);
   }
 
+  // Dietary meal-ticket recall (Phase 1.5, best-effort — same idiom as the
+  // housekeeping ticket above): a discharged/LAMA/expired patient must not
+  // keep live kitchen tickets. Kitchen-side tickets are cancelled;
+  // dispatched/delivered trays get the flagged do-not-serve recall marker
+  // the ward leg must acknowledge. Failure is logged, never blocks the
+  // discharge — the transitionTicket stale re-check refuses to serve a
+  // discharged patient's tray regardless.
+  try {
+    const { recallTicketsForPatient } = await import('../dietary/kitchenService.js');
+    await recallTicketsForPatient({
+      tenantId: tenantId || phase1.updated.tenant_id,
+      patientUid: phase1.updated.patient_uid,
+      actorUid: dischargedBy,
+      actorRole: options.actorRole || 'DISCHARGE',
+      reason: `admission ended (${discharge_type})`,
+    });
+  } catch (e) {
+    logger.warn(`dischargePatient: dietary meal-ticket recall failed for admission ${admissionId} (continuing): ${e.message}`);
+  }
+
   logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${phase1.losDays} days`);
 
   // Roadmap C2 (Phase 1.5, best-effort) — announce the discharge to

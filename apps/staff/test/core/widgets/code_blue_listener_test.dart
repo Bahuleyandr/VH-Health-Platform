@@ -326,12 +326,10 @@ void main() {
 
   test('Code Blue listener is mounted once above routing', () {
     final mainSource = File('lib/main.dart').readAsStringSync();
-    final scaffoldSource = File(
-      'lib/core/widgets/staff_scaffold.dart',
-    ).readAsStringSync();
-    final listenerSource = File(
-      'lib/core/widgets/code_blue_listener.dart',
-    ).readAsStringSync();
+    final scaffoldSource = File('lib/core/widgets/staff_scaffold.dart')
+        .readAsStringSync();
+    final listenerSource = File('lib/core/widgets/code_blue_listener.dart')
+        .readAsStringSync();
 
     expect(RegExp(r'CodeBlueListener\(').allMatches(mainSource), hasLength(1));
     expect(scaffoldSource, isNot(contains('CodeBlueListener(')));

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -284,6 +285,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         label: s.lookup('role.feature.duty_preference'),
         route: '/duty-preference',
         color: AppTheme.primaryBlue,
+      ),
+      _RosterAction(
+        icon: Icons.swap_horiz,
+        label: s.lookup('s4.lib.shift_swap.title'),
+        route: '/shift-swaps',
+        color: const Color(0xFF00695C),
       ),
       _RosterAction(
         icon: Icons.event_available_outlined,

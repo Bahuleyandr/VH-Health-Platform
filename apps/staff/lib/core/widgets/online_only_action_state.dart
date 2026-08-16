@@ -5,8 +5,11 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../l10n/app_strings.dart';
 
-typedef OnlineOnlyActionWidgetBuilder =
-    Widget Function(BuildContext context, bool isOnline, String offlineMessage);
+typedef OnlineOnlyActionWidgetBuilder = Widget Function(
+  BuildContext context,
+  bool isOnline,
+  String offlineMessage,
+);
 
 class OnlineOnlyActionState extends StatelessWidget {
   const OnlineOnlyActionState({super.key, required this.builder});

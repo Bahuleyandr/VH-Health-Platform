@@ -602,9 +602,8 @@ class _OverrideSectionState extends State<_OverrideSection> {
           // ── Step 1: structured category ──
           DropdownButtonFormField<_MarOverrideCategory>(
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('s4.lib.cds_blocker_modal.override_category'),
+              labelText: AppStrings.of(context)
+                  .lookup('s4.lib.cds_blocker_modal.override_category'),
               border: const OutlineInputBorder(),
               isDense: true,
             ),
@@ -621,9 +620,8 @@ class _OverrideSectionState extends State<_OverrideSection> {
             controller: _justification,
             maxLines: 3,
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('s4.lib.cds_blocker_modal.clinical_justification'),
+              labelText: AppStrings.of(context)
+                  .lookup('s4.lib.cds_blocker_modal.clinical_justification'),
               hintText: AppStrings.of(context).lookup(
                 's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio',
               ),

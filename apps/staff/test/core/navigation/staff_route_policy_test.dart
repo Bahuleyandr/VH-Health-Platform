@@ -354,9 +354,8 @@ void main() {
     });
 
     test('every declared protected route has policy metadata', () {
-      final source = File(
-        'lib/core/navigation/app_router.dart',
-      ).readAsStringSync();
+      final source = File('lib/core/navigation/app_router.dart')
+          .readAsStringSync();
       final declared = RegExp(r"path:\s*'([^']+)'")
           .allMatches(source)
           .map((match) => match.group(1)!)

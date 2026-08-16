@@ -44,9 +44,9 @@ class AppointmentPathwayWork {
       mode: _text(json['mode'], 'off'),
       visitCompletion: CarePathwayGate.fromJson(_map(json['visit_completion'])),
       pathwayClosure: CarePathwayGate.fromJson(_map(json['pathway_closure'])),
-      items: _mapList(
-        json['items'],
-      ).map(CarePathwayWorkItem.fromJson).toList(growable: false),
+      items: _mapList(json['items'])
+          .map(CarePathwayWorkItem.fromJson)
+          .toList(growable: false),
       priorAdmissionPendingResults: _mapList(
         json['prior_admission_pending_results'],
       ).map(OpFollowUpPendingResult.fromJson).toList(growable: false),
@@ -153,17 +153,14 @@ class OpFollowUpPendingResult {
       ownerName: _text(owner['display_name']),
       ownerRole: _text(owner['role']),
       generationId: _text(json['generation_id']),
-      generationSnapshotSha256: _text(
-        json['generation_snapshot_sha256'],
-      ).toLowerCase(),
-      diagnosticClassification: _text(
-        json['diagnostic_classification'],
-      ).toLowerCase(),
+      generationSnapshotSha256: _text(json['generation_snapshot_sha256'])
+          .toLowerCase(),
+      diagnosticClassification: _text(json['diagnostic_classification'])
+          .toLowerCase(),
       diagnosticActionId: _text(json['diagnostic_action_id']),
       diagnosticActionKind: _text(json['diagnostic_action_kind']).toLowerCase(),
-      diagnosticDisposition: _text(
-        json['diagnostic_disposition'],
-      ).toLowerCase(),
+      diagnosticDisposition: _text(json['diagnostic_disposition'])
+          .toLowerCase(),
       diagnosticActionOccurredAt: _date(json['diagnostic_action_occurred_at']),
       resolutionActionId: _text(json['resolution_action_id']),
       resolvedAt: _date(json['resolved_at']),
@@ -188,9 +185,9 @@ class CarePathwayGate {
   factory CarePathwayGate.fromJson(Map<String, dynamic> json) {
     return CarePathwayGate(
       allowed: _bool(json['allowed'], fallback: true),
-      blockers: _mapList(
-        json['blockers'],
-      ).map(CarePathwayBlocker.fromJson).toList(growable: false),
+      blockers: _mapList(json['blockers'])
+          .map(CarePathwayBlocker.fromJson)
+          .toList(growable: false),
     );
   }
 }
@@ -515,12 +512,12 @@ class InpatientPendingResultsWork {
     return InpatientPendingResultsWork(
       mode: _text(json['mode'], 'off'),
       projectionReady: _bool(pending['projection_ready']),
-      items: _mapList(
-        pending['items'],
-      ).map(DischargePendingResultHandoff.fromJson).toList(growable: false),
-      activeBlockers: _mapList(
-        json['active_blockers'],
-      ).map(CarePathwayBlocker.fromJson).toList(growable: false),
+      items: _mapList(pending['items'])
+          .map(DischargePendingResultHandoff.fromJson)
+          .toList(growable: false),
+      activeBlockers: _mapList(json['active_blockers'])
+          .map(CarePathwayBlocker.fromJson)
+          .toList(growable: false),
       signedSummaryId: _int(summary['id']),
       followUpExceptionReason: _nullableText(exception['reason']),
     );

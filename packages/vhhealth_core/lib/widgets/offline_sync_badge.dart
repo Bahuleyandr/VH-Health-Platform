@@ -8,8 +8,10 @@ import '../services/connectivity_sync_service.dart';
 import '../services/offline_action_ids.dart';
 import '../services/offline_write_containment.dart';
 
-typedef OfflineSyncTextResolver =
-    String Function(String key, Map<String, Object?> values);
+typedef OfflineSyncTextResolver = String Function(
+  String key,
+  Map<String, Object?> values,
+);
 typedef OfflineSyncActorUidResolver = Future<String?> Function();
 
 String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
@@ -89,8 +91,7 @@ String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
         'Policy or schema conflict',
     'offline_sync.reconcile.reason.draft_cancelled': 'Draft cancelled',
     'offline_sync.attestation.title': 'Record attested handoff?',
-    'offline_sync.attestation.body':
-        'Confirm that this item was reviewed — transferred to paper / handed to the reconciliation owner. This attestation cannot be changed.',
+    'offline_sync.attestation.body': 'Confirm that this item was reviewed — transferred to paper / handed to the reconciliation owner. This attestation cannot be changed.',
     'offline_sync.attestation.confirm': 'Confirm handoff',
     'offline_sync.attestation.success': 'Attested handoff recorded.',
     'offline_sync.attestation.recorded': 'Attested by {actor} at {time}',
@@ -99,14 +100,11 @@ String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
     'offline_sync.discard.generic_body':
         'This offline item is not reconciled with the server.',
     'offline_sync.discard.mar_title': 'Discard administration record?',
-    'offline_sync.discard.mar_body':
-        'Administration not recorded on the server — review needed. The medication may have been given offline.',
+    'offline_sync.discard.mar_body': 'Administration not recorded on the server — review needed. The medication may have been given offline.',
     'offline_sync.discard.notes_title': 'Discard note data?',
-    'offline_sync.discard.notes_body':
-        'Note data on this device is not reconciled with the server. Review before discarding.',
+    'offline_sync.discard.notes_body': 'Note data on this device is not reconciled with the server. Review before discarding.',
     'offline_sync.discard.vitals_title': 'Discard vitals?',
-    'offline_sync.discard.vitals_body':
-        'Vitals not recorded on the server — review needed. Review the patient chart before discarding.',
+    'offline_sync.discard.vitals_body': 'Vitals not recorded on the server — review needed. Review the patient chart before discarding.',
     'offline_sync.discard.prescription_title': 'Discard prescription?',
     'offline_sync.discard.prescription_body':
         'This prescription was not recorded on the server.',
@@ -168,8 +166,7 @@ String _defaultOfflineSyncText(String key, Map<String, Object?> values) {
     'offline_sync.reason.legacy_client_row_requires_reconciliation':
         'Created by an older Staff app — not sent',
     'offline_sync.legacy.title': 'Older Staff app item',
-    'offline_sync.legacy.message':
-        'Created by an older Staff app — not sent. Review against the server or paper record.',
+    'offline_sync.legacy.message': 'Created by an older Staff app — not sent. Review against the server or paper record.',
   };
 
   var result = strings[key] ?? key;
@@ -891,8 +888,9 @@ class _StatusRow extends StatelessWidget {
   }
 }
 
-typedef OfflineWriteDiscardCallback =
-    Future<void> Function(bool reconciliationConfirmed);
+typedef OfflineWriteDiscardCallback = Future<void> Function(
+  bool reconciliationConfirmed,
+);
 
 /// Pure row widget for a typed v5 offline-write entry.
 class OfflineWriteStatusRow extends StatelessWidget {
@@ -1117,9 +1115,8 @@ class OfflineWriteStatusRow extends StatelessWidget {
                   'actor': entry.handoffAttestedBy ?? '—',
                   'time': entry.handoffAttestedAt == null
                       ? '—'
-                      : DateFormat(
-                          'dd MMM yyyy HH:mm',
-                        ).format(entry.handoffAttestedAt!),
+                      : DateFormat('dd MMM yyyy HH:mm')
+                            .format(entry.handoffAttestedAt!),
                 }),
               ),
             if (showRetry || showDiscard || showReconcile || showAttest) ...[
@@ -1408,9 +1405,8 @@ class ConflictRow extends StatelessWidget {
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt == null
         ? ''
-        : DateFormat(
-            'dd MMM HH:mm',
-          ).format(DateTime.fromMillisecondsSinceEpoch(createdAt));
+        : DateFormat('dd MMM HH:mm')
+              .format(DateTime.fromMillisecondsSinceEpoch(createdAt));
     final reasonText = guard == ClinicalDiscardGuard.mar
         ? '${_resolveText(textResolver, 'offline_sync.discard.mar_body')} $reason'
         : guard == ClinicalDiscardGuard.notes

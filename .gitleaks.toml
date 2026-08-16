@@ -122,4 +122,8 @@ regexes = [
   # privileges. The generic-api-key rule classified the historical slash form
   # as a credential, so retain an exact history-only exception.
   '''application/sequence''',
+  # Staff-app auth test fixture: an unsigned alg:none mock JWT returned by
+  # MockClient stubs (header {"alg":"none"}, literal ".sig" signature).
+  # Not a credential; the Flutter 3.47 dart-format rejoin now trips generic-api-key.
+  '''eyJhbGciOiJub25lIn0\.''',
 ]

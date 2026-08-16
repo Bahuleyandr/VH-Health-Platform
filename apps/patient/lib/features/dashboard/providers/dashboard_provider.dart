@@ -11,16 +11,19 @@ import 'package:vhhealth/core/services/api_client.dart';
 typedef DashboardUidProvider = String? Function();
 typedef DashboardRealtimeReady = bool Function();
 typedef DashboardCacheInvalidator = Future<void> Function(String path);
-typedef DashboardTimerFactory =
-    Timer Function(Duration duration, void Function() callback);
-typedef DashboardCachedGet =
-    Future<CachedApiResponse> Function(
-      String path, {
-      Duration? timeout,
-      Duration? cacheTtl,
-    });
-typedef DashboardGet =
-    Future<ApiResponse> Function(String path, {Duration? timeout});
+typedef DashboardTimerFactory = Timer Function(
+  Duration duration,
+  void Function() callback,
+);
+typedef DashboardCachedGet = Future<CachedApiResponse> Function(
+  String path, {
+  Duration? timeout,
+  Duration? cacheTtl,
+});
+typedef DashboardGet = Future<ApiResponse> Function(
+  String path, {
+  Duration? timeout,
+});
 
 class DashboardProvider extends ChangeNotifier {
   DashboardProvider({

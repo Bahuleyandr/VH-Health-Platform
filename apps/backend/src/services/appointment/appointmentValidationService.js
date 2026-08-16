@@ -44,19 +44,49 @@ export class AppointmentValidationService {
       errors.push('Select a doctor or department');
     }
 
-    // P1 IDOR: patient may only book for themselves. jwtMiddleware now surfaces the
-    // int DB id as `user.id` (when the token carries it); fall back to a uid→id lookup
-    // if the token is uid-only.
+    // P1 IDOR: patient may only book for themselves — or for a linked minor
+    // dependent. jwtMiddleware now surfaces the int DB id as `user.id` (when
+    // the token carries it); fall back to a uid→id lookup if the token is
+    // uid-only.
+    //
+    // Booking-on-behalf follows the D72 explicit-id pattern the appointment
+    // LIST endpoint already uses (getPatientAppointments): the target must be
+    // a confirmed dependent — users.guardian_user_id = caller's id — and the
+    // link is live-validated per request against the same mechanism the
+    // X-Acting-As-Uid hop enforces. Because this is a WRITE, the gates match
+    // the acting-as hop's stricter set (minor + active + PATIENT role), not
+    // the list endpoint's looser read set. The delegated header path needs no
+    // branch here: jwtMiddleware has already rewritten req.user to the
+    // dependent, so the self-comparison passes, and the guardian stays on the
+    // audit trail via req.acting.
     if (user.role === 'PATIENT') {
       let callerInt = user.id;
+      const prismaMod = await import('../../lib/prisma.js');
       if (callerInt == null && user.uid) {
-        const prismaMod = await import('../../lib/prisma.js');
         const rows = await prismaMod.default.$queryRawUnsafe(
           `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, user.uid);
         callerInt = rows[0]?.id ?? null;
       }
       if (String(callerInt) !== String(bookingData.patient_id)) {
-        errors.push('Can only book appointments for yourself');
+        const targetId = parseInt(bookingData.patient_id, 10);
+        let allowedDependent = false;
+        if (Number.isInteger(targetId) && targetId > 0 && callerInt != null) {
+          const depRows = await prismaMod.default.$queryRawUnsafe(
+            `SELECT id
+               FROM users
+              WHERE id = $1
+                AND guardian_user_id = $2
+                AND role = 'PATIENT'
+                AND is_minor = TRUE
+                AND is_active = TRUE
+              LIMIT 1`,
+            targetId, Number(callerInt),
+          );
+          allowedDependent = depRows.length > 0;
+        }
+        if (!allowedDependent) {
+          errors.push('Can only book appointments for yourself or a linked dependent');
+        }
       }
     }
 

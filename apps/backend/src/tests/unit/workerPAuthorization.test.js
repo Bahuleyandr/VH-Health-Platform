@@ -87,6 +87,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  // kitchenService (statically imported by dietaryService) also pulls the
+  // detailed variant; shape mirrors allergySourceService's empty result.
+  getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
+    allergies: [], sourcesFailed: [], patientResolved: true,
+  })),
 }));
 jest.unstable_mockModule('../../services/clinical/marService.js', () => ({
   scheduleMedications: scheduleMedicationsMock,
@@ -196,6 +201,11 @@ describe('Worker P referral creation authorization', () => {
 describe('Worker P dietary authorization', () => {
   it('verifies patient tenant before creating a diet order and persists tenant_id', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT_UID }]);
+    // createDietOrder now supersedes prior active orders inside one
+    // transaction; run the callback against the same prisma mock and answer
+    // the supersede UPDATE with "no prior active orders".
+    transactionMock.mockImplementation(async (fn) => fn(prismaMock));
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
     dietOrdersCreateMock.mockResolvedValueOnce({ id: 12, tenant_id: TENANT_ID });
 
     await dietaryService.createDietOrder({
@@ -207,6 +217,9 @@ describe('Worker P dietary authorization', () => {
 
     expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('tenant_id = $1::uuid');
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([TENANT_ID, PATIENT_UID]);
+    // The supersede UPDATE must be tenant-scoped too.
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $1::uuid');
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([TENANT_ID, PATIENT_UID]);
     expect(dietOrdersCreateMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ tenant_id: TENANT_ID, patient_uid: PATIENT_UID }),
     }));

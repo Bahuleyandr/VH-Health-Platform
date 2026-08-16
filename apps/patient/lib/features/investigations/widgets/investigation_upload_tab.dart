@@ -109,9 +109,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
           if (mounted) {
             messenger.showSnackBar(
               LiveRegionSnackBar.build(
-                message: AppLocalizations.of(
-                  context,
-                )!.investigationsFileTooLarge,
+                message: AppLocalizations.of(context)!
+                    .investigationsFileTooLarge,
                 backgroundColor: theme.colorScheme.error,
                 behavior: SnackBarBehavior.floating,
               ),
@@ -292,9 +291,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
                 icon: const Icon(Icons.close, size: 16),
                 label: Text(
                   l10n.fileClearSelection,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.error),
                 ),
                 onPressed: _isSubmitting
                     ? null

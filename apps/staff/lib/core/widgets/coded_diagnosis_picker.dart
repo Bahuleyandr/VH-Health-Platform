@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/medical_api_service.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class CodedDiagnosisPicker extends StatefulWidget {

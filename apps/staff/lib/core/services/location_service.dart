@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+
 import '../config/campus_config.dart';
 
 class LocationService {
@@ -19,8 +20,7 @@ class LocationService {
     }
     if (permission == LocationPermission.deniedForever) {
       return {
-        'error':
-            'Location permission permanently denied. Please enable in settings.',
+        'error': 'Location permission permanently denied. Please enable in settings.',
       };
     }
 

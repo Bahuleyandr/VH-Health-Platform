@@ -4,6 +4,8 @@ import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
 import { canonicalizeRequestRole } from '../utils/roles.js';
 import {
+  isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
   isTokenBlacklisted,
   isUserTokensRevoked,
   RevocationCheckUnavailableError,
@@ -305,7 +307,27 @@ export default async function jwtMiddleware(req, res, next) {
   const actingAsHeader =
     req.headers?.['x-acting-as-uid'] ?? req.headers?.['X-Acting-As-Uid'];
   if (actingAsHeader) {
-    const denial = await applyActingAsHop(req, String(actingAsHeader).trim());
+    let denial;
+    try {
+      denial = await applyActingAsHop(req, String(actingAsHeader).trim(), {
+        bearerIssuedAt: decoded.iat ?? null,
+      });
+    } catch (err) {
+      // Same fail-closed contract as the bearer's own revocation gate above:
+      // when no revocation store can answer for the SUBJECT, deny with 503
+      // instead of honouring possibly-revoked delegated authority.
+      if (err instanceof RevocationCheckUnavailableError) {
+        logger.error('Acting-as denied (fail closed): subject revocation stores unreachable', {
+          error: err.message,
+        });
+        return res.status(503).json({
+          success: false,
+          error: 'Authentication service temporarily unavailable. Please retry.',
+          code: 'REVOCATION_CHECK_UNAVAILABLE',
+        });
+      }
+      throw err;
+    }
     if (denial) return res.status(denial.status).json(denial.body);
   }
 
@@ -314,7 +336,7 @@ export default async function jwtMiddleware(req, res, next) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function applyActingAsHop(req, dependentUidRaw) {
+async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } = {}) {
   // Narrow-scope tokens (e.g. mfa_setup) must never act-as — they exist
   // only to complete enrollment of the bearer's own account.
   if (req.user?.scope && req.user.scope !== 'full') {
@@ -349,7 +371,13 @@ async function applyActingAsHop(req, dependentUidRaw) {
 
   // Single query: load dependent + guardian, enforce
   //   - dependent.guardian_user_id = guardian.id
-  //   - dependent.is_minor = TRUE
+  //   - dependent.is_minor = TRUE, recomputed against date of birth at CHECK
+  //     time: guardianship delegation ends at 18, so a dependent whose
+  //     recorded birthday is 18+ years ago is an adult NOW even though the
+  //     is_minor flag was stamped at link time and never rewritten. A
+  //     dependent with no recorded birthday (synthetic/promoted dependents
+  //     may lack one) honestly falls back to the stored flag — there is no
+  //     data to recompute from, and unlinking remains the operator lever.
   //   - dependent.role = 'PATIENT'
   //   - both accounts are live PATIENT identities (active, not deleted, not merged)
   //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
@@ -364,6 +392,9 @@ async function applyActingAsHop(req, dependentUidRaw) {
               dep.email       AS dep_email,
               dep.role        AS dep_role,
               dep.is_minor    AS dep_is_minor,
+              (dep.birthday IS NULL
+                OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
+                              AS dep_is_minor_now,
               dep.tenant_id   AS dep_tenant_id,
               dep.is_active   AS dep_is_active,
               dep.status      AS dep_status,
@@ -385,6 +416,8 @@ async function applyActingAsHop(req, dependentUidRaw) {
           AND g.uid = $2::uuid
           AND dep.role = 'PATIENT'
           AND dep.is_minor = TRUE
+          AND (dep.birthday IS NULL
+               OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
           AND g.tenant_id = dep.tenant_id
           AND dep.is_active = TRUE
           AND dep.status = 'active'
@@ -451,7 +484,10 @@ async function applyActingAsHop(req, dependentUidRaw) {
       },
     };
   }
-  if (!row.dep_is_minor) {
+  // Minor status is recomputed from date of birth at check time (SQL above);
+  // repeat both predicates in JS so a mock/view/query regression cannot extend
+  // guardianship past the dependent's 18th birthday.
+  if (!row.dep_is_minor || row.dep_is_minor_now !== true) {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} not a minor`);
     return {
       status: 403,
@@ -507,6 +543,56 @@ async function applyActingAsHop(req, dependentUidRaw) {
         code: 'NOT_AUTHORISED_TO_ACT_AS',
       },
     };
+  }
+
+  // Subject-side revocation gate (audit MEDIUM: "REST acting-as revocation").
+  // The bearer-level checks at the top of the middleware cover only the
+  // GUARDIAN's identity; a delegated request is additionally authorized AS the
+  // dependent, so the dependent's own revoke-all and the delegated
+  // guardian↔dependent tuple revocation must also stop it — the same contract
+  // the WS handshake enforces (wsServer.js delegated branch). The guardian's
+  // token_epoch is not meaningful for the dependent, so both checks use the
+  // durable TIMESTAMP predicate against the bearer's iat — including the
+  // subject's epoch-bump time (isSubjectDelegationRevoked), so denial is
+  // recoverable: a guardian bearer minted after the subject's revoke-all is
+  // new delegated authority under the still-standing guardian link, while
+  // severed links stay severed via the tuple revocation + link-row gates.
+  // RevocationCheckUnavailableError propagates to the caller, which fails
+  // CLOSED with 503.
+  if (bearerIssuedAt) {
+    const subjectRevoked = await isSubjectDelegationRevoked(
+      String(row.dep_uid),
+      bearerIssuedAt,
+    );
+    if (subjectRevoked) {
+      logger.warn(`Acting-as denied: subject ${row.dep_uid} sessions revoked`);
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: 'Not authorised to act as that user',
+          code: 'NOT_AUTHORISED_TO_ACT_AS',
+        },
+      };
+    }
+    const tupleRevoked = await isDelegatedTupleRevoked(
+      String(req.user.uid),
+      String(row.dep_uid),
+      bearerIssuedAt,
+    );
+    if (tupleRevoked) {
+      logger.warn(
+        `Acting-as denied: delegated tuple revoked for guardian=${req.user.uid} dependent=${row.dep_uid}`,
+      );
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: 'Not authorised to act as that user',
+          code: 'NOT_AUTHORISED_TO_ACT_AS',
+        },
+      };
+    }
   }
 
   // All gates passed — record the actor on req.acting and rewrite req.user

@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
 import {
   isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
   isTokenBlacklisted,
   isUserTokensRevoked,
 } from '../tokenBlacklist.js';
@@ -61,6 +62,9 @@ async function registerDelegatedClientIfLive(
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
+              (dep.birthday IS NULL
+                OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
+                AS is_minor_now,
               dep.is_deleted, dep.deleted_at, dep.merged_into_uid,
               guardian.role AS guardian_role,
               guardian.is_active AS guardian_is_active,
@@ -76,6 +80,11 @@ async function registerDelegatedClientIfLive(
           AND guardian.tenant_id = dep.tenant_id
           AND dep.role = 'PATIENT'
           AND dep.is_minor = TRUE
+          -- Minor status recomputed from date of birth at handshake time:
+          -- delegation ends at 18; a missing birthday falls back to the flag
+          -- (same contract as jwtMiddleware.applyActingAsHop).
+          AND (dep.birthday IS NULL
+               OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
           AND dep.is_active = TRUE
           AND dep.status = 'active'
           AND dep.is_deleted = FALSE
@@ -98,6 +107,7 @@ async function registerDelegatedClientIfLive(
       subject
       && subject.role === 'PATIENT'
       && subject.is_minor === true
+      && subject.is_minor_now === true
       && subject.is_active === true
       && String(subject.status || '').trim().toLowerCase() === 'active'
       && subject.is_deleted === false
@@ -268,9 +278,12 @@ async function authenticateAndRegister(ws, token) {
       // A delegated ticket is authorized as the dependent but owned by the
       // guardian session. Either identity's later revoke-all must stop the
       // handshake. The guardian's token_epoch is not meaningful for the
-      // dependent, so that second check uses the durable timestamp predicate.
+      // dependent, so that second check uses the durable timestamp predicate
+      // (isSubjectDelegationRevoked — including the epoch-bump TIMESTAMP, so a
+      // subject revoke-all severs tickets issued before it without denying
+      // forever; a ticket minted after guardian re-login recovers).
       if (!ownerIsSubject) {
-        const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
+        const subjectRevoked = await isSubjectDelegationRevoked(userId, decoded.iat);
         if (subjectRevoked) {
           ws.close(4001, 'All sessions revoked');
           return;

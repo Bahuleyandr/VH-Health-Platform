@@ -403,9 +403,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                   tabs: [
                     Tab(text: s.messagingInboxTitle),
                     Tab(
-                      text: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.messaging_inbox.admin_log'),
+                      text: AppStrings.of(context)
+                          .lookup('s4.lib.messaging_inbox.admin_log'),
                     ),
                   ],
                 ),
@@ -508,9 +507,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('s4.lib.messaging_inbox.search_conversations'),
+              labelText: AppStrings.of(context)
+                  .lookup('s4.lib.messaging_inbox.search_conversations'),
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _threadSearch.isEmpty
                   ? null
@@ -769,9 +767,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                             fontSize: 13,
                             color: hasUnread
                                 ? Theme.of(context).colorScheme.onSurface
-                                : Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                                : Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                             fontWeight: hasUnread
                                 ? FontWeight.w500
                                 : FontWeight.normal,
@@ -784,9 +782,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
               ),
             ),
             PopupMenuButton<String>(
-              tooltip: AppStrings.of(
-                context,
-              ).lookup('s4.lib.messaging_inbox.conversation_actions'),
+              tooltip: AppStrings.of(context)
+                  .lookup('s4.lib.messaging_inbox.conversation_actions'),
               onSelected: (action) => _handleThreadAction(thread, action),
               itemBuilder: (_) => [
                 if (thread.archived)
@@ -1051,26 +1048,23 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
 
     if (_mode == 'direct' && _selected.length != 1) {
       _showError(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.messaging_inbox.select_one_staff'),
+        AppStrings.of(context)
+            .lookup('s4.lib.messaging_inbox.select_one_staff'),
       );
       return;
     }
     if (_mode == 'selected' && _selected.isEmpty) {
       _showError(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.messaging_inbox.select_at_least_one_staff'),
+        AppStrings.of(context)
+            .lookup('s4.lib.messaging_inbox.select_at_least_one_staff'),
       );
       return;
     }
     if (_mode == 'department' &&
         (_department == null || _department!.isEmpty)) {
       _showError(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.messaging_inbox.select_department'),
+        AppStrings.of(context)
+            .lookup('s4.lib.messaging_inbox.select_department'),
       );
       return;
     }
@@ -1204,9 +1198,8 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                         child: TextField(
                           controller: _subjectController,
                           decoration: InputDecoration(
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.messaging_inbox.subject'),
+                            labelText: AppStrings.of(context)
+                                .lookup('s4.lib.messaging_inbox.subject'),
                             prefixIcon: const Icon(Icons.subject),
                           ),
                         ),
@@ -1217,9 +1210,8 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                         child: DropdownButtonFormField<String>(
                           initialValue: _priority,
                           decoration: InputDecoration(
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('clinical_inbox.priority'),
+                            labelText: AppStrings.of(context)
+                                .lookup('clinical_inbox.priority'),
                           ),
                           items: const [
                             DropdownMenuItem(
@@ -1260,9 +1252,8 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                     DropdownButtonFormField<String>(
                       initialValue: _department,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('profile.field.department'),
+                        labelText: AppStrings.of(context)
+                            .lookup('profile.field.department'),
                         prefixIcon: const Icon(Icons.groups_outlined),
                       ),
                       items: (_canAll ? _departments : [_viewerDepartment])
@@ -1282,9 +1273,8 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                     TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('s4.lib.messaging_inbox.search_staff'),
+                        labelText: AppStrings.of(context)
+                            .lookup('s4.lib.messaging_inbox.search_staff'),
                         prefixIcon: const Icon(Icons.search),
                       ),
                       onChanged: (value) => setState(() => _search = value),

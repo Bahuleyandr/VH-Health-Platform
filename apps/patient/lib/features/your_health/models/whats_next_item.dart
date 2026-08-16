@@ -11,12 +11,12 @@ class WhatsNextBundle {
           .map(WhatsNextStep.fromJson)
           .where((step) => step.label.isNotEmpty)
           .toList(growable: false),
-      goals: _asList(
-        json['goals'],
-      ).map(WhatsNextGoal.fromJson).toList(growable: false),
-      followUps: _asList(
-        json['follow_ups'],
-      ).map(WhatsNextFollowUp.fromJson).toList(growable: false),
+      goals: _asList(json['goals'])
+          .map(WhatsNextGoal.fromJson)
+          .toList(growable: false),
+      followUps: _asList(json['follow_ups'])
+          .map(WhatsNextFollowUp.fromJson)
+          .toList(growable: false),
     );
   }
 

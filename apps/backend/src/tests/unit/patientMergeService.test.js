@@ -55,6 +55,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));

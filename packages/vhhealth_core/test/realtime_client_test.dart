@@ -596,47 +596,43 @@ void main() {
     },
   );
 
-  test(
-    'RealtimeProvider notifies when channel readiness is acknowledged and retired',
-    () async {
-      final harness = await _WsHarness.start(
-        acceptFreshToken: true,
-        subscribeAckDelay: const Duration(milliseconds: 150),
-      );
-      addTearDown(harness.close);
-      RealtimeClient.setWsUrlForTesting(harness.wsUrl);
-      RealtimeClient.setReconnectBackoffForTesting(initialMs: 500, maxMs: 500);
-      await AuthService.setJwt('fresh-access');
+  test('RealtimeProvider notifies when channel readiness is acknowledged and retired', () async {
+    final harness = await _WsHarness.start(
+      acceptFreshToken: true,
+      subscribeAckDelay: const Duration(milliseconds: 150),
+    );
+    addTearDown(harness.close);
+    RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+    RealtimeClient.setReconnectBackoffForTesting(initialMs: 500, maxMs: 500);
+    await AuthService.setJwt('fresh-access');
 
-      final provider = RealtimeProvider();
-      addTearDown(provider.dispose);
-      var notifications = 0;
-      provider.addListener(() => notifications += 1);
-      const channel =
-          'patient:11111111-1111-4111-8111-111111111111:appointments';
-      final eventSub = provider.events(channel).listen((_) {});
-      addTearDown(eventSub.cancel);
+    final provider = RealtimeProvider();
+    addTearDown(provider.dispose);
+    var notifications = 0;
+    provider.addListener(() => notifications += 1);
+    const channel = 'patient:11111111-1111-4111-8111-111111111111:appointments';
+    final eventSub = provider.events(channel).listen((_) {});
+    addTearDown(eventSub.cancel);
 
-      await provider.ensureConnected();
-      await _waitFor(() => provider.isConnected, reason: 'provider connected');
-      expect(provider.isSubscribed(channel), isFalse);
-      final notificationsBeforeAck = notifications;
+    await provider.ensureConnected();
+    await _waitFor(() => provider.isConnected, reason: 'provider connected');
+    expect(provider.isSubscribed(channel), isFalse);
+    final notificationsBeforeAck = notifications;
 
-      await _waitFor(
-        () => provider.isSubscribed(channel),
-        reason: 'provider subscription acknowledgement',
-      );
-      expect(notifications, greaterThan(notificationsBeforeAck));
-      final notificationsAfterAck = notifications;
+    await _waitFor(
+      () => provider.isSubscribed(channel),
+      reason: 'provider subscription acknowledgement',
+    );
+    expect(notifications, greaterThan(notificationsBeforeAck));
+    final notificationsAfterAck = notifications;
 
-      await harness.closeClients();
-      await _waitFor(
-        () => !provider.isSubscribed(channel) && !provider.isConnected,
-        reason: 'provider readiness retirement',
-      );
-      expect(notifications, greaterThan(notificationsAfterAck));
-    },
-  );
+    await harness.closeClients();
+    await _waitFor(
+      () => !provider.isSubscribed(channel) && !provider.isConnected,
+      reason: 'provider readiness retirement',
+    );
+    expect(notifications, greaterThan(notificationsAfterAck));
+  });
 
   test(
     'transient drop rejoins with backoff, resubscribes, and resets state',

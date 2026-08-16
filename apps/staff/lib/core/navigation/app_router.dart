@@ -23,6 +23,7 @@ import '../../features/appointments/screens/appointments_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
 import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/investigations/screens/specimen_scan_screen.dart';
+import '../../features/pharmacy/screens/counter_sale_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
@@ -93,6 +94,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
 import '../../features/safety/screens/resus_documentation_screen.dart';
+import '../../features/emergency/screens/ambulance_tracking_screen.dart';
 import '../../features/emergency/screens/ed_trauma_workbench_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
 import '../../features/safety/screens/sos_response_screen.dart';
@@ -101,6 +103,7 @@ import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
 import '../../features/schedule/screens/duty_preference_screen.dart';
+import '../../features/schedule/screens/shift_swap_screen.dart';
 
 // Handover
 import '../../features/nursing/screens/handover_screen.dart';
@@ -117,6 +120,7 @@ import '../../features/bloodbank/screens/transfusion_scan_screen.dart';
 
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
+import '../../features/dietary/screens/kitchen_screen.dart';
 
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
@@ -414,6 +418,12 @@ final GoRouter appRouter = GoRouter(
               const NoTransitionPage(child: PharmacyScreen()),
         ),
         GoRoute(
+          path: '/pharmacy/counter-sale',
+          name: 'pharmacy-counter-sale',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: CounterSaleScreen()),
+        ),
+        GoRoute(
           path: '/profile',
           name: 'profile',
           pageBuilder: (context, state) =>
@@ -484,6 +494,12 @@ final GoRouter appRouter = GoRouter(
           name: 'ed-trauma',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: EdTraumaWorkbenchScreen()),
+        ),
+        GoRoute(
+          path: '/ambulance-tracking',
+          name: 'ambulance-tracking',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AmbulanceTrackingScreen()),
         ),
 
         // Doctor
@@ -900,6 +916,12 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DutyPreferenceScreen()),
         ),
+        GoRoute(
+          path: '/shift-swaps',
+          name: 'shift-swaps',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ShiftSwapScreen()),
+        ),
 
         // Handover — accepts optional `patient_ref` and `phone` query
         // params (passed in from the bed-board sheet's "Handover" quick
@@ -1048,6 +1070,12 @@ final GoRouter appRouter = GoRouter(
           name: 'dietary',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DietaryScreen()),
+        ),
+        GoRoute(
+          path: '/dietary/kitchen',
+          name: 'dietary-kitchen',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: KitchenScreen()),
         ),
         GoRoute(
           path: '/dental',

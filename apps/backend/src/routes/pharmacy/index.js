@@ -8,6 +8,7 @@ import inventoryV2Routes from './inventoryV2Routes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
 import wardIndentRoutes from './wardIndentRoutes.js';
+import counterSaleRoutes from './counterSaleRoutes.js';
 import { dispenseSubstitutionValidator } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
@@ -55,6 +56,9 @@ router.use('/admin', adminRoutes);
 // IPD ward → pharmacy stores indent workflow. Finding:
 // 2026-05-08-inpatient-admission-pharmacy-no-ipd-ward-indent.
 router.use('/ward-indents', wardIndentRoutes);
+// Walk-in counter point-of-sale (migration 684): FEFO dispense + schedule
+// enforcement + billingV2 PHARMACY invoice + cash-drawer-tied payment.
+router.use('/counter-sales', counterSaleRoutes);
 
 // Re-route some paths for backward compatibility
 router.use('/category', medicationRoutes);

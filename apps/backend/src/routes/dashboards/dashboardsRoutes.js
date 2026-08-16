@@ -18,6 +18,7 @@ import {
   listDashboardCatalog,
   listDatasetCatalog,
 } from '../../services/dashboards/analyticsCatalogService.js';
+import misReportScheduleRoutes from './misReportScheduleRoutes.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -100,6 +101,9 @@ router.get('/snapshot/lab-tat', requireAdmin, wrap(async (req) =>
     to: req.query.to,
   }),
 ));
+
+// ── Scheduled MIS report email delivery (migration 679) ─────────────
+router.use('/mis-report-schedules', requireAdmin, misReportScheduleRoutes);
 
 // ── Metabase embedding ──────────────────────────────────────────────
 router.get('/catalog', requireAdmin, wrap(async (req) => {

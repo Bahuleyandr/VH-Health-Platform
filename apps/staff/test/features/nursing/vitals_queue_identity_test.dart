@@ -41,9 +41,8 @@ void main() {
     });
 
     test('the record tab has no unverified free-typed submit path', () {
-      final source = File(
-        'lib/features/nursing/screens/vitals_screen.dart',
-      ).readAsStringSync();
+      final source = File('lib/features/nursing/screens/vitals_screen.dart')
+          .readAsStringSync();
 
       // The submit path must chart against the confirmed patient, never
       // by parsing the free-typed field at submit time.
@@ -62,9 +61,8 @@ void main() {
   });
 
   test('vitals screen has no offline queue compatibility path', () {
-    final source = File(
-      'lib/features/nursing/screens/vitals_screen.dart',
-    ).readAsStringSync();
+    final source = File('lib/features/nursing/screens/vitals_screen.dart')
+        .readAsStringSync();
 
     expect(source, isNot(contains('VitalsOfflineQueueIntent')));
     expect(source, isNot(contains('OfflineQueue.')));

@@ -59,8 +59,9 @@ typedef NotificationStaffUidLoader = Future<String?> Function();
 typedef NotificationAuthenticationCheck = Future<bool> Function();
 typedef NotificationPlatformLoader = String Function();
 typedef NotificationFetcher = Future<List<dynamic>> Function();
-typedef NotificationForegroundMessageHandler =
-    Future<void> Function(RemoteMessage message);
+typedef NotificationForegroundMessageHandler = Future<void> Function(
+  RemoteMessage message,
+);
 typedef NotificationSurfaceCleaner = Future<void> Function();
 
 class NotificationItem {

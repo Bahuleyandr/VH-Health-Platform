@@ -281,6 +281,25 @@ class BedManagementService {
     } catch (e) {
       logger.warn(`dischargePatient: housekeeping dispatch failed for bed ${bedId} (continuing): ${e.message}`);
     }
+    // Dietary meal-ticket recall (best-effort, same idiom as the
+    // housekeeping dispatch above): this direct-bed discharge path also ends
+    // the admission, so the patient's live kitchen tickets must be recalled
+    // — kitchen-side tickets cancelled, dispatched/delivered trays flagged
+    // do-not-serve for ward acknowledgement.
+    if (patientUid) {
+      try {
+        const { recallTicketsForPatient } = await import('../dietary/kitchenService.js');
+        await recallTicketsForPatient({
+          tenantId: requireTenantId(tenantId),
+          patientUid,
+          actorUid: dischargedBy,
+          actorRole: 'DISCHARGE',
+          reason: 'admission ended (bed discharge)',
+        });
+      } catch (e) {
+        logger.warn(`dischargePatient: dietary meal-ticket recall failed for bed ${bedId} (continuing): ${e.message}`);
+      }
+    }
     return updated;
   }
 

@@ -13,6 +13,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/online_only_action_state.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DischargeHubScreen extends StatefulWidget {
@@ -133,9 +134,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -168,9 +168,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -194,9 +193,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             maxLines: 6,
             maxLength: 1000,
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('s4.lib.discharge_hub.follow_up_exception_reason'),
+              labelText: AppStrings.of(context)
+                  .lookup('s4.lib.discharge_hub.follow_up_exception_reason'),
               border: const OutlineInputBorder(),
             ),
             validator: (value) => value?.trim().isNotEmpty == true
@@ -242,9 +240,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -780,9 +777,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             children: [
               _sectionTitle(
                 theme,
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.discharge_hub.role_work_items'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.discharge_hub.role_work_items'),
                 Icons.groups,
               ),
               const SizedBox(height: 8),
@@ -802,9 +798,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: _sectionTitle(
             theme,
-            AppStrings.of(
-              context,
-            ).lookup('s4.lib.discharge_hub.role_work_items'),
+            AppStrings.of(context)
+                .lookup('s4.lib.discharge_hub.role_work_items'),
             Icons.groups,
           ),
         ),
@@ -841,9 +836,9 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     }
     final pendingResults =
         pendingWork?.items ??
-        _list(
-          raw,
-        ).map(DischargePendingResultHandoff.fromJson).toList(growable: false);
+        _list(raw)
+            .map(DischargePendingResultHandoff.fromJson)
+            .toList(growable: false);
 
     return Card(
       key: const Key('discharge-pending-result-handoffs'),

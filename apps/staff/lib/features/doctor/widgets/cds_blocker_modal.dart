@@ -231,9 +231,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
               // ── Step 1: Category ────────────────────────────────────────
               DropdownButtonFormField<_CdsOverrideCategory>(
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.cds_blocker_modal.override_category'),
+                  labelText: AppStrings.of(context)
+                      .lookup('s4.lib.cds_blocker_modal.override_category'),
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
@@ -364,9 +363,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
               foregroundColor: Colors.white,
             ),
             onPressed: _overrideValid
-                ? () => Navigator.of(
-                    context,
-                  ).pop(CdsOverrideOutcome(overrideReason: _overridePayload))
+                ? () => Navigator.of(context)
+                      .pop(CdsOverrideOutcome(overrideReason: _overridePayload))
                 : null,
             child: Text(s.cdsBlockerOverrideSave),
           ),

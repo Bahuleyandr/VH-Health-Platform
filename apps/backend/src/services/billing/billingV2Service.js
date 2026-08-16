@@ -653,6 +653,7 @@ const VALID_SOURCE_REF_TYPES = new Set([
   'dialysis_session',
   'cath_procedure_log',
   'cath_consumable_usage',
+  'pharmacy_counter_sale',
   'admission_package',
   'package',
   'manual',

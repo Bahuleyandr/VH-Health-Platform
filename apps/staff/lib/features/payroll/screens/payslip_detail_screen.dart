@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../payroll_amounts.dart';
 
-typedef PayrollPayslipDetailLoader =
-    Future<Map<String, dynamic>> Function(String id);
+typedef PayrollPayslipDetailLoader = Future<Map<String, dynamic>> Function(
+  String id,
+);
 typedef PayrollPayslipPasswordRevealer = Future<String> Function(String id);
 
 class PayslipDetailScreen extends StatefulWidget {

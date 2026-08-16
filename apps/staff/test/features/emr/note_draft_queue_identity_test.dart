@@ -27,12 +27,16 @@ void main() {
                 onlinePuts++;
                 return const {};
               },
-          get:
-              ({required patientUid, appointmentId, required noteType}) async =>
-                  null,
-          delete:
-              ({required patientUid, appointmentId, required noteType}) async =>
-                  const {},
+          get: ({
+            required patientUid,
+            appointmentId,
+            required noteType,
+          }) async => null,
+          delete: ({
+            required patientUid,
+            appointmentId,
+            required noteType,
+          }) async => const {},
         ),
         sync: NoteDraftSync(
           isOnline: () => false,
@@ -53,12 +57,11 @@ void main() {
                 });
                 return true;
               },
-          cancelPrivateDrafts:
-              ({
-                required callSite,
-                required patientReference,
-                appointmentId,
-              }) async => 0,
+          cancelPrivateDrafts: ({
+            required callSite,
+            required patientReference,
+            appointmentId,
+          }) async => 0,
         ),
       );
 

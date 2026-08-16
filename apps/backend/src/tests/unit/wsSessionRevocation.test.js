@@ -83,12 +83,14 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 }));
 const isUserTokensRevokedMock = jest.fn().mockResolvedValue(false);
 const isDelegatedTupleRevokedMock = jest.fn().mockResolvedValue(false);
+const isSubjectDelegationRevokedMock = jest.fn().mockResolvedValue(false);
 let transactionCommitHook = null;
 function liveDependent(overrides = {}) {
   return {
     uid: 'dependent-1',
     role: 'PATIENT',
     is_minor: true,
+    is_minor_now: true,
     is_active: true,
     status: 'active',
     is_deleted: false,
@@ -107,6 +109,7 @@ const queryRawUnsafeMock = jest.fn().mockResolvedValue([liveDependent()]);
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
   isDelegatedTupleRevoked: isDelegatedTupleRevokedMock,
+  isSubjectDelegationRevoked: isSubjectDelegationRevokedMock,
   isUserTokensRevoked: isUserTokensRevokedMock,
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -162,6 +165,8 @@ describe('session revocation WebSocket closure', () => {
     isUserTokensRevokedMock.mockResolvedValue(false);
     isDelegatedTupleRevokedMock.mockReset();
     isDelegatedTupleRevokedMock.mockResolvedValue(false);
+    isSubjectDelegationRevokedMock.mockReset();
+    isSubjectDelegationRevokedMock.mockResolvedValue(false);
     queryRawUnsafeMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([liveDependent()]);
     transactionCommitHook = null;
@@ -389,8 +394,8 @@ describe('session revocation WebSocket closure', () => {
 
     expect(isUserTokensRevokedMock.mock.calls).toEqual([
       ['guardian-1', 1000, 3],
-      ['dependent-1', 1000, undefined],
     ]);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith('dependent-1', 1000);
     serverInstance.clients.add(siblingDependentSocket);
     serverInstance.clients.add(siblingGuardianSocket);
     serverInstance.emit('connection', siblingDependentSocket, {
@@ -475,7 +480,7 @@ describe('session revocation WebSocket closure', () => {
   });
 
   it('rejects a delegated handshake when the effective dependent was revoked', async () => {
-    isUserTokensRevokedMock.mockImplementation(async (uid) => uid === 'dependent-1');
+    isSubjectDelegationRevokedMock.mockResolvedValue(true);
     initWebSocket({});
     const socket = new FakeSocket();
     serverInstance.clients.add(socket);
@@ -488,8 +493,8 @@ describe('session revocation WebSocket closure', () => {
 
     expect(isUserTokensRevokedMock.mock.calls).toEqual([
       ['guardian-1', 1000, 3],
-      ['dependent-1', 1000, undefined],
     ]);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith('dependent-1', 1000);
     expect(socket.close).toHaveBeenCalledWith(4001, 'All sessions revoked');
   });
 
@@ -506,8 +511,8 @@ describe('session revocation WebSocket closure', () => {
 
     expect(isUserTokensRevokedMock.mock.calls).toEqual([
       ['guardian-1', 1000, 3],
-      ['dependent-1', 1000, undefined],
     ]);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith('dependent-1', 1000);
     expect(isDelegatedTupleRevokedMock).toHaveBeenCalledWith(
       'guardian-1',
       'dependent-1',
@@ -558,6 +563,9 @@ describe('session revocation WebSocket closure', () => {
     ['inactive', { is_active: false }],
     ['deleted', { is_deleted: true, deleted_at: new Date().toISOString(), status: 'deleted' }],
     ['merged', { merged_into_uid: 'survivor-1' }],
+    // Stale flag: is_minor TRUE but the check-time DOB recompute says adult —
+    // delegation ends at 18 even for already-minted tickets.
+    ['an adult now', { is_minor_now: false }],
   ])(
     'rejects a delegated handshake when the dependent is %s',
     async (_label, lifecycle) => {
@@ -621,10 +629,7 @@ describe('session revocation WebSocket closure', () => {
   });
 
   it('fails a delegated handshake closed when either durable lookup is unavailable', async () => {
-    isUserTokensRevokedMock.mockImplementation(async (uid) => {
-      if (uid === 'dependent-1') throw new Error('durable store down');
-      return false;
-    });
+    isSubjectDelegationRevokedMock.mockRejectedValue(new Error('durable store down'));
     initWebSocket({});
     const socket = new FakeSocket();
     serverInstance.clients.add(socket);
@@ -637,8 +642,8 @@ describe('session revocation WebSocket closure', () => {
 
     expect(isUserTokensRevokedMock.mock.calls).toEqual([
       ['guardian-1', 1000, 3],
-      ['dependent-1', 1000, undefined],
     ]);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith('dependent-1', 1000);
     expect(socket.close).toHaveBeenCalledWith(1013, 'Authentication unavailable');
   });
 });

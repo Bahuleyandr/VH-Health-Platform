@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
 import '../../../core/providers/notification_provider.dart';
 import '../../../core/providers/websocket_provider.dart';
 import '../../../core/theme/app_theme.dart';
@@ -207,9 +208,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: Text(s.notificationsTitle),
         actions: [
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.notifications.refresh_alerts'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.notifications.refresh_alerts'),
             onPressed: _loadNotifications,
             icon: const Icon(Icons.refresh),
           ),

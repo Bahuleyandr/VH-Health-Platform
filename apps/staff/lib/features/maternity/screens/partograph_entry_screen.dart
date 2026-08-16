@@ -169,9 +169,8 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
           children: [
             Text(
               title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             ...children,
@@ -242,16 +241,11 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               _numField(_descentCtrl, s.partographDescent),
               _numField(_ctxCountCtrl, s.partographCtxPer10min),
               _numField(_ctxDurCtrl, s.partographCtxDuration),
-              _enumField(
-                s.partographCtxIntensity,
-                _ctxIntensity,
-                {
-                  'weak': s.partographCtxWeak,
-                  'moderate': s.partographCtxModerate,
-                  'strong': s.partographCtxStrong,
-                },
-                (v) => setState(() => _ctxIntensity = v),
-              ),
+              _enumField(s.partographCtxIntensity, _ctxIntensity, {
+                'weak': s.partographCtxWeak,
+                'moderate': s.partographCtxModerate,
+                'strong': s.partographCtxStrong,
+              }, (v) => setState(() => _ctxIntensity = v)),
             ]),
             const SizedBox(height: 8),
             _section(s.partographSectionFetalStatus, [
@@ -262,18 +256,13 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                 'late': s.partographDecelLate,
                 'variable': s.partographDecelVariable,
               }, (v) => setState(() => _decel = v)),
-              _enumField(
-                s.partographAmnioticFluid,
-                _amniotic,
-                {
-                  'intact_membranes': s.partographAmnioticIntactMembranes,
-                  'clear': s.partographAmnioticClear,
-                  'meconium_thin': s.partographAmnioticMeconiumThin,
-                  'meconium_thick': s.partographAmnioticMeconiumThick,
-                  'blood': s.partographAmnioticBlood,
-                },
-                (v) => setState(() => _amniotic = v),
-              ),
+              _enumField(s.partographAmnioticFluid, _amniotic, {
+                'intact_membranes': s.partographAmnioticIntactMembranes,
+                'clear': s.partographAmnioticClear,
+                'meconium_thin': s.partographAmnioticMeconiumThin,
+                'meconium_thick': s.partographAmnioticMeconiumThick,
+                'blood': s.partographAmnioticBlood,
+              }, (v) => setState(() => _amniotic = v)),
               _enumField(s.partographMoulding, _moulding, const {
                 '0': '0',
                 '1+': '1+',
@@ -297,30 +286,20 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               _numField(_pulseCtrl, s.partographPulse),
               _numField(_tempCtrl, s.partographTemperature),
               _numField(_urineCtrl, s.partographUrineOutput),
-              _enumField(
-                s.partographUrineProtein,
-                _urineProtein,
-                {
-                  'nil': s.partographUrineNil,
-                  'trace': s.partographUrineTrace,
-                  '1+': '1+',
-                  '2+': '2+',
-                  '3+': '3+',
-                },
-                (v) => setState(() => _urineProtein = v),
-              ),
-              _enumField(
-                s.partographUrineAcetone,
-                _urineAcetone,
-                {
-                  'nil': s.partographUrineNil,
-                  'trace': s.partographUrineTrace,
-                  '1+': '1+',
-                  '2+': '2+',
-                  '3+': '3+',
-                },
-                (v) => setState(() => _urineAcetone = v),
-              ),
+              _enumField(s.partographUrineProtein, _urineProtein, {
+                'nil': s.partographUrineNil,
+                'trace': s.partographUrineTrace,
+                '1+': '1+',
+                '2+': '2+',
+                '3+': '3+',
+              }, (v) => setState(() => _urineProtein = v)),
+              _enumField(s.partographUrineAcetone, _urineAcetone, {
+                'nil': s.partographUrineNil,
+                'trace': s.partographUrineTrace,
+                '1+': '1+',
+                '2+': '2+',
+                '3+': '3+',
+              }, (v) => setState(() => _urineAcetone = v)),
             ]),
             const SizedBox(height: 8),
             _section(s.partographSectionDrugsFluids, [

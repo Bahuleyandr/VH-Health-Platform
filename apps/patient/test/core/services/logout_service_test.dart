@@ -201,21 +201,18 @@ void main() {
     },
   );
 
-  test(
-    'a throwing Firebase revocation still attempts VH, clears local state, and is reported',
-    () async {
-      final calls = <String>[];
-      LogoutService.debugSetDependencies(
-        _dependencies(calls, throwOn: 'firebase-server-revoke'),
-      );
+  test('a throwing Firebase revocation still attempts VH, clears local state, and is reported', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, throwOn: 'firebase-server-revoke'),
+    );
 
-      final outcome = await LogoutService.logout();
+    final outcome = await LogoutService.logout();
 
-      expect(outcome.serverSessionRevoked, isFalse);
-      expect(calls, contains('vh-server-revoke'));
-      expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
-    },
-  );
+    expect(outcome.serverSessionRevoked, isFalse);
+    expect(calls, contains('vh-server-revoke'));
+    expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
+  });
 
   test('a hung server revocation is abandoned at the logout deadline and the '
       'local PHI wipe still runs', () async {
@@ -412,48 +409,44 @@ void main() {
     },
   );
 
-  test(
-    'a wedged step-1 realtime disconnect can no longer strand PHI on the device',
-    () async {
-      // The motivating case, and the one the bound at the END of logout did
-      // NOT fix. Step 1 runs BEFORE every local wipe and calls the same
-      // `RealtimeClient.instance.disconnect()` that wedges on a dead socket.
-      // Unbounded, logout hung right there: the teardown bound further down was
-      // never reached, and the JWT, the API cache, cached documents and staged
-      // plaintext PHI all survived on the device until the user force-quit.
-      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
-      final calls = <String>[];
-      LogoutService.debugSetDependencies(
-        _dependencies(calls, hangOn: const {'realtime'}),
-      );
+  test('a wedged step-1 realtime disconnect can no longer strand PHI on the device', () async {
+    // The motivating case, and the one the bound at the END of logout did
+    // NOT fix. Step 1 runs BEFORE every local wipe and calls the same
+    // `RealtimeClient.instance.disconnect()` that wedges on a dead socket.
+    // Unbounded, logout hung right there: the teardown bound further down was
+    // never reached, and the JWT, the API cache, cached documents and staged
+    // plaintext PHI all survived on the device until the user force-quit.
+    PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, hangOn: const {'realtime'}),
+    );
 
-      final outcome = await LogoutService.logout().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () =>
-            fail('logout() hung at the step-1 realtime disconnect'),
-      );
+    final outcome = await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('logout() hung at the step-1 realtime disconnect'),
+    );
 
-      expect(
-        calls,
-        containsAllInOrder(<String>['realtime', 'secure-storage']),
-        reason: 'the wipe must proceed THROUGH the wedged disconnect',
-      );
-      expect(
-        calls,
-        containsAll(<String>[
-          'api-cache',
-          'secure-storage',
-          'file-cache',
-          'doc-staging',
-          'cycle-tracker',
-          'dependents',
-          'user-provider',
-          'firebase-signout',
-        ]),
-      );
-      expect(outcome.serverSessionRevoked, isTrue);
-    },
-  );
+    expect(
+      calls,
+      containsAllInOrder(<String>['realtime', 'secure-storage']),
+      reason: 'the wipe must proceed THROUGH the wedged disconnect',
+    );
+    expect(
+      calls,
+      containsAll(<String>[
+        'api-cache',
+        'secure-storage',
+        'file-cache',
+        'doc-staging',
+        'cycle-tracker',
+        'dependents',
+        'user-provider',
+        'firebase-signout',
+      ]),
+    );
+    expect(outcome.serverSessionRevoked, isTrue);
+  });
 
   test('a wedged FCM token delete cannot hold the rest of logout', () async {
     // `FirebaseMessaging.deleteToken()` is a network round trip, and it had no

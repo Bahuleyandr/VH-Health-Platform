@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/clinical_print_service.dart';
@@ -902,9 +904,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (parsed == null) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.pdf_not_available_yet'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.pdf_not_available_yet'),
       );
       return;
     }
@@ -980,9 +981,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_appointmentPrescriptionLocked) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.visit_prescription_locked'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.visit_prescription_locked'),
       );
       return;
     }
@@ -1003,9 +1003,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_medications.any((m) => m.days < 1)) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.days_must_be_at_least_1'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.days_must_be_at_least_1'),
       );
       return;
     }
@@ -1155,9 +1154,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 's4.lib.prescriptions.prescription_pdf_is_ready',
               ),
               action: SnackBarAction(
-                label: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.prescriptions.open_pdf'),
+                label: AppStrings.of(context)
+                    .lookup('s4.lib.prescriptions.open_pdf'),
                 onPressed: () => _openPrescriptionPdf(pdfUrl),
               ),
             ),
@@ -1706,9 +1704,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       rows.sort((a, b) {
         final stockDelta = _stockCount(b).compareTo(_stockCount(a));
         if (stockDelta != 0) return stockDelta;
-        return _extractStrengthFromCatalog(
-          a,
-        ).compareTo(_extractStrengthFromCatalog(b));
+        return _extractStrengthFromCatalog(a)
+            .compareTo(_extractStrengthFromCatalog(b));
       });
       final first = rows.first;
       final strengths = _uniqueStrengths(rows.map(_extractStrengthFromCatalog));
@@ -1745,9 +1742,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     grouped.sort((a, b) {
       final stockDelta = _stockCount(b).compareTo(_stockCount(a));
       if (stockDelta != 0) return stockDelta;
-      return _extractDrugNameFromCatalog(
-        a,
-      ).compareTo(_extractDrugNameFromCatalog(b));
+      return _extractDrugNameFromCatalog(a)
+          .compareTo(_extractDrugNameFromCatalog(b));
     });
     return grouped.take(12).toList(growable: false);
   }
@@ -2548,9 +2544,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               subtitle.isEmpty ? drugName : '$drugName ($subtitle)',
               overflow: TextOverflow.ellipsis,
             ),
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.use_favorite'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.use_favorite'),
             onPressed: () => _applyFavorite(med),
             onDeleted: () => _removeFavorite(med),
           );
@@ -2679,9 +2674,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         _tableTextField(
                           width: notesWidth,
                           value: med.instructions,
-                          hint: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.prescriptions.instructions_hint'),
+                          hint: AppStrings.of(context)
+                              .lookup('s4.lib.prescriptions.instructions_hint'),
                           onChanged: (value) => med.instructions = value,
                         ),
                       ),
@@ -2804,9 +2798,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             setState(() => med.daw = value);
           }),
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.save_favorite'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.save_favorite'),
             visualDensity: VisualDensity.compact,
             onPressed: med.name.trim().isEmpty
                 ? null
@@ -2814,9 +2807,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             icon: const Icon(Icons.star_border, size: 18),
           ),
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.delete_row'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.delete_row'),
             visualDensity: VisualDensity.compact,
             onPressed: _medications.length <= 1
                 ? null
@@ -2856,9 +2848,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 controller: textController,
                 focusNode: fieldFocusNode,
                 decoration: InputDecoration(
-                  hintText: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.prescriptions.type_drug_name'),
+                  hintText: AppStrings.of(context)
+                      .lookup('s4.lib.prescriptions.type_drug_name'),
                   isDense: true,
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: loading
@@ -3838,9 +3829,8 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
           final p = _prescriptions[i];
           final meds = p['medications'] as List? ?? [];
           final createdAt = p['created_at'] != null
-              ? DateFormat(
-                  'dd MMM yyyy, hh:mm a',
-                ).format(DateTime.parse(p['created_at']).toLocal())
+              ? DateFormat('dd MMM yyyy, hh:mm a')
+                    .format(DateTime.parse(p['created_at']).toLocal())
               : '';
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -3996,12 +3986,11 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              AppStrings.of(
-                ctx,
-              ).format('s4.dynamic.prescriptions.patient_doctor', {
-                'patient': rx['patient_name'] ?? '',
-                'doctor': rx['doctor_name'] ?? '',
-              }),
+              AppStrings.of(ctx)
+                  .format('s4.dynamic.prescriptions.patient_doctor', {
+                    'patient': rx['patient_name'] ?? '',
+                    'doctor': rx['doctor_name'] ?? '',
+                  }),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 8),
@@ -4012,12 +4001,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 Chip(
                   label: Text(
                     signed
-                        ? AppStrings.of(
-                            ctx,
-                          ).lookup('s4.lib.prescriptions.signed_locked')
-                        : AppStrings.of(
-                            ctx,
-                          ).lookup('s4.lib.prescriptions.draft'),
+                        ? AppStrings.of(ctx)
+                              .lookup('s4.lib.prescriptions.signed_locked')
+                        : AppStrings.of(ctx)
+                              .lookup('s4.lib.prescriptions.draft'),
                     style: TextStyle(
                       color: signed
                           ? AppTheme.successOnSurface
@@ -4105,13 +4092,11 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             const SizedBox(height: 12),
             if (rx['follow_up_date'] != null)
               Text(
-                AppStrings.of(
-                  ctx,
-                ).format('s4.dynamic.prescriptions.follow_up_date', {
-                  'date': DateFormat(
-                    'dd MMM yyyy',
-                  ).format(DateTime.parse(rx['follow_up_date'])),
-                }),
+                AppStrings.of(ctx)
+                    .format('s4.dynamic.prescriptions.follow_up_date', {
+                      'date': DateFormat('dd MMM yyyy')
+                          .format(DateTime.parse(rx['follow_up_date'])),
+                    }),
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
             const SizedBox(height: 16),
@@ -4141,12 +4126,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                             : const Icon(Icons.verified_outlined, size: 18),
                         label: Text(
                           signed
-                              ? AppStrings.of(
-                                  ctx,
-                                ).lookup('s4.lib.prescriptions.signed')
-                              : AppStrings.of(
-                                  ctx,
-                                ).lookup('s4.lib.prescriptions.sign_lock'),
+                              ? AppStrings.of(ctx)
+                                    .lookup('s4.lib.prescriptions.signed')
+                              : AppStrings.of(ctx)
+                                    .lookup('s4.lib.prescriptions.sign_lock'),
                         ),
                       ),
                     ),

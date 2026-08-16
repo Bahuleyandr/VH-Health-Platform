@@ -52,9 +52,8 @@ class StaffActionPolicyRepository extends ChangeNotifier {
         reasonCode == 'action_policy_refresh_failed') {
       return true;
     }
-    final match = RegExp(
-      r'^policy_delivery_http_(\d{3})$',
-    ).firstMatch(reasonCode);
+    final match = RegExp(r'^policy_delivery_http_(\d{3})$')
+        .firstMatch(reasonCode);
     final status = int.tryParse(match?.group(1) ?? '');
     return status == 408 ||
         status == 425 ||

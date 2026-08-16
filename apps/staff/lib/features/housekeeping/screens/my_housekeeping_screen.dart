@@ -197,9 +197,8 @@ class _LogCard extends StatelessWidget {
       _ => (color: Colors.grey, label: s.housekeepingStatusSubmitted),
     };
     final loggedAt = log['logged_at'] != null
-        ? DateFormat(
-            'dd MMM, HH:mm',
-          ).format(DateTime.parse(log['logged_at'] as String).toLocal())
+        ? DateFormat('dd MMM, HH:mm')
+              .format(DateTime.parse(log['logged_at'] as String).toLocal())
         : '';
 
     return Card(
@@ -463,9 +462,8 @@ class _RequestCard extends StatelessWidget {
     final status = req['status'] as String? ?? 'open';
     final statusLabel = _requestStatusLabel(s, status);
     final createdAt = req['created_at'] != null
-        ? DateFormat(
-            'dd MMM, HH:mm',
-          ).format(DateTime.parse(req['created_at'] as String).toLocal())
+        ? DateFormat('dd MMM, HH:mm')
+              .format(DateTime.parse(req['created_at'] as String).toLocal())
         : '';
 
     return Card(

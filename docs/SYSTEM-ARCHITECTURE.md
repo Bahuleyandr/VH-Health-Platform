@@ -68,8 +68,8 @@ From root [`CLAUDE.md`](../CLAUDE.md):
 |---|---|---|
 | [`apps/backend`](../apps/backend) | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
 | [`apps/admin`](../apps/admin) | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
-| [`apps/patient`](../apps/patient) | Flutter 3.44.0 + Firebase OTP | Patient mobile app |
-| [`apps/staff`](../apps/staff) | Flutter 3.44.0 + staff JWT | Staff/clinical mobile app |
+| [`apps/patient`](../apps/patient) | Flutter 3.47.0 + Firebase OTP | Patient mobile app |
+| [`apps/staff`](../apps/staff) | Flutter 3.47.0 + staff JWT | Staff/clinical mobile app |
 | [`packages/vhhealth_core`](../packages/vhhealth_core) | Dart shared package | API client, auth, theme, HTTP client |
 
 ### Subtree merge history (2026-04-18)

@@ -529,9 +529,9 @@ class CathLabApiService {
       response,
       'Failed to load Cath Lab report templates',
     );
-    return _mapList(
-      data['templates'],
-    ).map(CathReportTemplate.fromJson).toList(growable: false);
+    return _mapList(data['templates'])
+        .map(CathReportTemplate.fromJson)
+        .toList(growable: false);
   }
 
   static Future<List<CathProcedureReport>> fetchReportsForCase(
@@ -539,9 +539,9 @@ class CathLabApiService {
   ) async {
     final response = await ApiClient.get('/cath-lab/cases/$caseId/reports');
     final data = _successfulData(response, 'Failed to load Cath Lab reports');
-    return _mapList(
-      data['reports'],
-    ).map(CathProcedureReport.fromJson).toList(growable: false);
+    return _mapList(data['reports'])
+        .map(CathProcedureReport.fromJson)
+        .toList(growable: false);
   }
 
   static Future<CathProcedureReport> fetchReport(int reportId) async {

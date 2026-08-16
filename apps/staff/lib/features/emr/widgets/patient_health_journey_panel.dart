@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 const double _timelineSegmentWidth = 212.0;

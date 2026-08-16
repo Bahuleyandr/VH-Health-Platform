@@ -157,9 +157,8 @@ void main() {
         isTrue,
       );
       expect(
-        (await whitespaceDevice.verifier.verify(
-          whitespaceDevice.snapshot,
-        )).reason,
+        (await whitespaceDevice.verifier.verify(whitespaceDevice.snapshot))
+            .reason,
         ClinicalContinuityVerificationReasons.edgeAccessInvalid,
       );
     },
@@ -670,8 +669,7 @@ class _Fixture {
                   'envelope_format':
                       'vhhealth_clinical_continuity_policy_delivery/v1',
                   'envelope_sha256': await _sha256Hex(policyDeliveryBytes),
-                  'media_type':
-                      'application/vnd.vhhealth.clinical-continuity-policy+json',
+                  'media_type': 'application/vnd.vhhealth.clinical-continuity-policy+json',
                 },
               'id': _policyId,
               'version': '7',
@@ -685,9 +683,10 @@ class _Fixture {
         'transaction_isolation': 'repeatable read',
       },
       'generated_at': issuedAt,
-      'fresh_until': DateTime.parse(
-        issuedAt,
-      ).add(const Duration(minutes: 15)).toUtc().toIso8601String(),
+      'fresh_until': DateTime.parse(issuedAt)
+          .add(const Duration(minutes: 15))
+          .toUtc()
+          .toIso8601String(),
       'expires_at': expiresAt,
       'not_valid_after': expiresAt,
       'historical_mode': false,
@@ -743,9 +742,10 @@ class _Fixture {
       utf8.encode('${jsonEncode(packEnvelope)}\n'),
     );
 
-    final grantUntil = DateTime.parse(
-      issuedAt,
-    ).add(const Duration(hours: 4)).toUtc().toIso8601String();
+    final grantUntil = DateTime.parse(issuedAt)
+        .add(const Duration(hours: 4))
+        .toUtc()
+        .toIso8601String();
     final edgeContent = <String, Object?>{
       'accessRevision': '11',
       'audience': audience,
@@ -1102,8 +1102,7 @@ Future<Map<String, Object?>> _actionPolicyEnvelope(KeyPair keyPair) async {
 const _cD3Approval = <String, Object?>{
   'countersignedAt': '2026-07-30',
   'decisionId': 'C-D3',
-  'source':
-      'docs/continuity/c0-4-owner-decision-dossier.md#c-d3--offline-action-matrix',
+  'source': 'docs/continuity/c0-4-owner-decision-dossier.md#c-d3--offline-action-matrix',
 };
 
 Future<Map<String, Object?>> _c4_2Action(String actionId) async {

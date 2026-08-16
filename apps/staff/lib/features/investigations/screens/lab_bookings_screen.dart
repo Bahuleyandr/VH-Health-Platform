@@ -35,8 +35,9 @@ String _cleanError(Object error) =>
     error.toString().replaceFirst('Exception: ', '');
 
 typedef LabBookingsLoader = Future<dynamic> Function();
-typedef RealtimeEventStreamFactory =
-    Stream<RealtimeEvent> Function(String channel);
+typedef RealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
 
 class LabBookingsScreen extends StatefulWidget {
   final LabBookingsLoader? loadBookings;
@@ -294,9 +295,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                       controller: phoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('reception_counter.patient.phone'),
+                        labelText: AppStrings.of(context)
+                            .lookup('reception_counter.patient.phone'),
                         prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.phone_outlined),
                         ),
@@ -311,9 +311,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     TextFormField(
                       controller: patientNameCtrl,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('reception_counter.patient.name'),
+                        labelText: AppStrings.of(context)
+                            .lookup('reception_counter.patient.name'),
                         helperText: AppStrings.of(context).lookup(
                           's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet',
                         ),
@@ -326,9 +325,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     TextFormField(
                       controller: testsCtrl,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('s4.lib.lab_bookings.tests'),
+                        labelText: AppStrings.of(context)
+                            .lookup('s4.lib.lab_bookings.tests'),
                         hintText: AppStrings.of(
                           context,
                         ).lookup('s4.lib.lab_bookings.cbc_rft_urine_routine'),
@@ -438,9 +436,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     TextField(
                       controller: notesCtrl,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('appt_queue.notes_optional'),
+                        labelText: AppStrings.of(context)
+                            .lookup('appt_queue.notes_optional'),
                         prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.notes_outlined),
                         ),
@@ -533,9 +530,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 Expanded(
                   child: AppText(
                     's4.lib.lab_bookings.book_and_track_op_ip_lab_requests',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: AppTheme.textSecondary),
                   ),
                 ),
                 IconButton(
@@ -638,9 +634,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         (booking['mins_since_booked'] as num?)?.toInt() ?? 0;
     final slaBreach = booking['sla_breached'] == true;
     final createdAt = booking['created_at'] != null
-        ? DateFormat(
-            'd MMM, h:mm a',
-          ).format(DateTime.parse(booking['created_at']).toLocal())
+        ? DateFormat('d MMM, h:mm a')
+              .format(DateTime.parse(booking['created_at']).toLocal())
         : '';
 
     return Card(
@@ -1078,9 +1073,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               TextField(
                 controller: notesCtrl,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('bed_sheet.section.notes'),
+                  labelText: AppStrings.of(context)
+                      .lookup('bed_sheet.section.notes'),
                   isDense: true,
                 ),
                 maxLines: 2,
@@ -1147,9 +1141,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             TextField(
               controller: notesCtrl,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('bed_sheet.section.notes'),
+                labelText: AppStrings.of(context)
+                    .lookup('bed_sheet.section.notes'),
                 isDense: true,
               ),
             ),
@@ -1302,9 +1295,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               TextField(
                 controller: notesCtrl,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('bed_sheet.section.notes'),
+                  labelText: AppStrings.of(context)
+                      .lookup('bed_sheet.section.notes'),
                   isDense: true,
                 ),
               ),

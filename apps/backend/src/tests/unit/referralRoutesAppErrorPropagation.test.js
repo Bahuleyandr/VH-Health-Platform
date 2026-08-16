@@ -54,6 +54,7 @@ jest.unstable_mockModule('../../services/referral/referralClosedLoopService.js',
   markReferralSeenClosedLoop: jest.fn(),
   recordSignedReferralResponse: jest.fn(),
   rerouteClosedLoopReferral: jest.fn(),
+  setReferralDestinationFacility: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({

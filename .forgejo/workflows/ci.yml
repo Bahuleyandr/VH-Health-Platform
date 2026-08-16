@@ -77,9 +77,9 @@ jobs:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml
           # + the .github workflows) — bump all together. `dart format` output
           # drifts with each Dart release, so a floating channel silently
-          # re-breaks this stage's format check; 3.44.0 is the owner-approved
+          # re-breaks this stage's format check; 3.47.0 is the owner-approved
           # workspace toolchain.
-          flutter-version: 3.44.0
+          flutter-version: 3.47.0
           cache: true
 
       - name: Install Semgrep

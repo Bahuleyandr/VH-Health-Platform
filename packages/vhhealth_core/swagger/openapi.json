@@ -1780,6 +1780,377 @@
           }
         }
       },
+      "AmbulanceActiveTrackingList": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "requests",
+          "count"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ambulance_request_id": {
+                  "type": "integer"
+                },
+                "request_number": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string"
+                },
+                "request_kind": {
+                  "type": "string"
+                },
+                "ambulance_unit_id": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "driver_name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "destination": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "dispatched_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "latest_position_id": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "latitude": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "longitude": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "speed_kmh": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "heading_deg": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "accuracy_m": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "position_recorded_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "position_received_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "eta_latest_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "AmbulanceActiveTrackingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AmbulanceActiveTrackingList"
+          }
+        }
+      },
+      "AmbulancePositionEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "ambulance_request_id",
+          "latitude",
+          "longitude",
+          "recorded_at",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ambulance_request_id": {
+            "type": "integer"
+          },
+          "ambulance_unit_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "speed_kmh": {
+            "type": "number",
+            "nullable": true
+          },
+          "heading_deg": {
+            "type": "number",
+            "nullable": true
+          },
+          "accuracy_m": {
+            "type": "number",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Device clock instant of the fix (bounded-skew-validated at ingest)."
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "driver_app",
+              "partner_webhook"
+            ]
+          },
+          "reported_by_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AmbulancePositionIngestRequest": {
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "speed_kmh": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 400,
+            "nullable": true
+          },
+          "heading_deg": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 359.99,
+            "nullable": true
+          },
+          "accuracy_m": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Device clock instant of the fix; defaults to server time. Rejected beyond 2 minutes of future skew or older than 6 hours."
+          }
+        }
+      },
+      "AmbulancePositionIngestResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AmbulancePositionIngestResult"
+          }
+        }
+      },
+      "AmbulancePositionIngestResult": {
+        "type": "object",
+        "required": [
+          "position",
+          "is_latest"
+        ],
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/AmbulancePositionEvent"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "description": "false when the fix was out-of-order (older than the stored latest) — stored for the trail but the live view did not move."
+          }
+        }
+      },
+      "AmbulanceTrackingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AmbulanceTrackingView"
+          }
+        }
+      },
+      "AmbulanceTrackingView": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "false when the tenant has not enabled ambulance GPS tracking; tracking is then null."
+          },
+          "tracking": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "ambulance_request_id": {
+                "type": "integer"
+              },
+              "request_number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "is_trackable": {
+                "type": "boolean"
+              },
+              "ambulance_unit_id": {
+                "type": "string",
+                "nullable": true
+              },
+              "destination": {
+                "type": "string",
+                "nullable": true
+              },
+              "pickup_geo_lat": {
+                "type": "number",
+                "nullable": true
+              },
+              "pickup_geo_lng": {
+                "type": "number",
+                "nullable": true
+              },
+              "dispatched_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "latest": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AmbulancePositionEvent"
+                  }
+                ],
+                "nullable": true
+              },
+              "trail": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AmbulancePositionEvent"
+                }
+              },
+              "eta": {
+                "type": "object",
+                "nullable": true,
+                "description": "Pre-hospital handover ETA passthrough for this request, when a handover exists.",
+                "properties": {
+                  "eta_first_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "eta_latest_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "eta_change_reason": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "AnnouncementBanner": {
         "type": "object",
         "additionalProperties": false,
@@ -16119,6 +16490,674 @@
           }
         }
       },
+      "DietaryKitchenGenerateRequest": {
+        "type": "object",
+        "properties": {
+          "service_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "YYYY-MM-DD; defaults to today (IST)."
+          }
+        }
+      },
+      "DietaryKitchenGenerationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryKitchenGenerationResult"
+          }
+        }
+      },
+      "DietaryKitchenGenerationResult": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "considered",
+          "created"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "considered": {
+            "type": "integer",
+            "description": "Eligible ACTIVE diet orders of currently admitted patients."
+          },
+          "created": {
+            "type": "integer",
+            "description": "Tickets newly cut; meals already holding a live ticket are skipped."
+          },
+          "byMeal": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "DietaryMealTicket": {
+        "type": "object",
+        "required": [
+          "id",
+          "diet_order_id",
+          "patient_uid",
+          "service_date",
+          "meal_type",
+          "diet_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "diet_order_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "service_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "diet_type": {
+            "type": "string"
+          },
+          "restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allergies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "calories_target": {
+            "type": "number",
+            "nullable": true
+          },
+          "menu_selections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "is_veg": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "description": "Menu items matched at generation (meal window + diet-type suitability + no allergen intersection). Empty when nothing suits; diet_spec then carries the free-text preparation spec."
+          },
+          "diet_spec": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_instructions": {
+            "type": "string",
+            "nullable": true
+          },
+          "allergy_screen": {
+            "type": "object",
+            "nullable": true,
+            "description": "Generation-time allergen screen evidence: the unified four-store allergy union plus order free-text screened against menu allergen tags. degraded=true means an allergy source failed and the screen failed closed (every allergen-tagged item excluded).",
+            "properties": {
+              "screened_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "degraded": {
+                "type": "boolean"
+              },
+              "sources_failed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "patient_allergies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "order_allergies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "order_restrictions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excluded": {
+                "type": "array",
+                "description": "Menu items withheld on allergen match: { id, name, tag, matched, via }.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string"
+                    },
+                    "matched": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "via": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "preparing",
+              "ready",
+              "dispatched",
+              "delivered",
+              "collected",
+              "cancelled"
+            ]
+          },
+          "generated_source": {
+            "type": "string",
+            "enum": [
+              "scheduler",
+              "manual",
+              "order_change"
+            ]
+          },
+          "generated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "preparing_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ready_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "dispatched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "cancel_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "recalled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Do-not-serve recall marker for a tray already out of the kitchen (dispatched/delivered) whose diet order changed/NPO’d or whose admission ended. While set, →dispatched/→delivered transitions are refused (409 DIETARY_TICKET_RECALLED)."
+          },
+          "recalled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recall_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "recall_ack_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Ward acknowledgement of the recall — stamped when the recalled tray is cancelled (dispatched) or collected back (delivered)."
+          },
+          "recall_ack_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DietaryMealTicketListData": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "tickets"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DietaryMealTicket"
+            }
+          }
+        }
+      },
+      "DietaryMealTicketListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMealTicketListData"
+          }
+        }
+      },
+      "DietaryMealTicketResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMealTicket"
+          }
+        }
+      },
+      "DietaryMealTicketStatusRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "ready",
+              "dispatched",
+              "delivered",
+              "collected",
+              "cancelled"
+            ],
+            "description": "Target status. pending→preparing→ready→dispatched is the kitchen leg (dietary roles); dispatched→delivered→collected is ward-side tray tracking (any dietary-mount role). Cancel requires reason."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Required when status=cancelled."
+          }
+        }
+      },
+      "DietaryMenuItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "meal_type",
+          "diet_types",
+          "is_veg",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "diet_orders.diet_type values this dish suits (vocabulary minus 'npo' — nil-by-mouth patients get no menu)."
+          },
+          "is_veg": {
+            "type": "boolean"
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lower-cased allergen tags (e.g. 'peanut', 'milk'); ticket generation excludes the item when any tag matches the order's allergies case-insensitively."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DietaryMenuItemCreateRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "meal_type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_veg": {
+            "type": "boolean",
+            "default": true
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DietaryMenuItemListData": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DietaryMenuItem"
+            }
+          }
+        }
+      },
+      "DietaryMenuItemListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMenuItemListData"
+          }
+        }
+      },
+      "DietaryMenuItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryMenuItem"
+          }
+        }
+      },
+      "DietaryMenuItemUpdateRequest": {
+        "type": "object",
+        "description": "Partial update; omitted fields keep their current values. Deactivate with active=false (names free up for replacements).",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "meal_type": {
+            "type": "string",
+            "enum": [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack"
+            ]
+          },
+          "diet_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_veg": {
+            "type": "boolean"
+          },
+          "allergen_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DietaryProductionSummaryData": {
+        "type": "object",
+        "required": [
+          "serviceDate",
+          "totalLive",
+          "byMeal"
+        ],
+        "properties": {
+          "serviceDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "totalLive": {
+            "type": "integer",
+            "description": "Non-cancelled tickets for the day."
+          },
+          "byMeal": {
+            "type": "object",
+            "description": "Keyed by meal_type: what the kitchen cooks (counts by diet_type) plus a status rollup.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "total": {
+                  "type": "integer"
+                },
+                "by_diet_type": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                },
+                "by_status": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "DietaryProductionSummaryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DietaryProductionSummaryData"
+          }
+        }
+      },
       "DischargeConsultRow": {
         "type": "object",
         "additionalProperties": false,
@@ -21434,6 +22473,93 @@
           },
           "data": {
             "$ref": "#/components/schemas/ExternalRecoveryOperabilityWorkbench"
+          }
+        }
+      },
+      "FamilyMemberPromoteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relationship",
+          "consent_confirmed"
+        ],
+        "properties": {
+          "relationship": {
+            "type": "string",
+            "enum": [
+              "parent",
+              "mother",
+              "father",
+              "legal_guardian",
+              "grandparent",
+              "sibling",
+              "spouse",
+              "other"
+            ],
+            "description": "Declared guardian→dependent relationship (part of the consent declaration)."
+          },
+          "consent_confirmed": {
+            "type": "boolean",
+            "description": "Explicit guardian consent declaration. Must be true — recorded as link_consent_method=guardian_declaration and audited."
+          },
+          "birthday": {
+            "type": "string",
+            "format": "date",
+            "description": "Dependent date of birth; required when the contact row carries none. The dependent must be a minor (<18y)."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "MALE",
+              "FEMALE",
+              "OTHER"
+            ]
+          }
+        }
+      },
+      "FamilyMemberPromoteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FamilyMemberPromoteResult"
+          }
+        }
+      },
+      "FamilyMemberPromoteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dependent",
+          "family_member_id",
+          "created_identity",
+          "already_linked"
+        ],
+        "properties": {
+          "dependent": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The linked dependent (dependents-roster shape: id, uid, name, masked phone, birthday, gender, is_minor, guardian_relationship, linked_at)."
+          },
+          "family_member_id": {
+            "type": "integer"
+          },
+          "created_identity": {
+            "type": "boolean",
+            "description": "True when a new minor patient identity was minted (synthetic DEPEND- phone); false when an existing minor account was linked by phone."
+          },
+          "already_linked": {
+            "type": "boolean"
           }
         }
       },
@@ -27115,6 +28241,386 @@
           }
         }
       },
+      "MisReportCatalogEntry": {
+        "type": "object",
+        "required": [
+          "key",
+          "title"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "daily-ops",
+              "opd-daily",
+              "ip-occupancy",
+              "doctor-productivity-30d",
+              "payer-mix-monthly",
+              "lab-tat",
+              "teleconsult-ops"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "MisReportSchedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "reportKeys",
+          "cadence",
+          "sendHour",
+          "recipients",
+          "enabled"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "reportKeys": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "daily-ops",
+                "opd-daily",
+                "ip-occupancy",
+                "doctor-productivity-30d",
+                "payer-mix-monthly",
+                "lab-tat",
+                "teleconsult-ops"
+              ]
+            },
+            "description": "Snapshot reports included in each email, from the pinned MIS report catalog."
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "sendHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23,
+            "description": "Local send hour in the tenant timezone (settings.timezone, default Asia/Kolkata)."
+          },
+          "sendWeekday": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "nullable": true,
+            "description": "Weekly cadence day, 0=Sunday through 6=Saturday; null for other cadences."
+          },
+          "sendDayOfMonth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 28,
+            "nullable": true,
+            "description": "Monthly cadence day of month; null for other cadences."
+          },
+          "recipients": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "lastRunAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastStatus": {
+            "type": "string",
+            "enum": [
+              "running",
+              "sent",
+              "partial",
+              "failed"
+            ],
+            "nullable": true,
+            "description": "Outcome of the most recent run; sent requires every recipient to be provider-acknowledged."
+          },
+          "lastRunDetail": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true,
+            "description": "Per-recipient outcomes and failure codes recorded by the most recent run."
+          },
+          "lastOccurrenceKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MisReportScheduleDeletePayload": {
+        "type": "object",
+        "required": [
+          "deleted",
+          "id"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "MisReportScheduleDeleteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MisReportScheduleDeletePayload"
+          }
+        }
+      },
+      "MisReportScheduleListPayload": {
+        "type": "object",
+        "required": [
+          "schedules",
+          "reports",
+          "count"
+        ],
+        "properties": {
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MisReportSchedule"
+            }
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MisReportCatalogEntry"
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "MisReportScheduleListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MisReportScheduleListPayload"
+          }
+        }
+      },
+      "MisReportScheduleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MisReportSchedule"
+          }
+        }
+      },
+      "MisReportScheduleRunPayload": {
+        "type": "object",
+        "required": [
+          "scheduleId",
+          "status",
+          "occurrenceKey",
+          "deliveries"
+        ],
+        "properties": {
+          "scheduleId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "partial",
+              "failed"
+            ]
+          },
+          "occurrenceKey": {
+            "type": "string"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "email",
+                "outcome"
+              ],
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "acknowledged",
+                    "rejected",
+                    "uncertain"
+                  ]
+                },
+                "failureCode": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "MisReportScheduleRunResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MisReportScheduleRunPayload"
+          }
+        }
+      },
+      "MisReportScheduleWriteRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "reportKeys": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "daily-ops",
+                "opd-daily",
+                "ip-occupancy",
+                "doctor-productivity-30d",
+                "payer-mix-monthly",
+                "lab-tat",
+                "teleconsult-ops"
+              ]
+            }
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "sendHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23
+          },
+          "sendWeekday": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "nullable": true
+          },
+          "sendDayOfMonth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 28,
+            "nullable": true
+          },
+          "recipients": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "MyDeclaration": {
         "type": "object",
         "additionalProperties": false,
@@ -28610,6 +30116,181 @@
           },
           "shift": {
             "type": "string"
+          }
+        }
+      },
+      "OnCallAssignment": {
+        "type": "object",
+        "required": [
+          "id",
+          "department",
+          "tier",
+          "staff_id",
+          "start_at",
+          "end_at",
+          "is_active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "department": {
+            "type": "string"
+          },
+          "specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "1 = primary on call, 2 = secondary/backup, 3+ = further escalation tiers."
+          },
+          "staff_id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "staff_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "created_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "end_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OnCallAssignmentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnCallAssignment"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "OnCallAssignmentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OnCallAssignment"
+          }
+        }
+      },
+      "OnCallCreateRequest": {
+        "type": "object",
+        "required": [
+          "staff_id",
+          "start_at",
+          "end_at"
+        ],
+        "properties": {
+          "staff_id": {
+            "type": "integer"
+          },
+          "specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OnCallEndRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -33756,6 +35437,558 @@
           }
         }
       },
+      "PharmacyCounterSale": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "customer_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "customer_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx_upload_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "IN_PROGRESS",
+              "COMPLETED",
+              "VOIDED",
+              "FAILED"
+            ]
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "cash_shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "number"
+          },
+          "sold_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sold_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "void_refund_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleLine"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleAllocation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "BIGSERIAL id serialized as text."
+          },
+          "inventory_batch_id": {
+            "type": "integer"
+          },
+          "batch_number": {
+            "type": "string"
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "movement_id": {
+            "type": "integer",
+            "description": "The pharmacy_stock_movements issue row this allocation committed with."
+          },
+          "return_movement_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Set once a void restocked this allocation."
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateRequest": {
+        "type": "object",
+        "required": [
+          "lines",
+          "payment_mode"
+        ],
+        "properties": {
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleLineInput"
+            }
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Registered patient. Omit for an anonymous walk-in (customer_name then required)."
+          },
+          "customer_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "customer_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "rx": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PharmacyCounterSaleRxInput"
+              }
+            ],
+            "nullable": true
+          },
+          "witness": {
+            "type": "object",
+            "nullable": true,
+            "description": "Witness for Schedule X / narcotic lines (required then).",
+            "properties": {
+              "uid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "payment_mode": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "CARD",
+              "UPI",
+              "NETBANKING",
+              "CHEQUE",
+              "DD",
+              "WALLET"
+            ]
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "sold_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleCreateResult"
+          }
+        }
+      },
+      "PharmacyCounterSaleCreateResult": {
+        "type": "object",
+        "required": [
+          "sale"
+        ],
+        "properties": {
+          "sale": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          },
+          "invoice": {
+            "type": "object",
+            "description": "The billingV2 PHARMACY invoice (issued + paid) backing the sale."
+          },
+          "payment": {
+            "type": "object",
+            "description": "The billing_payments row collected at the counter."
+          }
+        }
+      },
+      "PharmacyCounterSaleLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "inventory_item_id": {
+            "type": "integer"
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "schedule_class": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "H",
+              "H1",
+              "X",
+              "OTC",
+              null
+            ]
+          },
+          "is_narcotic": {
+            "type": "boolean"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "line_total": {
+            "type": "number"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleAllocation"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleLineInput": {
+        "type": "object",
+        "required": [
+          "inventory_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "inventory_item_id": {
+            "type": "integer"
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          }
+        }
+      },
+      "PharmacyCounterSaleList": {
+        "type": "object",
+        "required": [
+          "sales"
+        ],
+        "properties": {
+          "sales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSale"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleList"
+          }
+        }
+      },
+      "PharmacyCounterSaleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          }
+        }
+      },
+      "PharmacyCounterSaleRxInput": {
+        "type": "object",
+        "description": "Prescription reference — REQUIRED (doctor_name plus reference or upload_id) when any line is Schedule H/H1/X or narcotic.",
+        "properties": {
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true,
+            "description": "Rx number / free reference."
+          },
+          "upload_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Pointer into the tenant upload store (e.g. a photographed paper Rx)."
+          },
+          "id_proof_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "id_proof_last4": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sku_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "generic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "brand_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "schedule_class": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_narcotic": {
+            "type": "boolean"
+          },
+          "hsn_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "in_stock_quantity": {
+            "type": "number",
+            "description": "Total usable (in_stock, non-expired) quantity."
+          },
+          "fefo_batch_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fefo_batch_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "fefo_expiry_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "fefo_unit_price": {
+            "type": "number",
+            "nullable": true,
+            "description": "MRP of the FEFO head batch (the price the next unit sells at)."
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItemList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCounterSaleSellableItem"
+            }
+          }
+        }
+      },
+      "PharmacyCounterSaleSellableItemsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemList"
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "voided_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleVoidResult"
+          }
+        }
+      },
+      "PharmacyCounterSaleVoidResult": {
+        "type": "object",
+        "required": [
+          "sale"
+        ],
+        "properties": {
+          "sale": {
+            "$ref": "#/components/schemas/PharmacyCounterSale"
+          },
+          "refund": {
+            "type": "object",
+            "description": "The billing_refunds row (raised, approved, and paid) for the void."
+          }
+        }
+      },
       "PortalDischargePendingResult": {
         "type": "object",
         "additionalProperties": false,
@@ -34882,6 +37115,272 @@
           "transaction_ref": {
             "type": "string",
             "maxLength": 255
+          }
+        }
+      },
+      "ReferralDestinationFacilityRequest": {
+        "type": "object",
+        "required": [
+          "destination_facility_id"
+        ],
+        "properties": {
+          "destination_facility_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "override_reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true,
+            "description": "Required when an admin or covering doctor (not the originator) changes the destination."
+          }
+        }
+      },
+      "ReferralFacility": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "facilityType",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "facilityType": {
+            "type": "string",
+            "enum": [
+              "hospital",
+              "clinic",
+              "diagnostic",
+              "specialty_center",
+              "other"
+            ]
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Free-form specialty tags used to filter the facility master."
+          },
+          "addressLine1": {
+            "type": "string",
+            "maxLength": 300,
+            "nullable": true
+          },
+          "addressLine2": {
+            "type": "string",
+            "maxLength": 300,
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "pincode": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "contactPerson": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Soft-delete flag: inactive facilities cannot receive new referrals but keep their historical linkage."
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "updatedBy": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ReferralFacilityActiveRequest": {
+        "type": "object",
+        "required": [
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ReferralFacilityListPayload": {
+        "type": "object",
+        "required": [
+          "facilities",
+          "count"
+        ],
+        "properties": {
+          "facilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferralFacility"
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "ReferralFacilityListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReferralFacilityListPayload"
+          }
+        }
+      },
+      "ReferralFacilityResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReferralFacility"
+          }
+        }
+      },
+      "ReferralFacilityWriteRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "facilityType": {
+            "type": "string",
+            "enum": [
+              "hospital",
+              "clinic",
+              "diagnostic",
+              "specialty_center",
+              "other"
+            ]
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          "addressLine1": {
+            "type": "string",
+            "maxLength": 300,
+            "nullable": true
+          },
+          "addressLine2": {
+            "type": "string",
+            "maxLength": 300,
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "pincode": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "contactPerson": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
           }
         }
       },
@@ -36212,6 +38711,242 @@
           }
         }
       },
+      "ShiftSwapListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShiftSwapRequest"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ShiftSwapProposeRequest": {
+        "type": "object",
+        "required": [
+          "requester_assignment_id",
+          "counterparty_assignment_id"
+        ],
+        "properties": {
+          "requester_assignment_id": {
+            "type": "integer",
+            "description": "The requester's own published staff_shift_roster_assignments row being offered."
+          },
+          "counterparty_assignment_id": {
+            "type": "integer",
+            "description": "The colleague's published assignment (same department) the requester wants in exchange."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ShiftSwapRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "department",
+          "requester_id",
+          "counterparty_id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "department": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "integer"
+          },
+          "requester_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "requester_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_assignment_id": {
+            "type": "integer"
+          },
+          "requester_roster_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "requester_shift_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "requester_shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_id": {
+            "type": "integer"
+          },
+          "counterparty_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "counterparty_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_assignment_id": {
+            "type": "integer"
+          },
+          "counterparty_roster_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "counterparty_shift_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "counterparty_accepted",
+              "counterparty_declined",
+              "approved",
+              "rejected",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "counterparty_responded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "decided_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "decided_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "decision_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ShiftSwapRespondRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "decline"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ShiftSwapResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ShiftSwapRequest"
+          }
+        }
+      },
+      "ShiftSwapReviewRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "SignDischargeRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -37035,6 +39770,85 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "SwapCandidate": {
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "staff_id",
+          "department",
+          "roster_date",
+          "shift_label"
+        ],
+        "properties": {
+          "assignment_id": {
+            "type": "integer"
+          },
+          "staff_id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string"
+          },
+          "roster_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "shift_label": {
+            "type": "string"
+          },
+          "shift_start": {
+            "type": "string",
+            "nullable": true
+          },
+          "shift_end": {
+            "type": "string",
+            "nullable": true
+          },
+          "assignment_target_label": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SwapCandidateListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwapCandidate"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -39823,6 +42637,9 @@
     },
     {
       "name": "adoption"
+    },
+    {
+      "name": "ambulance"
     },
     {
       "name": "analytics"
@@ -64496,6 +67313,99 @@
         ]
       }
     },
+    "/api/v1/ambulance/requests/{id}/positions": {
+      "post": {
+        "operationId": "post_api_v1_ambulance_requests_by_id_positions",
+        "tags": [
+          "ambulance"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmbulancePositionIngestResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ingests one GPS fix from the assigned ambulance crew/driver (staff app) for an actively-transporting ambulance request (dispatched/en_route/on_scene/returning). Config-gated: 403 AMBULANCE_GPS_TRACKING_DISABLED until the tenant enables ambulanceGpsTracking. The reporter is the authenticated actor; fixes are floor-rate-limited per reporter, clock-skew validated, and out-of-order fixes are stored without moving the live latest position.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AmbulancePositionIngestRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ambulance/requests/{id}/tracking": {
+      "get": {
+        "operationId": "get_api_v1_ambulance_requests_by_id_tracking",
+        "tags": [
+          "ambulance"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmbulanceTrackingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "ED live view for one ambulance request: derived latest position, recent trail (trail_limit, default 50), and the pre-hospital handover ETA passthrough. When the tenant has not enabled GPS tracking the response is an explicit { enabled: false, tracking: null } marker.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/ambulance/tracking/active": {
+      "get": {
+        "operationId": "get_api_v1_ambulance_tracking_active",
+        "tags": [
+          "ambulance"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmbulanceActiveTrackingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "ED board list: every actively-transporting ambulance request with its latest GPS fix and latest handover ETA. Explicit { enabled: false } marker when the tenant has not enabled GPS tracking."
+      }
+    },
     "/api/v1/anesthesia/entries": {
       "post": {
         "operationId": "post_api_v1_anesthesia_entries",
@@ -86048,6 +88958,157 @@
         }
       }
     },
+    "/api/v1/dashboards/mis-report-schedules": {
+      "get": {
+        "operationId": "get_api_v1_dashboards_mis_report_schedules",
+        "tags": [
+          "dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisReportScheduleListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the tenant's scheduled MIS report email deliveries together with the pinned report catalog (snapshot report keys and titles). ADMIN or SUPER_ADMIN only."
+      },
+      "post": {
+        "operationId": "post_api_v1_dashboards_mis_report_schedules",
+        "tags": [
+          "dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisReportScheduleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates a scheduled MIS report email delivery: which snapshot reports, a daily/weekly/monthly cadence with a local send hour in the tenant timezone, and up to 20 recipient email addresses. The hourly dispatch sweep sends due schedules with per-recipient SMTP delivery evidence.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MisReportScheduleWriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboards/mis-report-schedules/{scheduleId}": {
+      "delete": {
+        "operationId": "delete_api_v1_dashboards_mis_report_schedules_by_scheduleId",
+        "tags": [
+          "dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisReportScheduleDeleteResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes an MIS report email schedule and (via cascade) its per-recipient delivery evidence rows.",
+        "parameters": [
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_dashboards_mis_report_schedules_by_scheduleId",
+        "tags": [
+          "dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisReportScheduleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Updates an MIS report email schedule; omitted fields keep their current values. Disabling a schedule stops future sends without deleting its delivery history.",
+        "parameters": [
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MisReportScheduleWriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboards/mis-report-schedules/{scheduleId}/run-now": {
+      "post": {
+        "operationId": "post_api_v1_dashboards_mis_report_schedules_by_scheduleId_run_now",
+        "tags": [
+          "dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisReportScheduleRunResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Renders and emails the schedule's reports immediately, without consuming the scheduled occurrence fence. Returns the per-recipient delivery outcomes; a recipient counts as acknowledged only when the SMTP provider returned a message id.",
+        "parameters": [
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/dashboards/snapshot/daily-ops": {
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_daily_ops",
@@ -89230,6 +92291,211 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/kitchen/generate": {
+      "post": {
+        "operationId": "post_api_v1_dietary_kitchen_generate",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryKitchenGenerationResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Manually (re)cuts the day's meal tickets for every ACTIVE diet order of a currently admitted patient (kitchen roles). Idempotent: meals already holding a live ticket are skipped; the 05:00 IST scheduler performs the same cut daily.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryKitchenGenerateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/kitchen/summary": {
+      "get": {
+        "operationId": "get_api_v1_dietary_kitchen_summary",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryProductionSummaryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Kitchen production summary for a service date: live-ticket counts by meal x diet type (what the kitchen actually cooks) plus a per-meal status rollup."
+      }
+    },
+    "/api/v1/dietary/kitchen/tickets": {
+      "get": {
+        "operationId": "get_api_v1_dietary_kitchen_tickets",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMealTicketListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Kitchen board / ward tray list for a service date (default today IST), filterable by meal_type, status, ward, and patient_uid. Ordered by meal window then ward/bed."
+      }
+    },
+    "/api/v1/dietary/kitchen/tickets/{id}/status": {
+      "post": {
+        "operationId": "post_api_v1_dietary_kitchen_tickets_by_id_status",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMealTicketResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Moves a meal ticket through its lifecycle with per-transition role gating: kitchen leg pending→preparing→ready→dispatched and pre-dispatch cancel require a dietary capability role; the ward tray leg dispatched→delivered→collected (and recall-cancel of a dispatched tray) is open to any dietary-mount role. 'delivered' writes the canonical clinical timeline + audit pair in the same transaction. →dispatched/→delivered re-check the live diet order + admission and refuse 409 when the ticket is recalled (DIETARY_TICKET_RECALLED) or stale — order changed/NPO'd/on hold or admission ended (DIETARY_TICKET_STALE with details.reason). Cancelling a recalled dispatched tray, or collecting back a recalled delivered one, stamps the ward's recall acknowledgement.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMealTicketStatusRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/menu-items": {
+      "get": {
+        "operationId": "get_api_v1_dietary_menu_items",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant menu master list, filterable by meal_type, diet_type (suits-this-diet membership), and active."
+      },
+      "post": {
+        "operationId": "post_api_v1_dietary_menu_items",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates a menu item (dietary manager roles: DIETITIAN/ADMIN). One live item per (meal window, name); duplicates 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMenuItemCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietary/menu-items/{id}": {
+      "put": {
+        "operationId": "put_api_v1_dietary_menu_items_by_id",
+        "tags": [
+          "dietary"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietaryMenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Partially updates a menu item (dietary manager roles), including activate/deactivate via active.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietaryMenuItemUpdateRequest"
               }
             }
           }
@@ -111819,6 +115085,149 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/counter-sales": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date."
+      },
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/items": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales_items",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/{id}": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_counter_sales_by_id",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy-orders/counter-sales/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_counter_sales_by_id_void",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleVoidRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pharmacy-orders/dispense": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_dispense",
@@ -114227,6 +117636,149 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/pharmacy/counter-sales": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date."
+      },
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/items": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales_items",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleSellableItemsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded."
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/{id}": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_counter_sales_by_id",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/counter-sales/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_counter_sales_by_id_void",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyCounterSaleVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyCounterSaleVoidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/dispense": {
@@ -119434,7 +122986,9 @@
               }
             }
           }
-        }
+        },
+        "summary": "Create a radiology order (contrast intent derived server-side)",
+        "description": "Creates a radiology order. Contrast intent is DERIVED server-side: CT, MRI, and fluoroscopy orders are presumed contrast-planned — and screened against the patient's unified active allergies — unless the request explicitly negates with contrast_planned: false; plain radiography, ultrasound, and mammography opt in via contrast_planned: true or a named contrast_agent. A contrast-relevant allergy hit, or a screen that could not complete (degraded/failed allergy lookup — the screen fails closed), returns 409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED with the blockers unless an acknowledged override ({ override: { reason, approvedBy? } }, minimum 5-character reason) is supplied. Screen evidence (status, sources consulted, findings, intent source, override) persists in radiology_orders.contrast_allergy_screen; findings/overrides land in medication_safety_reviews plus the canonical timeline/audit pair in the same transaction."
       }
     },
     "/api/v1/radiology/patient/{uid}": {
@@ -119675,6 +123229,38 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/radiology/{id}/contrast": {
+      "put": {
+        "operationId": "put_api_v1_radiology_by_id_contrast",
+        "tags": [
+          "radiology"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Amend the contrast plan on a radiology order awaiting acquisition",
+        "description": "Protocolling step: set or clear contrast intent (contrast_planned, contrast_agent) on an order still in status 'ordered'. Amendment intent is explicit-only: an empty body is refused (400 RADIOLOGY_CONTRAST_PLAN_REQUIRED) rather than read as a clear, and clearing an existing contrast plan requires contrast_planned: false plus a reason of at least 5 characters (400 RADIOLOGY_CONTRAST_CLEAR_REASON_REQUIRED otherwise). Runs the same contrast/allergy screen as order creation against the patient's unified active allergies: a contrast-relevant hit — or a screen that could not complete (fails closed) — returns 409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED with the matched allergies unless an acknowledged override ({ override: { reason, approvedBy? } }, minimum 5-character reason) is supplied. Overrides and findings are persisted to medication_safety_reviews plus the canonical timeline/audit pair. Screen evidence is append-only: each amendment pushes the prior contrast_allergy_screen blob (including any acknowledged override) into its history array — nothing is overwritten — and a clearing records who cleared what and why on both the evidence and the canonical timeline event. Locked with 409 RADIOLOGY_CONTRAST_PLAN_LOCKED once the study leaves 'ordered'.",
         "parameters": [
           {
             "name": "id",
@@ -120735,6 +124321,167 @@
         }
       }
     },
+    "/api/v1/referrals/facilities": {
+      "get": {
+        "operationId": "get_api_v1_referrals_facilities",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFacilityListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the tenant's external referral destination facility master (active facilities by default; admins may pass include_inactive=true). Supports q (name/city/specialty substring) and facility_type filters. Clinical staff read access — this feeds the destination picker on external referral creation."
+      },
+      "post": {
+        "operationId": "post_api_v1_referrals_facilities",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFacilityResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates a destination facility in the tenant's referral facility master. ADMIN or SUPER_ADMIN only. Name is unique per tenant and city (case-insensitive).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralFacilityWriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/referrals/facilities/{facilityId}": {
+      "get": {
+        "operationId": "get_api_v1_referrals_facilities_by_facilityId",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFacilityResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Fetches one destination facility from the tenant's referral facility master.",
+        "parameters": [
+          {
+            "name": "facilityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_referrals_facilities_by_facilityId",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFacilityResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Updates a destination facility; omitted fields keep their current values. ADMIN or SUPER_ADMIN only.",
+        "parameters": [
+          {
+            "name": "facilityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralFacilityWriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/referrals/facilities/{facilityId}/active": {
+      "put": {
+        "operationId": "put_api_v1_referrals_facilities_by_facilityId_active",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFacilityResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Activates or deactivates a destination facility (soft delete). An inactive facility cannot be linked to new external referrals; historical referrals keep their linkage. ADMIN or SUPER_ADMIN only.",
+        "parameters": [
+          {
+            "name": "facilityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralFacilityActiveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/referrals/incoming": {
       "get": {
         "operationId": "get_api_v1_referrals_incoming",
@@ -120953,6 +124700,47 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/referrals/{id}/destination-facility": {
+      "put": {
+        "operationId": "put_api_v1_referrals_by_id_destination_facility",
+        "tags": [
+          "referral"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sets or changes the structured destination facility of an EXTERNAL referral. The facility must belong to the tenant and be active. Originator doctor, or admin / covering doctor with a recorded override_reason; every change lands as a referral.destination_facility_changed transition event with canonical timeline and audit evidence.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralDestinationFacilityRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/referrals/{id}/originator-ack": {
@@ -128662,6 +132450,76 @@
         ]
       }
     },
+    "/api/v1/staff/roster-board/departments/{department}/on-call": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_departments_by_department_on_call",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists a department's on-call roster for its roster managers; active/upcoming stints by default, full history with include_ended=true.",
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_departments_by_department_on_call",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates an on-call stint (department roster managers only). The staff member must hold one of the department's roster staff roles; overlapping active stints for the same department/specialty/tier are rejected by a database exclusion constraint. The staff member is notified in-app.",
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnCallCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/roster-board/departments/{department}/requests": {
       "get": {
         "operationId": "get_api_v1_staff_roster_board_departments_by_department_requests",
@@ -128680,6 +132538,37 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "department",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/staff/roster-board/departments/{department}/swaps": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_departments_by_department_swaps",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists a department's shift swap requests for reviewers (the same authority that reviews duty preference and coverage requests), counterparty-accepted requests first. Optional status filter.",
         "parameters": [
           {
             "name": "department",
@@ -128896,6 +132785,89 @@
         }
       }
     },
+    "/api/v1/staff/roster-board/on-call/my": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_on_call_my",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the authenticated staff member's current and upcoming on-call stints (active rows ending within the last 7 days or later)."
+      }
+    },
+    "/api/v1/staff/roster-board/on-call/now": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_on_call_now",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Who is on call right now (or at an optional `at` instant) — active on-call assignments covering the instant, optionally filtered by department and tier. The escalation engine consults the same table to order notification recipients."
+      }
+    },
+    "/api/v1/staff/roster-board/on-call/{id}/end": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_on_call_by_id_end",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnCallAssignmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ends an on-call stint early (soft end: the row keeps ended-by/at evidence and stops counting as active for who-is-on-call and escalation ordering).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnCallEndRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/roster-board/requests": {
       "post": {
         "operationId": "post_api_v1_staff_roster_board_requests",
@@ -128964,6 +132936,192 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/staff/roster-board/swaps": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Proposes a shift-for-shift swap: the requester offers one of their own published roster assignments and names a colleague's published assignment in the same department. Both shifts must be in the future; the request expires when the earlier shift starts. The colleague is notified in-app.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapProposeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/candidates": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_swaps_candidates",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapCandidateListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Published future assignments of colleagues in the requester's own roster department — the pick-list for proposing a swap. Excludes rows that already carry a live swap request."
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/my": {
+      "get": {
+        "operationId": "get_api_v1_staff_roster_board_swaps_my",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the authenticated staff member's shift swap requests — both those they proposed and those proposed to them — with both shifts' roster context, live requests first."
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_cancel",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requester withdrawal of a still-live shift swap request. The counterparty is notified.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/respond": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_respond",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Counterparty accept/decline of a proposed shift swap. Only the invited colleague can respond; acceptance moves the request to counterparty_accepted and hands it to the department reviewer.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapRespondRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/roster-board/swaps/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_staff_roster_board_swaps_by_id_review",
+        "tags": [
+          "roster-board"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSwapResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Department reviewer decision. Approval requires prior counterparty acceptance and atomically exchanges the two roster assignment rows (person fields only — slot targets and lead flags stay with the slot) in one transaction with audit rows on both boards; both parties are notified. Rejection is allowed from proposed or counterparty_accepted.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftSwapReviewRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/shift/{shift}": {
@@ -131734,6 +135892,47 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/users/family-members/{id}/promote": {
+      "post": {
+        "operationId": "post_api_v1_users_family_members_by_id_promote",
+        "tags": [
+          "user"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyMemberPromoteResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Promote a family-member contact into a linked dependent: mints (or links by phone) a minor patient identity with users.guardian_user_id set — the same guardian→minor link the X-Acting-As-Uid hop and booking-on-behalf validate. Requires an explicit guardian consent declaration; idempotent for an already-promoted contact (200 instead of 201).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyMemberPromoteRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/users/lookup": {

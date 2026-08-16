@@ -9,6 +9,7 @@ import '../../../core/services/audit_log_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class AuditLogsScreen extends StatefulWidget {
@@ -138,9 +139,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
         title: const AppText('s4.lib.audit_logs.audit_logs'),
         actions: [
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.audit_logs.refresh_logs'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.audit_logs.refresh_logs'),
             onPressed: _allowed && !_loading ? () => _loadLogs() : null,
             icon: const Icon(Icons.refresh),
           ),
@@ -152,12 +152,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
           : !_allowed
           ? EmptyState(
               icon: Icons.lock_outline,
-              title: AppStrings.of(
-                context,
-              ).lookup('s4.lib.audit_logs.admin_access_required'),
-              body: AppStrings.of(
-                context,
-              ).lookup('s4.lib.audit_logs.admin_only_body'),
+              title: AppStrings.of(context)
+                  .lookup('s4.lib.audit_logs.admin_access_required'),
+              body: AppStrings.of(context)
+                  .lookup('s4.lib.audit_logs.admin_only_body'),
             )
           : Column(
               children: [
@@ -207,9 +205,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _TypeChip(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.audit_logs.change_audit'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.audit_logs.change_audit'),
                     icon: Icons.manage_search,
                     selected: _kind == AuditLogKind.audit,
                     onSelected: () {
@@ -218,9 +215,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     },
                   ),
                   _TypeChip(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.audit_logs.admin_activity'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.audit_logs.admin_activity'),
                     icon: Icons.admin_panel_settings_outlined,
                     selected: _kind == AuditLogKind.system,
                     onSelected: () {
@@ -242,9 +238,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                       controller: _searchCtrl,
                       onSubmitted: (_) => _loadLogs(page: 1),
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('action.search'),
+                        labelText: AppStrings.of(context)
+                            .lookup('action.search'),
                         hintText: AppStrings.of(
                           context,
                         ).lookup('s4.lib.audit_logs.action_resource_ip_user'),
@@ -258,9 +253,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                       key: ValueKey(_dateRange),
                       initialValue: _dateRange,
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('theatre.label.date'),
+                        labelText: AppStrings.of(context)
+                            .lookup('theatre.label.date'),
                         prefixIcon: const Icon(Icons.date_range),
                       ),
                       items: const [
@@ -306,16 +300,14 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     ),
                   ),
                   _DateButton(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.audit_logs.from'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.audit_logs.from'),
                     value: _from == null ? null : _dateOnlyFmt.format(_from!),
                     onPressed: () => _pickDate(isFrom: true),
                   ),
                   _DateButton(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.audit_logs.to'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.audit_logs.to'),
                     value: _to == null ? null : _dateOnlyFmt.format(_to!),
                     onPressed: () => _pickDate(isFrom: false),
                   ),
@@ -325,9 +317,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                       controller: _actionCtrl,
                       onSubmitted: (_) => _loadLogs(page: 1),
                       decoration: InputDecoration(
-                        labelText: AppStrings.of(
-                          context,
-                        ).lookup('s4.lib.audit_logs.action'),
+                        labelText: AppStrings.of(context)
+                            .lookup('s4.lib.audit_logs.action'),
                         prefixIcon: const Icon(Icons.bolt_outlined),
                       ),
                     ),
@@ -339,9 +330,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                         controller: _resourceCtrl,
                         onSubmitted: (_) => _loadLogs(page: 1),
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.audit_logs.resource'),
+                          labelText: AppStrings.of(context)
+                              .lookup('s4.lib.audit_logs.resource'),
                           prefixIcon: const Icon(Icons.folder_copy_outlined),
                         ),
                       ),
@@ -352,9 +342,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                         controller: _roleCtrl,
                         onSubmitted: (_) => _loadLogs(page: 1),
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.audit_logs.actor_role'),
+                          labelText: AppStrings.of(context)
+                              .lookup('s4.lib.audit_logs.actor_role'),
                           prefixIcon: const Icon(Icons.badge_outlined),
                         ),
                       ),
@@ -392,12 +381,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
     if (_result.logs.isEmpty) {
       return EmptyState(
         icon: Icons.manage_search,
-        title: AppStrings.of(
-          context,
-        ).lookup('s4.lib.audit_logs.no_matching_logs'),
-        body: AppStrings.of(
-          context,
-        ).lookup('s4.lib.audit_logs.adjust_filters_or_date_range'),
+        title: AppStrings.of(context)
+            .lookup('s4.lib.audit_logs.no_matching_logs'),
+        body: AppStrings.of(context)
+            .lookup('s4.lib.audit_logs.adjust_filters_or_date_range'),
       );
     }
     return RefreshIndicator(
@@ -444,9 +431,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.audit_logs.previous_page'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.audit_logs.previous_page'),
                 onPressed: _result.page > 1 && !_loading
                     ? () => _loadLogs(page: _result.page - 1)
                     : null,
@@ -460,9 +446,8 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 style: TextStyle(color: AppTheme.textPrimary),
               ),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.audit_logs.next_page'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.audit_logs.next_page'),
                 onPressed: _result.page < _result.totalPages && !_loading
                     ? () => _loadLogs(page: _result.page + 1)
                     : null,
@@ -739,9 +724,8 @@ class _LogRow extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       subject.isEmpty
-                          ? AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.audit_logs.no_extra_details')
+                          ? AppStrings.of(context)
+                                .lookup('s4.lib.audit_logs.no_extra_details')
                           : subject,
                       style: TextStyle(color: AppTheme.textSecondary),
                       maxLines: 2,

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
@@ -38,9 +39,8 @@ class OverviewTab extends StatelessWidget {
             Icon(
               Icons.emoji_events_outlined,
               size: 48,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.3),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.3),
             ),
             const SizedBox(height: 12),
             Text(
@@ -201,9 +201,8 @@ class OverviewTab extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFFFFD54F,
-                                ).withValues(alpha: 0.2),
+                                color: const Color(0xFFFFD54F)
+                                    .withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(

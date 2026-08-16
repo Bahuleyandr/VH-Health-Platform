@@ -230,10 +230,8 @@ void main() {
         'radiology',
       );
       expect(
-        orderDraftFromTestCatalogRow({
-          'name': '12-lead ECG',
-          'category': 'ECG',
-        }).orderType,
+        orderDraftFromTestCatalogRow({'name': '12-lead ECG', 'category': 'ECG'})
+            .orderType,
         'ecg',
       );
     });

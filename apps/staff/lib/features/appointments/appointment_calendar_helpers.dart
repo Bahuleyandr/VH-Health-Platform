@@ -38,9 +38,8 @@ int? appointmentMinuteOfDayFromText(String value) {
   if (raw.isEmpty) return null;
   if (raw.toLowerCase() == 'walk-in') return null;
 
-  final timeMatch = RegExp(
-    r'^(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?$',
-  ).firstMatch(raw);
+  final timeMatch = RegExp(r'^(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?$')
+      .firstMatch(raw);
   if (timeMatch == null) return null;
 
   var hour = int.tryParse(timeMatch.group(1) ?? '');

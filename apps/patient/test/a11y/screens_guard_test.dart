@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
@@ -64,6 +65,11 @@ void main() {
         ChangeNotifierProvider<UserProvider>.value(value: user),
         ChangeNotifierProvider<WebSocketProvider>(
           create: (_) => WebSocketProvider(),
+        ),
+        // Appointments tabs read the acting-as roster for the
+        // booking-for selector / dependent labelling.
+        ChangeNotifierProvider<DependentsProvider>(
+          create: (_) => DependentsProvider(),
         ),
       ],
       child: child,

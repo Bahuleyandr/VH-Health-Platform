@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/platform_info.dart';
@@ -103,9 +104,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.nursingSuperintendent ||
       _role.isAdminTier;
 
-  bool _hasFeature(String featureId) => RoleFeatures.getFeaturesForRawRole(
-    _rawRole,
-  ).any((feature) => feature.id == featureId);
+  bool _hasFeature(String featureId) =>
+      RoleFeatures.getFeaturesForRawRole(_rawRole)
+          .any((feature) => feature.id == featureId);
 
   bool get _roleHasAttendanceFeature => _hasFeature('attendance');
 

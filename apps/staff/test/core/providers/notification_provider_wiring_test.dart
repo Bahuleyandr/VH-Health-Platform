@@ -4,9 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('authenticated routing initializes staff push registration', () {
-    final source = File(
-      'lib/core/navigation/app_router.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/navigation/app_router.dart')
+        .readAsStringSync();
 
     expect(
       source,
@@ -25,9 +24,8 @@ void main() {
   });
 
   test('initialized providers retry unsynced authenticated registration', () {
-    final source = File(
-      'lib/core/providers/notification_provider.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/providers/notification_provider.dart')
+        .readAsStringSync();
 
     expect(
       source,
@@ -46,9 +44,8 @@ void main() {
   });
 
   test('successful login explicitly starts a fresh notification session', () {
-    final source = File(
-      'lib/features/auth/screens/login_screen.dart',
-    ).readAsStringSync();
+    final source = File('lib/features/auth/screens/login_screen.dart')
+        .readAsStringSync();
 
     expect(
       source,
@@ -59,12 +56,10 @@ void main() {
   });
 
   test('the authenticated provider owns the sole foreground FCM listener', () {
-    final providerSource = File(
-      'lib/core/providers/notification_provider.dart',
-    ).readAsStringSync();
-    final codeBlueSource = File(
-      'lib/core/services/code_blue_notifier.dart',
-    ).readAsStringSync();
+    final providerSource = File('lib/core/providers/notification_provider.dart')
+        .readAsStringSync();
+    final codeBlueSource = File('lib/core/services/code_blue_notifier.dart')
+        .readAsStringSync();
 
     expect(providerSource, contains('_messaging.onMessage.listen'));
     expect(codeBlueSource, isNot(contains('FirebaseMessaging.onMessage')));

@@ -5,21 +5,22 @@ import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import 'composition_alternatives_panel.dart';
 
-typedef DispensableContextLoader =
-    Future<Map<String, dynamic>> Function(int orderId);
-typedef DispensableBatchLoader =
-    Future<List<Map<String, dynamic>>> Function(int catalogId);
-typedef SubstitutionDispenser =
-    Future<void> Function({
-      required String patientUid,
-      int? encounterId,
-      required int inventoryItemId,
-      required int inventoryBatchId,
-      required num quantity,
-      required int originalCatalogId,
-      required int finalCatalogId,
-      String? reason,
-    });
+typedef DispensableContextLoader = Future<Map<String, dynamic>> Function(
+  int orderId,
+);
+typedef DispensableBatchLoader = Future<List<Map<String, dynamic>>> Function(
+  int catalogId,
+);
+typedef SubstitutionDispenser = Future<void> Function({
+  required String patientUid,
+  int? encounterId,
+  required int inventoryItemId,
+  required int inventoryBatchId,
+  required num quantity,
+  required int originalCatalogId,
+  required int finalCatalogId,
+  String? reason,
+});
 
 /// Bottom sheet where a pharmacist dispenses an in-stock, same-formulation alternative
 /// for a prescribed brand on a pharmacy order.

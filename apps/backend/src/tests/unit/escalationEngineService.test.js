@@ -1091,9 +1091,12 @@ describe('escalation recipient fan-out cap', () => {
     // COUNT(*) OVER () is evaluated before LIMIT, so it reports the TRUE match
     // count — that is what makes the dropped count exact rather than a guess.
     expect(sql).toMatch(/COUNT\(\*\)\s+OVER\s*\(\)\s+AS\s+total_matched/i);
-    // Never-signed-in accounts sort last, so a trim sheds the least reachable
+    // An ACTIVE on-call stint (staff_on_call_assignments, migration 682) is
+    // the primary duty signal and sorts first; within each on-call bucket,
+    // never-signed-in accounts sort last, so a trim sheds the least reachable
     // clinicians first; id ASC makes the order total and therefore deterministic.
-    expect(sql).toMatch(/ORDER BY\s+last_sign_in_at\s+DESC\s+NULLS\s+LAST,\s*id\s+ASC/i);
+    expect(sql).toMatch(/ORDER BY\s+\(EXISTS\s*\(\s*SELECT 1 FROM staff_on_call_assignments/i);
+    expect(sql).toMatch(/u\.last_sign_in_at\s+DESC\s+NULLS\s+LAST,\s*u\.id\s+ASC/i);
     expect(sql).not.toMatch(/ORDER BY\s+id\s*\n/i);
   });
 

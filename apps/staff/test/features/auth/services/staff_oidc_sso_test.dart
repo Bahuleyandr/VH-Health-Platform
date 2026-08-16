@@ -77,8 +77,7 @@ void main() {
             isIn(['desktop', 'mobile', 'tablet', 'web']),
           );
           return _ok({
-            'redirectUrl':
-                'https://idp.example.test/auth?client_id=vh-staff&state=opaque-state',
+            'redirectUrl': 'https://idp.example.test/auth?client_id=vh-staff&state=opaque-state',
           });
         }
         if (request.method == 'POST' &&

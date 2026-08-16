@@ -130,9 +130,8 @@ void main() {
           isFalse,
         );
         expect(
-          const CdsOverrideOutcome(
-            overrideReason: '14 characters!',
-          ).shouldProceed,
+          const CdsOverrideOutcome(overrideReason: '14 characters!')
+              .shouldProceed,
           isFalse,
         );
       },
@@ -141,8 +140,7 @@ void main() {
     test('returns true when overrideReason is a valid structured payload', () {
       expect(
         const CdsOverrideOutcome(
-          overrideReason:
-              '[benefit-outweighs-risk] Benefit outweighs allergy risk — patient history confirmed',
+          overrideReason: '[benefit-outweighs-risk] Benefit outweighs allergy risk — patient history confirmed',
         ).shouldProceed,
         isTrue,
       );
@@ -153,9 +151,8 @@ void main() {
       // calling the API. A whitespace-only override must not pass.
       const whitespaceReason = '               ';
       expect(
-        const CdsOverrideOutcome(
-          overrideReason: whitespaceReason,
-        ).shouldProceed,
+        const CdsOverrideOutcome(overrideReason: whitespaceReason)
+            .shouldProceed,
         isFalse,
         reason: 'Whitespace-padded empty override must not proceed to API call',
       );

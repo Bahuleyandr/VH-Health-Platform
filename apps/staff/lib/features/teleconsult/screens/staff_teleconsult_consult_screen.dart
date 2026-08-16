@@ -459,9 +459,8 @@ class _ClinicalActionsPane extends StatelessWidget {
           children: [
             Text(
               s.lookup('staff_teleconsult.clinical_actions'),
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
             _InfoLine(

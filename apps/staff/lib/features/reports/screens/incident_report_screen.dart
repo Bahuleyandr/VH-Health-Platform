@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -337,9 +338,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  DateFormat(
-                                    'd MMM yyyy',
-                                  ).format(_incidentDate),
+                                  DateFormat('d MMM yyyy')
+                                      .format(_incidentDate),
                                   style: TextStyle(
                                     color: AppTheme.textPrimary,
                                     fontSize: 13,

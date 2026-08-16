@@ -8,7 +8,9 @@
 // Once signed by a doctor, it becomes the official discharge summary.
 
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';

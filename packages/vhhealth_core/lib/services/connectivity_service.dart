@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../config/api_config.dart';
@@ -52,9 +53,8 @@ class ConnectivityService {
       if (InternetAddress.tryParse(host) != null) {
         _isOnline = true;
       } else {
-        final result = await InternetAddress.lookup(
-          host,
-        ).timeout(const Duration(seconds: 5));
+        final result = await InternetAddress.lookup(host)
+            .timeout(const Duration(seconds: 5));
         _isOnline = result.isNotEmpty && result.first.rawAddress.isNotEmpty;
       }
     } on SocketException catch (_) {

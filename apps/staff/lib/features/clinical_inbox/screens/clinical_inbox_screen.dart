@@ -291,9 +291,8 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       await _showAcceptedAdmissionSource(context, receipt.admissionSource);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted && _acceptingTransfers.contains(task.id)) {
         setState(() => _acceptingTransfers.remove(task.id));
@@ -452,9 +451,9 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                             width: double.infinity,
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.errorContainer,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .errorContainer,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Column(
@@ -1148,10 +1147,8 @@ class _SlaBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: color, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -1168,10 +1165,8 @@ class _GroupHeader extends StatelessWidget {
       padding: const EdgeInsets.only(top: 12),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0,
-        ),
+        style: Theme.of(context).textTheme.titleSmall
+            ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0),
       ),
     );
   }

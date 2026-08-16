@@ -39,9 +39,8 @@ class MilestonesTab extends StatelessWidget {
             Icon(
               Icons.emoji_events_outlined,
               size: 48,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.3),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.3),
             ),
             const SizedBox(height: 12),
             Text(

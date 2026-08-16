@@ -22,7 +22,15 @@ import {
   markReferralSeenClosedLoop,
   recordSignedReferralResponse,
   rerouteClosedLoopReferral,
+  setReferralDestinationFacility,
 } from '../../services/referral/referralClosedLoopService.js';
+import {
+  createReferralFacility,
+  getReferralFacility,
+  listReferralFacilities,
+  setReferralFacilityActive,
+  updateReferralFacility,
+} from '../../services/referral/referralFacilityService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import {
@@ -185,6 +193,7 @@ router.post('/', rejectMobileClinicalWrite, ...referralValidator, validate, asyn
       referred_to_doctor: req.body.referred_to_doctor,
       referred_to_department: department,
       referral_type: req.body.referral_type,
+      destination_facility_id: req.body.destination_facility_id,
       reason: req.body.reason,
       urgency: req.body.urgency,
       clinical_summary: req.body.clinical_summary,
@@ -351,6 +360,112 @@ router.get('/audit', async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Destination facility master (migration 680) — structured destinations for
+ * external referrals. Registered before GET /:id so '/facilities' is not
+ * captured by the param route. Reads are open to clinical staff (pickers);
+ * mutations are admin-gated with an active-flag soft delete.
+ */
+router.get('/facilities', async (req, res, next) => {
+  try {
+    if (!canViewReferrals(req.user?.role)) {
+      return error(res, 'Only clinical staff can view referral facilities', 403);
+    }
+    const facilities = await listReferralFacilities(req.tenantId || req.user?.tenant_id, {
+      q: req.query.q,
+      facilityType: req.query.facility_type,
+      includeInactive: isReferralAdmin(req.user?.role) && req.query.include_inactive === 'true',
+      limit: req.query.limit,
+    });
+    return success(res, { facilities, count: facilities.length }, 'Referral facilities retrieved');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral facility error');
+    logger.error('Failed to list referral facilities:', { error: err.message });
+    next(err);
+  }
+});
+
+router.post('/facilities', async (req, res, next) => {
+  try {
+    if (!isReferralAdmin(req.user?.role)) {
+      return error(res, 'Only admin roles can manage referral facilities', 403);
+    }
+    const facility = await createReferralFacility(
+      req.tenantId || req.user?.tenant_id,
+      req.body || {},
+      { actorUid: req.user?.uid || null },
+    );
+    return success(res, facility, 'Referral facility created', 201);
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral facility error');
+    logger.error('Failed to create referral facility:', { error: err.message });
+    next(err);
+  }
+});
+
+router.get('/facilities/:facilityId', paramId('facilityId'), validate, async (req, res, next) => {
+  try {
+    if (!canViewReferrals(req.user?.role)) {
+      return error(res, 'Only clinical staff can view referral facilities', 403);
+    }
+    const facility = await getReferralFacility(
+      req.tenantId || req.user?.tenant_id,
+      req.params.facilityId,
+    );
+    return success(res, facility, 'Referral facility retrieved');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral facility error');
+    logger.error('Failed to get referral facility:', { error: err.message });
+    next(err);
+  }
+});
+
+router.put('/facilities/:facilityId', paramId('facilityId'), validate, async (req, res, next) => {
+  try {
+    if (!isReferralAdmin(req.user?.role)) {
+      return error(res, 'Only admin roles can manage referral facilities', 403);
+    }
+    const facility = await updateReferralFacility(
+      req.tenantId || req.user?.tenant_id,
+      req.params.facilityId,
+      req.body || {},
+      { actorUid: req.user?.uid || null },
+    );
+    return success(res, facility, 'Referral facility updated');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral facility error');
+    logger.error('Failed to update referral facility:', { error: err.message });
+    next(err);
+  }
+});
+
+router.put(
+  '/facilities/:facilityId/active',
+  paramId('facilityId'),
+  body('active').isBoolean().withMessage('active must be a boolean').toBoolean(),
+  validate,
+  async (req, res, next) => {
+    try {
+      if (!isReferralAdmin(req.user?.role)) {
+        return error(res, 'Only admin roles can manage referral facilities', 403);
+      }
+      const facility = await setReferralFacilityActive(
+        req.tenantId || req.user?.tenant_id,
+        req.params.facilityId,
+        req.body.active,
+        { actorUid: req.user?.uid || null },
+      );
+      return success(res, facility, facility.active
+        ? 'Referral facility reactivated'
+        : 'Referral facility deactivated');
+    } catch (err) {
+      if (err.isOperational) return relayAppError(res, err, 'Referral facility error');
+      logger.error('Failed to set referral facility active flag:', { error: err.message });
+      next(err);
+    }
+  },
+);
 
 router.get('/:id', paramId(), validate, async (req, res, next) => {
   try {
@@ -534,6 +649,29 @@ router.post('/:id/originator-ack', rejectMobileClinicalWrite, paramId(), ...orig
   } catch (err) {
     if (err.isOperational) return relayAppError(res, err, 'Referral error');
     logger.error('Failed to close referral:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * PUT /referrals/:id/destination-facility
+ * Set or change the structured destination facility of an EXTERNAL referral.
+ * Originator (or admin / covering doctor with override_reason); records a
+ * referral.destination_facility_changed transition + canonical evidence.
+ */
+router.put('/:id/destination-facility', rejectMobileClinicalWrite, paramId(), body('destination_facility_id').isInt({ min: 1 }).withMessage('destination_facility_id must be a positive integer').toInt(), validate, async (req, res, next) => {
+  try {
+    if (!canManageReferrals(req.user?.role)) {
+      return error(res, 'Only doctors can update referral destinations', 403);
+    }
+    const referral = await setReferralDestinationFacility(req.params.id, {
+      destination_facility_id: req.body.destination_facility_id,
+      reason: req.body.reason,
+    }, actorContext(req));
+    return success(res, referral, 'Referral destination facility updated');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Referral error');
+    logger.error('Failed to update referral destination facility:', { error: err.message });
     next(err);
   }
 });

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/idempotency_key.dart';
+
 import '../attachment_saver.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
@@ -593,9 +594,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
           ),
           if ((_threadId ?? '').isNotEmpty)
             PopupMenuButton<String>(
-              tooltip: AppStrings.of(
-                context,
-              ).lookup('s4.lib.messaging_inbox.conversation_actions'),
+              tooltip: AppStrings.of(context)
+                  .lookup('s4.lib.messaging_inbox.conversation_actions'),
               onSelected: _handleThreadAction,
               itemBuilder: (_) => [
                 const PopupMenuItem(
@@ -791,9 +791,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.outline),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -820,16 +819,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             const SizedBox(height: 16),
             Text(
               s.messagingThreadEmptyTitle,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
             const SizedBox(height: 8),
             Text(
               s.messagingThreadEmptyBody,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
           ],
         ),
@@ -909,14 +906,12 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: _priorityColor(
-                            _selectedPriority,
-                          ).withValues(alpha: 0.1),
+                          color: _priorityColor(_selectedPriority)
+                              .withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _priorityColor(
-                              _selectedPriority,
-                            ).withValues(alpha: 0.4),
+                            color: _priorityColor(_selectedPriority)
+                                .withValues(alpha: 0.4),
                           ),
                         ),
                         child: Row(
@@ -965,9 +960,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.attach_file),
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.messaging_thread.attach_file'),
+                    tooltip: AppStrings.of(context)
+                        .lookup('s4.lib.messaging_thread.attach_file'),
                     onPressed: (_uploadingAttachment || _sending)
                         ? null
                         : _attachFile,
@@ -1037,9 +1031,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                           borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
+                        fillColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,

@@ -149,12 +149,12 @@ class StemiActivationSummary {
       targetsPending:
           json['targets_pending'] == true ||
           metadata['targets_pending'] == true,
-      slaInstances: _asList(
-        json['sla_instances'],
-      ).map(StemiSlaClock.fromJson).toList(growable: false),
-      teamAcknowledgements: _asList(
-        json['team_acknowledgements'],
-      ).map(StemiTeamAcknowledgement.fromJson).toList(growable: false),
+      slaInstances: _asList(json['sla_instances'])
+          .map(StemiSlaClock.fromJson)
+          .toList(growable: false),
+      teamAcknowledgements: _asList(json['team_acknowledgements'])
+          .map(StemiTeamAcknowledgement.fromJson)
+          .toList(growable: false),
     );
     validateStemiActivationSummaries([activation]);
     return activation;

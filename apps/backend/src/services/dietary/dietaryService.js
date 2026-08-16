@@ -5,6 +5,21 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { syncTicketsForOrder } from './kitchenService.js';
+
+// Phase 1.5 (best-effort, post-commit): keep today's kitchen meal tickets in
+// step with the order that just changed. Failure is logged, never blocks the
+// order write — the 05:00 IST scheduler cut and the manual regenerate
+// endpoint are the safety nets.
+async function bestEffortTicketSync(tenantId, dietOrderId, actorUid, reason) {
+  try {
+    await syncTicketsForOrder({ tenantId, dietOrderId, actorUid, reason });
+  } catch (err) {
+    logger.warn('Dietary meal-ticket sync failed (order write already committed)', {
+      tenantId, dietOrderId, error: err.message,
+    });
+  }
+}
 
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
@@ -55,6 +70,33 @@ async function assertPatientInTenant(tenantId, patientUid) {
   if (!rows.length) throw AppError.notFound('Patient not found');
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Cross-tenant reference guard (ophthalmologyService.assertEncounterLink
+// idiom): diet_orders.encounter_id has no FK, so without this check a caller
+// could attach another tenant's (or another patient's) encounter uuid.
+async function assertEncounterLink(tenantId, patientUid, encounterId) {
+  if (encounterId === null || encounterId === undefined || encounterId === '') return null;
+  if (typeof encounterId !== 'string' || !UUID_RE.test(encounterId.trim())) {
+    throw AppError.badRequest('encounter_id must be a uuid');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM patient_encounters
+      WHERE tenant_id = $1::uuid
+        AND id = $2::uuid
+        AND patient_uid = $3::uuid
+      LIMIT 1`,
+    tenantId,
+    encounterId.trim(),
+    patientUid,
+  );
+  if (!rows.length) {
+    throw AppError.badRequest('encounter_id does not belong to this patient', 'DIETARY_ENCOUNTER_MISMATCH');
+  }
+  return encounterId.trim();
+}
+
 class DietaryService {
 
   /**
@@ -79,25 +121,66 @@ class DietaryService {
     const normalizedRestrictions = toTextArray(restrictions);
     const normalizedAllergies = toTextArray(allergies);
     await assertPatientInTenant(tenantId, patient_uid);
+    const linkedEncounterId = await assertEncounterLink(tenantId, patient_uid, encounter_id);
 
-    const order = await prisma.diet_orders.create({
-      data: {
-        tenant_id: tenantId,
-        patient_uid,
-        encounter_id: encounter_id || null,
-        diet_type,
-        restrictions: normalizedRestrictions,
-        allergies: normalizedAllergies,
-        meal_preferences: meal_preferences || null,
-        calories_target: calories_target || null,
-        special_instructions: special_instructions || null,
-        status: 'active',
-        ordered_by,
-      },
-      select: DIET_ORDER_SELECT,
+    // ★ A new order SUPERSEDES the patient's previous active one, atomically.
+    //
+    // diet_orders carries no per-patient uniqueness, and neither shipped client
+    // can edit a diet — the staff dialog and the admin console both change a
+    // patient's diet by POSTing a NEW order. Without this, the previous order
+    // stays `active` forever: the 05:00 cut keeps generating trays from it
+    // every day alongside the new one (duplicate trays), and — the dangerous
+    // case — an order superseded by an `npo` one keeps producing food for a
+    // patient who must not eat. Ticket sync is scoped to a single order id, so
+    // nothing else would ever retire the old row.
+    //
+    // Phase 1: supersede + insert in ONE transaction, so a patient can never be
+    // left with two active orders or none. Explicit tenant_id predicates (not
+    // setTenant) because scoping must hold in every environment — a bare
+    // $transaction callback is not auto-tenant-wrapped.
+    const { order, supersededIds } = await prisma.$transaction(async (tx) => {
+      const superseded = await tx.$queryRawUnsafe(
+        `UPDATE diet_orders
+            SET status = 'discontinued', updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND status = 'active'
+          RETURNING id`,
+        tenantId, patient_uid,
+      );
+      const created = await tx.diet_orders.create({
+        data: {
+          tenant_id: tenantId,
+          patient_uid,
+          encounter_id: linkedEncounterId,
+          diet_type,
+          restrictions: normalizedRestrictions,
+          allergies: normalizedAllergies,
+          meal_preferences: meal_preferences || null,
+          calories_target: calories_target || null,
+          special_instructions: special_instructions || null,
+          status: 'active',
+          ordered_by,
+        },
+        select: DIET_ORDER_SELECT,
+      });
+      return { order: created, supersededIds: superseded.map((r) => Number(r.id)) };
     });
 
-    logger.info('Diet order created', { orderId: order.id, diet_type, patient_uid });
+    logger.info('Diet order created', {
+      orderId: order.id, diet_type, patient_uid, supersededOrderIds: supersededIds,
+    });
+
+    // Phase 1.5: recall the superseded orders' in-flight trays BEFORE syncing
+    // the new one. Each is independently best-effort — a sync failure must not
+    // fail an order write that already committed.
+    for (const supersededId of supersededIds) {
+      await bestEffortTicketSync(
+        tenantId, supersededId, ordered_by,
+        `diet order superseded by order ${order.id}`,
+      );
+    }
+    await bestEffortTicketSync(tenantId, order.id, ordered_by, 'diet order created');
     return order;
   }
 
@@ -181,13 +264,24 @@ class DietaryService {
     if (status != null) updateData.status = status;
     if (reviewed_by != null) updateData.reviewed_by = reviewed_by;
 
-    const order = await prisma.diet_orders.update({
-      where: { id: parseInt(id, 10) },
+    // updateMany carries an explicit tenant predicate (house pattern: tenant
+    // scoping must be provable in the write itself, not only in the
+    // pre-flight read) — a bare-PK update here was the no-tenant-predicate
+    // shape flagged across this PR.
+    const updatedCount = await prisma.diet_orders.updateMany({
+      where: { id: parseInt(id, 10), tenant_id: tenantId },
       data: updateData,
+    });
+    if (updatedCount.count === 0) {
+      throw AppError.notFound('Diet order not found');
+    }
+    const order = await prisma.diet_orders.findFirst({
+      where: { id: parseInt(id, 10), tenant_id: tenantId },
       select: DIET_ORDER_SELECT,
     });
 
     logger.info('Diet order updated', { orderId: id });
+    await bestEffortTicketSync(tenantId, order.id, reviewed_by, 'diet order changed');
     return order;
   }
 

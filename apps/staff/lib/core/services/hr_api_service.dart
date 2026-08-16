@@ -705,6 +705,142 @@ class HrApiService {
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
 
+  // ─── Shift swaps (migration 682) ───────────────────────────────────────────
+
+  /// POST /staff/roster-board/swaps — propose a shift-for-shift swap
+  static Future<Map<String, dynamic>> proposeShiftSwap({
+    required int requesterAssignmentId,
+    required int counterpartyAssignmentId,
+    String? reason,
+  }) async {
+    return await _post('/staff/roster-board/swaps', {
+      'requester_assignment_id': requesterAssignmentId,
+      'counterparty_assignment_id': counterpartyAssignmentId,
+      'reason': ?reason,
+    });
+  }
+
+  /// GET /staff/roster-board/swaps/my — my outgoing + incoming swap requests
+  static Future<List<dynamic>> getMyShiftSwaps() async {
+    final result = await _get('/staff/roster-board/swaps/my');
+    return result['data'] as List? ?? [];
+  }
+
+  /// GET /staff/roster-board/swaps/candidates — colleagues' published future
+  /// shifts in my roster department, available to propose a swap against
+  static Future<List<dynamic>> getShiftSwapCandidates() async {
+    final result = await _get('/staff/roster-board/swaps/candidates');
+    return result['data'] as List? ?? [];
+  }
+
+  /// GET /staff/roster-board/departments/:department/swaps — reviewer list
+  static Future<List<dynamic>> getDepartmentShiftSwaps({
+    required String department,
+    String? status,
+  }) async {
+    final result = await _get(
+      '/staff/roster-board/departments/$department/swaps',
+      query: status == null ? null : {'status': status},
+    );
+    return result['data'] as List? ?? [];
+  }
+
+  /// POST /staff/roster-board/swaps/:id/respond — counterparty accept/decline
+  static Future<Map<String, dynamic>> respondShiftSwap({
+    required int swapId,
+    required String decision,
+    String? note,
+  }) async {
+    return await _post('/staff/roster-board/swaps/$swapId/respond', {
+      'decision': decision,
+      'note': ?note,
+    });
+  }
+
+  /// POST /staff/roster-board/swaps/:id/cancel — requester withdrawal
+  static Future<Map<String, dynamic>> cancelShiftSwap({
+    required int swapId,
+  }) async {
+    return await _post('/staff/roster-board/swaps/$swapId/cancel', {});
+  }
+
+  /// POST /staff/roster-board/swaps/:id/review — reviewer approve/reject
+  static Future<Map<String, dynamic>> reviewShiftSwap({
+    required int swapId,
+    required String decision,
+    String? notes,
+  }) async {
+    return await _post('/staff/roster-board/swaps/$swapId/review', {
+      'decision': decision,
+      'notes': ?notes,
+    });
+  }
+
+  // ─── On-call roster (migration 682) ────────────────────────────────────────
+
+  /// GET /staff/roster-board/on-call/my — my current/upcoming on-call stints
+  static Future<List<dynamic>> getMyOnCallAssignments() async {
+    final result = await _get('/staff/roster-board/on-call/my');
+    return result['data'] as List? ?? [];
+  }
+
+  /// GET /staff/roster-board/on-call/now — who is on call right now
+  static Future<List<dynamic>> getWhoIsOnCallNow({
+    String? department,
+    int? tier,
+  }) async {
+    final query = <String, String>{};
+    if (department != null) query['department'] = department;
+    if (tier != null) query['tier'] = tier.toString();
+    final result = await _get(
+      '/staff/roster-board/on-call/now',
+      query: query.isEmpty ? null : query,
+    );
+    return result['data'] as List? ?? [];
+  }
+
+  /// GET /staff/roster-board/departments/:department/on-call — manager list
+  static Future<List<dynamic>> getDepartmentOnCall({
+    required String department,
+    bool includeEnded = false,
+  }) async {
+    final result = await _get(
+      '/staff/roster-board/departments/$department/on-call',
+      query: includeEnded ? {'include_ended': 'true'} : null,
+    );
+    return result['data'] as List? ?? [];
+  }
+
+  /// POST /staff/roster-board/departments/:department/on-call — create stint
+  static Future<Map<String, dynamic>> createOnCallAssignment({
+    required String department,
+    required int staffId,
+    required String startAt,
+    required String endAt,
+    int tier = 1,
+    String? specialty,
+    String? notes,
+  }) async {
+    return await _post('/staff/roster-board/departments/$department/on-call', {
+      'staff_id': staffId,
+      'start_at': startAt,
+      'end_at': endAt,
+      'tier': tier,
+      'specialty': ?specialty,
+      'notes': ?notes,
+    });
+  }
+
+  /// POST /staff/roster-board/on-call/:id/end — end a stint early
+  static Future<Map<String, dynamic>> endOnCallAssignment({
+    required int assignmentId,
+    String? reason,
+  }) async {
+    return await _post('/staff/roster-board/on-call/$assignmentId/end', {
+      'reason': ?reason,
+    });
+  }
+
   /// POST /staff/roster-board/requests/:id/review
   static Future<Map<String, dynamic>> reviewRosterPreferenceRequest({
     required int requestId,

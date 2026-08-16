@@ -106,27 +106,22 @@ class OtpHeader extends StatelessWidget {
             Text(
               l.otpVerifyPhoneHeading,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.teal,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.bold, color: Colors.teal),
             ),
             const SizedBox(height: 8),
             Text(
               l.otpEnterDigits,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 4),
             Text(
               _maskPhone(phoneNumber),
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: Colors.teal,
-              ),
+              style: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal),
             ),
           ],
         ),

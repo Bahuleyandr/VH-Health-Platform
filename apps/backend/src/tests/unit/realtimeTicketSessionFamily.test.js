@@ -10,6 +10,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   verifyToken: verifyTokenMock,
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
   isUserTokensRevoked: jest.fn().mockResolvedValue(false),
   // realtimeTicketRoutes resolves the ticket's token_epoch through the
@@ -17,6 +18,9 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   // acting-as hops) — the factory must export it or the ESM import of the
   // route module fails outright.
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
+  // jwtMiddleware's acting-as hop now also checks the delegated
+  // guardian↔dependent tuple — export it or the ESM import graph fails.
+  isDelegatedTupleRevoked: jest.fn().mockResolvedValue(false),
   RevocationCheckUnavailableError: class extends Error {},
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -41,6 +45,7 @@ function dependentRow(overrides = {}) {
     dep_email: 'dependent@test.local',
     dep_role: 'PATIENT',
     dep_is_minor: true,
+    dep_is_minor_now: true,
     dep_tenant_id: TENANT_ID,
     dep_is_active: true,
     dep_status: 'active',

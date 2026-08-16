@@ -179,10 +179,8 @@ class _StatusPill extends StatelessWidget {
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w800,
-        ),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: color, fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -205,9 +203,8 @@ class _InlineSyncNotice extends StatelessWidget {
             text,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: cs.error),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: cs.error),
           ),
         ),
       ],

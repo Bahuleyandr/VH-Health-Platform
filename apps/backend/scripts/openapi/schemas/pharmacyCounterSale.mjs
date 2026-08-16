@@ -1,0 +1,266 @@
+// apps/backend/scripts/openapi/schemas/pharmacyCounterSale.mjs
+// Walk-in pharmacy point-of-sale (migration 684), served from
+// /api/v1/pharmacy-orders/counter-sales/* (and the /api/v1/pharmacy alias).
+// FEFO batch dispensing + schedule-class enforcement + billingV2 PHARMACY
+// invoice with pay-at-counter, tied to the cashier's open cash-drawer session.
+import { envelope } from './_helpers.mjs';
+
+export const schemas = {
+  PharmacyCounterSaleLineInput: {
+    type: 'object',
+    required: ['inventory_item_id', 'quantity'],
+    properties: {
+      inventory_item_id: { type: 'integer' },
+      quantity: { type: 'number', minimum: 0.0001 },
+    },
+  },
+
+  PharmacyCounterSaleRxInput: {
+    type: 'object',
+    description:
+      'Prescription reference — REQUIRED (doctor_name plus reference or upload_id) when any line is Schedule H/H1/X or narcotic.',
+    properties: {
+      doctor_name: { type: 'string', nullable: true },
+      reference: { type: 'string', nullable: true, description: 'Rx number / free reference.' },
+      upload_id: { type: 'integer', nullable: true, description: 'Pointer into the tenant upload store (e.g. a photographed paper Rx).' },
+      id_proof_type: { type: 'string', nullable: true },
+      id_proof_last4: { type: 'string', nullable: true },
+    },
+  },
+
+  PharmacyCounterSaleCreateRequest: {
+    type: 'object',
+    required: ['lines', 'payment_mode'],
+    properties: {
+      lines: {
+        type: 'array',
+        minItems: 1,
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleLineInput' },
+      },
+      patient_uid: {
+        type: 'string', format: 'uuid', nullable: true,
+        description: 'Registered patient. Omit for an anonymous walk-in (customer_name then required).',
+      },
+      customer_name: { type: 'string', nullable: true },
+      customer_phone: { type: 'string', nullable: true },
+      rx: { allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleRxInput' }], nullable: true },
+      witness: {
+        type: 'object',
+        nullable: true,
+        description: 'Witness for Schedule X / narcotic lines (required then).',
+        properties: {
+          uid: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+        },
+      },
+      payment_mode: {
+        type: 'string',
+        enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET'],
+      },
+      payment_reference: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      sold_by_name: { type: 'string', nullable: true },
+    },
+  },
+
+  PharmacyCounterSaleAllocation: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'BIGSERIAL id serialized as text.' },
+      inventory_batch_id: { type: 'integer' },
+      batch_number: { type: 'string' },
+      expiry_date: { type: 'string', format: 'date' },
+      quantity: { type: 'number' },
+      unit_price: { type: 'number' },
+      movement_id: { type: 'integer', description: 'The pharmacy_stock_movements issue row this allocation committed with.' },
+      return_movement_id: { type: 'integer', nullable: true, description: 'Set once a void restocked this allocation.' },
+    },
+  },
+
+  PharmacyCounterSaleLine: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      inventory_item_id: { type: 'integer' },
+      item_name: { type: 'string' },
+      schedule_class: { type: 'string', nullable: true, enum: ['H', 'H1', 'X', 'OTC', null] },
+      is_narcotic: { type: 'boolean' },
+      quantity: { type: 'number' },
+      unit_price: { type: 'number' },
+      gst_rate: { type: 'number' },
+      line_total: { type: 'number' },
+      allocations: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleAllocation' },
+      },
+    },
+  },
+
+  PharmacyCounterSale: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'BIGSERIAL id serialized as text.' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      customer_name: { type: 'string', nullable: true },
+      customer_phone: { type: 'string', nullable: true },
+      rx_doctor_name: { type: 'string', nullable: true },
+      rx_reference: { type: 'string', nullable: true },
+      rx_upload_id: { type: 'integer', nullable: true },
+      status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'VOIDED', 'FAILED'] },
+      invoice_id: { type: 'integer', nullable: true },
+      invoice_number: { type: 'string', nullable: true },
+      payment_mode: { type: 'string', nullable: true },
+      payment_reference: { type: 'string', nullable: true },
+      cash_shift: { type: 'string', nullable: true },
+      total_amount: { type: 'number' },
+      sold_by: { type: 'string', format: 'uuid' },
+      sold_by_name: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      voided_at: { type: 'string', format: 'date-time', nullable: true },
+      voided_by: { type: 'string', format: 'uuid', nullable: true },
+      void_reason: { type: 'string', nullable: true },
+      void_refund_id: { type: 'integer', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      lines: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleLine' },
+      },
+    },
+  },
+
+  PharmacyCounterSaleCreateResult: {
+    type: 'object',
+    required: ['sale'],
+    properties: {
+      sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
+      invoice: {
+        type: 'object',
+        description: 'The billingV2 PHARMACY invoice (issued + paid) backing the sale.',
+      },
+      payment: {
+        type: 'object',
+        description: 'The billing_payments row collected at the counter.',
+      },
+    },
+  },
+
+  PharmacyCounterSaleVoidRequest: {
+    type: 'object',
+    required: ['reason'],
+    properties: {
+      reason: { type: 'string' },
+      voided_by_name: { type: 'string', nullable: true },
+    },
+  },
+
+  PharmacyCounterSaleVoidResult: {
+    type: 'object',
+    required: ['sale'],
+    properties: {
+      sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
+      refund: {
+        type: 'object',
+        description: 'The billing_refunds row (raised, approved, and paid) for the void.',
+      },
+    },
+  },
+
+  PharmacyCounterSaleSellableItem: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      sku_code: { type: 'string' },
+      display_name: { type: 'string' },
+      generic_name: { type: 'string', nullable: true },
+      brand_name: { type: 'string', nullable: true },
+      form: { type: 'string', nullable: true },
+      strength: { type: 'string', nullable: true },
+      unit_label: { type: 'string' },
+      schedule_class: { type: 'string', nullable: true },
+      is_narcotic: { type: 'boolean' },
+      hsn_code: { type: 'string', nullable: true },
+      in_stock_quantity: { type: 'number', description: 'Total usable (in_stock, non-expired) quantity.' },
+      fefo_batch_id: { type: 'integer', nullable: true },
+      fefo_batch_number: { type: 'string', nullable: true },
+      fefo_expiry_date: { type: 'string', format: 'date', nullable: true },
+      fefo_unit_price: { type: 'number', nullable: true, description: 'MRP of the FEFO head batch (the price the next unit sells at).' },
+    },
+  },
+
+  PharmacyCounterSaleSellableItemList: {
+    type: 'object',
+    required: ['items'],
+    properties: {
+      items: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleSellableItem' },
+      },
+    },
+  },
+
+  PharmacyCounterSaleList: {
+    type: 'object',
+    required: ['sales'],
+    properties: {
+      sales: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacyCounterSale' },
+      },
+    },
+  },
+
+  PharmacyCounterSaleCreateResponse: envelope('PharmacyCounterSaleCreateResult'),
+  PharmacyCounterSaleVoidResponse: envelope('PharmacyCounterSaleVoidResult'),
+  PharmacyCounterSaleResponse: envelope('PharmacyCounterSale'),
+  PharmacyCounterSaleListResponse: envelope('PharmacyCounterSaleList'),
+  PharmacyCounterSaleSellableItemsResponse: envelope('PharmacyCounterSaleSellableItemList'),
+};
+
+const DESCRIPTIONS = {
+  items:
+    'POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded.',
+  create:
+    'Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.',
+  list:
+    'Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date.',
+  detail:
+    'One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).',
+  void:
+    'Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.',
+};
+
+function ops(prefix) {
+  return {
+    [`GET ${prefix}/counter-sales/items`]: {
+      description: DESCRIPTIONS.items,
+      response: 'PharmacyCounterSaleSellableItemsResponse',
+    },
+    [`POST ${prefix}/counter-sales`]: {
+      description: DESCRIPTIONS.create,
+      request: 'PharmacyCounterSaleCreateRequest',
+      response: 'PharmacyCounterSaleCreateResponse',
+    },
+    [`GET ${prefix}/counter-sales`]: {
+      description: DESCRIPTIONS.list,
+      response: 'PharmacyCounterSaleListResponse',
+    },
+    [`GET ${prefix}/counter-sales/{id}`]: {
+      description: DESCRIPTIONS.detail,
+      response: 'PharmacyCounterSaleResponse',
+    },
+    [`POST ${prefix}/counter-sales/{id}/void`]: {
+      description: DESCRIPTIONS.void,
+      request: 'PharmacyCounterSaleVoidRequest',
+      response: 'PharmacyCounterSaleVoidResponse',
+    },
+  };
+}
+
+// The pharmacy router is mounted at both /api/v1/pharmacy-orders (canonical)
+// and /api/v1/pharmacy (alias); the spec captures both.
+export const operations = {
+  ...ops('/api/v1/pharmacy-orders'),
+  ...ops('/api/v1/pharmacy'),
+};

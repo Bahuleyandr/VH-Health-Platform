@@ -313,9 +313,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
             });
     }
 
-    final source = _patientCommandBoardText(
-      scope['source'],
-    ).replaceAll('_', ' ');
+    final source = _patientCommandBoardText(scope['source'])
+        .replaceAll('_', ' ');
     final assignmentCount = _patientCommandBoardInt(scope['assignment_count']);
     if (source.isNotEmpty && assignmentCount > 0) {
       return s.format('s4.dynamic.patient_command_board.postings', {
@@ -849,9 +848,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
 
   Widget _buildFreshnessIndicator(DateTime refreshedAt) {
     final theme = Theme.of(context);
-    final formattedTime = MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(TimeOfDay.fromDateTime(refreshedAt));
+    final formattedTime = MaterialLocalizations.of(context)
+        .formatTimeOfDay(TimeOfDay.fromDateTime(refreshedAt));
     final label = patientCommandBoardFreshnessLabel(
       AppStrings.of(context),
       formattedTime,
@@ -1141,33 +1139,28 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
             children: [
               _filterChip(
                 'all',
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.patient_command_board.filter.all'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.patient_command_board.filter.all'),
               ),
               _filterChip(
                 'emergency',
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.patient_command_board.filter.emergency'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.patient_command_board.filter.emergency'),
               ),
               _filterChip(
                 'alerts',
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.patient_command_board.filter.alerts'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.patient_command_board.filter.alerts'),
               ),
               _filterChip(
                 'tasks',
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.patient_command_board.filter.tasks'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.patient_command_board.filter.tasks'),
               ),
               _filterChip(
                 'discharge',
-                AppStrings.of(
-                  context,
-                ).lookup('s4.lib.patient_command_board.filter.discharge'),
+                AppStrings.of(context)
+                    .lookup('s4.lib.patient_command_board.filter.discharge'),
               ),
             ],
           ),
@@ -1177,9 +1170,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           DropdownButtonFormField<String?>(
             initialValue: _ward,
             decoration: InputDecoration(
-              labelText: AppStrings.of(
-                context,
-              ).lookup('s4.lib.patient_command_board.ward_area'),
+              labelText: AppStrings.of(context)
+                  .lookup('s4.lib.patient_command_board.ward_area'),
               prefixIcon: const Icon(Icons.location_on_outlined),
               border: const OutlineInputBorder(),
               isDense: true,
@@ -1828,9 +1820,8 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
       title: Text(
         _carePlanText(
           activity['title'],
-          AppStrings.of(
-            context,
-          ).lookup('s4.lib.patient_command_board.activity'),
+          AppStrings.of(context)
+              .lookup('s4.lib.patient_command_board.activity'),
         ),
       ),
       subtitle: Text(
@@ -1884,9 +1875,8 @@ class _CarePlanSubheading extends StatelessWidget {
             'title': title,
             'count': count,
           }),
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.w800),
         ),
       ],
     );

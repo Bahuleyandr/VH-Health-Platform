@@ -3,25 +3,23 @@ import 'package:flutter/material.dart';
 import '../../../core/services/ed_trauma_api_service.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef EdContinuityLoader =
-    Future<Map<String, dynamic>> Function(int emergencyVisitId);
-typedef EdVisitTransitioner =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required String nextStatus,
-      String? disposition,
-      String? acceptedHandoffId,
-    });
-typedef EdClosureRecorder =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required Map<String, dynamic> body,
-    });
-typedef EdRecoveryRecorder =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required Map<String, dynamic> body,
-    });
+typedef EdContinuityLoader = Future<Map<String, dynamic>> Function(
+  int emergencyVisitId,
+);
+typedef EdVisitTransitioner = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required String nextStatus,
+  String? disposition,
+  String? acceptedHandoffId,
+});
+typedef EdClosureRecorder = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required Map<String, dynamic> body,
+});
+typedef EdRecoveryRecorder = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required Map<String, dynamic> body,
+});
 
 class EdContinuityPanel extends StatefulWidget {
   const EdContinuityPanel({
@@ -153,9 +151,8 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
       );
       if (!mounted) return;
       setState(() {
-        _message = AppStrings.of(
-          context,
-        ).lookup('ed_trauma.continuity.transition_saved');
+        _message = AppStrings.of(context)
+            .lookup('ed_trauma.continuity.transition_saved');
       });
       await _reloadWithoutBusy(id);
     });
@@ -216,9 +213,8 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
       await recorder(emergencyVisitId: id, body: body);
       if (!mounted) return;
       setState(() {
-        _message = AppStrings.of(
-          context,
-        ).lookup('ed_trauma.continuity.closure_saved');
+        _message = AppStrings.of(context)
+            .lookup('ed_trauma.continuity.closure_saved');
       });
       await _reloadWithoutBusy(id);
     });
@@ -243,9 +239,8 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
       );
       if (!mounted) return;
       setState(() {
-        _message = AppStrings.of(
-          context,
-        ).lookup('ed_trauma.continuity.recovery_saved');
+        _message = AppStrings.of(context)
+            .lookup('ed_trauma.continuity.recovery_saved');
       });
       await _reloadWithoutBusy(id);
     });
@@ -281,9 +276,8 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
     final value = _currentVisitId;
     if (value != null && value > 0) return value;
     setState(() {
-      _error = AppStrings.of(
-        context,
-      ).lookup('ed_trauma.handoff.visit_required');
+      _error = AppStrings.of(context)
+          .lookup('ed_trauma.handoff.visit_required');
     });
     return null;
   }
@@ -966,9 +960,8 @@ class _ContinuitySection extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],
@@ -999,9 +992,8 @@ class _ActionCard extends StatelessWidget {
           children: [
             Text(
               title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             ...children,

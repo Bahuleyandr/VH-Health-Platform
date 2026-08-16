@@ -504,6 +504,77 @@ export function persistRevokeDelegatedTuple(
   );
 }
 
+/**
+ * SUBJECT-side revocation predicate for a delegated (guardian acting-as
+ * dependent) request — timestamp-only, and therefore RECOVERABLE.
+ *
+ * Both delegated call sites (jwtMiddleware.applyActingAsHop and the wsServer
+ * handshake) document the same contract: "the guardian's token_epoch is not
+ * meaningful for the dependent, so the check uses the durable timestamp
+ * predicate against the bearer's iat". Calling isUserTokensRevoked(subject,
+ * iat, undefined) did NOT honour that: its `identity.token_epoch > 0` arm has
+ * no timestamp, so once the dependent's epoch had ever been bumped, delegated
+ * access was denied FOREVER — no re-login, re-consent, or admin action could
+ * clear it (the epoch-0 permanence is deliberate for epoch-less BEARERS, but a
+ * delegated hop's authority is the still-standing guardian link plus a bearer
+ * whose mint time is known).
+ *
+ * Honest semantics implemented here: the subject's revoke-all severs every
+ * delegated session whose bearer predates it — via the durable revoke-all row
+ * (created_at >= iat, self-expiring) AND the epoch bump *timestamp*
+ * (token_epoch_bumped_at > iat). A guardian bearer minted AFTER the bump is a
+ * new delegated authority: the guardian re-authenticated while the
+ * guardian_user_id link still stands, which is exactly how the guardian's own
+ * revoke-all recovers. Severing the delegation itself is the job of the
+ * durable tuple revocation (persistRevokeDelegatedTuple) + the link-row gates,
+ * not of the subject's session epoch.
+ *
+ * @param {string} subjectUid - the dependent's users.uid
+ * @param {number} bearerIssuedAt - guardian bearer's iat (Unix seconds)
+ * @returns {Promise<boolean>} true when delegated access must be denied
+ * @throws {RevocationCheckUnavailableError} when the durable store cannot
+ *   answer — callers fail CLOSED (503), same contract as isUserTokensRevoked.
+ */
+export async function isSubjectDelegationRevoked(subjectUid, bearerIssuedAt) {
+  if (!subjectUid || !UUID_RE.test(String(subjectUid))) return false;
+  const issuedAt = Number.isFinite(Number(bearerIssuedAt)) ? Number(bearerIssuedAt) : 0;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT 1
+        WHERE EXISTS (
+            SELECT 1
+              FROM invalidated_tokens
+             WHERE jti = $1
+               AND expires_at > NOW()
+               AND created_at >= to_timestamp($2)
+          )
+          OR EXISTS (
+            SELECT 1
+              FROM (
+                SELECT token_epoch_bumped_at FROM users WHERE uid = $3::uuid
+                UNION ALL
+                SELECT token_epoch_bumped_at FROM admins WHERE uid = $3::uuid
+              ) AS identity
+             WHERE identity.token_epoch_bumped_at > to_timestamp($2)
+          )
+        LIMIT 1`,
+      `user:${subjectUid}`,
+      issuedAt,
+      String(subjectUid),
+    );
+    return rows.length > 0;
+  } catch (err) {
+    logger.error('Subject delegation revocation check failed — failing CLOSED', {
+      error: err?.message,
+      code: err?.code,
+    });
+    throw new RevocationCheckUnavailableError(
+      'Subject delegation revocation store unreachable',
+      err,
+    );
+  }
+}
+
 export async function publishRevokeDelegatedTuple(
   guardianUid,
   dependentUid,

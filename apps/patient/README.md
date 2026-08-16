@@ -8,7 +8,7 @@ department browsing, localization, and offline-friendly record access.
 
 | Area | Current choice |
 | --- | --- |
-| Framework | Flutter 3.44.0 |
+| Framework | Flutter 3.47.0 |
 | Auth | Firebase OTP plus backend JWT |
 | Routing | `go_router` |
 | State | `provider` plus feature-local state |

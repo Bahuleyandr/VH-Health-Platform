@@ -68,8 +68,7 @@ void main() {
           'issued_at': '2026-08-13T00:00:00.000Z',
           'grace_until': '2026-08-14T00:00:00.000Z',
         },
-        'signature':
-            'dEvzHRUpLdcKanrE4nJZ6uTgpUuYU6e59w+vQ0EgfeppKfRS7o5XIUD2Zvxm+AckussaA64OTqFsFx38vojHBQ==',
+        'signature': 'dEvzHRUpLdcKanrE4nJZ6uTgpUuYU6e59w+vQ0EgfeppKfRS7o5XIUD2Zvxm+AckussaA64OTqFsFx38vojHBQ==',
       });
 
       expect(policy?.revision, 11);

@@ -85,9 +85,11 @@ check('admin Dockerfile does not persist SENTRY_AUTH_TOKEN as ARG/ENV', () =>
 check('release Dockerfiles use digest-pinned base image defaults', () =>
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
-  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.44\\.0${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  new RegExp(`^ARG BUILD_IMAGE=debian:12-slim${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  /^ARG FLUTTER_VERSION=3\.47\.0$/m.test(staffWebDockerfile) &&
+  /^ARG FLUTTER_SHA256=[a-f0-9]{64}$/m.test(staffWebDockerfile) &&
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
-  !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
+  !/^FROM (node|nginx|debian|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
 
 check('container npm postinstall hooks remain inside each Docker build context', () =>
   backendPackage.scripts.postinstall ===
@@ -115,6 +117,17 @@ check('backend generation stays within the Forgejo runner memory budget', () =>
 
 check('staff web runtime applies Alpine security updates', () =>
   staffWebDockerfile.includes('RUN apk upgrade --no-cache'));
+
+// Dockerfile.web installs the official Flutter linux tarball, which is
+// published for x64 ONLY (no linux-arm64 stable tarball exists in the Flutter
+// release manifest — checked 2026-08-16). A multi-arch build would run x64
+// toolchain binaries under an arm64 userland and publish an arch it never
+// verified, so both release workflows must keep the staff-web build
+// constrained to linux/amd64 while the Dockerfile stays x64-tarball-only.
+check('staff web image builds stay amd64-only while Flutter ships no linux-arm64 SDK', () =>
+  staffWebDockerfile.includes('this image is linux/amd64-ONLY') &&
+  /file: \.\/apps\/staff\/Dockerfile\.web[\s\S]{0,900}?platforms: linux\/amd64\n/.test(githubReleaseImages) &&
+  forgejoReleaseImages.includes('build_platforms="linux/amd64"'));
 
 check('Forgejo admin image builds provide the backend named context', () =>
   forgejoContainerSupplyChain.includes(

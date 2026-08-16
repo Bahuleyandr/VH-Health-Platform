@@ -14,6 +14,7 @@ import {
   saveRosterBoard,
   saveRosterDay
 } from '../../services/staff/rosterBoardService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 function forbidden(res) {
@@ -50,6 +51,7 @@ export async function saveDepartmentRoster(req, res) {
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
     const board = await saveRosterBoard({
+      tenantId: resolveTenantOrThrow(req),
       department,
       rosterDate: req.body?.roster_date,
       shiftId: req.body?.shift_id,
@@ -72,6 +74,7 @@ export async function saveDepartmentRosterDay(req, res) {
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
     const board = await saveRosterDay({
+      tenantId: resolveTenantOrThrow(req),
       department,
       rosterDate: req.body?.roster_date,
       boards: req.body?.boards,
@@ -93,6 +96,7 @@ export async function publishDepartmentRoster(req, res) {
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
     const board = await publishRosterBoard({
+      tenantId: resolveTenantOrThrow(req),
       rosterId: id,
       actorUser: req.user,
       reason: req.body?.reason || 'Published from roster board'
@@ -110,6 +114,7 @@ export async function copyPreviousDepartmentRoster(req, res) {
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
     const board = await copyPreviousRosterBoard({
+      tenantId: resolveTenantOrThrow(req),
       department,
       targetDate: req.body?.target_date || req.body?.roster_date,
       shiftLabel: req.body?.shift_label,

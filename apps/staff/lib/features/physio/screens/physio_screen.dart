@@ -212,9 +212,8 @@ class _PhysioScreenState extends State<PhysioScreen> {
   }
 
   void _show(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

@@ -11,6 +11,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class BillingDeskScreen extends StatefulWidget {
@@ -323,16 +324,14 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
             constraints: const BoxConstraints(minWidth: 220, maxWidth: 460),
             child: AppText(
               's4.lib.billing_desk.billing_desk',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
           _Metric(
             icon: Icons.receipt_long_outlined,
-            label: AppStrings.of(
-              context,
-            ).lookup('s4.lib.billing_desk.invoices'),
+            label: AppStrings.of(context)
+                .lookup('s4.lib.billing_desk.invoices'),
             value: '${_invoices.length}',
             color: AppTheme.primaryBlue,
           ),
@@ -371,9 +370,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                   onChanged: _queuePatientLookup,
                   onSubmitted: _searchPatients,
                   decoration: InputDecoration(
-                    labelText: AppStrings.of(
-                      context,
-                    ).lookup('reception_counter.patient_lookup.hint'),
+                    labelText: AppStrings.of(context)
+                        .lookup('reception_counter.patient_lookup.hint'),
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _lookupBusy
                         ? const Padding(
@@ -424,9 +422,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         children: [
           _SectionTitle(
             icon: Icons.receipt,
-            title: AppStrings.of(
-              context,
-            ).lookup('s4.lib.billing_desk.invoices'),
+            title: AppStrings.of(context)
+                .lookup('s4.lib.billing_desk.invoices'),
             trailing: selected == null
                 ? null
                 : FilledButton.icon(
@@ -445,18 +442,16 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           if (selected == null)
             _EmptyLine(
               icon: Icons.person_search,
-              text: AppStrings.of(
-                context,
-              ).lookup('s4.lib.billing_desk.select_a_patient'),
+              text: AppStrings.of(context)
+                  .lookup('s4.lib.billing_desk.select_a_patient'),
             )
           else if (_invoiceBusy)
             const LinearProgressIndicator(minHeight: 2)
           else if (_invoices.isEmpty)
             _EmptyLine(
               icon: Icons.receipt_long,
-              text: AppStrings.of(
-                context,
-              ).lookup('s4.lib.billing_desk.no_invoices_found'),
+              text: AppStrings.of(context)
+                  .lookup('s4.lib.billing_desk.no_invoices_found'),
             )
           else
             ..._invoices.map(_invoiceTile),
@@ -477,9 +472,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final actions = <Widget>[
       if (canPrintTax)
         IconButton.filledTonal(
-          tooltip: AppStrings.of(
-            context,
-          ).lookup('s4.lib.billing_desk.print_tax_invoice'),
+          tooltip: AppStrings.of(context)
+              .lookup('s4.lib.billing_desk.print_tax_invoice'),
           onPressed: _actionBusy
               ? null
               : () => _printInvoiceDocument(
@@ -490,9 +484,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         ),
       if (canPrintReceipt)
         IconButton.filledTonal(
-          tooltip: AppStrings.of(
-            context,
-          ).lookup('s4.lib.billing_desk.print_receipt'),
+          tooltip: AppStrings.of(context)
+              .lookup('s4.lib.billing_desk.print_receipt'),
           onPressed: _actionBusy
               ? null
               : () =>
@@ -519,9 +512,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.26),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
@@ -543,9 +535,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                       id.toString(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 2),
                     Wrap(
@@ -652,9 +643,8 @@ class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
         ),
         ?trailing,
@@ -698,10 +688,8 @@ class _Metric extends StatelessWidget {
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800, color: color),
                 ),
                 Text(label, style: TextStyle(color: AppTheme.textSecondary)),
               ],

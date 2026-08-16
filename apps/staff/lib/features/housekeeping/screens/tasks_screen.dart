@@ -69,12 +69,10 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     try {
       final s = AppStrings.of(context);
       final data = await HrApiService.getMyHousekeepingRequests();
-      final assigned = _asMapList(
-        data['assigned'],
-      ).map((row) => _Task.fromJson(row, s));
-      final completed = _asMapList(
-        data['completed'],
-      ).map((row) => _Task.fromJson(row, s));
+      final assigned = _asMapList(data['assigned'])
+          .map((row) => _Task.fromJson(row, s));
+      final completed = _asMapList(data['completed'])
+          .map((row) => _Task.fromJson(row, s));
       if (!mounted) return;
       setState(() {
         _assignedTasks = assigned.toList(growable: false);
@@ -153,9 +151,8 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
                     controller: controller,
                     maxLines: 3,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).housekeepingCompletionNotes,
+                      labelText: AppStrings.of(context)
+                          .housekeepingCompletionNotes,
                       border: const OutlineInputBorder(),
                     ),
                   ),
@@ -197,9 +194,8 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  AppStrings.of(
-                                    context,
-                                  ).housekeepingAddCompletionPhoto,
+                                  AppStrings.of(context)
+                                      .housekeepingAddCompletionPhoto,
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: AppTheme.textSecondary,

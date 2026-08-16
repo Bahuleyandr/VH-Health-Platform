@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class HousekeepingRosterBoardScreen extends StatefulWidget {
@@ -1165,9 +1166,8 @@ class _HousekeepingRosterBoardScreenState
 
   void _showSnack(String message, Color color) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -2583,9 +2583,8 @@ class _StaffWiseRoster extends StatelessWidget {
                     initialValue: selectedShift,
                     isExpanded: true,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('profile.field.shift'),
+                      labelText: AppStrings.of(context)
+                          .lookup('profile.field.shift'),
                       prefixIcon: const Icon(Icons.schedule_outlined),
                     ),
                     items: [
@@ -2625,9 +2624,8 @@ class _StaffWiseRoster extends StatelessWidget {
                     initialValue: selectedTarget,
                     isExpanded: true,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.housekeeping_roster_board.ward_unit'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.housekeeping_roster_board.ward_unit'),
                       prefixIcon: const Icon(Icons.location_on_outlined),
                     ),
                     items: [
@@ -3115,12 +3113,11 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
   void initState() {
     super.initState();
     _nameController.text =
-        AppStrings.forLocale(
-          WidgetsBinding.instance.platformDispatcher.locale,
-        ).format(
-          's4.dynamic.housekeeping_roster_board.custom_shift_default_name',
-          {'hour': TimeOfDay.now().hour.toString().padLeft(2, '0')},
-        );
+        AppStrings.forLocale(WidgetsBinding.instance.platformDispatcher.locale)
+            .format(
+              's4.dynamic.housekeeping_roster_board.custom_shift_default_name',
+              {'hour': TimeOfDay.now().hour.toString().padLeft(2, '0')},
+            );
   }
 
   @override
@@ -3135,15 +3132,13 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
     final text = value?.trim() ?? '';
     final valid = RegExp(r'^\d{2}:\d{2}$').hasMatch(text);
     if (!valid) {
-      return AppStrings.of(
-        context,
-      ).lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
+      return AppStrings.of(context)
+          .lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
     }
     final parts = text.split(':').map(int.parse).toList();
     if (parts[0] > 23 || parts[1] > 59) {
-      return AppStrings.of(
-        context,
-      ).lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
+      return AppStrings.of(context)
+          .lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
     }
     return null;
   }
@@ -3198,12 +3193,10 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
                   child: TextFormField(
                     controller: _startController,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('investigations.start_button'),
-                      hintText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.housekeeping_roster_board.07_30'),
+                      labelText: AppStrings.of(context)
+                          .lookup('investigations.start_button'),
+                      hintText: AppStrings.of(context)
+                          .lookup('s4.lib.housekeeping_roster_board.07_30'),
                       prefixIcon: const Icon(Icons.play_arrow_outlined),
                     ),
                     validator: _validateTime,
@@ -3215,12 +3208,10 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
                   child: TextFormField(
                     controller: _endController,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.housekeeping_command.end'),
-                      hintText: AppStrings.of(
-                        context,
-                      ).lookup('s4.lib.housekeeping_roster_board.12_30'),
+                      labelText: AppStrings.of(context)
+                          .lookup('s4.lib.housekeeping_command.end'),
+                      hintText: AppStrings.of(context)
+                          .lookup('s4.lib.housekeeping_roster_board.12_30'),
                       prefixIcon: const Icon(Icons.stop_outlined),
                     ),
                     validator: _validateTime,

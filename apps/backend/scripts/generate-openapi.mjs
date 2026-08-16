@@ -14,7 +14,10 @@ import {
 } from './openapi/buildSpec.mjs';
 import { OPENAPI_BASE } from './openapi/base.mjs';
 import * as abdm from './openapi/schemas/abdm.mjs';
+import * as ambulanceTracking from './openapi/schemas/ambulanceTracking.mjs';
 import * as money from './openapi/schemas/money.mjs';
+import * as pharmacyCounterSale from './openapi/schemas/pharmacyCounterSale.mjs';
+import * as dietaryKitchen from './openapi/schemas/dietaryKitchen.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
 import * as payroll from './openapi/schemas/payroll.mjs';
@@ -49,6 +52,10 @@ import * as bloodBank from './openapi/schemas/bloodBank.mjs';
 import * as news2 from './openapi/schemas/news2.mjs';
 import * as devices from './openapi/schemas/devices.mjs';
 import * as health from './openapi/schemas/health.mjs';
+import * as radiology from './openapi/schemas/radiology.mjs';
+import * as misReportSchedules from './openapi/schemas/misReportSchedules.mjs';
+import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
+import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -86,7 +93,14 @@ const SCHEMA_MODULES = [
   bloodBank,
   news2,
   devices,
-  health
+  health,
+  radiology,
+  misReportSchedules,
+  referralFacilities,
+  shiftSwapOnCall,
+  ambulanceTracking,
+  pharmacyCounterSale,
+  dietaryKitchen
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

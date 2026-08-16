@@ -126,9 +126,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           try {
             _selectedBirthday = DateTime.parse(user['birthday'].toString());
             if (mounted) {
-              _birthdayController.text = MaterialLocalizations.of(
-                context,
-              ).formatMediumDate(_selectedBirthday!);
+              _birthdayController.text = MaterialLocalizations.of(context)
+                  .formatMediumDate(_selectedBirthday!);
             }
           } catch (e) {
             debugPrint('Birthday parse failed: $e');

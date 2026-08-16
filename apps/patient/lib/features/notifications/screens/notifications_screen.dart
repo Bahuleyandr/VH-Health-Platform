@@ -238,9 +238,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             Text(notif['body'] ?? ''),
                             const SizedBox(height: 4),
                             Text(
-                              DateFormat(
-                                'dd-MM-yyyy hh:mm a',
-                              ).format(created.toLocal()),
+                              DateFormat('dd-MM-yyyy hh:mm a')
+                                  .format(created.toLocal()),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: colors.onSurfaceVariant,

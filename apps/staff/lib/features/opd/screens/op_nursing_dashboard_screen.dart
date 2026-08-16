@@ -236,9 +236,8 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
                     const SizedBox(height: 4),
                     Text(
                       DateFormat('EEEE, d MMMM yyyy').format(_selectedDate),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(color: AppTheme.textSecondary),
                     ),
                   ],
                 ),
@@ -531,9 +530,8 @@ class _OpQueueCard extends StatelessWidget {
                       ].join(' - '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: AppTheme.textSecondary),
                     ),
                   ],
                 ),
@@ -666,10 +664,8 @@ class _QueueStat extends StatelessWidget {
           ),
           Text(
             value.toString(),
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w900,
-            ),
+            style: Theme.of(context).textTheme.titleLarge
+                ?.copyWith(color: color, fontWeight: FontWeight.w900),
           ),
         ],
       ),

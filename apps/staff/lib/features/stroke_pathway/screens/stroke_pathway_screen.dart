@@ -126,9 +126,8 @@ class _StrokePathwayScreenState extends State<StrokePathwayScreen> {
             Center(
               child: Text(
                 s.lookup('s4.lib.stroke_pathway.empty'),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
           ],

@@ -51,6 +51,7 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: logPhiAccessMock,
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));

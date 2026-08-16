@@ -14,11 +14,13 @@ import 'secure_blob.dart';
 import 'secure_storage.dart';
 
 typedef ClinicalContinuityDatabaseOpener = Future<Database> Function();
-typedef ClinicalContinuityCodecFactory =
-    SecureBlobCodec Function(String keyName);
+typedef ClinicalContinuityCodecFactory = SecureBlobCodec Function(
+  String keyName,
+);
 typedef ClinicalContinuityBeforeCommit = Future<void> Function();
-typedef ClinicalContinuityTrustValidator =
-    Future<String?> Function(VerifiedClinicalContinuitySet set);
+typedef ClinicalContinuityTrustValidator = Future<String?> Function(
+  VerifiedClinicalContinuitySet set,
+);
 
 class ClinicalContinuityCacheWriteResult {
   final bool stored;

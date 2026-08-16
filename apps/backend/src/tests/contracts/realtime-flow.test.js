@@ -56,6 +56,7 @@ function realtimeRelationshipKey(tenantId, patientUid, actorUid) {
 // verifyToken/generateToken are the REAL implementations (the whole point — see
 // header). Set up before any dynamic import below.
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   isTokenBlacklisted: async () => false,
   isDelegatedTupleRevoked: async () => false,
   isUserTokensRevoked: async () => false,
@@ -68,6 +69,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
         uid,
         role: 'PATIENT',
         is_minor: true,
+        is_minor_now: true,
         is_active: true,
         status: 'active',
         is_deleted: false,

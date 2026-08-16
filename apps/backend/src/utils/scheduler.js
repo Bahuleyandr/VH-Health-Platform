@@ -252,6 +252,14 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // Staff roster deadline escalation — next week's roster must be published
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
+// Shift swap expiry — still-live swap requests whose earliest shift has
+// started can never complete; flip them to expired so they stop blocking
+// fresh proposals on the same roster assignments.
+import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
+// Ambulance GPS position retention — the fix stream (migration 683) is
+// high-volume operational telemetry; keep only the tenant-configured window
+// (default 7 days).
+import { sweepAmbulancePositionEvents } from '../services/ed/ambulanceTrackingService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
@@ -715,6 +723,20 @@ if (process.env.NODE_ENV !== 'test') {
     runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
   )));
 
+  // 🍽️ Daily at 05:00 IST (23:30 UTC) - cut the day's kitchen meal tickets
+  // (one per ACTIVE diet order x meal window for currently admitted
+  // patients; migration 685). One morning cut before the breakfast line
+  // starts; same-day churn is handled synchronously by the diet-order
+  // create/update sync and the manual /dietary/kitchen/generate endpoint.
+  // Idempotent per the live (diet_order, service_date, meal_type) unique.
+  registerCron('30 23 * * *', withJobLock('dietary-meal-ticket-generation', async () => {
+    const { generateMealTickets } = await import('../services/dietary/kitchenService.js');
+    const r = await runForEachTenant('dietary-meal-ticket-generation', (tenantId) => (
+      generateMealTickets({ tenantId, source: 'scheduler' })
+    ));
+    logger.info('dietary-meal-ticket-generation complete', r);
+  }));
+
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
   registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => (
     runForEachTenant('process-scheduled-notifications', tenantId => (
@@ -996,6 +1018,25 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }));
 
+  // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
+  // Per-tenant fan-out; runDueMisReportSchedules evaluates each enabled
+  // schedule against the tenant's local clock (settings.timezone, defaulting
+  // Asia/Kolkata), claims due occurrences with a compare-and-set on
+  // last_occurrence_key (so a failed tick's survivors catch up later the same
+  // day without double-sending), renders the snapshot reports and emails them
+  // with per-recipient delivery evidence in mis_report_deliveries. Individual
+  // schedule failures are recorded on their own rows and never abort the
+  // sweep. Lazy import keeps the email/report graph out of the scheduler's
+  // boot path.
+  registerCron('10 * * * *', withJobLock('mis-report-schedule-dispatch', async () => {
+    const { runDueMisReportSchedules } = await import(
+      '../services/dashboards/misReportScheduleService.js'
+    );
+    await runForEachTenant('mis-report-schedule-dispatch', (tenantId) => (
+      runDueMisReportSchedules({ tenantId })
+    ));
+  }));
+
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.
@@ -1077,6 +1118,27 @@ if (process.env.NODE_ENV !== 'test') {
     }),
     { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
   );
+
+  // 🗓️ Hourly at :20 — expire shift swap requests whose earliest shift has
+  // already started (they can never be approved; the live-swap unique indexes
+  // would otherwise keep blocking new proposals on those assignments).
+  registerCron('20 * * * *', withJobLock('shift-swap-expiry', async () => {
+    await runForEachTenant('shift-swap-expiry', tenantId => (
+      expireStaleShiftSwapRequests({ tenantId })
+    ));
+  }));
+
+  // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).
+  // Position fixes are operational telemetry, not chart content; delete rows
+  // older than the tenant's ambulanceGpsTracking.retentionDays (default 7).
+  // Runs even for tenants with the feature disabled so a later disable still
+  // drains the already-ingested backlog. Self-batched inside the service.
+  registerCron('25 * * * *', withJobLock('ambulance-position-retention', async () => {
+    const result = await runForEachTenant('ambulance-position-retention', tenantId => (
+      sweepAmbulancePositionEvents({ tenantId })
+    ));
+    logger.info('ambulance-position-retention sweep complete', result);
+  }));
 
   // 🗓️ Daily at 03:30 - Apply tenant retention policies to all five audit sinks.
   // The service fails closed unless an active policy explicitly selects erase

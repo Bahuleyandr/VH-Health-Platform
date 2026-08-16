@@ -6,8 +6,10 @@ import '../services/cath_lab_api_service.dart';
 
 typedef CathQuickWinsLoader = Future<CathCaseQuickWins> Function(int caseId);
 typedef CathQuickWinsEvidenceRefresher = Future<void> Function(int caseId);
-typedef CathQuickWinsOrderSetApplier =
-    Future<void> Function(int caseId, String slot);
+typedef CathQuickWinsOrderSetApplier = Future<void> Function(
+  int caseId,
+  String slot,
+);
 
 /// Injectable dependency bundle, mirroring [CathReportDependencies].
 class CathQuickWinsDependencies {
@@ -82,9 +84,8 @@ class _CathQuickWinsPanelState extends State<CathQuickWinsPanel> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = AppStrings.of(
-          context,
-        ).lookup('s4.lib.cath_lab.quick_wins.load_failed');
+        _error = AppStrings.of(context)
+            .lookup('s4.lib.cath_lab.quick_wins.load_failed');
         _loading = false;
       });
     }
@@ -177,9 +178,8 @@ class _CathQuickWinsPanelState extends State<CathQuickWinsPanel> {
         },
         title: Text(
           s.lookup('s4.lib.cath_lab.quick_wins.live_evidence'),
-          style: Theme.of(
-            context,
-          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(context).textTheme.labelMedium
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
         children: [_body(context, s)],
       ),
@@ -199,9 +199,8 @@ class _CathQuickWinsPanelState extends State<CathQuickWinsPanel> {
           Expanded(
             child: Text(
               _error!,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: AppTheme.errorRed),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppTheme.errorRed),
             ),
           ),
           TextButton(onPressed: _loadQuickWins, child: Text(s.actionRetry)),
@@ -228,9 +227,8 @@ class _CathQuickWinsPanelState extends State<CathQuickWinsPanel> {
                 hasEvidence
                     ? s.lookup('s4.lib.cath_lab.quick_wins.evidence_found')
                     : s.lookup('s4.lib.cath_lab.quick_wins.no_evidence'),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: AppTheme.textSecondary),
               ),
             ),
             IconButton(

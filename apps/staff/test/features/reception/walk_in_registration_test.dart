@@ -93,19 +93,16 @@ String bedLabel(Map<String, dynamic> bed) {
 void main() {
   // ── isEmergencyWardLabel ───────────────────────────────────────────────────
   group('isEmergencyWardLabel (ward priority auto-escalation)', () {
-    test(
-      'ward labels containing the substring "icu" trigger emergency priority',
-      () {
-        // The check is `lower.contains('icu')` — so "ICU North" and "NICU" match
-        // because they contain the substring 'icu'. "Intensive Care Unit" does NOT
-        // contain 'icu' as a substring and correctly returns false.
-        expect(isEmergencyWardLabel('ICU North'), isTrue);
-        expect(isEmergencyWardLabel('NICU'), isTrue);
-        expect(isEmergencyWardLabel('icu'), isTrue);
-        // "Intensive Care Unit" spelled out does NOT contain 'icu' as a substring.
-        expect(isEmergencyWardLabel('Intensive Care Unit'), isFalse);
-      },
-    );
+    test('ward labels containing the substring "icu" trigger emergency priority', () {
+      // The check is `lower.contains('icu')` — so "ICU North" and "NICU" match
+      // because they contain the substring 'icu'. "Intensive Care Unit" does NOT
+      // contain 'icu' as a substring and correctly returns false.
+      expect(isEmergencyWardLabel('ICU North'), isTrue);
+      expect(isEmergencyWardLabel('NICU'), isTrue);
+      expect(isEmergencyWardLabel('icu'), isTrue);
+      // "Intensive Care Unit" spelled out does NOT contain 'icu' as a substring.
+      expect(isEmergencyWardLabel('Intensive Care Unit'), isFalse);
+    });
 
     test('"er" exact match (case-insensitive) triggers emergency priority', () {
       expect(isEmergencyWardLabel('ER'), isTrue);
@@ -137,15 +134,12 @@ void main() {
       expect(isEmergencyWardLabel(''), isFalse);
     });
 
-    test(
-      '"er" appears mid-string but does NOT trigger (only exact-match and prefix rules)',
-      () {
-        // "General" contains "er" but the match is:
-        //   (a) lower == 'er', or (b) startsWith 'emergency', or (c) contains ' emergency'
-        // "general" does not satisfy any of these.
-        expect(isEmergencyWardLabel('General Ward'), isFalse);
-      },
-    );
+    test('"er" appears mid-string but does NOT trigger (only exact-match and prefix rules)', () {
+      // "General" contains "er" but the match is:
+      //   (a) lower == 'er', or (b) startsWith 'emergency', or (c) contains ' emergency'
+      // "general" does not satisfy any of these.
+      expect(isEmergencyWardLabel('General Ward'), isFalse);
+    });
   });
 
   // ── wardLabel ──────────────────────────────────────────────────────────────

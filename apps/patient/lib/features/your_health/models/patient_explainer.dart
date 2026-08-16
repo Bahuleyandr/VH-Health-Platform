@@ -111,9 +111,10 @@ List<dynamic> _asList(dynamic value) {
 }
 
 List<String> _asStringList(dynamic value) {
-  return _asList(
-    value,
-  ).map(_stringFromListValue).where((value) => value.isNotEmpty).toList();
+  return _asList(value)
+      .map(_stringFromListValue)
+      .where((value) => value.isNotEmpty)
+      .toList();
 }
 
 String _stringFromListValue(dynamic value) {

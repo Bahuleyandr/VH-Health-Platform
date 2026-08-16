@@ -14,16 +14,16 @@ typedef CathConsumableCatalogLoader =
       String? query,
       String? scan,
     });
-typedef CathConsumableBatchLoader =
-    Future<List<CathInventoryBatch>> Function(int catalogItemId);
+typedef CathConsumableBatchLoader = Future<List<CathInventoryBatch>> Function(
+  int catalogItemId,
+);
 typedef CathCaseConsumableLoader =
     Future<List<CathCaseConsumableUsage>> Function(int caseId);
-typedef CathConsumableCreator =
-    Future<CathCaseConsumableUsage> Function(
-      int caseId,
-      CathConsumableUsageDraft draft, {
-      required String idempotencyKey,
-    });
+typedef CathConsumableCreator = Future<CathCaseConsumableUsage> Function(
+  int caseId,
+  CathConsumableUsageDraft draft, {
+  required String idempotencyKey,
+});
 typedef CathConsumableScanner = Future<String?> Function();
 
 class CathConsumableDependencies {
@@ -305,9 +305,8 @@ class _UsageCard extends StatelessWidget {
                     }),
                   if (usage.expiryDate != null)
                     s.format('s4.dynamic.cath_lab.consumables.expiry', {
-                      'expiry': DateFormat(
-                        'yyyy-MM-dd',
-                      ).format(usage.expiryDate!),
+                      'expiry': DateFormat('yyyy-MM-dd')
+                          .format(usage.expiryDate!),
                     }),
                 ].join(' - '),
                 style: TextStyle(color: AppTheme.textSecondary),
@@ -332,9 +331,8 @@ class _UsageCard extends StatelessWidget {
                 [
                   if (usage.usedByName.isNotEmpty) usage.usedByName,
                   if (usage.recordedAt != null)
-                    DateFormat(
-                      'dd MMM yyyy, hh:mm a',
-                    ).format(usage.recordedAt!),
+                    DateFormat('dd MMM yyyy, hh:mm a')
+                        .format(usage.recordedAt!),
                 ].join(' - '),
                 style: Theme.of(context).textTheme.bodySmall,
               ),

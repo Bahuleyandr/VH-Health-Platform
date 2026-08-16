@@ -36,9 +36,8 @@ class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
         ),
         ?trailing,
@@ -78,10 +77,8 @@ class _Metric extends StatelessWidget {
               children: [
                 Text(
                   value,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800, color: color),
                 ),
                 Text(
                   label,
@@ -357,9 +354,8 @@ class _OpBookingClinicianFields extends StatelessWidget {
               enabled: enabled,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.front_office_workbench.consulting_doctor'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.front_office_workbench.consulting_doctor'),
                 hintText: AppStrings.of(context).lookup(
                   's4.lib.front_office_workbench.optional_if_department_is_selected',
                 ),
@@ -441,12 +437,10 @@ class _OpBookingClinicianFields extends StatelessWidget {
               focusNode: focusNode,
               enabled: enabled,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('profile.field.department'),
-                hintText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.appointments.any_available_doctor'),
+                labelText: AppStrings.of(context)
+                    .lookup('profile.field.department'),
+                hintText: AppStrings.of(context)
+                    .lookup('s4.lib.appointments.any_available_doctor'),
                 prefixIcon: const Icon(Icons.business),
               ),
               onChanged: onDepartmentChanged,

@@ -26,6 +26,11 @@
 //         provider?: string,
 //       },
 //     },
+//     ambulanceGpsTracking?: {
+//       enabled?: boolean,                // default false — no GPS devices yet
+//       retentionDays?: number,           // position-event retention (1-90, default 7)
+//       minSecondsBetweenFixes?: number,  // per-reporter ingest floor (1-300, default 3)
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -141,6 +146,28 @@ export async function getCathQuickWinSettings(tenantId) {
 }
 
 export { CATH_QUICK_WIN_SLOTS };
+
+// Ambulance live GPS tracking (migration 683). Disabled by default — the
+// hospital has no GPS devices yet; the feature turns on per tenant via a
+// settings write the day devices arrive. Defensive like every accessor here:
+// malformed config yields the disabled default, never a throw.
+export async function getAmbulanceGpsTrackingSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.ambulanceGpsTracking;
+  const defaults = { enabled: false, retentionDays: 7, minSecondsBetweenFixes: 3 };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  const retentionParsed = Number.parseInt(raw.retentionDays, 10);
+  const intervalParsed = Number.parseInt(raw.minSecondsBetweenFixes, 10);
+  return {
+    enabled: raw.enabled === true,
+    retentionDays: Number.isFinite(retentionParsed) && retentionParsed >= 1 && retentionParsed <= 90
+      ? retentionParsed
+      : defaults.retentionDays,
+    minSecondsBetweenFixes: Number.isFinite(intervalParsed) && intervalParsed >= 1 && intervalParsed <= 300
+      ? intervalParsed
+      : defaults.minSecondsBetweenFixes,
+  };
+}
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {
   const settings = await getTenantSettings(tenantId);

@@ -48,6 +48,8 @@ jest.unstable_mockModule('../../services/dashboards/analyticsCatalogService.js',
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // misReportScheduleService (mounted from dashboardsRoutes) imports this.
+  requireTenantId: (tenantId) => tenantId,
 }));
 
 const { default: dashboardsRoutes } = await import('../../routes/dashboards/dashboardsRoutes.js');

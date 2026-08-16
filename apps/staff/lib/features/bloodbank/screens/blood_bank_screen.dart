@@ -23,8 +23,9 @@ String? _nonEmptyString(dynamic value) {
   return text == null || text.isEmpty ? null : text;
 }
 
-typedef BloodBankPatientPicker =
-    Future<BloodRequestPatient?> Function(BuildContext context);
+typedef BloodBankPatientPicker = Future<BloodRequestPatient?> Function(
+  BuildContext context,
+);
 
 class BloodBankScreen extends StatefulWidget {
   final BloodBankGateway gateway;
@@ -278,9 +279,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             Tab(text: s.bloodBankTabInventory),
             Tab(text: s.bloodBankTabRequests),
             Tab(
-              text: AppStrings.of(
-                context,
-              ).lookup('s4.lib.blood_bank.transfusions'),
+              text: AppStrings.of(context)
+                  .lookup('s4.lib.blood_bank.transfusions'),
             ),
             Tab(text: s.bloodBankTabDonations),
           ],

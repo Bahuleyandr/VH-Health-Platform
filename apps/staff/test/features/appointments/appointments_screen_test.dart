@@ -39,9 +39,8 @@ void main() {
         child: MaterialApp.router(
           routerConfig: router,
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(0.9)),
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(0.9)),
             child: child!,
           ),
         ),
