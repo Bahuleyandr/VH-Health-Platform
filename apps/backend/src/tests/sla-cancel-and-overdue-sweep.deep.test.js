@@ -363,7 +363,7 @@ d('SLA cancel leg + generic overdue sweep (SLA-halves audit)', () => {
       const futureD = nextSourceId();
 
       const ids = {};
-      for (const sourceId of [overdueA, overdueE, escalatedB, undatedC, futureD]) {
+      for (const sourceId of [overdueA, overdueE, escalatedB, futureD]) {
         const started = await startWorkflowSla({
           tenantId: TENANT_S,
           ruleCode: BED_RULE,
@@ -387,9 +387,18 @@ d('SLA cancel leg + generic overdue sweep (SLA-halves audit)', () => {
           WHERE id = $1::uuid`,
         ids[escalatedB],
       );
+      // A NULL due_at is only legal in the STEMI targets-pending shape
+      // (workflow_sla_instances_due_or_targets_pending_chk, migration 562) —
+      // insert the undated clock raw in exactly that shape, like
+      // stemiPathwayService does before door-time/targets arrive.
       await prisma.$executeRawUnsafe(
-        `UPDATE workflow_sla_instances SET due_at = NULL WHERE id = $1::uuid`,
-        ids[undatedC],
+        `INSERT INTO workflow_sla_instances
+           (tenant_id, rule_id, rule_code, source_table, source_id,
+            status, priority, started_at, due_at, metadata)
+         VALUES ($1::uuid, NULL, 'stemi_door_to_balloon', 'stemi_activations', $2,
+                 'active', 'critical', NOW(), NULL, '{"targets_pending": true}'::jsonb)`,
+        TENANT_S,
+        undatedC,
       );
       // futureD keeps its 30-minute future due_at from startWorkflowSla.
 
@@ -411,8 +420,11 @@ d('SLA cancel leg + generic overdue sweep (SLA-halves audit)', () => {
       const rowB = await instanceRow(TENANT_S, BED_RULE, SOURCE_TABLE, escalatedB);
       expect(rowB.status).toBe('escalated');
       expect(rowB.breached_at).toBeNull();
-      const rowC = await instanceRow(TENANT_S, BED_RULE, SOURCE_TABLE, undatedC);
+      const rowC = await instanceRow(
+        TENANT_S, 'stemi_door_to_balloon', 'stemi_activations', undatedC,
+      );
       expect(rowC.status).toBe('active');
+      expect(rowC.breached_at).toBeNull();
       const rowD = await instanceRow(TENANT_S, BED_RULE, SOURCE_TABLE, futureD);
       expect(rowD.status).toBe('active');
 
