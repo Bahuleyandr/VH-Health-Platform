@@ -4,7 +4,7 @@
 import { useState, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, X } from "lucide-react";
-import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { APIError, fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
 const RADIOLOGY_CHANNEL = "staff:radiology";
@@ -153,23 +153,34 @@ function WorklistTab() {
   const [selected, setSelected] = useState<RadiologyOrder | null>(null);
   const [report, setReport] = useState("");
 
-  const { data: orders = [], isLoading: loading, error, refetch } = useQuery({
+  const {
+    data: orders = [],
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["radiology", "worklist"],
-    queryFn: async () => unwrapList<RadiologyOrder>(await fetchAdminAPI<unknown>("/radiology/worklist")),
+    queryFn: async () =>
+      unwrapList<RadiologyOrder>(
+        await fetchAdminAPI<unknown>("/radiology/worklist"),
+      ),
   });
 
   const reportMut = useMutation({
-    mutationFn: (orderId: number) => putJSON(`/api/v1/radiology/${orderId}/report`, { report }),
+    mutationFn: (orderId: number) =>
+      putJSON(`/api/v1/radiology/${orderId}/report`, { report }),
     onSuccess: () => {
       setSelected(null);
       setReport("");
       qc.invalidateQueries({ queryKey: ["radiology"] });
     },
-    onError: (e) => alert(e instanceof Error ? e.message : "Failed to submit report"),
+    onError: (e) =>
+      alert(e instanceof Error ? e.message : "Failed to submit report"),
   });
 
   const cancelMut = useMutation({
-    mutationFn: (orderId: number) => putJSON(`/api/v1/radiology/${orderId}/cancel`, {}),
+    mutationFn: (orderId: number) =>
+      putJSON(`/api/v1/radiology/${orderId}/cancel`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["radiology"] }),
     onError: (e) => alert(e instanceof Error ? e.message : "Failed to cancel"),
   });
@@ -187,14 +198,18 @@ function WorklistTab() {
           Refresh
         </button>
       </div>
-      {loading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
+      {loading && (
+        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+      )}
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error instanceof Error ? error.message : "Failed to load worklist"}
         </div>
       )}
       {!loading && orders.length === 0 && !error && (
-        <div className="py-12 text-center text-muted-foreground">No pending orders</div>
+        <div className="py-12 text-center text-muted-foreground">
+          No pending orders
+        </div>
       )}
       {orders.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -211,7 +226,10 @@ function WorklistTab() {
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-b border-border hover:bg-muted/40">
+                <tr
+                  key={o.id}
+                  className="border-b border-border hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 font-mono text-xs">{o.id}</td>
                   <td className="px-3 py-2 font-medium">{o.modality}</td>
                   <td className="px-3 py-2">
@@ -236,7 +254,8 @@ function WorklistTab() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (confirm("Cancel this order?")) cancelMut.mutate(o.id);
+                          if (confirm("Cancel this order?"))
+                            cancelMut.mutate(o.id);
                         }}
                         className="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                       >
@@ -295,35 +314,93 @@ function WorklistTab() {
   );
 }
 
+type ContrastBlocker = {
+  type?: string;
+  allergy?: string;
+  severity?: string;
+  agent_class?: string;
+  message?: string;
+};
+
+const EMPTY_ORDER_FORM = {
+  patient_uid: "",
+  modality: "",
+  body_part: "",
+  clinical_indication: "",
+  priority: "routine",
+  notes: "",
+  // "" = derived server-side (CT/MRI/fluoroscopy presumed contrast and
+  // screened); "true"/"false" are explicit clinician intent.
+  contrast_planned: "",
+  contrast_agent: "",
+};
+
 function NewOrderTab() {
   const qc = useQueryClient();
-  const [form, setForm] = useState({
-    patient_uid: "",
-    modality: "",
-    body_part: "",
-    clinical_indication: "",
-    priority: "routine",
-    notes: "",
-  });
+  const [form, setForm] = useState(EMPTY_ORDER_FORM);
   const [success, setSuccess] = useState(false);
+  const [contrastBlock, setContrastBlock] = useState<ContrastBlocker[] | null>(
+    null,
+  );
+  const [overrideReason, setOverrideReason] = useState("");
+
+  const buildPayload = (withOverride: boolean) => ({
+    patient_uid: form.patient_uid,
+    modality: form.modality,
+    body_part: form.body_part,
+    clinical_indication: form.clinical_indication,
+    priority: form.priority,
+    notes: form.notes,
+    ...(form.contrast_planned !== "" && {
+      contrast_planned: form.contrast_planned === "true",
+    }),
+    ...(form.contrast_planned !== "false" &&
+      form.contrast_agent.trim() !== "" && {
+        contrast_agent: form.contrast_agent.trim(),
+      }),
+    ...(withOverride && { override: { reason: overrideReason.trim() } }),
+  });
 
   const create = useMutation({
-    mutationFn: () => postJSON("/api/v1/radiology/orders", form),
+    mutationFn: (withOverride: boolean) =>
+      postJSON("/api/v1/radiology/orders", buildPayload(withOverride)),
     onSuccess: () => {
       setSuccess(true);
-      setForm({ patient_uid: "", modality: "", body_part: "", clinical_indication: "", priority: "routine", notes: "" });
+      setForm(EMPTY_ORDER_FORM);
+      setContrastBlock(null);
+      setOverrideReason("");
       qc.invalidateQueries({ queryKey: ["radiology"] });
     },
-    onError: (e) => alert(e instanceof Error ? e.message : "Failed to create order"),
+    onError: (e) => {
+      const body =
+        e instanceof APIError
+          ? (e.data as
+              | { code?: string; details?: { blockers?: ContrastBlocker[] } }
+              | undefined)
+          : undefined;
+      if (body?.code === "RADIOLOGY_CONTRAST_ALLERGY_BLOCKED") {
+        setContrastBlock(body.details?.blockers ?? []);
+        return;
+      }
+      alert(e instanceof Error ? e.message : "Failed to create order");
+    },
   });
 
   const submit = () => {
-    if (!form.patient_uid || !form.modality || !form.body_part || !form.clinical_indication) {
-      alert("Patient UID, modality, body part, and clinical indication are required");
+    if (
+      !form.patient_uid ||
+      !form.modality ||
+      !form.body_part ||
+      !form.clinical_indication
+    ) {
+      alert(
+        "Patient UID, modality, body part, and clinical indication are required",
+      );
       return;
     }
     setSuccess(false);
-    create.mutate();
+    setContrastBlock(null);
+    create.mutate(false);
   };
 
   return (
@@ -355,7 +432,9 @@ function NewOrderTab() {
       <input
         placeholder="Clinical indication *"
         value={form.clinical_indication}
-        onChange={(e) => setForm({ ...form, clinical_indication: e.target.value })}
+        onChange={(e) =>
+          setForm({ ...form, clinical_indication: e.target.value })
+        }
         className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       />
       <select
@@ -369,6 +448,27 @@ function NewOrderTab() {
           </option>
         ))}
       </select>
+      <select
+        aria-label="Contrast plan"
+        value={form.contrast_planned}
+        onChange={(e) => setForm({ ...form, contrast_planned: e.target.value })}
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
+      >
+        <option value="">
+          Contrast: decide by modality (CT/MRI/fluoro presumed + screened)
+        </option>
+        <option value="true">With contrast</option>
+        <option value="false">Without contrast (skips allergy screen)</option>
+      </select>
+      {form.contrast_planned !== "false" && (
+        <input
+          aria-label="Contrast agent"
+          placeholder="Contrast agent (optional, e.g. iohexol, gadobutrol)"
+          value={form.contrast_agent}
+          onChange={(e) => setForm({ ...form, contrast_agent: e.target.value })}
+          className="w-full rounded-lg border border-border px-3 py-2 text-sm"
+        />
+      )}
       <textarea
         rows={2}
         placeholder="Notes (optional)"
@@ -376,6 +476,44 @@ function NewOrderTab() {
         onChange={(e) => setForm({ ...form, notes: e.target.value })}
         className="w-full resize-none rounded-lg border border-border px-3 py-2 text-sm"
       />
+      {contrastBlock && (
+        <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3">
+          <p className="text-sm font-semibold text-red-800">
+            Contrast allergy screen blocked this order
+          </p>
+          <ul className="list-disc pl-5 text-sm text-red-700">
+            {contrastBlock.length === 0 && (
+              <li>Contrast-relevant allergy conflict on record.</li>
+            )}
+            {contrastBlock.map((b, i) => (
+              <li key={i}>
+                {b.message ??
+                  (b.type === "CONTRAST_ALLERGY_SCREEN_INCOMPLETE"
+                    ? "Allergy screen could not complete — verify allergies manually."
+                    : `Documented allergy: ${b.allergy ?? "contrast"} (${b.severity ?? "severity unknown"})`)}
+              </li>
+            ))}
+          </ul>
+          <textarea
+            aria-label="Override reason"
+            rows={2}
+            placeholder="Override reason (minimum 5 characters, e.g. premedication given, allergy verified)"
+            value={overrideReason}
+            onChange={(e) => setOverrideReason(e.target.value)}
+            className="w-full resize-none rounded-lg border border-red-300 px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => create.mutate(true)}
+            disabled={create.isPending || overrideReason.trim().length < 5}
+            className="w-full rounded-lg bg-red-600 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {create.isPending
+              ? "Creating..."
+              : "Acknowledge risk & create with override"}
+          </button>
+        </div>
+      )}
       <button
         type="button"
         onClick={submit}
@@ -390,22 +528,35 @@ function NewOrderTab() {
 }
 
 function PeerReviewTab() {
-  const { data: rows = [], isLoading, error } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["radiology", "peer-reviews"],
-    queryFn: async () => unwrapList<PeerReviewRow>(await fetchAdminAPI<unknown>("/radiology/peer-reviews?limit=50")),
+    queryFn: async () =>
+      unwrapList<PeerReviewRow>(
+        await fetchAdminAPI<unknown>("/radiology/peer-reviews?limit=50"),
+      ),
   });
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Peer Review Board</h2>
-      {isLoading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
+      {isLoading && (
+        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+      )}
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error instanceof Error ? error.message : "Failed to load peer-review board"}
+          {error instanceof Error
+            ? error.message
+            : "Failed to load peer-review board"}
         </div>
       )}
       {!isLoading && rows.length === 0 && !error && (
-        <div className="py-12 text-center text-muted-foreground">No signed reports on the board</div>
+        <div className="py-12 text-center text-muted-foreground">
+          No signed reports on the board
+        </div>
       )}
       {rows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -422,15 +573,24 @@ function PeerReviewTab() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-b border-border hover:bg-muted/40">
+                <tr
+                  key={row.id}
+                  className="border-b border-border hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
-                  <td className="px-3 py-2">{row.modality} {row.body_part || ""}</td>
+                  <td className="px-3 py-2">
+                    {row.modality} {row.body_part || ""}
+                  </td>
                   <td className="px-3 py-2">
                     <PriorityBadge priority={row.priority} />
                   </td>
-                  <td className="px-3 py-2">{fmtDateTime(row.report_signed_off_at)}</td>
+                  <td className="px-3 py-2">
+                    {fmtDateTime(row.report_signed_off_at)}
+                  </td>
                   <td className="px-3 py-2">{row.review_count}</td>
-                  <td className="px-3 py-2">{row.max_discrepancy_score ?? "-"}</td>
+                  <td className="px-3 py-2">
+                    {row.max_discrepancy_score ?? "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -444,9 +604,14 @@ function PeerReviewTab() {
 function TatTab() {
   const [breachedOnly, setBreachedOnly] = useState(false);
   const path = `/radiology/tat-metrics?limit=50${breachedOnly ? "&breached=true" : ""}`;
-  const { data: rows = [], isLoading, error } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["radiology", "tat-metrics", breachedOnly],
-    queryFn: async () => unwrapList<TatMetric>(await fetchAdminAPI<unknown>(path)),
+    queryFn: async () =>
+      unwrapList<TatMetric>(await fetchAdminAPI<unknown>(path)),
   });
 
   return (
@@ -463,14 +628,20 @@ function TatTab() {
           Breached only
         </label>
       </div>
-      {isLoading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
+      {isLoading && (
+        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+      )}
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error instanceof Error ? error.message : "Failed to load TAT metrics"}
+          {error instanceof Error
+            ? error.message
+            : "Failed to load TAT metrics"}
         </div>
       )}
       {!isLoading && rows.length === 0 && !error && (
-        <div className="py-12 text-center text-muted-foreground">No TAT metrics found</div>
+        <div className="py-12 text-center text-muted-foreground">
+          No TAT metrics found
+        </div>
       )}
       {rows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -488,15 +659,28 @@ function TatTab() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.radiology_order_id} className="border-b border-border hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{row.radiology_order_id}</td>
-                  <td className="px-3 py-2">{row.modality} {row.body_part || ""}</td>
+                <tr
+                  key={row.radiology_order_id}
+                  className="border-b border-border hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {row.radiology_order_id}
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.modality} {row.body_part || ""}
+                  </td>
                   <td className="px-3 py-2">
                     <PriorityBadge priority={row.priority} />
                   </td>
-                  <td className="px-3 py-2">{row.tat_stage.replaceAll("_", " ")}</td>
-                  <td className="px-3 py-2">{fmtMinutes(row.current_elapsed_minutes)}</td>
-                  <td className="px-3 py-2">{fmtMinutes(row.target_minutes)}</td>
+                  <td className="px-3 py-2">
+                    {row.tat_stage.replaceAll("_", " ")}
+                  </td>
+                  <td className="px-3 py-2">
+                    {fmtMinutes(row.current_elapsed_minutes)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {fmtMinutes(row.target_minutes)}
+                  </td>
                   <td className="px-3 py-2">
                     {row.threshold_breached ? (
                       <span className="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
@@ -520,13 +704,22 @@ function TatTab() {
 
 function RadiologyContent() {
   const [tab, setTab] = useState<ActiveTab>("worklist");
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(RADIOLOGY_CHANNEL, [["radiology"]]);
-  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
+    RADIOLOGY_CHANNEL,
+    [["radiology"]],
+  );
+  const liveLabel = subscribed
+    ? "● Live"
+    : connected
+      ? "○ Connecting"
+      : "○ Offline";
   const liveTitle = subscribed
     ? lastEventAt
       ? `Real-time via staff:radiology - last update ${new Date(lastEventAt).toLocaleTimeString()}`
       : "Real-time via staff:radiology"
-    : connected ? "Connecting..." : "Offline - refresh manually";
+    : connected
+      ? "Connecting..."
+      : "Offline - refresh manually";
   const tabs: { key: ActiveTab; label: string }[] = [
     { key: "worklist", label: "Worklist" },
     { key: "new", label: "New Order" },
@@ -541,9 +734,17 @@ function RadiologyContent() {
         <span
           data-testid="radiology-realtime-indicator"
           role="status"
-          aria-label={subscribed ? "Live - real-time radiology updates active" : "Offline - real-time updates unavailable"}
+          aria-label={
+            subscribed
+              ? "Live - real-time radiology updates active"
+              : "Offline - real-time updates unavailable"
+          }
           title={liveTitle}
-          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+          className={
+            subscribed
+              ? "text-xs font-medium text-green-600"
+              : "text-xs font-medium text-gray-400"
+          }
         >
           {liveLabel}
         </span>

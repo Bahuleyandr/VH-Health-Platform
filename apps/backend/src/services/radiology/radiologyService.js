@@ -6,6 +6,7 @@ import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent, recordMedicationSafetyReviews } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   assertContrastOrderAllowed,
+  isContrastPresumedModality,
   validateRadiologyContrastSafety,
 } from '../../utils/clinical/contrastAllergyCheck.js';
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
@@ -338,16 +339,25 @@ export function pickDeterministicSignedReportSample(rows = [], { seed = 'radiolo
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid) {
+export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid, tenantId = null) {
   if (rawEncounterId == null || rawEncounterId === '') return null;
   const raw = String(rawEncounterId).trim();
   if (UUID_RE.test(raw)) {
+    // Tenant + patient scoped: an encounter uuid belonging to another tenant
+    // or another patient must not resolve (group-1 tenant-shape sweep).
+    const scopedTenantId = requireTenantId(tenantId);
     const rows = await prisma.$queryRawUnsafe(
-        `SELECT id FROM admissions WHERE encounter_id = $1::uuid LIMIT 1`,
+        `SELECT id FROM admissions
+          WHERE encounter_id = $1::uuid
+            AND tenant_id = $2::uuid
+            AND patient_uid = $3::uuid
+          LIMIT 1`,
         raw,
+        scopedTenantId,
+        patientUid,
     );
     if (rows.length) return Number(rows[0].id);
-    logger.warn('Radiology order: encounter_id uuid did not match any admission; storing null', {
+    logger.warn('Radiology order: encounter_id uuid did not match any admission for this tenant and patient; storing null', {
       encounter_id: raw, patient_uid: patientUid,
     });
     return null;
@@ -367,10 +377,13 @@ async function resolveCanonicalEncounterUuid(db, order) {
   const rows = await db.$queryRawUnsafe(
       `SELECT encounter_id
          FROM admissions
-        WHERE id = $1::int AND patient_uid = $2::uuid
+        WHERE id = $1::int
+          AND patient_uid = $2::uuid
+          AND tenant_id = $3::uuid
         LIMIT 1`,
       Number(order.encounter_id),
       order.patient_uid,
+      order.tenant_id,
   );
   return rows[0]?.encounter_id || null;
 }
@@ -410,7 +423,7 @@ async function emitRadiologyCanonicalEvent(db, order, eventType, {
   }, { db });
 }
 
-async function resolveAcquiringTechnologist(techUid, fallbackName, fallbackLicenseNumber) {
+async function resolveAcquiringTechnologist(techUid, fallbackName, fallbackLicenseNumber, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT
         u.uid,
@@ -439,10 +452,12 @@ async function resolveAcquiringTechnologist(techUid, fallbackName, fallbackLicen
           LIMIT 1
        ) hpr ON true
       WHERE u.uid = $1::uuid
+        AND u.tenant_id = $2::uuid
         AND UPPER(COALESCE(u.role, '')) = 'RADIOLOGY_STAFF'
         AND COALESCE(u.is_active, true) = true
       LIMIT 1`,
     techUid,
+    tenantId,
   );
 
   if (rows.length === 0) {
@@ -575,23 +590,73 @@ async function maybeEmitTatAlert(db, metric) {
   return rows[0] || null;
 }
 
-// Contrast intent parsed off an order create/amend payload. A named agent
-// implies a contrast study even when the boolean flag was omitted (the
-// migration-678 CHECK `chk_radiology_contrast_agent_implies_planned` enforces
-// the same rule at the DB).
-function parseContrastIntent(data = {}) {
+// Contrast intent parsed off an order create/amend payload — DERIVED
+// SERVER-SIDE by default (PR #875 R9: screening opt-in on a request field no
+// shipped client sent made the gate inert).
+//
+//   explicit true / named agent  → contrast planned ('explicit'/'agent_named')
+//   explicit false               → contrast negated ('explicitly_negated');
+//                                  contradicts a named agent → 400
+//   omitted                      → presumed for CT/MRI/fluoroscopy
+//                                  ('modality_presumed'); not presumed for
+//                                  plain xray/ultrasound/mammography
+//                                  ('modality_not_presumed')
+//
+// So a contrast-capable order created by ANY client is screened without the
+// client opting in, and only an explicit contrast_planned: false skips the
+// gate. A named agent still implies a contrast study (the migration-678 CHECK
+// `chk_radiology_contrast_agent_implies_planned` enforces the same rule at
+// the DB).
+function parseContrastIntent(data = {}, modality = null) {
   const contrastAgent = cleanOptionalText(data.contrast_agent ?? data.contrastAgent);
   const rawPlanned = data.contrast_planned ?? data.contrastPlanned;
-  const contrastPlanned = rawPlanned === true || rawPlanned === 'true' || Boolean(contrastAgent);
-  return { contrastPlanned, contrastAgent: contrastPlanned ? contrastAgent : null };
+  if (rawPlanned === false || rawPlanned === 'false') {
+    if (contrastAgent) {
+      throw AppError.badRequest(
+        'contrast_agent cannot be set when contrast_planned is explicitly false',
+        'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+      );
+    }
+    return { contrastPlanned: false, contrastAgent: null, intentSource: 'explicitly_negated' };
+  }
+  if (rawPlanned === true || rawPlanned === 'true') {
+    return { contrastPlanned: true, contrastAgent, intentSource: 'explicit' };
+  }
+  if (contrastAgent) {
+    return { contrastPlanned: true, contrastAgent, intentSource: 'agent_named' };
+  }
+  if (isContrastPresumedModality(modality)) {
+    return { contrastPlanned: true, contrastAgent: null, intentSource: 'modality_presumed' };
+  }
+  return { contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed' };
 }
 
 // Evidence blob persisted to radiology_orders.contrast_allergy_screen — the
 // immutable record of what the screen knew when the order was placed/amended.
-function buildContrastScreenEvidence(screen, override) {
-  if (!screen) return {};
+// Always records the derived contrast intent; when a screen ran it records
+// the screen's completion status (completed/degraded/failed), which allergy
+// sources failed, findings, and any acknowledged override. Prior evidence is
+// APPEND-ONLY: amendments push the previous blob into `history`, never
+// overwrite it (PR #875 R11).
+function buildContrastScreenEvidence(screen, override, {
+  intentSource = null, contrastPlanned = null, history = [], cleared = null,
+} = {}) {
+  const base = {
+    ...(contrastPlanned == null ? {} : { contrast_planned: contrastPlanned }),
+    ...(intentSource ? { intent_source: intentSource } : {}),
+    ...(cleared ? { cleared } : {}),
+    ...(history.length ? { history } : {}),
+  };
+  if (!screen) {
+    // No screen ran (non-contrast order). Persist the intent derivation —
+    // and the clearing evidence on amendment — but nothing else.
+    return Object.keys(base).length ? { ...base, recorded_at: new Date().toISOString() } : {};
+  }
   return {
+    ...base,
     screened_at: screen.screened_at,
+    status: screen.status,
+    sources_failed: screen.sources_failed,
     agent_class: screen.agent_class,
     safe: screen.safe,
     blockers: screen.blockers,
@@ -599,6 +664,26 @@ function buildContrastScreenEvidence(screen, override) {
     renal: screen.renal,
     override: override ? { reason: override.reason, approved_by: override.approvedBy } : null,
   };
+}
+
+// Append-only evidence history: the previous contrast_allergy_screen blob
+// (minus its own nested history, which is carried forward flat) becomes a
+// history entry stamped with who superseded it and when. Prior overrides and
+// screen findings therefore survive every amendment in the JSONB.
+function buildContrastEvidenceHistory(priorEvidenceRaw, { actorUid, priorOverride = null } = {}) {
+  const priorEvidence = safeJsonObject(priorEvidenceRaw);
+  const { history: priorHistory, ...priorCurrent } = priorEvidence;
+  const carried = Array.isArray(priorHistory) ? [...priorHistory] : [];
+  if (Object.keys(priorCurrent).length === 0 && !priorOverride) return carried;
+  carried.push({
+    ...priorCurrent,
+    // Belt-and-braces: if the columns held an override the blob missed,
+    // preserve it here so clearing the columns never erases the record.
+    ...(priorOverride && !priorCurrent.override ? { override: priorOverride } : {}),
+    superseded_at: new Date().toISOString(),
+    superseded_by: actorUid || null,
+  });
+  return carried;
 }
 
 // Canonical-invariant leg: contrast safety findings/overrides land in
@@ -658,8 +743,11 @@ class RadiologyService {
     // a contrast study is screened against the patient's unified active
     // allergies; a contrast-relevant hit blocks (409
     // RADIOLOGY_CONTRAST_ALLERGY_BLOCKED) unless an explicit override with
-    // reason is supplied.
-    const { contrastPlanned, contrastAgent } = parseContrastIntent(data);
+    // reason is supplied. Contrast intent is derived server-side: CT/MRI/
+    // fluoroscopy orders are presumed contrast-planned (and therefore always
+    // screened) unless the client explicitly negates with
+    // contrast_planned: false.
+    const { contrastPlanned, contrastAgent, intentSource } = parseContrastIntent(data, modality);
     let contrastScreen = null;
     let contrastOverride = null;
     if (contrastPlanned) {
@@ -686,30 +774,44 @@ class RadiologyService {
       }
     }
 
-    const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid);
+    const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid, tenantId);
     const order = await setTenantTx(tenantId, async (tx) => {
-      const admissionCandidate = explicitAdmissionId || resolvedEncounterId;
-      const admissionRows = admissionCandidate
+      // Validate EVERY admission reference (explicit admission_id AND an
+      // integer-supplied encounter_id) against this tenant + patient before
+      // persisting either — an unvalidated candidate must never be stored as
+      // radiology_orders.encounter_id pointing at another tenant's admission
+      // (group-1 tenant-shape sweep, PR #875 R1 class).
+      const candidateIds = [...new Set([explicitAdmissionId, resolvedEncounterId].filter(Boolean))];
+      const admissionRows = candidateIds.length
         ? await tx.$queryRawUnsafe(
           `SELECT id
              FROM admissions
             WHERE tenant_id = $1::uuid
-              AND id = $2::integer
+              AND id = ANY($2::integer[])
               AND patient_uid = $3::uuid
-            LIMIT 1
             FOR SHARE`,
           tenantId,
-          admissionCandidate,
+          candidateIds,
           patient_uid,
         )
         : [];
-      if (explicitAdmissionId && !admissionRows[0]) {
+      const validatedIds = new Set(admissionRows.map((row) => Number(row.id)));
+      if (explicitAdmissionId && !validatedIds.has(explicitAdmissionId)) {
         throw AppError.conflict(
           'Radiology admission does not belong to this tenant and patient',
           'RADIOLOGY_ADMISSION_MISMATCH',
         );
       }
-      const admissionId = admissionRows[0]?.id ?? null;
+      let persistedEncounterId = resolvedEncounterId;
+      if (resolvedEncounterId && !validatedIds.has(Number(resolvedEncounterId))) {
+        logger.warn('Radiology order: encounter_id does not match a tenant/patient admission; storing null', {
+          encounter_id: resolvedEncounterId, patient_uid,
+        });
+        persistedEncounterId = null;
+      }
+      const admissionId = (explicitAdmissionId && validatedIds.has(explicitAdmissionId))
+        ? explicitAdmissionId
+        : (persistedEncounterId ?? null);
       const result = await tx.$queryRawUnsafe(
         `INSERT INTO radiology_orders
           (patient_uid, encounter_id, admission_id, modality, body_part, clinical_indication,
@@ -722,9 +824,12 @@ class RadiologyService {
                  $14, $15::uuid, CASE WHEN $14::text IS NOT NULL THEN NOW() ELSE NULL END,
                  NOW(), NOW())
          RETURNING ${RAD_RETURNING}`,
-        patient_uid, resolvedEncounterId, admissionId, modality, body_part, clinical_indication,
+        patient_uid, persistedEncounterId, admissionId, modality, body_part, clinical_indication,
         priority, ordered_by, notes || null, tenantId,
-        contrastPlanned, contrastAgent, JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride)),
+        contrastPlanned, contrastAgent,
+        JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride, {
+          intentSource, contrastPlanned,
+        })),
         contrastOverride?.reason ?? null, contrastOverride?.approvedBy ?? null,
       );
       const row = result[0];
@@ -743,6 +848,8 @@ class RadiologyService {
           clinical_indication,
           contrast_planned: contrastPlanned,
           contrast_agent: contrastAgent,
+          contrast_intent_source: intentSource,
+          contrast_screen_status: contrastScreen ? contrastScreen.status : null,
           contrast_allergy_blockers: contrastScreen ? contrastScreen.blockers.length : 0,
           contrast_allergy_override: Boolean(contrastOverride),
         },
@@ -781,7 +888,20 @@ class RadiologyService {
     const tenantId = tenantOr(context.tenantId || data.tenantId || data.tenant_id);
     const actorUid = context.actorUid || data.actorUid || null;
     if (!actorUid) throw AppError.badRequest('Authenticated actor is required');
-    const { contrastPlanned, contrastAgent } = parseContrastIntent(data);
+
+    // Amendment intent is EXPLICIT-ONLY: an omitted contrast_planned (and no
+    // agent) is refused rather than derived or read as "clear" — an empty PUT
+    // body must never silently erase a contrast plan, its screen evidence, or
+    // an acknowledged override (PR #875 R11).
+    const rawPlanned = data.contrast_planned ?? data.contrastPlanned;
+    const rawAgent = cleanOptionalText(data.contrast_agent ?? data.contrastAgent);
+    if (rawPlanned == null && !rawAgent) {
+      throw AppError.badRequest(
+        'contrast_planned (or contrast_agent) is required — an empty amendment would erase the recorded contrast plan. To clear contrast, send contrast_planned: false with a reason.',
+        'RADIOLOGY_CONTRAST_PLAN_REQUIRED',
+      );
+    }
+    const { contrastPlanned, contrastAgent, intentSource } = parseContrastIntent(data);
 
     // Phase 0 pre-flight on plain prisma: order lookup + allergy screen.
     const preflight = await prisma.$queryRawUnsafe(
@@ -797,6 +917,17 @@ class RadiologyService {
       throw AppError.conflict(
         `Contrast plan can only be amended while the order is awaiting acquisition (status is '${preflight[0].status}')`,
         'RADIOLOGY_CONTRAST_PLAN_LOCKED',
+      );
+    }
+
+    // Clearing an existing contrast plan requires an explicit reason — the
+    // clearing is itself a clinical decision and must be attributable.
+    const clearReason = cleanOptionalText(data.reason ?? data.clear_reason ?? data.clearReason);
+    const isClearing = preflight[0].contrast_planned === true && !contrastPlanned;
+    if (isClearing && (!clearReason || clearReason.length < 5)) {
+      throw AppError.badRequest(
+        'Clearing a recorded contrast plan requires a reason (at least 5 characters)',
+        'RADIOLOGY_CONTRAST_CLEAR_REASON_REQUIRED',
       );
     }
 
@@ -828,7 +959,8 @@ class RadiologyService {
 
     const order = await setTenantTx(tenantId, async (tx) => {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT id, tenant_id, patient_uid, encounter_id, status, contrast_planned, contrast_agent
+        `SELECT id, tenant_id, patient_uid, encounter_id, status, contrast_planned, contrast_agent,
+                contrast_allergy_screen, contrast_override_reason, contrast_override_by, contrast_override_at
            FROM radiology_orders
           WHERE id = $1::int AND tenant_id = $2::uuid
           FOR UPDATE`,
@@ -842,6 +974,23 @@ class RadiologyService {
           'RADIOLOGY_CONTRAST_PLAN_LOCKED',
         );
       }
+      // Append-only evidence: the prior screen blob (and any override the
+      // columns held) survives every amendment inside `history`. The override
+      // COLUMNS reflect only the CURRENT plan (the migration-678 paired CHECK
+      // forbids override columns on a non-contrast order), so the JSONB is
+      // where the historical record lives.
+      const priorOverride = existing[0].contrast_override_reason
+        ? {
+          reason: existing[0].contrast_override_reason,
+          approved_by: existing[0].contrast_override_by,
+          approved_at: existing[0].contrast_override_at,
+        }
+        : null;
+      const evidenceHistory = buildContrastEvidenceHistory(existing[0].contrast_allergy_screen, {
+        actorUid,
+        priorOverride,
+      });
+      const clearingNow = existing[0].contrast_planned === true && !contrastPlanned;
       const result = await tx.$queryRawUnsafe(
         `UPDATE radiology_orders
             SET contrast_planned = $1::boolean,
@@ -855,7 +1004,14 @@ class RadiologyService {
           RETURNING ${RAD_RETURNING}`,
         contrastPlanned,
         contrastAgent,
-        JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride)),
+        JSON.stringify(buildContrastScreenEvidence(contrastScreen, contrastOverride, {
+          intentSource,
+          contrastPlanned,
+          history: evidenceHistory,
+          cleared: clearingNow
+            ? { reason: clearReason, by: actorUid, at: new Date().toISOString() }
+            : null,
+        })),
         contrastOverride?.reason ?? null,
         contrastOverride?.approvedBy ?? null,
         requireIntId(id),
@@ -878,10 +1034,22 @@ class RadiologyService {
         payload: {
           contrast_planned: contrastPlanned,
           contrast_agent: contrastAgent,
+          contrast_intent_source: intentSource,
+          contrast_screen_status: contrastScreen ? contrastScreen.status : null,
           previous_contrast_planned: existing[0].contrast_planned,
           previous_contrast_agent: existing[0].contrast_agent,
           contrast_allergy_blockers: contrastScreen ? contrastScreen.blockers.length : 0,
           contrast_allergy_override: Boolean(contrastOverride),
+          // What a clearing removed — the timeline must say what was erased
+          // from the ACTIVE plan (the evidence itself lives on in history).
+          ...(clearingNow
+            ? {
+              cleared_reason: clearReason,
+              cleared_contrast_agent: existing[0].contrast_agent,
+              cleared_had_override: Boolean(priorOverride),
+              cleared_override_reason: priorOverride?.reason ?? null,
+            }
+            : {}),
         },
         beforeStatus: existing[0].status,
         afterStatus: existing[0].status,
@@ -1116,6 +1284,7 @@ class RadiologyService {
       tech_uid,
       tech_name,
       tech_license_number,
+      scopedTenantId,
     );
 
     const order = await setTenantTx(scopedTenantId, async (tx) => {

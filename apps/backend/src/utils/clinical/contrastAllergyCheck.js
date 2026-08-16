@@ -31,7 +31,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
+import { getUnifiedActiveAllergiesDetailed } from '../../services/clinical/allergySourceService.js';
 import { AppError } from '../AppError.js';
 
 // Agent-name aliases per contrast class — generic names plus the brand names
@@ -77,6 +77,25 @@ const MODALITY_CONTRAST_CLASS = {
   mri: 'gadolinium',
   ultrasound: 'microbubble',
 };
+
+// Modalities whose routine protocols administer contrast often enough that an
+// OMITTED contrast_planned cannot be read as "no contrast": CT and MRI
+// frequently run contrast phases and fluoroscopy's contrast (barium/
+// gastrografin/iodinated) is usually the point of the study. For these, an
+// order that does not explicitly negate contrast (contrast_planned: false) is
+// treated as contrast-planned and ALWAYS screened — this is what makes the
+// gate real for the shipped ordering clients, none of which sent
+// contrast_planned at all (adversarial review, PR #875 R9). Plain radiography,
+// ultrasound, and mammography stay opt-in (explicit flag or named agent):
+// contrast-enhanced variants of those are rare specialist studies, and
+// presuming contrast there would mark every plain chest film a contrast study
+// and flood medication_safety_reviews with false findings.
+export const CONTRAST_PRESUMED_MODALITIES = ['ct', 'mri', 'fluoroscopy'];
+
+/** True when an omitted contrast flag on this modality presumes contrast. */
+export function isContrastPresumedModality(modality) {
+  return CONTRAST_PRESUMED_MODALITIES.includes(lower(modality));
+}
 
 function lower(value) {
   return String(value || '').trim().toLowerCase();
@@ -205,7 +224,10 @@ export async function loadRenalContextByUid(patientUid, { db = prisma } = {}) {
     logger.warn('Contrast renal context lookup failed — skipping renal flag', {
       error: err?.message,
     });
-    return { evidenceFound: false };
+    // lookup_failed distinguishes "no renal labs on file" from "the lab feed
+    // could not be read" in the persisted screen evidence. Renal risk stays
+    // advisory either way — it never blocks emergency imaging.
+    return { evidenceFound: false, lookup_failed: true };
   }
 }
 
@@ -238,14 +260,63 @@ export function deriveContrastRenalWarnings(renal, agentClass) {
  * validatePrescriptionSafety: { safe, warnings, blockers } (plus agent_class,
  * renal, screened_at evidence for persistence into
  * radiology_orders.contrast_allergy_screen).
+ *
+ * Honest-evidence contract (PR #875 R10): the result records whether the
+ * allergy lookup actually COMPLETED —
+ *   status: 'completed' — patient resolved, every allergy store answered;
+ *           'degraded'  — patient resolved but one or more stores failed;
+ *           'failed'    — the patient could not be resolved or the whole
+ *                          lookup threw.
+ * A degraded/failed screen on a contrast-planned order FAILS CLOSED: it
+ * carries a CONTRAST_ALLERGY_SCREEN_INCOMPLETE blocker, so the order is
+ * blocked (409) unless the clinician supplies the same acknowledged override
+ * used for a positive allergy hit — the dietary allergy_screen idiom
+ * (kitchenService fail-closed exclusion). "We could not check" must never
+ * persist as "nothing found".
  */
 export async function validateRadiologyContrastSafety({ patientUid, modality, contrastAgent } = {}, { db = prisma } = {}) {
-  const allergies = await getUnifiedActiveAllergies(db, { patientUid });
+  let allergies = [];
+  let sourcesFailed = [];
+  let patientResolved = false;
+  try {
+    const detailed = await getUnifiedActiveAllergiesDetailed(db, { patientUid });
+    allergies = detailed.allergies || [];
+    sourcesFailed = detailed.sourcesFailed || [];
+    patientResolved = detailed.patientResolved === true;
+  } catch (err) {
+    // getUnifiedActiveAllergiesDetailed contractually never throws, but the
+    // fail-closed posture must not depend on that holding forever.
+    sourcesFailed = ['unified_lookup'];
+    logger.warn('Contrast allergy screen: unified allergy lookup failed — failing closed', {
+      patient_uid: patientUid, error: err?.message,
+    });
+  }
+  const status = !patientResolved
+    ? 'failed'
+    : (sourcesFailed.length > 0 ? 'degraded' : 'completed');
+
   const screen = screenContrastAllergies(allergies, { modality, contrastAgent });
+  if (status !== 'completed') {
+    screen.blockers.push({
+      type: 'CONTRAST_ALLERGY_SCREEN_INCOMPLETE',
+      medication: contrastAgent || `${screen.agent_class || 'contrast'} contrast media`,
+      agent_class: screen.agent_class,
+      screen_status: status,
+      sources_failed: sourcesFailed,
+      severity: 'UNKNOWN',
+      message: status === 'failed'
+        ? 'Contrast allergy screen FAILED: the patient\'s allergy record could not be resolved. Verify allergies manually; override with reason to proceed.'
+        : `Contrast allergy screen DEGRADED: allergy source(s) ${sourcesFailed.join(', ')} could not be consulted, so a documented allergy may have been missed. Verify allergies manually; override with reason to proceed.`,
+    });
+  }
+
   const renal = await loadRenalContextByUid(patientUid, { db });
   const warnings = [...screen.warnings, ...deriveContrastRenalWarnings(renal, screen.agent_class)];
   return {
-    safe: screen.safe,
+    safe: screen.blockers.length === 0,
+    status,
+    sources_failed: sourcesFailed,
+    patient_resolved: patientResolved,
     agent_class: screen.agent_class,
     blockers: screen.blockers,
     warnings,
@@ -297,6 +368,8 @@ export function assertContrastOrderAllowed(screen, overrideInput, fallbackActorU
 }
 
 export default {
+  CONTRAST_PRESUMED_MODALITIES,
+  isContrastPresumedModality,
   resolveContrastAgentClass,
   screenContrastAllergies,
   deriveContrastRenalWarnings,

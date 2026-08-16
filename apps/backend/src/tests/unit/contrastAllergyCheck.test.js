@@ -1,8 +1,11 @@
 import {
+  CONTRAST_PRESUMED_MODALITIES,
   assertContrastOrderAllowed,
   deriveContrastRenalWarnings,
+  isContrastPresumedModality,
   resolveContrastAgentClass,
   screenContrastAllergies,
+  validateRadiologyContrastSafety,
 } from '../../utils/clinical/contrastAllergyCheck.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -103,6 +106,99 @@ describe('radiology contrast/allergy screening (migration 678)', () => {
     it('ignores empty allergen rows and tolerates a non-array input', () => {
       expect(screenContrastAllergies([{ allergen: '' }, {}], { modality: 'ct' }).safe).toBe(true);
       expect(screenContrastAllergies(null, { modality: 'ct' }).safe).toBe(true);
+    });
+  });
+
+  describe('contrast intent presumption (default-on screening, PR #875 R9)', () => {
+    it('presumes contrast for CT, MRI, and fluoroscopy only', () => {
+      expect(CONTRAST_PRESUMED_MODALITIES).toEqual(['ct', 'mri', 'fluoroscopy']);
+      expect(isContrastPresumedModality('ct')).toBe(true);
+      expect(isContrastPresumedModality('MRI')).toBe(true);
+      expect(isContrastPresumedModality('fluoroscopy')).toBe(true);
+      expect(isContrastPresumedModality('xray')).toBe(false);
+      expect(isContrastPresumedModality('ultrasound')).toBe(false);
+      expect(isContrastPresumedModality('mammography')).toBe(false);
+      expect(isContrastPresumedModality(null)).toBe(false);
+    });
+  });
+
+  describe('validateRadiologyContrastSafety — honest screen status + fail-closed (PR #875 R10)', () => {
+    const PATIENT_UID = 'cf000000-0000-4000-8000-00000000c001';
+
+    // Fake prisma-compatible client keyed on table names in the SQL the
+    // unified allergy fetch + renal lookup issue. Unlisted tables return [].
+    function makeDb(handlers = {}) {
+      return {
+        $queryRawUnsafe: async (sql) => {
+          for (const [needle, handler] of Object.entries(handlers)) {
+            if (sql.includes(needle)) return handler();
+          }
+          if (sql.includes('FROM users')) {
+            return [{ id: 1, uid: PATIENT_UID, allergies: '' }];
+          }
+          return [];
+        },
+      };
+    }
+
+    it('reports status completed when the patient resolves and every store answers', async () => {
+      const db = makeDb({
+        'FROM patient_allergies': () => [{ allergen: 'Iodinated contrast', severity: 'SEVERE' }],
+      });
+      const screen = await validateRadiologyContrastSafety(
+        { patientUid: PATIENT_UID, modality: 'ct' }, { db },
+      );
+      expect(screen.status).toBe('completed');
+      expect(screen.sources_failed).toEqual([]);
+      expect(screen.patient_resolved).toBe(true);
+      expect(screen.safe).toBe(false);
+      expect(screen.blockers).toHaveLength(1);
+      expect(screen.blockers[0].type).toBe('CONTRAST_ALLERGY_CONFLICT');
+    });
+
+    it('fails CLOSED on a degraded lookup: a failed store adds a SCREEN_INCOMPLETE blocker even with zero hits', async () => {
+      const db = makeDb({
+        'FROM patient_allergies': () => { throw new Error('relation missing'); },
+      });
+      const screen = await validateRadiologyContrastSafety(
+        { patientUid: PATIENT_UID, modality: 'ct' }, { db },
+      );
+      expect(screen.status).toBe('degraded');
+      expect(screen.sources_failed).toEqual(['patient_allergies']);
+      expect(screen.safe).toBe(false);
+      expect(screen.blockers).toEqual([
+        expect.objectContaining({
+          type: 'CONTRAST_ALLERGY_SCREEN_INCOMPLETE',
+          screen_status: 'degraded',
+          sources_failed: ['patient_allergies'],
+        }),
+      ]);
+    });
+
+    it('fails CLOSED when the patient cannot be resolved at all (status failed)', async () => {
+      const db = makeDb({ 'FROM users': () => [] });
+      const screen = await validateRadiologyContrastSafety(
+        { patientUid: PATIENT_UID, modality: 'mri' }, { db },
+      );
+      expect(screen.status).toBe('failed');
+      expect(screen.safe).toBe(false);
+      expect(screen.blockers[0]).toMatchObject({
+        type: 'CONTRAST_ALLERGY_SCREEN_INCOMPLETE',
+        screen_status: 'failed',
+        agent_class: 'gadolinium',
+      });
+    });
+
+    it('keeps a failed RENAL lookup advisory but records it honestly in the evidence', async () => {
+      const db = makeDb({
+        'FROM lab_results': () => { throw new Error('lab feed down'); },
+      });
+      const screen = await validateRadiologyContrastSafety(
+        { patientUid: PATIENT_UID, modality: 'ct' }, { db },
+      );
+      expect(screen.status).toBe('completed');
+      expect(screen.safe).toBe(true); // renal never blocks
+      expect(screen.renal).toMatchObject({ evidenceFound: false, lookup_failed: true });
     });
   });
 

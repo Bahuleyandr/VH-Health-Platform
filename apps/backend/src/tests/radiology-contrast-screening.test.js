@@ -192,14 +192,147 @@ describe('radiology contrast/allergy screening at order time (migration 678)', (
     expect(res.body.data.contrast_allergy_screen.blockers).toHaveLength(0);
   });
 
-  it('leaves non-contrast orders unscreened even for an allergic patient', async () => {
+  it('skips the gate only on EXPLICIT negation, recording the negation as evidence', async () => {
     const res = await doctor().post('/api/v1/radiology/orders')
-      .send({ ...baseOrder(ALLERGIC_PATIENT_UID), clinical_indication: 'Non-contrast KUB' });
+      .send({
+        ...baseOrder(ALLERGIC_PATIENT_UID),
+        clinical_indication: 'Non-contrast KUB',
+        contrast_planned: false,
+      });
 
     expect(res.statusCode).toBe(201);
     expect(res.body.data.contrast_planned).toBe(false);
     expect(res.body.data.contrast_agent).toBeNull();
-    expect(res.body.data.contrast_allergy_screen).toEqual({});
+    expect(res.body.data.contrast_allergy_screen).toMatchObject({
+      contrast_planned: false,
+      intent_source: 'explicitly_negated',
+    });
+  });
+
+  describe('server-side contrast intent derivation (default-on screening)', () => {
+    it('presumes contrast on a CT with the flag omitted — allergic patient is blocked without opting in', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send(baseOrder(ALLERGIC_PATIENT_UID)); // no contrast_planned, no agent
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_ALLERGY_BLOCKED');
+      expect(res.body.details.blockers[0].allergy).toBe('Iodinated contrast');
+    });
+
+    it('presumes contrast on a CT with the flag omitted — clean patient order carries contrast_planned with derived intent', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send(baseOrder(CLEAN_PATIENT_UID));
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.contrast_planned).toBe(true);
+      expect(res.body.data.contrast_allergy_screen).toMatchObject({
+        contrast_planned: true,
+        intent_source: 'modality_presumed',
+        status: 'completed',
+        safe: true,
+      });
+      expect(res.body.data.contrast_allergy_screen.sources_failed).toEqual([]);
+    });
+
+    it('presumes contrast on an MRI too, inferring the gadolinium class — the generic "contrast" allergy still blocks', async () => {
+      // "Iodinated contrast" contains the class term 'contrast', which
+      // deliberately hits EVERY planned class (free-text stores record
+      // "contrast dye" / "CT contrast"), so the presumed-gadolinium MRI is
+      // blocked as well — proving the derivation reaches non-CT modalities.
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send({ ...baseOrder(ALLERGIC_PATIENT_UID), modality: 'mri', clinical_indication: 'MRI brain with gadolinium' });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_ALLERGY_BLOCKED');
+      expect(res.body.details.blockers[0]).toMatchObject({
+        type: 'CONTRAST_ALLERGY_CONFLICT',
+        agent_class: 'gadolinium',
+        allergy: 'Iodinated contrast',
+      });
+    });
+
+    it('does NOT presume contrast on plain radiography — allergic patient x-ray goes through unscreened', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send({ ...baseOrder(ALLERGIC_PATIENT_UID), modality: 'xray', clinical_indication: 'Plain chest film' });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.contrast_planned).toBe(false);
+      expect(res.body.data.contrast_allergy_screen).toMatchObject({
+        contrast_planned: false,
+        intent_source: 'modality_not_presumed',
+      });
+    });
+
+    it('rejects a contradictory payload: contrast_agent alongside contrast_planned false', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send({ ...baseOrder(CLEAN_PATIENT_UID), contrast_planned: false, contrast_agent: 'iohexol' });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_INTENT_CONTRADICTION');
+    });
+  });
+
+  describe('fail-closed screen (degraded/failed allergy lookup)', () => {
+    // No users row exists for this uid, so the unified allergy lookup cannot
+    // resolve the patient: the screen must report status 'failed' and BLOCK
+    // rather than persist a clean screen (radiology_orders.patient_uid has no
+    // FK to users, so only the gate stands between this order and creation).
+    const UNRESOLVABLE_PATIENT_UID = 'cf000000-0000-4000-8000-000000000b09';
+
+    afterAll(async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
+        UNRESOLVABLE_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`,
+        UNRESOLVABLE_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
+        UNRESOLVABLE_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM radiology_orders WHERE patient_uid = $1::uuid`,
+        UNRESOLVABLE_PATIENT_UID,
+      ).catch(() => {});
+    });
+
+    it('blocks a contrast order when the allergy screen cannot complete', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send({ ...baseOrder(UNRESOLVABLE_PATIENT_UID), contrast_planned: true });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_ALLERGY_BLOCKED');
+      expect(res.body.details.blockers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'CONTRAST_ALLERGY_SCREEN_INCOMPLETE',
+            screen_status: 'failed',
+          }),
+        ]),
+      );
+    });
+
+    it('proceeds only under an acknowledged override, and the evidence records the failed screen — never a clean one', async () => {
+      const res = await doctor().post('/api/v1/radiology/orders')
+        .send({
+          ...baseOrder(UNRESOLVABLE_PATIENT_UID),
+          contrast_planned: true,
+          override: { reason: 'Allergy history verified verbally with patient; record pending registration' },
+        });
+
+      expect(res.statusCode).toBe(201);
+      const screen = res.body.data.contrast_allergy_screen;
+      expect(screen.status).toBe('failed');
+      expect(screen.safe).toBe(false);
+      expect(screen.blockers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'CONTRAST_ALLERGY_SCREEN_INCOMPLETE' }),
+        ]),
+      );
+      expect(screen.override.reason).toMatch(/verified verbally/);
+    });
   });
 
   describe('pre-acquisition contrast-plan amendment (PUT /:id/contrast)', () => {
@@ -254,6 +387,83 @@ describe('radiology contrast/allergy screening at order time (migration 678)', (
       );
       expect(timeline).toHaveLength(1);
       expect(timeline[0].payload.contrast_allergy_override).toBe(true);
+    });
+
+    it('refuses an empty amendment body instead of silently erasing the plan', async () => {
+      const before = await prisma.$queryRawUnsafe(
+        `SELECT contrast_planned, contrast_agent, contrast_allergy_screen, contrast_override_reason
+           FROM radiology_orders WHERE id = $1::int`,
+        plainOrderId,
+      );
+
+      const res = await doctor().put(`/api/v1/radiology/${plainOrderId}/contrast`).send({});
+      expect(res.statusCode).toBe(400);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_PLAN_REQUIRED');
+
+      const after = await prisma.$queryRawUnsafe(
+        `SELECT contrast_planned, contrast_agent, contrast_allergy_screen, contrast_override_reason
+           FROM radiology_orders WHERE id = $1::int`,
+        plainOrderId,
+      );
+      expect(after).toEqual(before); // nothing touched
+    });
+
+    it('requires an explicit reason to clear a recorded contrast plan', async () => {
+      const res = await doctor().put(`/api/v1/radiology/${plainOrderId}/contrast`)
+        .send({ contrast_planned: false });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.code).toBe('RADIOLOGY_CONTRAST_CLEAR_REASON_REQUIRED');
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT contrast_planned, contrast_override_reason FROM radiology_orders WHERE id = $1::int`,
+        plainOrderId,
+      );
+      expect(rows[0].contrast_planned).toBe(true);
+      expect(rows[0].contrast_override_reason).toMatch(/premedication chart/i);
+    });
+
+    it('clears with a reason, preserving the prior screen evidence and override in append-only history', async () => {
+      const res = await doctor().put(`/api/v1/radiology/${plainOrderId}/contrast`)
+        .send({ contrast_planned: false, reason: 'Protocolled to non-contrast HRCT after MDT review' });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.contrast_planned).toBe(false);
+      expect(res.body.data.contrast_agent).toBeNull();
+      // Override COLUMNS clear with the plan (paired CHECK), but the record
+      // survives in the JSONB history.
+      expect(res.body.data.contrast_override_reason).toBeNull();
+
+      const screen = res.body.data.contrast_allergy_screen;
+      expect(screen.contrast_planned).toBe(false);
+      expect(screen.intent_source).toBe('explicitly_negated');
+      expect(screen.cleared).toMatchObject({
+        reason: 'Protocolled to non-contrast HRCT after MDT review',
+        by: DOCTOR_UID,
+      });
+      expect(Array.isArray(screen.history)).toBe(true);
+      expect(screen.history).toHaveLength(1);
+      expect(screen.history[0].safe).toBe(false);
+      expect(screen.history[0].blockers[0].allergy).toBe('Iodinated contrast');
+      expect(screen.history[0].override.reason).toMatch(/premedication chart/i);
+      expect(screen.history[0].superseded_by).toBe(DOCTOR_UID);
+
+      // The canonical timeline row records what was cleared.
+      const timeline = await prisma.$queryRawUnsafe(
+        `SELECT payload FROM clinical_timeline_events
+          WHERE source_table = 'radiology_orders' AND source_id = $1
+            AND event_type = 'radiology.contrast_plan_updated'
+            AND payload->>'cleared_reason' IS NOT NULL`,
+        String(plainOrderId),
+      );
+      expect(timeline).toHaveLength(1);
+      expect(timeline[0].payload).toMatchObject({
+        contrast_planned: false,
+        cleared_reason: 'Protocolled to non-contrast HRCT after MDT review',
+        cleared_contrast_agent: 'iodixanol',
+        cleared_had_override: true,
+      });
+      expect(timeline[0].payload.cleared_override_reason).toMatch(/premedication chart/i);
     });
 
     it('locks the contrast plan once the study is no longer awaiting acquisition', async () => {

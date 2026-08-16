@@ -441,6 +441,8 @@ router.put('/:id/contrast', paramId(), ...radiologyContrastPlanValidator, valida
     const result = await radiologyService.setContrastPlan(parseInt(req.params.id, 10), {
       contrast_planned: req.body.contrast_planned ?? req.body.contrastPlanned,
       contrast_agent: req.body.contrast_agent ?? req.body.contrastAgent,
+      // Required when the amendment clears an existing contrast plan.
+      reason: req.body.reason ?? req.body.clear_reason,
       override: req.body.override,
       contrast_override_reason: req.body.contrast_override_reason,
       contrast_override_by: req.body.contrast_override_by,

@@ -288,6 +288,9 @@ export const radiologyContrastPlanValidator = [
   body('contrast_planned').optional({ nullable: true })
     .isBoolean().withMessage('contrast_planned must be a boolean'),
   optionalString('contrast_agent', 120),
+  // Required by the service when the amendment clears an existing contrast
+  // plan (contrast_planned true → false); shape-checked only here.
+  optionalString('reason', 500),
   optionalString('override.reason', 500),
 ];
 
