@@ -230,6 +230,24 @@ result acknowledgement, bed cleaning, discharge blockers, and operational
 handoff blockers. Dashboards may render their own views, but the canonical SLA
 table is the normalized source for audit and escalation proof.
 
+The SLA lifecycle has three verbs: start, complete, and cancel
+(`startWorkflowSla` / `completeWorkflowSla` / `cancelWorkflowSla` in
+`canonicalClinicalPlatformService.js`). Cancel is for obligations that ceased
+to exist (case cancelled, activation stood down, request abandoned) — never
+mark those `completed`. A generic overdue sweep
+(`src/services/workflow/slaOverdueSweepService.js`, cron
+`workflow-sla-overdue-sweep`) flips active past-due instances to `breached`
+with `breached_at = due_at`; escalation and notification remain the
+escalation engine's job.
+
+Note on `care_pathway_stage`: this identifier is NOT an SLA rule and must not
+be seeded into `workflow_sla_rules` or passed to `startWorkflowSla`. It exists
+only as the COALESCE fallback obligation-label inside the care-pathway DB
+routing/ownership functions (migrations 580/585/586) for pathway tasks whose
+linked SLA has no rule code. It is pinned by a guard test — wiring it as a
+rule without a deliberate product decision (default per-stage clocks) should
+fail loudly.
+
 ## Downtime And Templates
 
 Downtime/offline mode is deliberately conservative:
