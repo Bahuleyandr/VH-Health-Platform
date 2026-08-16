@@ -27,6 +27,7 @@ const verifyTokenMock = jest.fn();
 verifyTokenMock.lastError = null;
 const isTokenBlacklistedMock = jest.fn();
 const isUserTokensRevokedMock = jest.fn();
+const isDelegatedTupleRevokedMock = jest.fn();
 
 // Re-create the real RevocationCheckUnavailableError so `instanceof` works.
 class RevocationCheckUnavailableError extends Error {
@@ -53,6 +54,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: isTokenBlacklistedMock,
   isUserTokensRevoked: isUserTokensRevokedMock,
+  isDelegatedTupleRevoked: isDelegatedTupleRevokedMock,
   RevocationCheckUnavailableError,
 }));
 
@@ -82,8 +84,10 @@ beforeEach(() => {
   verifyTokenMock.lastError = null;
   isTokenBlacklistedMock.mockReset();
   isUserTokensRevokedMock.mockReset();
+  isDelegatedTupleRevokedMock.mockReset();
   isTokenBlacklistedMock.mockResolvedValue(false);
   isUserTokensRevokedMock.mockResolvedValue(false);
+  isDelegatedTupleRevokedMock.mockResolvedValue(false);
 });
 
 // =====================================================================
@@ -394,6 +398,50 @@ describe('jwtMiddleware — acting-as delegation', () => {
     const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(res.statusCode).toBe(403);
+  });
+
+  // Subject-side revocation gate (audit MEDIUM "REST acting-as revocation"):
+  // the bearer checks cover only the guardian's identity; a delegated request
+  // must additionally fail when the DEPENDENT's sessions or the delegated
+  // guardian↔dependent tuple are revoked — mirroring the WS handshake.
+
+  it('denies with 403 when the dependent subject\'s sessions are revoked', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken({ iat: 1000 }));
+    // 1st call = guardian bearer check (clean), 2nd = subject check (revoked).
+    isUserTokensRevokedMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+    // Subject check ran against the DEPENDENT with the bearer's iat and no
+    // epoch (the guardian's epoch is meaningless for the dependent).
+    expect(isUserTokensRevokedMock).toHaveBeenLastCalledWith(DEP_UID, 1000, undefined);
+  });
+
+  it('denies with 403 when the delegated guardian↔dependent tuple is revoked', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken({ iat: 1000 }));
+    isDelegatedTupleRevokedMock.mockResolvedValue(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+    expect(isDelegatedTupleRevokedMock).toHaveBeenCalledWith(GUARDIAN_UID, DEP_UID, 1000);
+  });
+
+  it('fails CLOSED with 503 when the subject revocation store is unreachable', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken({ iat: 1000 }));
+    isUserTokensRevokedMock
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new RevocationCheckUnavailableError());
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(res.statusCode).toBe(503);
+    expect(res.body.code).toBe('REVOCATION_CHECK_UNAVAILABLE');
   });
 
   it('rewrites req.user to the dependent and records req.acting on success', async () => {

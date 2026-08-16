@@ -11,6 +11,10 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import {
+  persistRevokeAllUserTokens,
+  persistRevokeDelegatedTuple,
+} from '../utils/tokenBlacklist.js';
 import { generateTestToken } from './testClient.js';
 import { withAuditBypass } from './helpers/auditBypass.js';
 
@@ -93,7 +97,15 @@ describe('Acting-as delegation — deep integration', () => {
       MINOR_LINKED_UID, MINOR_OTHER_UID, MINOR_FOREIGN_UID,
     ];
 
-    // Clean any prior runs in FK-safe order.
+    // Clean any prior runs in FK-safe order. Includes revocation markers a
+    // crashed earlier run of the subject-revocation tests may have left on a
+    // REUSED local DB (fresh CI DBs are unaffected).
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM invalidated_tokens
+        WHERE jti IN ($1, $2)`,
+      `user:${MINOR_LINKED_UID}`,
+      `user:delegated:${GUARDIAN_UID.toLowerCase()}:${MINOR_LINKED_UID.toLowerCase()}`,
+    );
     await purgeActingAsAuditRows(allUids);
     await prisma.$executeRawUnsafe(
       `UPDATE users SET guardian_user_id = NULL WHERE uid = ANY($1::uuid[])`,
@@ -302,6 +314,58 @@ describe('Acting-as delegation — deep integration', () => {
       GUARDIAN_UID,
     );
     expect(rows[0].c).toBe(0);
+  });
+
+  // ── Subject-side revocation (audit MEDIUM: "REST acting-as revocation") ──
+  // The bearer checks only cover the guardian; the delegated request is
+  // additionally authorized AS the dependent, so the dependent's own
+  // revoke-all and the delegated tuple revocation must stop the REST hop —
+  // the same contract the WS handshake enforces.
+
+  test('Acting-as denied while the dependent subject\'s sessions are revoked', async () => {
+    await persistRevokeAllUserTokens(MINOR_LINKED_UID, { reason: 'test_subject_revoked' });
+    try {
+      const res = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+
+      // Denial is delegation-scoped: the guardian's own session stays live.
+      const own = await guardianCall('get', '/api/v1/users/me');
+      expect(own.status).toBe(200);
+      expect(own.body.data.user.uid).toBe(GUARDIAN_UID);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM invalidated_tokens WHERE jti = $1`, `user:${MINOR_LINKED_UID}`,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE users SET token_epoch = 0, token_epoch_bumped_at = NULL WHERE uid = $1::uuid`,
+        MINOR_LINKED_UID,
+      );
+    }
+
+    // With the subject's revocation cleared, delegation works again — the
+    // gate keys on the SUBJECT's revocation state, not a request fluke.
+    const restored = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+    expect(restored.status).toBe(200);
+    expect(restored.body.data.user.uid).toBe(MINOR_LINKED_UID);
+  });
+
+  test('Acting-as denied while the delegated guardian↔dependent tuple is revoked', async () => {
+    await persistRevokeDelegatedTuple(GUARDIAN_UID, MINOR_LINKED_UID, { reason: 'test_tuple_revoked' });
+    const tupleJti = `user:delegated:${GUARDIAN_UID.toLowerCase()}:${MINOR_LINKED_UID.toLowerCase()}`;
+    try {
+      const res = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM invalidated_tokens WHERE jti = $1`, tupleJti,
+      );
+    }
+
+    const restored = await guardianCall('get', '/api/v1/users/me', { actingAs: MINOR_LINKED_UID });
+    expect(restored.status).toBe(200);
+    expect(restored.body.data.user.uid).toBe(MINOR_LINKED_UID);
   });
 
   test('Direct (non-delegated) requests do not set the acting_as flag', async () => {

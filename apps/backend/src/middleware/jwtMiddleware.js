@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
 import { canonicalizeRequestRole } from '../utils/roles.js';
 import {
+  isDelegatedTupleRevoked,
   isTokenBlacklisted,
   isUserTokensRevoked,
   RevocationCheckUnavailableError,
@@ -305,7 +306,27 @@ export default async function jwtMiddleware(req, res, next) {
   const actingAsHeader =
     req.headers?.['x-acting-as-uid'] ?? req.headers?.['X-Acting-As-Uid'];
   if (actingAsHeader) {
-    const denial = await applyActingAsHop(req, String(actingAsHeader).trim());
+    let denial;
+    try {
+      denial = await applyActingAsHop(req, String(actingAsHeader).trim(), {
+        bearerIssuedAt: decoded.iat ?? null,
+      });
+    } catch (err) {
+      // Same fail-closed contract as the bearer's own revocation gate above:
+      // when no revocation store can answer for the SUBJECT, deny with 503
+      // instead of honouring possibly-revoked delegated authority.
+      if (err instanceof RevocationCheckUnavailableError) {
+        logger.error('Acting-as denied (fail closed): subject revocation stores unreachable', {
+          error: err.message,
+        });
+        return res.status(503).json({
+          success: false,
+          error: 'Authentication service temporarily unavailable. Please retry.',
+          code: 'REVOCATION_CHECK_UNAVAILABLE',
+        });
+      }
+      throw err;
+    }
     if (denial) return res.status(denial.status).json(denial.body);
   }
 
@@ -314,7 +335,7 @@ export default async function jwtMiddleware(req, res, next) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function applyActingAsHop(req, dependentUidRaw) {
+async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } = {}) {
   // Narrow-scope tokens (e.g. mfa_setup) must never act-as — they exist
   // only to complete enrollment of the bearer's own account.
   if (req.user?.scope && req.user.scope !== 'full') {
@@ -507,6 +528,53 @@ async function applyActingAsHop(req, dependentUidRaw) {
         code: 'NOT_AUTHORISED_TO_ACT_AS',
       },
     };
+  }
+
+  // Subject-side revocation gate (audit MEDIUM: "REST acting-as revocation").
+  // The bearer-level checks at the top of the middleware cover only the
+  // GUARDIAN's identity; a delegated request is additionally authorized AS the
+  // dependent, so the dependent's own revoke-all and the delegated
+  // guardian↔dependent tuple revocation must also stop it — the same contract
+  // the WS handshake already enforces (wsServer.js delegated branch). The
+  // guardian's token_epoch is not meaningful for the dependent, so both checks
+  // use the durable timestamp predicate against the bearer's iat.
+  // RevocationCheckUnavailableError propagates to the caller, which fails
+  // CLOSED with 503.
+  if (bearerIssuedAt) {
+    const subjectRevoked = await isUserTokensRevoked(
+      String(row.dep_uid),
+      bearerIssuedAt,
+      undefined,
+    );
+    if (subjectRevoked) {
+      logger.warn(`Acting-as denied: subject ${row.dep_uid} sessions revoked`);
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: 'Not authorised to act as that user',
+          code: 'NOT_AUTHORISED_TO_ACT_AS',
+        },
+      };
+    }
+    const tupleRevoked = await isDelegatedTupleRevoked(
+      String(req.user.uid),
+      String(row.dep_uid),
+      bearerIssuedAt,
+    );
+    if (tupleRevoked) {
+      logger.warn(
+        `Acting-as denied: delegated tuple revoked for guardian=${req.user.uid} dependent=${row.dep_uid}`,
+      );
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: 'Not authorised to act as that user',
+          code: 'NOT_AUTHORISED_TO_ACT_AS',
+        },
+      };
+    }
   }
 
   // All gates passed — record the actor on req.acting and rewrite req.user

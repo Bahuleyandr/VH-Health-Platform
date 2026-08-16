@@ -17,6 +17,9 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   // acting-as hops) — the factory must export it or the ESM import of the
   // route module fails outright.
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
+  // jwtMiddleware's acting-as hop now also checks the delegated
+  // guardian↔dependent tuple — export it or the ESM import graph fails.
+  isDelegatedTupleRevoked: jest.fn().mockResolvedValue(false),
   RevocationCheckUnavailableError: class extends Error {},
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
