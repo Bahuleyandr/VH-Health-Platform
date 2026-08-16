@@ -86,9 +86,16 @@ describe('migration 676 — scan-status columns + default disarm', () => {
     expect(sql676).toContain("LOWER(TRIM(COALESCE(scan_status, ''))) IN ('pending', '')");
     // The file_metadata backfill (the one potentially-slow scan) must run
     // before any ACCESS EXCLUSIVE statement exists.
-    const firstUpdate = sql676.indexOf('UPDATE file_metadata');
-    const firstAlter = sql676.indexOf('ALTER TABLE');
+    //
+    // Measured on the comment-stripped STATEMENT list rather than the raw
+    // file: the header documents the expand/contract obligation using real
+    // SQL, so a raw indexOf('ALTER TABLE') matches prose instead of an
+    // executed statement. Statement order is what lock discipline is about.
+    const code676 = statements(sql676).join(';\n');
+    const firstUpdate = code676.indexOf('UPDATE file_metadata');
+    const firstAlter = code676.indexOf('ALTER TABLE');
     expect(firstUpdate).toBeGreaterThan(-1);
+    expect(firstAlter).toBeGreaterThan(-1);
     expect(firstUpdate).toBeLessThan(firstAlter);
   });
 
@@ -98,9 +105,57 @@ describe('migration 676 — scan-status columns + default disarm', () => {
     expect(sql676).toMatch(/ALTER TABLE staff_message_attachments\s+ALTER COLUMN scan_status DROP DEFAULT/);
   });
 
-  it('introduces NO new DEFAULT anywhere — a forgetful writer must fail loudly, not mint a blocked row', () => {
+  it('introduces NO ARMED default — a default may never mint a permanently-blocked row', () => {
     const code = statements(sql676).join(';\n'); // comments stripped
+
+    // #871's blackhole was a DEFAULT of 'pending' (or blank): a writer that
+    // forgot the column minted a row no gate would ever release. That class of
+    // default must never reappear, and no already-disarmed column may be
+    // re-armed via SET DEFAULT.
     expect(code).not.toMatch(/SET DEFAULT/);
-    expect(code).not.toMatch(/ADD COLUMN[^;]*DEFAULT/i);
+    expect(code).not.toMatch(/DEFAULT\s+'(pending|quarantined|failed|)'/i);
+  });
+
+  it('carries EXACTLY the two transitional expand-phase defaults, both released-state', () => {
+    const code = statements(sql676).join(';\n'); // comments stripped
+
+    // The two brand-new NOT NULL columns need a default for the duration of a
+    // rolling deploy — the previous image's writers cannot emit a column their
+    // Prisma client predates, so a NOT NULL with no default 23502s consent
+    // capture and investigation-file upload on every not-yet-rolled replica.
+    // 'not_scanned' is the RELEASED state, so this is not #871's hazard.
+    expect(code).toMatch(
+      /ALTER TABLE investigation_files\s+ADD COLUMN IF NOT EXISTS scan_status VARCHAR\(30\) DEFAULT 'not_scanned'/,
+    );
+    expect(code).toMatch(
+      /ALTER TABLE consent_signatures\s+ADD COLUMN IF NOT EXISTS scan_status VARCHAR\(30\) DEFAULT 'not_scanned'/,
+    );
+
+    // EXACTLY two — a third would mean a new column slipped in unreviewed.
+    const added = code.match(/ADD COLUMN[^;]*DEFAULT/gi) || [];
+    expect(added).toHaveLength(2);
+
+    // The investigation_bookings pair stays deliberately default-free: those
+    // columns are nullable with IS NULL-tolerant CHECKs, so no writer breaks.
+    expect(code).not.toMatch(/slip_photo_scan_status VARCHAR\(30\) DEFAULT/);
+    expect(code).not.toMatch(/result_file_scan_status VARCHAR\(30\) DEFAULT/);
+  });
+
+  it('records the contract obligation to drop those defaults in a LATER release', () => {
+    // The expand half is only safe if the contract half actually happens. A
+    // migration in THIS batch would run inside the same PreSync transaction
+    // and defeat the purpose, so the obligation lives in the header — pinned
+    // here so it cannot be quietly dropped along with the comment.
+    expect(sql676).toMatch(/CONTRACT OBLIGATION/);
+    expect(sql676).toMatch(/ALTER TABLE investigation_files\s+ALTER COLUMN scan_status DROP DEFAULT/);
+    expect(sql676).toMatch(/ALTER TABLE consent_signatures\s+ALTER COLUMN scan_status DROP DEFAULT/);
+    expect(sql676).toMatch(/NEXT release after the fleet is/i);
+
+    // ...and the obligation must still be OUTSTANDING: if a real DROP DEFAULT
+    // for these two ever lands in this file it would run in the same PreSync
+    // transaction as the ADD, so the executable statements must not contain it.
+    const code = statements(sql676).join(';\n');
+    expect(code).not.toMatch(/investigation_files\s+ALTER COLUMN scan_status DROP DEFAULT/);
+    expect(code).not.toMatch(/consent_signatures\s+ALTER COLUMN scan_status DROP DEFAULT/);
   });
 });

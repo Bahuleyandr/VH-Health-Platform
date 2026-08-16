@@ -22,9 +22,37 @@
 --    the status explicitly (from services/security/fileScanService.js), so
 --    the defaults are dropped and file_metadata.scan_status becomes NOT NULL:
 --    a writer that forgets the column now fails loudly at INSERT time instead
---    of silently storing bytes no gate will ever release. The new columns
---    added here likewise carry NO default — the only path to a stored status
---    is an explicit write of the screener's verdict.
+--    of silently storing bytes no gate will ever release.
+--
+--    ★ THE TWO NEW COLUMNS ARE THE EXPAND HALF OF AN EXPAND/CONTRACT PAIR,
+--      and carry a TRANSITIONAL DEFAULT 'not_scanned' on purpose.
+--      This file originally added them with no default, matching the posture
+--      above. That is correct steady-state and wrong at cutover: prod applies
+--      migrations from an ArgoCD PreSync Job at sync-wave -1, BEFORE the
+--      Deployment rolls at wave 0, and an old replica deliberately stays
+--      Ready against an ahead-of-image database (uptimeRoutes.js gates on
+--      requiredCurrent = pending.length === 0, so unexpected migrations only
+--      set the informational database_ahead flag). The previous image's
+--      writers — consentRoutes.js and investigation/fileService.js — cannot
+--      emit a column that did not exist when their Prisma client was
+--      generated, so a NOT NULL with no default 23502s every consent-signature
+--      capture and investigation-file upload on every not-yet-rolled replica
+--      for the length of the rollout. Leaving the columns NULLable instead is
+--      worse: the serving gate reads NULL as ungated.
+--      The default is 'not_scanned' — the RELEASED state, never an armed one —
+--      so this cannot re-create #871's blackhole (that hazard was a default of
+--      'PENDING', which is permanently 423). Its only cost is that a future
+--      forgetful writer is silently defaulted instead of failing loudly.
+--
+--      ⇒ CONTRACT OBLIGATION, owed by the NEXT release after the fleet is
+--        fully rolled — not by a migration in this batch, which would run in
+--        the same PreSync transaction and defeat the point:
+--            ALTER TABLE investigation_files  ALTER COLUMN scan_status DROP DEFAULT;
+--            ALTER TABLE consent_signatures   ALTER COLUMN scan_status DROP DEFAULT;
+--        At that point the declared posture is fully restored: the only path
+--        to a stored status is an explicit write of the screener's verdict.
+--        fileScanBacklogReleaseMigrations.test.js pins this obligation so it
+--        cannot be forgotten silently.
 --    (staff_message_attachments.scan_status is already NOT NULL; the GDPR
 --    erasure writer touches file_metadata only via UPDATE and never inserts,
 --    so NOT NULL cannot break it.)
@@ -67,7 +95,7 @@ UPDATE file_metadata
 -- ── investigation_files ─────────────────────────────────────────────────────
 
 ALTER TABLE investigation_files
-  ADD COLUMN IF NOT EXISTS scan_status VARCHAR(30);
+  ADD COLUMN IF NOT EXISTS scan_status VARCHAR(30) DEFAULT 'not_scanned';
 
 UPDATE investigation_files
    SET scan_status = 'not_scanned'
@@ -83,7 +111,7 @@ ALTER TABLE investigation_files
 -- ── consent_signatures ──────────────────────────────────────────────────────
 
 ALTER TABLE consent_signatures
-  ADD COLUMN IF NOT EXISTS scan_status VARCHAR(30);
+  ADD COLUMN IF NOT EXISTS scan_status VARCHAR(30) DEFAULT 'not_scanned';
 
 UPDATE consent_signatures
    SET scan_status = 'not_scanned'
