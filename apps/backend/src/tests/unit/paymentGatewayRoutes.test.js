@@ -225,18 +225,25 @@ describe('role gates', () => {
     const res = await request(app('RECEPTIONIST'))
       .post('/api/v1/billing/gateway/refunds')
       .set('Idempotency-Key', 'refund-key-1')
-      .send({ billing_refund_id: 9 });
+      .send({ billing_refund_id: 9, gateway_order_id: 21 });
     expect(res.status).toBe(403);
+    expect(initiateGatewayRefund).not.toHaveBeenCalled();
+
+    const missingSource = await request(app('CASHIER'))
+      .post('/api/v1/billing/gateway/refunds')
+      .set('Idempotency-Key', 'refund-key-missing-source')
+      .send({ billing_refund_id: 9 });
+    expect(missingSource.status).toBe(400);
     expect(initiateGatewayRefund).not.toHaveBeenCalled();
 
     initiateGatewayRefund.mockResolvedValue({ id: 6, billing_refund_id: 9, amount: 100, status: 'pending' });
     const ok = await request(app('CASHIER'))
       .post('/api/v1/billing/gateway/refunds')
       .set('Idempotency-Key', 'refund-key-2')
-      .send({ billing_refund_id: 9 });
+      .send({ billing_refund_id: 9, gateway_order_id: 21 });
     expect(ok.status).toBe(200);
     expect(initiateGatewayRefund).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'trusted-tenant', billing_refund_id: 9,
+      tenantId: 'trusted-tenant', billing_refund_id: 9, gateway_order_id: 21,
     }));
   });
 });

@@ -41,6 +41,10 @@ const { resolveSmsProviderContext, sendThroughResolvedProvider } = await import(
   '../../utils/notifications/smsProviders/index.js'
 );
 const { sendSMS } = await import('../../services/smsService.js');
+const { sendViaMsg91 } = await import('../../utils/notifications/smsProviders/msg91Provider.js');
+const { sendViaTwilioSms } = await import(
+  '../../utils/notifications/smsProviders/twilioSmsProvider.js'
+);
 const { isTerminalRejectionCode } = await import(
   '../../utils/notifications/terminalRejectionCodes.js'
 );
@@ -151,7 +155,7 @@ describe('provider resolution (config-gated DEFAULT OFF)', () => {
 describe('dry-run default through the seam', () => {
   it('classifies as rejected(sms_gateway_not_configured) and never claims a delivery', async () => {
     getSmsSettingsMock.mockResolvedValue({ enabled: false });
-    const result = await sendSMS('9876543210', 'Hello', {
+    const result = await sendSMS('9876543210', 'Patient Alice has an appointment', {
       tenantId: TENANT_ID, templateVersion: TEMPLATE_KEY, outboxId: 12,
     });
     expect(result).toMatchObject({
@@ -159,6 +163,9 @@ describe('dry-run default through the seam', () => {
       providerCode: 'sms_gateway_not_configured',
     });
     expect(result.evidence).toMatchObject({ dry_run: true, reason: 'tenant_disabled' });
+    const logs = JSON.stringify(loggerMock.info.mock.calls);
+    expect(logs).not.toContain('9876543210');
+    expect(logs).not.toContain('Patient Alice');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -167,9 +174,55 @@ describe('dry-run default through the seam', () => {
     expect(result).toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
     expect(getSmsSettingsMock).not.toHaveBeenCalled();
   });
+
+  it('rejects foreign E.164 numbers instead of rewriting their last ten digits as Indian', async () => {
+    const result = await sendSMS('+14155552671', 'Hello', { tenantId: TENANT_ID });
+    expect(result).toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
+    expect(getSmsSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the provider adapters fail-closed when invoked directly with foreign E.164', async () => {
+    await expect(sendViaMsg91({
+      authKey: 'key', senderId: 'VHHLTH', dltTemplateId: 'dlt-1',
+      phone: '+14155552671', message: 'Hello',
+    })).resolves.toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
+    await expect(sendViaTwilioSms({
+      accountSid: 'AC1', authToken: 'key', from: 'VHHLTH',
+      phone: '+14155552671', message: 'Hello',
+    })).resolves.toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(twilioCreateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['98765 43210', '919876543210'],
+    ['09876543210', '919876543210'],
+    ['+91-98765-43210', '919876543210'],
+  ])('normalizes supported Indian SMS format %s without changing identity', async (input, output) => {
+    stubDb({ configs: [configRow()], templates: [registrationRow()] });
+    fetchMock.mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ type: 'success', message: 'req-normalized' }),
+    });
+    await sendSMS(input, 'Hello', { tenantId: TENANT_ID, templateVersion: TEMPLATE_KEY });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sms[0].to).toEqual([output]);
+  });
 });
 
 describe('DLT template gate (fail-closed)', () => {
+  it('requires the registration to belong to the exact resolved provider config', async () => {
+    stubDb({ configs: [configRow({ id: 7 })], templates: [] });
+    await sendThroughResolvedProvider({
+      phone: '919876543210', message: 'Hi', tenantId: TENANT_ID,
+      templateVersion: TEMPLATE_KEY, outboxId: 12,
+    });
+    const lookup = queryRawUnsafeMock.mock.calls.find(([sql]) => /sms_template_registrations/.test(sql));
+    expect(lookup[0]).toMatch(/r\.provider_config_id = \$3::integer/);
+    expect(lookup[0]).toMatch(/c\.provider = \$4::text/);
+    expect(lookup.slice(1)).toEqual([TENANT_ID, TEMPLATE_KEY, 7, 'msg91']);
+  });
+
   it('terminally rejects a template kind with no active registration — no HTTP call', async () => {
     stubDb({ configs: [configRow()], templates: [] });
     const result = await sendThroughResolvedProvider({
@@ -231,13 +284,17 @@ describe('MSG91 adapter classification', () => {
   it('classifies a provider-side error as rejected with the provider code', async () => {
     fetchMock.mockResolvedValue({
       ok: true, status: 200,
-      json: async () => ({ type: 'error', code: '311', message: 'Invalid DLT template' }),
+      json: async () => ({
+        type: 'error', code: '311', message: 'Invalid number +919876543210 for Patient Alice',
+      }),
     });
     const result = await sendThroughResolvedProvider({
       phone: '919876543210', message: 'Hi', tenantId: TENANT_ID,
       templateVersion: TEMPLATE_KEY, outboxId: 16,
     });
     expect(result).toMatchObject({ outcome: 'rejected', providerCode: 'msg91_311' });
+    expect(JSON.stringify(result.evidence)).not.toContain('9876543210');
+    expect(JSON.stringify(result.evidence)).not.toContain('Patient Alice');
   });
 
   it('classifies an HTTP 401 as rejected (retrying the same credentials cannot succeed)', async () => {
@@ -297,7 +354,7 @@ describe('Twilio adapter classification', () => {
   });
 
   it('classifies a Twilio 4xx REST error as rejected with the Twilio code', async () => {
-    twilioCreateMock.mockRejectedValue(Object.assign(new Error('not a mobile number'), {
+    twilioCreateMock.mockRejectedValue(Object.assign(new Error('not a mobile number +919876543210'), {
       status: 400, code: 21614,
     }));
     const result = await sendThroughResolvedProvider({
@@ -305,6 +362,7 @@ describe('Twilio adapter classification', () => {
       templateVersion: TEMPLATE_KEY, outboxId: 21,
     });
     expect(result).toMatchObject({ outcome: 'rejected', providerCode: 'twilio_21614' });
+    expect(JSON.stringify(result.evidence)).not.toContain('9876543210');
   });
 
   it('classifies a Twilio 5xx as uncertain', async () => {

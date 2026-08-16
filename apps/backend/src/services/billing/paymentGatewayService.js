@@ -154,6 +154,10 @@ export async function resolveGatewayContext(tenantId) {
     return { enabled: false, reason: 'config_unavailable', config: null };
   }
   if (!config) return { enabled: false, reason: 'no_enabled_config', config: null };
+  if (config.provider !== 'dry_run'
+      && (!config.key_id || !config.key_secret_ciphertext || !config.webhook_secret_ciphertext)) {
+    return { enabled: false, reason: 'credentials_incomplete', config: null };
+  }
   return { enabled: true, reason: null, config };
 }
 
@@ -269,7 +273,7 @@ export async function upsertGatewayConfig({
     }
     if (isCheckViolation(err)) {
       throw AppError.badRequest(
-        'An enabled non-dry_run config requires key_id and key_secret.',
+        'An enabled non-dry_run config requires key_id, key_secret, and webhook_secret.',
         'PAYMENT_GATEWAY_CREDENTIALS_REQUIRED',
       );
     }
@@ -874,29 +878,42 @@ async function handlePaymentAuthorizedEvent({ tenantId, config, payload }) {
 // Refund execution leg (authority stays in billing_refunds)
 // ───────────────────────────────────────────────────────────────────────
 
+function toGatewayRefundResult(row, replay) {
+  const { provider_idempotency_key: _providerIdempotencyKey, ...safeRow } = row;
+  return {
+    ...safeRow,
+    id: Number(row.id),
+    amount: Number(row.amount),
+    replay: replay === true,
+  };
+}
+
 /**
  * Initiate the provider refund for an APPROVED billing_refunds row whose
  * invoice was gateway-collected. Execution/evidence only — the approval
  * authority and the ledger REFUND_PAID posting stay with billingV2
  * (markRefundPaid, driven by the refund.processed webhook).
  */
-export async function initiateGatewayRefund({ tenantId, billing_refund_id, initiated_by }) {
+export async function initiateGatewayRefund({
+  tenantId, billing_refund_id, gateway_order_id, initiated_by,
+}) {
   const tenant = requireTenantId(tenantId);
-  const context = await requireGatewayContext(tenant);
-  const { config } = context;
+  if (!Number.isInteger(Number(billing_refund_id)) || Number(billing_refund_id) <= 0
+      || !Number.isInteger(Number(gateway_order_id)) || Number(gateway_order_id) <= 0) {
+    throw AppError.badRequest(
+      'billing_refund_id and gateway_order_id must be positive integers',
+      'PAYMENT_GATEWAY_BAD_REFUND',
+    );
+  }
+  await requireGatewayContext(tenant);
+  const newProviderIdempotencyKey = `pgr_${randomBytes(16).toString('hex')}`;
 
-  // ONE setTenantTx around lock → live-leg check → provider call → INSERT.
-  // The FOR UPDATE on billing_refunds serializes concurrent initiations for
-  // the same refund (two tabs, an operator retry with a fresh idempotency
-  // key): the loser blocks on the lock, then sees the winner's execution row
-  // and returns it WITHOUT a second provider call — the provider refund must
-  // never be executed twice while billing_refunds is still APPROVED (it only
-  // flips to PAID on the refund.processed webhook). The 697 partial unique
-  // (ux_pg_refund_billing_refund_live) remains the durable backstop, but it
-  // fires AFTER the money moved — the pre-call check is the real guard.
-  const outcome = await setTenantTx(tenant, async (tx) => {
+  // Phase 1 commits the exact approved refund, payment source, payer, mode,
+  // provider config and retry key before any irreversible provider request.
+  const intent = await setTenantTx(tenant, async (tx) => {
     const refundRows = await tx.$queryRawUnsafe(
-      `SELECT id, invoice_id, advance_id, amount, reason, approval_status
+      `SELECT id, invoice_id, advance_id, patient_uid::text, amount, reason,
+              mode, approval_status
          FROM billing_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid
         FOR UPDATE`,
@@ -917,8 +934,6 @@ export async function initiateGatewayRefund({ tenantId, billing_refund_id, initi
       );
     }
 
-    // Idempotent replay: a live (non-failed) execution leg already exists —
-    // return it, never re-execute at the provider.
     const existingRows = await tx.$queryRawUnsafe(
       `SELECT * FROM payment_gateway_refunds
         WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int
@@ -927,66 +942,100 @@ export async function initiateGatewayRefund({ tenantId, billing_refund_id, initi
         LIMIT 1`,
       tenant, Number(refund.id),
     );
-    if (existingRows.length) return { row: existingRows[0], replay: true };
+    const existing = existingRows[0] || null;
+    if (existing && Number(existing.gateway_order_id) !== Number(gateway_order_id)) {
+      throw AppError.conflict(
+        'This approved refund is already bound to a different gateway payment',
+        'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
+      );
+    }
+    if (existing && existing.status !== 'initiated') {
+      return { row: existing, replay: true, callProvider: false };
+    }
 
     const orderRows = await tx.$queryRawUnsafe(
-      `SELECT id, provider, environment, provider_payment_id, amount
-         FROM payment_gateway_orders
-        WHERE tenant_id = $1::uuid AND invoice_id = $2::int AND status = 'paid'
-          AND provider_payment_id IS NOT NULL
-        ORDER BY captured_at DESC NULLS LAST, id DESC
-        LIMIT 1`,
-      tenant, Number(refund.invoice_id),
+      `SELECT o.id, o.provider, o.environment, o.provider_payment_id,
+              o.amount, o.invoice_id, o.patient_uid::text, o.billing_payment_id,
+              bp.invoice_id AS payment_invoice_id,
+              bp.patient_uid::text AS payment_patient_uid, bp.mode AS payment_mode,
+              pc.provider AS config_provider, pc.environment AS config_environment,
+              pc.key_id, pc.key_secret_ciphertext
+         FROM payment_gateway_orders o
+         JOIN billing_payments bp
+           ON bp.id = o.billing_payment_id AND bp.tenant_id = o.tenant_id
+         JOIN payment_gateway_provider_configs pc
+           ON pc.id = o.provider_config_id AND pc.tenant_id = o.tenant_id
+        WHERE o.id = $1::int AND o.tenant_id = $2::uuid AND o.status = 'paid'
+          AND o.provider_payment_id IS NOT NULL AND bp.reversed = false
+          AND pc.enabled = true
+        FOR UPDATE OF o`,
+      Number(gateway_order_id), tenant,
     );
     if (!orderRows.length) {
       throw AppError.badRequest(
-        'The original payment for this refund was not collected through the gateway',
+        'The selected payment was not collected through a bound gateway order',
         'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
       );
     }
     const order = orderRows[0];
-    const refundAmount = Number(refund.amount);
-    if (refundAmount > Number(order.amount) + 0.01) {
+    const sameInvoice = Number(order.invoice_id) === Number(refund.invoice_id)
+      && Number(order.payment_invoice_id) === Number(refund.invoice_id);
+    const samePatient = String(order.patient_uid).toLowerCase() === String(refund.patient_uid).toLowerCase()
+      && String(order.payment_patient_uid).toLowerCase() === String(refund.patient_uid).toLowerCase();
+    const sameMode = String(order.payment_mode).toUpperCase() === String(refund.mode).toUpperCase();
+    const sameProvider = order.provider === order.config_provider
+      && order.environment === order.config_environment;
+    if (!sameInvoice || !samePatient || !sameMode || !sameProvider) {
       throw AppError.badRequest(
-        `Refund amount ${refundAmount} exceeds the gateway-captured amount ${Number(order.amount)}`,
-        'PAYMENT_GATEWAY_REFUND_EXCEEDS_CAPTURE',
+        'The approved refund does not match the selected payment source, payer, mode, or provider',
+        'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
       );
     }
 
-    // Provider call INSIDE the lock window: a concurrent initiation cannot
-    // pass the live-leg check until this tx commits the execution row.
-    const adapter = resolveAdapter(order.provider);
-    const providerRefund = await adapter.createRefund({
-      keyId: config.key_id,
-      keySecret: decryptedKeySecret(config),
-      providerPaymentId: order.provider_payment_id,
-      amountPaise: toPaise(refundAmount),
-      receipt: `pgr-${refund.id}`,
-      notes: { billing_refund_id: String(refund.id) },
-    });
+    if (existing) {
+      return {
+        row: existing,
+        replay: true,
+        callProvider: true,
+        order,
+        refund,
+      };
+    }
+
+    const totalRows = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(amount), 0)::numeric AS refunded_amount
+         FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND gateway_order_id = $2::int
+          AND status <> 'failed'`,
+      tenant, Number(order.id),
+    );
+    const refundAmountPaise = toPaise(refund.amount);
+    const alreadyRefundedPaise = toPaise(totalRows[0]?.refunded_amount || '0');
+    const capturedAmountPaise = toPaise(order.amount);
+    if (refundAmountPaise + alreadyRefundedPaise > capturedAmountPaise) {
+      throw AppError.badRequest(
+        `Refund amount ${Number(refund.amount)} exceeds the remaining gateway-captured amount`,
+        'PAYMENT_GATEWAY_REFUND_EXCEEDS_CAPTURE',
+      );
+    }
+    const refundAmount = refundAmountPaise / 100;
 
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
-          provider_payment_id, provider_refund_id, amount, currency, status,
+          provider_payment_id, provider_idempotency_key, amount, currency, status,
           reason, initiated_by)
        VALUES ($1::uuid, $2, $3, $4::int, $5::int, $6, $7, $8::numeric, 'INR',
-               $9, $10, $11::uuid)
+               'initiated', $9, $10::uuid)
        RETURNING *`,
       tenant, order.provider, order.environment, Number(order.id), Number(refund.id),
-      String(order.provider_payment_id), providerRefund.providerRefundId || null,
-      refundAmount,
-      ['initiated', 'pending', 'processed', 'failed'].includes(providerRefund.status)
-        ? providerRefund.status === 'processed' ? 'pending' : providerRefund.status
-        : 'pending',
+      String(order.provider_payment_id), newProviderIdempotencyKey, refundAmount,
       refund.reason ? String(refund.reason).slice(0, 500) : null,
       initiated_by ? String(initiated_by) : null,
     );
-    return { row: rows[0], replay: false };
+    return { row: rows[0], replay: false, callProvider: true, order, refund };
   }).catch((err) => {
     if (isUniqueViolation(err)) {
-      // 697 backstop (should be unreachable now that the live-leg check runs
-      // under the billing_refunds lock).
       throw AppError.conflict(
         'A gateway refund is already in flight (or processed) for this billing refund',
         'PAYMENT_GATEWAY_REFUND_ALREADY_EXECUTING',
@@ -994,8 +1043,63 @@ export async function initiateGatewayRefund({ tenantId, billing_refund_id, initi
     }
     throw err;
   });
-  const row = outcome.row;
-  return { ...row, id: Number(row.id), amount: Number(row.amount), replay: outcome.replay === true };
+
+  if (!intent.callProvider) {
+    return toGatewayRefundResult(intent.row, true);
+  }
+
+  // Phase 2 is safely replayable: Razorpay deduplicates this exact request by
+  // X-Refund-Idempotency, and the dry-run adapter is deterministic by receipt.
+  const adapter = resolveAdapter(intent.order.provider);
+  let providerRefund;
+  try {
+    providerRefund = await adapter.createRefund({
+      keyId: intent.order.key_id,
+      keySecret: intent.order.key_secret_ciphertext
+        ? decryptField(intent.order.key_secret_ciphertext)
+        : null,
+      // The request body comes from the committed intent, not mutable
+      // authority/source rows, so every retry sends the same body with the
+      // same provider idempotency key.
+      providerPaymentId: intent.row.provider_payment_id,
+      amountPaise: toPaise(intent.row.amount),
+      receipt: `pgr-${intent.row.billing_refund_id}`,
+      notes: { billing_refund_id: String(intent.row.billing_refund_id) },
+      idempotencyKey: intent.row.provider_idempotency_key,
+    });
+  } catch (err) {
+    if (err?.code === 'PAYMENT_GATEWAY_REFUND_IN_PROGRESS') {
+      return toGatewayRefundResult(intent.row, true);
+    }
+    throw err;
+  }
+
+  const providerStatus = providerRefund.status === 'failed' ? 'failed' : 'pending';
+  const completed = await setTenantTx(tenant, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET provider_refund_id = COALESCE($1::varchar, provider_refund_id),
+              status = $2::varchar, updated_at = NOW(),
+              failed_at = CASE WHEN $2::varchar = 'failed' THEN NOW() ELSE failed_at END
+        WHERE id = $3::int AND tenant_id = $4::uuid AND status = 'initiated'
+          AND provider_idempotency_key = $5::varchar
+        RETURNING *`,
+      providerRefund.providerRefundId || null,
+      providerStatus,
+      Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
+    );
+    if (rows.length) return rows[0];
+    const replayRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_refunds
+        WHERE id = $1::int AND tenant_id = $2::uuid
+          AND provider_idempotency_key = $3
+        LIMIT 1`,
+      Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
+    );
+    if (!replayRows.length) throw AppError.notFound('Gateway refund intent not found');
+    return replayRows[0];
+  });
+  return toGatewayRefundResult(completed, intent.replay);
 }
 
 /**
@@ -1010,6 +1114,7 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   const entity = payload?.payload?.refund?.entity || {};
   const providerRefundId = entity.id || null;
   const providerPaymentId = entity.payment_id || null;
+  const notedBillingRefundId = Number(entity.notes?.billing_refund_id);
   if (!providerRefundId) return { outcome: 'ignored', reason: 'missing refund entity id' };
 
   let rows = await prisma.$queryRawUnsafe(
@@ -1018,15 +1123,19 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
       LIMIT 1`,
     tenant, config.provider, String(providerRefundId),
   );
-  if (!rows.length && providerPaymentId) {
-    // The adapter may not have returned the refund id at initiation.
+  if (!rows.length && providerPaymentId
+      && Number.isInteger(notedBillingRefundId) && notedBillingRefundId > 0) {
+    // A webhook can beat the phase-3 evidence update after the provider call.
+    // Correlate that crash window by BOTH payment id and our billing-refund
+    // note; payment id alone is ambiguous when one capture has partial refunds.
     rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM payment_gateway_refunds
         WHERE tenant_id = $1::uuid AND provider = $2
-          AND provider_payment_id = $3 AND status IN ('initiated', 'pending')
+          AND provider_payment_id = $3 AND billing_refund_id = $4::int
+          AND status IN ('initiated', 'pending')
         ORDER BY id DESC
         LIMIT 1`,
-      tenant, config.provider, String(providerPaymentId),
+      tenant, config.provider, String(providerPaymentId), notedBillingRefundId,
     );
   }
   if (!rows.length) {

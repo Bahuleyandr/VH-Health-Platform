@@ -27,6 +27,12 @@ describe('sentryScrubber', () => {
     );
   });
 
+  it('removes SMS callback bearer tokens from Sentry paths', () => {
+    expect(normalizeSentryPath(
+      '/webhooks/sms/twilio-status/tok_abcdefghijklmnopqrstuvwxyz01?retry=1'
+    )).toBe('/webhooks/sms/twilio-status/[REDACTED]');
+  });
+
   it('scrubs event request, user, extra and transaction fields', () => {
     const event = scrubSentryEvent({
       transaction: '/api/v1/patients/123456/timeline',

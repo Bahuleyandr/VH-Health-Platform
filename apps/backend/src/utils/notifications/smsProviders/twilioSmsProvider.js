@@ -14,14 +14,11 @@
 //     with the Twilio error code.
 //   * Anything else (network fault, 5xx, missing SDK) → uncertain.
 
-import { maskPhoneForLog } from '../../logMasking.js';
+import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 
 function normalisePhoneE164(phone) {
-  const digits = String(phone || '').replace(/[^\d+]/g, '');
-  if (digits.startsWith('+')) return digits;
-  if (/^\d{10}$/.test(digits)) return `+91${digits}`;
-  if (/^91\d{10}$/.test(digits)) return `+${digits}`;
-  return null;
+  const normalized = normalizeIndianSmsPhone(phone);
+  return normalized ? `+${normalized}` : null;
 }
 
 export async function sendViaTwilioSms({ accountSid, authToken, from, phone, message }) {
@@ -47,7 +44,7 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
       outcome: 'rejected',
       providerReference: null,
       providerCode: 'phone_missing',
-      evidence: { provider: 'twilio', invalid_phone: maskPhoneForLog(String(phone || '')) },
+      evidence: { provider: 'twilio', invalid_phone: true },
     };
   }
 
@@ -81,14 +78,15 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
   } catch (err) {
     const httpStatus = Number(err?.status);
     if (httpStatus >= 400 && httpStatus < 500) {
+      const errorCode = /^\d{1,6}$/.test(String(err?.code ?? '')) ? String(err.code) : null;
       return {
         outcome: 'rejected',
         providerReference: null,
-        providerCode: err?.code ? `twilio_${String(err.code)}` : `twilio_http_${httpStatus}`,
+        providerCode: errorCode ? `twilio_${errorCode}` : `twilio_http_${httpStatus}`,
         evidence: {
           provider: 'twilio',
           http_status: httpStatus,
-          message: String(err?.message || '').slice(0, 300),
+          error_code: errorCode,
         },
       };
     }
@@ -96,7 +94,7 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
       outcome: 'uncertain',
       providerReference: null,
       providerCode: 'twilio_transport_failure',
-      evidence: { provider: 'twilio', message: String(err?.message || err).slice(0, 300) },
+      evidence: { provider: 'twilio', error_name: String(err?.name || 'Error').slice(0, 40) },
     };
   }
 }

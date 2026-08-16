@@ -25,16 +25,7 @@
 import logger from '../logging/logger.js';
 import { getCurrentTenantId } from '../lib/tenantContext.js';
 import { sendThroughResolvedProvider } from '../utils/notifications/smsProviders/index.js';
-
-/**
- * Normalize a phone number to intl format (91XXXXXXXXXX)
- */
-function normalizePhone(phone) {
-  if (!phone) return null;
-  const digits = String(phone).replace(/\D/g, '').replace(/^0+/, '').replace(/^91/, '');
-  if (digits.length < 10) return null;
-  return `91${digits.slice(-10)}`;
-}
+import { normalizeIndianSmsPhone } from '../utils/phoneUtils.js';
 
 /**
  * Send a raw SMS through the tenant's resolved provider.
@@ -47,7 +38,7 @@ function normalizePhone(phone) {
  * callback later refines it); the dry-run default classifies as
  * `rejected('sms_gateway_not_configured')`.
  *
- * @param {string} phone - Any format Indian mobile number
+ * @param {string} phone - Supported Indian mobile format (local or +91)
  * @param {string} message - Rendered plain-text message (outbox row body)
  * @param {Object} [context] - Delivery provenance from the drain
  * @param {string} [context.tenantId] - Tenant owning the outbox row (falls
@@ -57,7 +48,7 @@ function normalizePhone(phone) {
  * @param {number} [context.outboxId] - notification_outbox id (evidence only)
  */
 export async function sendSMS(phone, message, context = {}) {
-  const intlPhone = normalizePhone(phone);
+  const intlPhone = normalizeIndianSmsPhone(phone);
   if (!intlPhone) {
     logger.warn('[SMS] Invalid/missing phone, skipping');
     return {

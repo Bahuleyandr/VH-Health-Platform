@@ -14,7 +14,11 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
-import { isHl7ReceiveEndpoint } from '../utils/urlRedaction.js';
+import {
+  isHl7ReceiveEndpoint,
+  isSmsDeliveryStatusEndpoint,
+  redactSensitiveQueryParams,
+} from '../utils/urlRedaction.js';
 
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
@@ -278,6 +282,7 @@ export function deriveAction(method, path) {
 const REDACT_FIELDS = new Set([
   'password', 'password_hash', 'token', 'access_token', 'refresh_token',
   'secret', 'api_key', 'apikey', 'authorization', 'otp', 'pin',
+  'auth_key', 'auth_token', 'key_secret', 'webhook_secret', 'callback_token',
   'ssn', 'aadhar', 'pan', 'bank_account',
 ]);
 
@@ -331,9 +336,11 @@ export function sanitizeBody(body) {
 }
 
 function excludesAuditRequestBody(cleanPath) {
-  // HL7 fields can carry PHI at arbitrary positions, including hostile query
-  // input, so this endpoint cannot safely derive audit context from either.
-  return isHl7ReceiveEndpoint(String(cleanPath || ''));
+  // HL7 and provider DLR fields can carry PHI at arbitrary positions,
+  // including hostile query input, so these endpoints cannot safely derive
+  // audit context from either.
+  const path = String(cleanPath || '');
+  return isHl7ReceiveEndpoint(path) || isSmsDeliveryStatusEndpoint(path);
 }
 
 // ─── Paths to skip entirely ──────────────────────────────────────────────────
@@ -505,7 +512,8 @@ export function auditLogMiddleware(req, res, next) {
       // to the same Winston file fallback the DB-error path uses so it is never
       // silently lost (audit §3). Build the minimal recoverable tuple here; the
       // full enrichment in the setImmediate branch is skipped under load.
-      const cleanPathOnDrop = req.originalUrl ? req.originalUrl.split('?')[0] : (req.path || '');
+      const safeUrlOnDrop = redactSensitiveQueryParams(req.originalUrl || req.path || '');
+      const cleanPathOnDrop = safeUrlOnDrop.split('?')[0];
       const userOnDrop = req.user;
       _auditLogToFile('queue full', {
         action: deriveAction(req.method, cleanPathOnDrop),
@@ -514,7 +522,7 @@ export function auditLogMiddleware(req, res, next) {
           userOnDrop?.id ?? userOnDrop?.userId ?? userOnDrop?.user_id ?? null,
         ),
         userRole: userOnDrop?.role || userOnDrop?.claims?.role || null,
-        path: excludesAuditRequestBody(cleanPathOnDrop) ? cleanPathOnDrop : req.originalUrl,
+        path: excludesAuditRequestBody(cleanPathOnDrop) ? cleanPathOnDrop : safeUrlOnDrop,
         method: req.method,
         status_code: res.statusCode,
         tenant_id: auditTenantId(req),
@@ -525,7 +533,8 @@ export function auditLogMiddleware(req, res, next) {
     pendingAuditLogs++;
     setImmediate(async () => {
       const { method, originalUrl, query, body, ip, headers } = req;
-      const cleanPath = originalUrl ? originalUrl.split('?')[0] : (req.path || '');
+      const safeUrl = redactSensitiveQueryParams(originalUrl || req.path || '');
+      const cleanPath = safeUrl.split('?')[0];
       const user = req.user;
       const userId = normalizeAuditLogUserId(user?.id ?? user?.userId ?? user?.user_id ?? null);
       try {
@@ -588,7 +597,7 @@ export function auditLogMiddleware(req, res, next) {
         _auditLogToFile('DB write failed', {
           action: deriveAction(method, cleanPath),
           userId: userId,
-          path: excludesAuditRequestBody(cleanPath) ? cleanPath : req.originalUrl,
+          path: excludesAuditRequestBody(cleanPath) ? cleanPath : safeUrl,
           method: req.method,
           timestamp: new Date().toISOString(),
           error: err?.message

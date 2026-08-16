@@ -19,9 +19,21 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   'refreshtoken',
   'api_key',
   'apikey',
+  'auth_key',
+  'auth_token',
+  'key_secret',
+  'webhook_secret',
+  'callback_token',
 ]);
 
 const REDACTED = '[REDACTED]';
+
+function redactSensitivePathSegments(url) {
+  return url.replace(
+    /(\/webhooks\/sms\/(?:dlr|twilio-status)\/)[^/?#]+/gi,
+    `$1${REDACTED}`,
+  );
+}
 
 export function isHl7ReceiveEndpoint(path) {
   if (typeof path !== 'string' || path.length === 0) return false;
@@ -30,6 +42,17 @@ export function isHl7ReceiveEndpoint(path) {
   const pathOnly = queryStart === -1 ? path : path.slice(0, queryStart);
   const normalized = pathOnly.replace(/\/+$/, '').toLowerCase();
   return normalized === '/api/v1/hl7/receive' || normalized === '/hl7/receive';
+}
+
+export function isSmsDeliveryStatusEndpoint(path) {
+  if (typeof path !== 'string' || path.length === 0) return false;
+  let pathOnly = path.split('?')[0];
+  try {
+    pathOnly = new URL(pathOnly).pathname;
+  } catch {
+    // Request paths are normally relative, so URL parsing is optional.
+  }
+  return /^\/webhooks\/sms\/(?:dlr|twilio-status)\//i.test(pathOnly);
 }
 
 /**
@@ -45,22 +68,27 @@ export function isHl7ReceiveEndpoint(path) {
 export function redactSensitiveQueryParams(url) {
   if (typeof url !== 'string' || url.length === 0) return url;
 
-  const queryStart = url.indexOf('?');
-  if (queryStart === -1) return url;
+  const redactedUrl = redactSensitivePathSegments(url);
+  const queryStart = redactedUrl.indexOf('?');
+  if (queryStart === -1) return redactedUrl;
 
-  const path = url.slice(0, queryStart);
+  const path = redactedUrl.slice(0, queryStart);
   // HL7 recovery query values are not part of the endpoint contract and can
   // carry arbitrary PHI. Preserve only the route for every shared log caller.
   if (isHl7ReceiveEndpoint(path)) return path;
+  // SMS providers can echo the destination MSISDN in callback query fields.
+  // The route token is already redacted above; suppress the whole query so
+  // arbitrary provider fields cannot put a phone number into shared logs.
+  if (isSmsDeliveryStatusEndpoint(path)) return path;
 
-  const queryAndHash = url.slice(queryStart + 1);
+  const queryAndHash = redactedUrl.slice(queryStart + 1);
 
   // Preserve any fragment (defensive — request URLs rarely carry one).
   const hashStart = queryAndHash.indexOf('#');
   const query = hashStart === -1 ? queryAndHash : queryAndHash.slice(0, hashStart);
   const hash = hashStart === -1 ? '' : queryAndHash.slice(hashStart);
 
-  if (query.length === 0) return url;
+  if (query.length === 0) return redactedUrl;
 
   const redactedQuery = query
     .split('&')

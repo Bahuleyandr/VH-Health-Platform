@@ -211,6 +211,7 @@ router.post('/refunds', requireGatewayRefundRole, requireIdempotencyKey({
   const refund = await gateway.initiateGatewayRefund({
     tenantId: tenantOf(req),
     billing_refund_id: req.body.billing_refund_id,
+    gateway_order_id: req.body.gateway_order_id,
     initiated_by: req.user?.uid,
   });
   await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_INITIATED', {

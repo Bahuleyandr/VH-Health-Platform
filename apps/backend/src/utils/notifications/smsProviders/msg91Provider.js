@@ -19,17 +19,22 @@
 //     may or may not have been accepted; never claim either way).
 
 import logger from '../../../logging/logger.js';
-import { maskPhoneForLog } from '../../logMasking.js';
+import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 
 const MSG91_SEND_URL = 'https://api.msg91.com/api/v2/sendsms';
+
+function boundedProviderCode(value) {
+  const code = String(value ?? '').trim();
+  return /^[A-Za-z0-9_.-]{1,40}$/.test(code) && !/\d{6,}/.test(code) ? code : null;
+}
 
 function evidenceFrom(status, body) {
   return {
     http_status: status ?? null,
     provider: 'msg91',
     response: body && typeof body === 'object'
-      ? { type: body.type ?? null, code: body.code ?? null, message: String(body.message ?? '').slice(0, 300) }
-      : { raw: String(body ?? '').slice(0, 300) },
+      ? { type: boundedProviderCode(body.type), code: boundedProviderCode(body.code) }
+      : { malformed: body !== null && body !== undefined },
   };
 }
 
@@ -51,6 +56,15 @@ export async function sendViaMsg91({
       },
     };
   }
+  const normalizedPhone = normalizeIndianSmsPhone(phone);
+  if (!normalizedPhone) {
+    return {
+      outcome: 'rejected',
+      providerReference: null,
+      providerCode: 'phone_missing',
+      evidence: { provider: 'msg91', invalid_phone: true },
+    };
+  }
 
   const payload = {
     sender: senderId,
@@ -58,7 +72,7 @@ export async function sendViaMsg91({
     country: '91',
     DLT_TE_ID: String(dltTemplateId),
     ...(providerTemplateId ? { flow_id: String(providerTemplateId) } : {}),
-    sms: [{ message: String(message), to: [String(phone)] }],
+    sms: [{ message: String(message), to: [normalizedPhone] }],
   };
 
   let response;
@@ -73,7 +87,7 @@ export async function sendViaMsg91({
       outcome: 'uncertain',
       providerReference: null,
       providerCode: 'msg91_transport_failure',
-      evidence: { provider: 'msg91', message: String(err?.message || err).slice(0, 300) },
+      evidence: { provider: 'msg91', error_name: boundedProviderCode(err?.name) || 'transport_error' },
     };
   }
 
@@ -96,15 +110,15 @@ export async function sendViaMsg91({
   if (response.ok || (response.status >= 400 && response.status < 500)) {
     // Provider answered and said no (or answered 2xx without an id we can
     // hold as acceptance evidence + reported an error type).
+    const rejectionCode = boundedProviderCode(body?.code);
     logger.warn('msg91 send rejected', {
-      to: maskPhoneForLog(phone),
       http_status: response.status,
-      code: body?.code ?? null,
+      code: rejectionCode,
     });
     return {
       outcome: 'rejected',
       providerReference: null,
-      providerCode: body?.code ? `msg91_${String(body.code)}` : `msg91_http_${response.status}`,
+      providerCode: rejectionCode ? `msg91_${rejectionCode}` : `msg91_http_${response.status}`,
       evidence: evidenceFrom(response.status, body),
     };
   }

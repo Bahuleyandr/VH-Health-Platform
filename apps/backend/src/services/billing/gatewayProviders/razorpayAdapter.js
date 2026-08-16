@@ -22,7 +22,7 @@ function basicAuthHeader(keyId, keySecret) {
   return `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 }
 
-async function razorpayRequest({ keyId, keySecret, method, path, body }) {
+async function razorpayRequest({ keyId, keySecret, method, path, body, headers = {} }) {
   if (!keyId || !keySecret) {
     throw new AppError('Payment gateway credentials are not configured', 503, 'PAYMENT_GATEWAY_CREDENTIALS_MISSING');
   }
@@ -33,6 +33,7 @@ async function razorpayRequest({ keyId, keySecret, method, path, body }) {
       headers: {
         Authorization: basicAuthHeader(keyId, keySecret),
         'Content-Type': 'application/json',
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -54,6 +55,14 @@ async function razorpayRequest({ keyId, keySecret, method, path, body }) {
   if (!response.ok) {
     const providerCode = parsed?.error?.code || `http_${response.status}`;
     const description = parsed?.error?.description || 'provider rejected the request';
+    if (response.status === 409 && headers['X-Refund-Idempotency']) {
+      throw new AppError(
+        'Payment gateway refund request is still processing',
+        409,
+        'PAYMENT_GATEWAY_REFUND_IN_PROGRESS',
+        { providerCode },
+      );
+    }
     throw new AppError(
       `Payment gateway rejected the request: ${description}`,
       response.status >= 500 ? 502 : 400,
@@ -107,12 +116,21 @@ export async function fetchPayment({ keyId, keySecret, paymentId } = {}) {
   };
 }
 
-export async function createRefund({ keyId, keySecret, providerPaymentId, amountPaise, receipt, notes = {} } = {}) {
+export async function createRefund({
+  keyId, keySecret, providerPaymentId, amountPaise, receipt, notes = {}, idempotencyKey,
+} = {}) {
   if (!providerPaymentId) {
     throw new AppError('providerPaymentId is required', 400, 'PAYMENT_GATEWAY_BAD_REFUND');
   }
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
     throw new AppError('amountPaise must be a positive integer', 400, 'PAYMENT_GATEWAY_BAD_AMOUNT');
+  }
+  if (!/^[A-Za-z0-9_-]{10,120}$/.test(String(idempotencyKey || ''))) {
+    throw new AppError(
+      'A valid provider refund idempotency key is required',
+      400,
+      'PAYMENT_GATEWAY_BAD_IDEMPOTENCY_KEY',
+    );
   }
   const refund = await razorpayRequest({
     keyId,
@@ -120,7 +138,15 @@ export async function createRefund({ keyId, keySecret, providerPaymentId, amount
     method: 'POST',
     path: `/payments/${encodeURIComponent(String(providerPaymentId))}/refund`,
     body: { amount: amountPaise, receipt, notes },
+    headers: { 'X-Refund-Idempotency': idempotencyKey },
   });
+  if (!refund?.id) {
+    throw new AppError(
+      'Payment gateway refund response was missing its provider id',
+      502,
+      'PAYMENT_GATEWAY_UPSTREAM_UNRESOLVED',
+    );
+  }
   return {
     providerRefundId: refund?.id,
     providerPaymentId: String(providerPaymentId),

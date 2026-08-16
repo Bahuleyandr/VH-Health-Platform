@@ -135,7 +135,7 @@ d('payment gateway refund execution leg (deep)', () => {
 
     // Execution leg: provider refund against the original capture.
     const leg = await gateway.initiateGatewayRefund({
-      tenantId: TENANT, billing_refund_id: refund.id,
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
     });
     expect(leg.status).toBe('pending');
     expect(leg.provider_refund_id).toBe(`rfnd_dry_pgr-${refund.id}`);
@@ -147,7 +147,7 @@ d('payment gateway refund execution leg (deep)', () => {
     // retry / second tab) is an idempotent replay of the EXISTING row — the
     // provider is never called a second time and no second row appears.
     const replayLeg = await gateway.initiateGatewayRefund({
-      tenantId: TENANT, billing_refund_id: refund.id,
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
     });
     expect(replayLeg.replay).toBe(true);
     expect(Number(replayLeg.id)).toBe(Number(leg.id));
@@ -195,20 +195,24 @@ d('payment gateway refund execution leg (deep)', () => {
     expect(entriesAfter.length).toBe(1);
   });
 
-  it('two concurrent initiations execute exactly ONE provider refund (counter-sale race pattern)', async () => {
+  it('two concurrent initiations converge on one idempotent provider refund effect', async () => {
     const patient = await makePatient();
-    const { invoiceId } = await makeCapturedGatewayPayment(patient, 300);
+    const { invoiceId, orderId } = await makeCapturedGatewayPayment(patient, 300);
     const refund = await billing.raiseRefund({
       invoice_id: invoiceId, amount: 120, reason: 'race refund', mode: 'UPI', tenantId: TENANT,
     });
     cleanup.refundIds.push(refund.id);
     await billing.approveRefund(refund.id, { tenantId: TENANT });
 
-    // Both racers must SUCCEED (no 409 for the loser — it returns the
-    // winner's row), and exactly one execution row / provider refund exists.
+    // Both racers reuse the committed provider key and converge on exactly
+    // one execution row / provider refund effect.
     const [a, b] = await Promise.all([
-      gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: refund.id }),
-      gateway.initiateGatewayRefund({ tenantId: TENANT, billing_refund_id: refund.id }),
+      gateway.initiateGatewayRefund({
+        tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+      }),
+      gateway.initiateGatewayRefund({
+        tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+      }),
     ]);
     expect(Number(a.id)).toBe(Number(b.id));
     expect([a.replay, b.replay].filter(Boolean)).toHaveLength(1);
@@ -223,7 +227,7 @@ d('payment gateway refund execution leg (deep)', () => {
 
   it('refuses execution for a refund that is not APPROVED or not gateway-collected', async () => {
     const patient = await makePatient();
-    const { invoiceId } = await makeCapturedGatewayPayment(patient, 200);
+    const { invoiceId, orderId } = await makeCapturedGatewayPayment(patient, 200);
 
     // PENDING (not yet approved) → rejected.
     const pendingRefund = await billing.raiseRefund({
@@ -232,6 +236,7 @@ d('payment gateway refund execution leg (deep)', () => {
     cleanup.refundIds.push(pendingRefund.id);
     await expect(gateway.initiateGatewayRefund({
       tenantId: TENANT, billing_refund_id: pendingRefund.id,
+      gateway_order_id: orderId,
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_REFUND_NOT_APPROVED' });
 
     // Cash-collected invoice (no gateway order) → rejected.
@@ -249,6 +254,7 @@ d('payment gateway refund execution leg (deep)', () => {
     await billing.approveRefund(cashRefund.id, { tenantId: TENANT });
     await expect(gateway.initiateGatewayRefund({
       tenantId: TENANT, billing_refund_id: cashRefund.id,
+      gateway_order_id: 2147483647,
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED' });
   });
 });

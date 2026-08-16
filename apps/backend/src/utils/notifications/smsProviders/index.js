@@ -28,7 +28,7 @@
 import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 import { decryptField } from '../../fieldEncryption.js';
-import { maskPhoneForLog } from '../../logMasking.js';
+import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 import { getSmsSettings } from '../../../services/tenant/tenantSettingsService.js';
 import { sendViaMsg91 } from './msg91Provider.js';
 import { sendViaTwilioSms } from './twilioSmsProvider.js';
@@ -39,12 +39,12 @@ function rejected(providerCode, evidence = {}) {
   return { outcome: 'rejected', providerReference: null, providerCode, evidence };
 }
 
-function uncertain(providerCode, err, evidence = {}) {
+function uncertain(providerCode, evidence = {}) {
   return {
     outcome: 'uncertain',
     providerReference: null,
     providerCode,
-    evidence: { ...evidence, message: String(err?.message || err || providerCode).slice(0, 500) },
+    evidence,
   };
 }
 
@@ -135,22 +135,26 @@ export async function resolveSmsProviderContext(tenantId) {
 
 /**
  * Resolve the tenant's active DLT template registration for an outbox
- * template key (699). Prefers a registration hanging off the resolved config
- * row; falls back to any active row for the key (env-credential deployments
- * keep their DLT registrations on a disabled/dry_run config row).
+ * template key (699). Tenant configs require their exact registration row;
+ * env-credential deployments may use a registration attached to a config row
+ * for that same provider, including an intentionally disabled config row.
  * Returns null when the template kind is not registered — the caller must
  * treat that as a terminal rejection, never send unregistered.
  */
-export async function resolveTemplateRegistration(tenantId, templateKey, configId = null) {
+export async function resolveTemplateRegistration(tenantId, templateKey, configId = null, provider = null) {
   const key = String(templateKey || '').trim();
   if (!key) return null;
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, provider_config_id, dlt_template_id, provider_template_id
-       FROM sms_template_registrations
-      WHERE tenant_id = $1::uuid AND template_key = $2::text AND active = true
-      ORDER BY CASE WHEN provider_config_id = $3::integer THEN 0 ELSE 1 END, id
+    `SELECT r.id, r.provider_config_id, r.dlt_template_id, r.provider_template_id
+       FROM sms_template_registrations r
+      JOIN sms_provider_configs c
+         ON c.id = r.provider_config_id AND c.tenant_id = r.tenant_id
+      WHERE r.tenant_id = $1::uuid AND r.template_key = $2::text AND r.active = true
+        AND c.provider = $4::text
+        AND ($3::integer IS NULL OR r.provider_config_id = $3::integer)
+      ORDER BY r.id
       LIMIT 1`,
-    tenantId, key, configId === null || configId === undefined ? null : Number(configId),
+    tenantId, key, configId === null || configId === undefined ? null : Number(configId), provider,
   );
   return rows[0] || null;
 }
@@ -191,19 +195,24 @@ function envCredentials(provider) {
  * `rejected`.
  */
 export async function sendThroughResolvedProvider({ phone, message, tenantId, templateVersion, outboxId }) {
+  const normalizedPhone = normalizeIndianSmsPhone(phone);
+  if (!normalizedPhone) return rejected('phone_missing', { invalid_phone: true });
+
   let resolution;
   try {
     resolution = await resolveSmsProviderContext(tenantId);
-  } catch (err) {
-    return uncertain('sms_provider_resolution_failed', err);
+  } catch {
+    return uncertain('sms_provider_resolution_failed');
   }
 
   if (resolution.provider === 'dry_run') {
     // Honest dry run: log, never claim a delivery. The drain records this as
     // a provider rejection so the outbox row can never reach SENT (609 law).
-    logger.info(`[SMS DRY RUN] To: ${maskPhoneForLog(phone)} | ${String(message).slice(0, 160)}`, {
+    logger.info('[SMS DRY RUN] Send suppressed', {
       reason: resolution.reason || null,
       outbox_id: outboxId ?? null,
+      destination_present: true,
+      message_length: String(message || '').length,
     });
     return rejected('sms_gateway_not_configured', {
       dry_run: true,
@@ -231,9 +240,10 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       tenantId,
       templateVersion,
       resolution.config?.id ?? null,
+      resolution.provider,
     );
-  } catch (err) {
-    return uncertain('sms_template_lookup_failed', err);
+  } catch {
+    return uncertain('sms_template_lookup_failed');
   }
   if (!registration) {
     return rejected('dlt_template_not_registered', {
@@ -249,7 +259,7 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
         senderId: credentials.senderId,
         dltTemplateId: registration.dlt_template_id,
         providerTemplateId: registration.provider_template_id,
-        phone,
+        phone: normalizedPhone,
         message,
       });
     }
@@ -257,11 +267,11 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       accountSid: credentials.accountSid,
       authToken: credentials.authKey,
       from: credentials.senderId,
-      phone,
+      phone: normalizedPhone,
       message,
     });
-  } catch (err) {
-    return uncertain(err.code || `${resolution.provider}_transport_failure`, err);
+  } catch {
+    return uncertain(`${resolution.provider}_transport_failure`);
   }
 }
 

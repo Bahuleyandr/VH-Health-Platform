@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS payment_gateway_provider_configs (
     CHECK (
       provider = 'dry_run'
       OR NOT enabled
-      OR (key_id IS NOT NULL AND key_secret_ciphertext IS NOT NULL)
+      OR (key_id IS NOT NULL AND key_secret_ciphertext IS NOT NULL
+          AND webhook_secret_ciphertext IS NOT NULL)
     )
 );
 

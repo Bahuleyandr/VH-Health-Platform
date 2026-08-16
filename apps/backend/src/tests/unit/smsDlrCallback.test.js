@@ -78,17 +78,29 @@ beforeEach(() => {
   recordProviderReceiptTxMock.mockResolvedValue({
     receipt_id: 'bbbbbbbb-0000-4000-8000-000000000002',
   });
-  resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+  resolveSmsConfigByCallbackTokenMock.mockImplementation(async (_token, provider) => ({
     id: 7,
     tenant_id: TENANT_ID,
-    provider: 'msg91',
+    provider,
     auth_key_ciphertext: 'enc:key',
     callback_token_hash: 'f'.repeat(64),
-  });
+  }));
   decryptFieldMock.mockReturnValue('twilio-auth-token');
 });
 
 describe('MSG91 DLR — token auth is the whole authentication', () => {
+  it('provider-binds token resolution and rejects a Twilio config on the MSG91 path', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+      id: 7, tenant_id: TENANT_ID, provider: 'twilio', auth_key_ciphertext: 'enc:key',
+    });
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-cross-provider', status: 'delivered' });
+    expect(res.status).toBe(401);
+    expect(resolveSmsConfigByCallbackTokenMock).toHaveBeenCalledWith(TOKEN, 'msg91');
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
   it('401s an unknown token and writes nothing', async () => {
     resolveSmsConfigByCallbackTokenMock.mockResolvedValue(null);
     const res = await request(app())
@@ -106,6 +118,8 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.results).toEqual(['recorded']);
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT_ID, expect.any(Function));
+    expect(resolveSmsConfigByCallbackTokenMock).toHaveBeenCalledWith(TOKEN, 'msg91');
+    expect(txQueryRawUnsafeMock.mock.calls[0][3]).toBe('msg91');
     expect(recordProviderReceiptTxMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       tenantId: TENANT_ID,
       attemptId: 'aaaaaaaa-0000-4000-8000-000000000001',
@@ -200,15 +214,16 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
         requestId: 'req-phi-1',
         number: '919876543210',
         mobile: '+919876543210',
-        report: [{ status: 'failed', desc: 'DND', number: '919876543210' }],
+        code: '919876543210',
+        report: [{ status: 'failed', desc: 'DND_919876543210', number: '919876543210' }],
       }]);
     expect(res.status).toBe(200);
     expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(1);
     const { evidence } = recordProviderReceiptTxMock.mock.calls[0][1];
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain('9876543210');
-    expect(serialized).toContain('req-phi-1');
-    expect(serialized).toContain('DND');
+    expect(serialized).not.toContain('req-phi-1');
+    expect(serialized).not.toContain('DND_');
   });
 
   it('a replayed terminal DLR is 200-acked (the receipt unique collapses it server-side)', async () => {
@@ -249,6 +264,17 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     const res = await postTwilio();
     expect(res.status).toBe(401);
     expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('provider-binds token resolution and rejects an MSG91 config on the Twilio path', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+      id: 7, tenant_id: TENANT_ID, provider: 'msg91', auth_key_ciphertext: 'enc:key',
+    });
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    const res = await postTwilio();
+    expect(res.status).toBe(401);
+    expect(resolveSmsConfigByCallbackTokenMock).toHaveBeenCalledWith(TOKEN, 'twilio');
+    expect(validateRequestMock).not.toHaveBeenCalled();
   });
 
   it('fails closed when PUBLIC_BASE_URL is not configured', async () => {
@@ -302,6 +328,22 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
       outcome: 'rejected',
       providerCode: 'dlr_undelivered_30003',
     }));
+  });
+
+  it('never persists Twilio destination or phone-like error fields as evidence', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    validateRequestMock.mockReturnValue(true);
+    const res = await postTwilio({
+      form: {
+        MessageSid: 'SM903', MessageStatus: 'undelivered',
+        ErrorCode: '919876543210', To: '+919876543210',
+      },
+    });
+    expect(res.status).toBe(200);
+    const call = recordProviderReceiptTxMock.mock.calls[0][1];
+    expect(call.providerCode).toBe('dlr_undelivered');
+    expect(JSON.stringify(call.evidence)).not.toContain('9876543210');
+    expect(JSON.stringify(call.evidence)).not.toContain('SM903');
   });
 
   it('acks a verified intermediate status without writing', async () => {

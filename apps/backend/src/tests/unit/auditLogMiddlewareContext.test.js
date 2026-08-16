@@ -95,6 +95,16 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(sanitizeBody({ patient_uid: 'patient', notes: 'sensitive', result: { value: 'secret' } }))
       .toContain('REDACTED_CLINICAL_TEXT');
     expect(sanitizeBody({ notes: 'sensitive' })).not.toContain('sensitive');
+    const gatewaySecrets = sanitizeBody({
+      auth_key: 'sms-auth-secret',
+      key_secret: 'payment-key-secret',
+      webhook_secret: 'payment-webhook-secret',
+      callback_token: 'callback-bearer-secret',
+    });
+    expect(gatewaySecrets).not.toContain('sms-auth-secret');
+    expect(gatewaySecrets).not.toContain('payment-key-secret');
+    expect(gatewaySecrets).not.toContain('payment-webhook-secret');
+    expect(gatewaySecrets).not.toContain('callback-bearer-secret');
   });
 
   it('writes universal audit_log rows with searchable resource metadata', async () => {
@@ -157,6 +167,33 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(call[20]).toBe(ACTOR_UID);
     expect(call[21]).toBe(false);
     expect(call[22]).toBe('desktop');
+  });
+
+  it('stores SMS callback paths without their bearer token', async () => {
+    const token = 'tok_abcdefghijklmnopqrstuvwxyz01';
+    const phone = '+919876543210';
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.tenantId = TENANT_ID;
+      req.user = { uid: ACTOR_UID, role: 'SYSTEM' };
+      next();
+    });
+    app.use(auditLogMiddleware);
+    app.post('/webhooks/sms/dlr/:token', (_req, res) => res.status(200).json({ ok: true }));
+
+    await request(app)
+      .post(`/webhooks/sms/dlr/${token}?To=${encodeURIComponent(phone)}`)
+      .send({ status: 'delivered', mobile: phone })
+      .expect(200);
+    await waitForAuditWrite();
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call[7]).toBe('/webhooks/sms/dlr/[REDACTED]');
+    expect(call[13]).toBeNull();
+    expect(call[14]).toBeNull();
+    expect(JSON.stringify(call)).not.toContain(token);
+    expect(JSON.stringify(call)).not.toContain('9876543210');
   });
 
   it('uses workflow-specific audit action names for staff operations', () => {

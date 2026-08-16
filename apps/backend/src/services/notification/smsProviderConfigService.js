@@ -193,13 +193,15 @@ export async function upsertSmsProviderConfig({
 
 /**
  * Fail-closed tenant resolution for the pre-RLS DLR mount: SHA-256 of the
- * URL token must equal a stored callback_token_hash. Unknown/malformed
- * tokens resolve to null (the route answers 401) — never a default tenant.
+ * URL token must equal a stored callback_token_hash on the exact callback
+ * provider. Unknown/malformed/cross-provider tokens resolve to null (the
+ * route answers 401) — never a default tenant.
  * Returns the FULL config row (ciphertext included, for Twilio signature
  * verification) — never hand it to a client.
  */
-export async function resolveSmsConfigByCallbackToken(token) {
+export async function resolveSmsConfigByCallbackToken(token, expectedProvider) {
   if (typeof token !== 'string' || !CALLBACK_TOKEN_RE.test(token)) return null;
+  if (!['msg91', 'twilio'].includes(expectedProvider)) return null;
   const hash = sha256Hex(token);
   // Comparing one-way hashes by index lookup is the standard token-hash
   // pattern (refresh tokens, SCIM bearers): the stored value is not
@@ -215,9 +217,9 @@ export async function resolveSmsConfigByCallbackToken(token) {
     `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
             auth_key_ciphertext, account_sid, callback_token_hash
        FROM sms_provider_configs
-      WHERE callback_token_hash = $1::char(64)
+      WHERE callback_token_hash = $1::char(64) AND provider = $2::text
       LIMIT 1`,
-    hash,
+    hash, expectedProvider,
   );
   return rows[0] || null;
 }

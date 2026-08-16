@@ -117,11 +117,17 @@ export const schemas = {
 
   PaymentGatewayRefundCreateRequest: {
     type: 'object',
-    required: ['billing_refund_id'],
+    required: ['billing_refund_id', 'gateway_order_id'],
     properties: {
       billing_refund_id: {
         type: 'integer',
+        minimum: 1,
         description: 'APPROVED billing_refunds row to execute at the provider. Authority stays in billing_refunds; this creates the provider execution leg only.',
+      },
+      gateway_order_id: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Exact paid gateway order whose captured payment, payer, invoice, mode, and provider config must match the approved refund.',
       },
     },
   },
@@ -152,7 +158,7 @@ export const schemas = {
     properties: {
       provider: { type: 'string', enum: ['razorpay', 'dry_run'] },
       environment: { type: 'string', enum: ['sandbox', 'production'], default: 'sandbox' },
-      enabled: { type: 'boolean', description: 'REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant; enabling a non-dry_run provider requires key_id + key_secret.' },
+      enabled: { type: 'boolean', description: 'REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant; enabling a non-dry_run provider requires key_id + key_secret + webhook_secret.' },
       display_name: { type: 'string', nullable: true, maxLength: 120 },
       key_id: { type: 'string', nullable: true, maxLength: 120, description: 'Publishable provider key id.' },
       key_secret: { type: 'string', nullable: true, description: 'WRITE-ONLY. Stored as encryptField() ciphertext; never returned by any read.' },
@@ -243,7 +249,7 @@ export const operations = {
   },
   'POST /api/v1/billing/gateway/refunds': {
     description:
-      'Executes an APPROVED billing_refunds row at the provider (refund of the original gateway capture). Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund → markRefundPaid lifecycle, and markRefundPaid is driven by the refund.processed webhook with reference = provider refund id. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
+      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key is committed before the external refund request. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund → markRefundPaid lifecycle, and markRefundPaid is driven by the refund.processed webhook with reference = provider refund id. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
     request: 'PaymentGatewayRefundCreateRequest',
     response: 'PaymentGatewayRefundResponse',
   },

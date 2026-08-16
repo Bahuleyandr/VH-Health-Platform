@@ -54,6 +54,10 @@ export const gatewayRefundCreateValidator = [
     .exists({ checkFalsy: true }).withMessage('billing_refund_id is required')
     .isInt({ min: 1 }).withMessage('billing_refund_id must be a positive integer')
     .toInt(),
+  body('gateway_order_id')
+    .exists({ checkFalsy: true }).withMessage('gateway_order_id is required')
+    .isInt({ min: 1 }).withMessage('gateway_order_id must be a positive integer')
+    .toInt(),
 ];
 
 /** PUT /api/v1/billing/gateway/config */

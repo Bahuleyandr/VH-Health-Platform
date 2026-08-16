@@ -38,12 +38,13 @@ export async function fetchPayment(paymentId) {
   };
 }
 
-export async function createRefund({ providerPaymentId, amountPaise, receipt } = {}) {
+export async function createRefund({ providerPaymentId, amountPaise, receipt, idempotencyKey } = {}) {
   if (!providerPaymentId) throw new Error('dry_run createRefund requires providerPaymentId');
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
     throw new Error('dry_run createRefund requires a positive integer amountPaise');
   }
   if (!receipt) throw new Error('dry_run createRefund requires a receipt');
+  if (!idempotencyKey) throw new Error('dry_run createRefund requires an idempotency key');
   return {
     providerRefundId: `rfnd_dry_${receipt}`,
     providerPaymentId: String(providerPaymentId),

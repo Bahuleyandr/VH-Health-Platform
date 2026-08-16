@@ -23,6 +23,7 @@ const sendWhatsAppMock = jest.fn();
 const queuePatientSmsMock = jest.fn();
 const collectPaymentMock = jest.fn();
 const loggerWarnMock = jest.fn();
+const getTenantSettingsMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -60,6 +61,11 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   deriveInvoicePaymentStateFromLedgerTx: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
+  getTenantSettings: getTenantSettingsMock,
+  getPaymentGatewaySettings: async () => ({ enabled: false }),
+}));
+
 jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
   resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
   resolveLedgerModeForTenant: async () => 'shadow',
@@ -67,6 +73,11 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
 
 const {
   buildUpiDeepLink,
+  normalizePaymentLinkChannels,
+  resolveTeleconsultPaymentLinkConfig,
+  isWellFormedPaymentLinkToken,
+  resolvePaymentLinkPublicState,
+  getPublicPaymentLinkView,
   createPaymentLink,
   getPaymentLink,
   sendPaymentLink,
@@ -74,6 +85,7 @@ const {
   cancelPaymentLink,
   expireStaleLinks,
   listPaymentLinks,
+  createTeleconsultPostConsultPaymentLink,
 } = await import('../../services/billing/paymentLinkService.js');
 
 beforeEach(() => {
@@ -83,6 +95,96 @@ beforeEach(() => {
   delete process.env.HOSPITAL_NAME;
   delete process.env.HOSPITAL_PAY_BASE_URL;
   executeRawUnsafeMock.mockResolvedValue(1);
+  getTenantSettingsMock.mockResolvedValue({});
+});
+
+describe('payment-link channel and teleconsult configuration', () => {
+  it('normalizes, deduplicates, and falls back without admitting unknown channels', () => {
+    expect(normalizePaymentLinkChannels([' SMS ', 'sms', 'EMAIL', 'push']))
+      .toEqual(['sms', 'email']);
+    expect(normalizePaymentLinkChannels([], ['email'])).toEqual(['email']);
+    expect(normalizePaymentLinkChannels(null, null)).toEqual(['whatsapp']);
+  });
+
+  it('requires an explicit teleconsult enable and bounds invalid expiry to the default', () => {
+    expect(resolveTeleconsultPaymentLinkConfig({})).toMatchObject({
+      enabled: false, channels: ['whatsapp'], expiresInHours: 48,
+    });
+    expect(resolveTeleconsultPaymentLinkConfig({
+      teleconsultPayments: { enabled: true, channels: ['SMS'], expires_in_hours: -1 },
+    })).toEqual({ enabled: true, channels: ['sms'], expiresInHours: 48 });
+  });
+});
+
+describe('public payment-link view', () => {
+  const TOKEN = 'abcdefghijklmnop1234567890';
+  const now = new Date('2026-08-17T00:00:00.000Z');
+
+  it('rejects malformed bearer tokens before querying', async () => {
+    expect(isWellFormedPaymentLinkToken('short')).toBe(false);
+    expect(isWellFormedPaymentLinkToken(TOKEN)).toBe(true);
+    await expect(getPublicPaymentLinkView({ link_token: '../bad' }, now)).resolves.toBeNull();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ status: 'paid' }, 'paid'],
+    [{ status: 'cancelled' }, 'cancelled'],
+    [{ status: 'sent', expires_at: '2026-08-16T00:00:00.000Z' }, 'expired'],
+    [{ status: 'created', expires_at: '2026-08-18T00:00:00.000Z' }, 'payable'],
+    [{ status: 'future' }, 'unavailable'],
+  ])('derives fail-closed public state for %j', (row, expected) => {
+    expect(resolvePaymentLinkPublicState(row, now)).toBe(expected);
+  });
+
+  it('returns only the public allowlist and suppresses a non-UPI stored link', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 5, tenant_id: TENANT, amount: '250.00', currency: 'INR', status: 'created',
+      expires_at: '2026-08-18T00:00:00.000Z', paid_at: null,
+      upi_deep_link: 'https://evil.example/pay', upi_payee_name: 'VH Hospital',
+      invoice_number: 'INV-5', patient_uid: PATIENT_A,
+    }]);
+    const view = await getPublicPaymentLinkView({ link_token: TOKEN }, now);
+    expect(view).toEqual(expect.objectContaining({
+      state: 'payable', amount: 250, invoiceReference: 'INV-5', upiDeepLink: null,
+      gateway: { enabled: false, provider: null, keyId: null, providerOrderId: null },
+    }));
+    expect(view).not.toHaveProperty('patient_uid');
+  });
+});
+
+describe('teleconsult post-consult payment links', () => {
+  it('validates the teleconsultation id before querying', async () => {
+    await expect(createTeleconsultPostConsultPaymentLink({ tenantId: TENANT }))
+      .rejects.toMatchObject({ statusCode: 400 });
+    await expect(createTeleconsultPostConsultPaymentLink({
+      tenantId: TENANT, teleconsultation_id: 'not-an-id',
+    })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('returns an honest tenant-not-configured result after resolving the subject', async () => {
+    getTenantSettingsMock.mockResolvedValue({});
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 8, appointment_id: 9, patient_uid: PATIENT_A, status: 'completed',
+    }]);
+    await expect(createTeleconsultPostConsultPaymentLink({
+      tenantId: TENANT, teleconsultation_id: 8,
+    })).resolves.toMatchObject({ status: 'skipped', reason: 'tenant_not_configured' });
+  });
+
+  it('fails closed when a completed consult has no linked payable invoice', async () => {
+    getTenantSettingsMock.mockResolvedValue({
+      teleconsultPayments: { enabled: true, channels: ['email'], expiresInHours: 24 },
+    });
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 8, appointment_id: 9, patient_uid: PATIENT_A, status: 'completed',
+      }])
+      .mockResolvedValueOnce([]);
+    await expect(createTeleconsultPostConsultPaymentLink({
+      tenantId: TENANT, teleconsultation_id: 8,
+    })).resolves.toMatchObject({ status: 'skipped', reason: 'invoice_not_linked' });
+  });
 });
 
 // ─── buildUpiDeepLink (pure) ───────────────────────────────────────────────

@@ -51,6 +51,13 @@ const INTERMEDIATE_STATUSES = new Set([
   'queued', 'accepted', 'sending', 'sent', 'submitted', 'scheduled',
 ]);
 
+function boundedProviderToken(value) {
+  const candidate = String(value ?? '').trim();
+  return /^[A-Za-z0-9_.-]{1,40}$/.test(candidate) && !/\d{6,}/.test(candidate)
+    ? candidate
+    : null;
+}
+
 function classifyDlrStatus(rawStatus) {
   const raw = String(rawStatus ?? '').trim().toLowerCase();
   if (!raw) return { kind: 'unknown', status: null };
@@ -65,7 +72,7 @@ function classifyDlrStatus(rawStatus) {
 
 function providerCodeFor(kind, status, errorCode) {
   if (kind === 'acknowledged') return 'dlr_delivered';
-  const code = String(errorCode ?? '').trim();
+  const code = boundedProviderToken(errorCode);
   return (code ? `dlr_${status}_${code}` : `dlr_${status}`).slice(0, 120);
 }
 
@@ -84,7 +91,7 @@ function boundedEvidence(provider, payload, extra = {}) {
  * provider_status_callback receipt. Runs entirely inside setTenantTx (609
  * restrictive RLS). Returns a small handled-descriptor for the route ack.
  */
-async function recordDlrReceipt({ tenantId, providerReference, outcome, providerCode, evidence }) {
+async function recordDlrReceipt({ tenantId, provider, providerReference, outcome, providerCode, evidence }) {
   return setTenantTx(tenantId, async (tx) => {
     const attempts = await tx.$queryRawUnsafe(
       `SELECT attempt_id::text, notification_outbox_id
@@ -92,9 +99,10 @@ async function recordDlrReceipt({ tenantId, providerReference, outcome, provider
         WHERE tenant_id = $1::uuid AND channel = 'sms'
           AND provider_reference = $2::text
           AND receipt_source = 'provider_response'
+          AND evidence->>'provider' = $3::text
         ORDER BY observed_at DESC
         LIMIT 1`,
-      tenantId, providerReference,
+      tenantId, providerReference, provider,
     );
     if (!attempts.length) {
       logger.info('sms-dlr: unknown provider reference — acked without write', {
@@ -124,12 +132,13 @@ async function processEntry({ tenantId, provider, providerReference, statusRaw, 
   if (kind === 'intermediate') return { handled: 'ignored_intermediate', status };
   if (kind === 'unknown') {
     logger.info('sms-dlr: unrecognized delivery status — acked without write', {
-      provider, status: String(statusRaw ?? '').slice(0, 40),
+      provider,
     });
     return { handled: 'ignored_unknown_status' };
   }
   return recordDlrReceipt({
     tenantId,
+    provider,
     providerReference: reference,
     outcome: kind,
     providerCode: providerCodeFor(kind, status, errorCode),
@@ -143,8 +152,8 @@ async function processEntry({ tenantId, provider, providerReference, statusRaw, 
  * and the batched report shape ([{ requestId, report: [{ status, desc }] }]).
  */
 export async function processMsg91Dlr({ token, payload }) {
-  const config = await resolveSmsConfigByCallbackToken(token);
-  if (!config) return { authorized: false };
+  const config = await resolveSmsConfigByCallbackToken(token, 'msg91');
+  if (!config || config.provider !== 'msg91') return { authorized: false };
   const tenantId = String(config.tenant_id);
 
   const entries = Array.isArray(payload) ? payload : [payload ?? {}];
@@ -162,10 +171,9 @@ export async function processMsg91Dlr({ token, payload }) {
       // notification_provider_receipts.evidence (same posture as the Twilio
       // path dropping `To`: PHI-bearing fields deliberately not persisted).
       payload: {
-        requestId: entry?.requestId ?? entry?.request_id ?? null,
         status: entry?.status ?? report?.status ?? null,
-        code: entry?.code ?? report?.code ?? null,
-        desc: report?.desc ?? null,
+        code: boundedProviderToken(entry?.code ?? report?.code),
+        desc: boundedProviderToken(report?.desc),
       },
     }));
   }
@@ -181,8 +189,8 @@ export async function processMsg91Dlr({ token, payload }) {
  * CLOSED (401): an unverifiable delivery status must not become evidence.
  */
 export async function processTwilioStatusCallback({ token, params, signature, requestPath }) {
-  const config = await resolveSmsConfigByCallbackToken(token);
-  if (!config) return { authorized: false };
+  const config = await resolveSmsConfigByCallbackToken(token, 'twilio');
+  if (!config || config.provider !== 'twilio') return { authorized: false };
   const tenantId = String(config.tenant_id);
 
   let authToken = null;
@@ -225,9 +233,8 @@ export async function processTwilioStatusCallback({ token, params, signature, re
     statusRaw: params?.MessageStatus ?? params?.SmsStatus ?? null,
     errorCode: params?.ErrorCode ?? null,
     payload: {
-      MessageSid: params?.MessageSid ?? null,
       MessageStatus: params?.MessageStatus ?? null,
-      ErrorCode: params?.ErrorCode ?? null,
+      ErrorCode: boundedProviderToken(params?.ErrorCode),
       To: undefined, // PHI-bearing fields deliberately not persisted
     },
   });

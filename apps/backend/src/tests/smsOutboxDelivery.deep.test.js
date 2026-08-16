@@ -208,7 +208,7 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
     expect(sentOutboxId).not.toBeNull();
 
     // Fail-closed: an unknown token resolves nothing.
-    await expect(resolveSmsConfigByCallbackToken('not-a-real-token-aaaaaaaaaa')).resolves.toBeNull();
+    await expect(resolveSmsConfigByCallbackToken('not-a-real-token-aaaaaaaaaa', 'msg91')).resolves.toBeNull();
     const unauthorized = await processMsg91Dlr({
       token: 'not-a-real-token-aaaaaaaaaa',
       payload: { requestId: REQUEST_ID, status: 'delivered' },
@@ -216,7 +216,7 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
     expect(unauthorized.authorized).toBe(false);
 
     // The minted token resolves the owning tenant.
-    const config = await resolveSmsConfigByCallbackToken(callbackToken);
+    const config = await resolveSmsConfigByCallbackToken(callbackToken, 'msg91');
     expect(config).not.toBeNull();
     expect(String(config.tenant_id)).toBe(TENANT_ID);
 
