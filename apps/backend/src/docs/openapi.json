@@ -34896,7 +34896,8 @@
       "PaymentGatewayConfigUpsertRequest": {
         "type": "object",
         "required": [
-          "provider"
+          "provider",
+          "enabled"
         ],
         "properties": {
           "provider": {
@@ -34916,8 +34917,7 @@
           },
           "enabled": {
             "type": "boolean",
-            "default": false,
-            "description": "At most one enabled config per tenant. Enabling a non-dry_run provider requires key_id + key_secret."
+            "description": "REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant; enabling a non-dry_run provider requires key_id + key_secret."
           },
           "display_name": {
             "type": "string",
@@ -35129,6 +35129,17 @@
             "format": "date-time",
             "nullable": true
           },
+          "reconciled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When an operator stamped the manual resolution of a requires_reconciliation order."
+          },
+          "reconciliation_note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
           "failure_code": {
             "type": "string",
             "nullable": true
@@ -35276,6 +35287,20 @@
           }
         }
       },
+      "PaymentGatewayOrderReconcileRequest": {
+        "type": "object",
+        "required": [
+          "note"
+        ],
+        "properties": {
+          "note": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "What was manually done about the captured money (booked via collectPayment, refunded at the provider dashboard, ...)."
+          }
+        }
+      },
       "PaymentGatewayOrderResponse": {
         "type": "object",
         "required": [
@@ -35292,6 +35317,47 @@
           },
           "data": {
             "$ref": "#/components/schemas/PaymentGatewayOrder"
+          }
+        }
+      },
+      "PaymentGatewayReconciliationList": {
+        "type": "object",
+        "required": [
+          "orders",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentGatewayOrder"
+            }
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "PaymentGatewayReconciliationListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentGatewayReconciliationList"
           }
         }
       },
@@ -41582,7 +41648,8 @@
       "SmsProviderConfigUpsertRequest": {
         "type": "object",
         "required": [
-          "provider"
+          "provider",
+          "enabled"
         ],
         "properties": {
           "provider": {
@@ -41595,7 +41662,7 @@
           },
           "enabled": {
             "type": "boolean",
-            "description": "At most one enabled config per tenant (699 partial unique)."
+            "description": "REQUIRED (explicit true/false): the upsert takes this value verbatim, so omission would silently disable a live config. At most one enabled config per tenant (699 partial unique)."
           },
           "sender_id": {
             "type": "string",
@@ -75535,6 +75602,68 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/billing/gateway/orders/{id}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_billing_gateway_orders_by_id_reconcile",
+        "tags": [
+          "payment-gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayOrderResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin resolution stamp for a requires_reconciliation order: records reconciled_at + a required note describing how the captured money was manually handled, and writes an audit row. The order status stays requires_reconciliation (694 has no reconciled status) — stamped rows drop out of the default work-queue listing.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentGatewayOrderReconcileRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/gateway/reconciliation": {
+      "get": {
+        "operationId": "get_api_v1_billing_gateway_reconciliation",
+        "tags": [
+          "payment-gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayReconciliationListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin work queue of requires_reconciliation orders — captures the provider took that automation could not book (voided invoice, amount drift). Unresolved rows only by default; include_resolved=true also returns operator-stamped rows."
       }
     },
     "/api/v1/billing/gateway/refunds": {
