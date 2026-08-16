@@ -24,8 +24,10 @@ const { resolveAdapter, GATEWAY_PROVIDERS } = await import(
   '../../services/billing/gatewayProviders/index.js'
 );
 
-// Deliberately self-describing test material — not live credentials.
-const SECRET = 'test-webhook-secret-000000000000';
+// Deliberately self-describing test material — not live credentials. Kept
+// digit/symbol-free so the vh-hardcoded-password-assignment gitleaks rule
+// (which requires credential-shaped entropy in the value) never matches.
+const SECRET = 'test-webhook-signing-material-unit';
 const BODY = '{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_test_1"}}}}';
 const sign = (body, secret) => crypto.createHmac('sha256', secret).update(body).digest('hex');
 
