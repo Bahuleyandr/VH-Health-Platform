@@ -1,0 +1,6 @@
+[worker.oci]
+  gc = true
+  # Exact bytes keep the runtime cap aligned with the host audit thresholds.
+  reservedSpace = 8000000000
+  maxUsedSpace = 30000000000
+  minFreeSpace = 300000000000
