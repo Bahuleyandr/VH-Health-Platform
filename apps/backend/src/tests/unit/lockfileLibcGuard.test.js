@@ -3,11 +3,12 @@
 // PR #878: npm 11.14.1 regenerated apps/backend/package-lock.json and silently
 // stripped `"libc"` from all 26 platform-specific optional packages — and
 // apps/admin/package-lock.json turned out to carry the same defect live on
-// main (68 entries, repaired 2026-08-18). Both production images are
-// node:26.5.0-alpine (musl) and both Dockerfiles run `npm ci`, so without
-// `libc` a musl install also pulls glibc binaries into the image. No CI job
+// main (68 entries, repaired 2026-08-18). Backend and admin ship
+// node:26.5.0-alpine (musl) images whose Dockerfiles run `npm ci`, so without
+// `libc` a musl install also pulls glibc binaries into the image; no CI job
 // could see it — app jobs run on ubuntu-latest (glibc) and the Alpine images
-// are built post-merge.
+// are built post-merge. device-gateway (bookworm-slim, glibc, --omit=dev) is
+// guarded for lockfile integrity: same defect, lower stakes.
 //
 // Two properties matter and both are pinned here: the guard must fire on a
 // stripped lockfile, and it must NOT fire on packages that legitimately carry
@@ -53,15 +54,20 @@ function kindsFor(violations, name) {
 }
 
 describe('package-lock.json libc guard', () => {
-  it.each(['backend', 'admin'])('passes against the committed %s lockfile', (appKey) => {
-    expect(collectViolations(readLockfile(appKey), APPS[appKey].expected)).toEqual([]);
-  });
+  it.each(['backend', 'admin', 'device-gateway'])(
+    'passes against the committed %s lockfile',
+    (appKey) => {
+      expect(collectViolations(readLockfile(appKey), APPS[appKey].expected)).toEqual([]);
+    },
+  );
 
   it('resolves each app config to its real lockfile and repro command', () => {
     expect(APPS.backend.lockfilePath)
       .toBe(path.join(repoRoot, 'apps', 'backend', 'package-lock.json'));
     expect(APPS.admin.lockfilePath)
       .toBe(path.join(repoRoot, 'apps', 'admin', 'package-lock.json'));
+    expect(APPS['device-gateway'].lockfilePath)
+      .toBe(path.join(repoRoot, 'apps', 'device-gateway', 'package-lock.json'));
     for (const app of Object.values(APPS)) {
       expect(app.reproCommand).toContain('--libc=musl');
       expect(app.reproCommand).toContain(app.label);
@@ -74,6 +80,7 @@ describe('package-lock.json libc guard', () => {
   it.each([
     ['backend', 26],
     ['admin', 68],
+    ['device-gateway', 10],
   ])('tracks every package that carries libc in the committed %s lockfile', (appKey, count) => {
     const carryingLibc = Object.entries(readLockfile(appKey).packages)
       .filter(([, entry]) => entry?.libc !== undefined)
@@ -93,7 +100,7 @@ describe('package-lock.json libc guard', () => {
     }
   });
 
-  it.each(['backend', 'admin'])(
+  it.each(['backend', 'admin', 'device-gateway'])(
     'fires on every %s manifest package when npm strips libc wholesale',
     (appKey) => {
       const stripped = readLockfile(appKey);
@@ -104,8 +111,11 @@ describe('package-lock.json libc guard', () => {
       const violations = collectViolations(stripped, APPS[appKey].expected);
       expect(violations).toHaveLength(Object.keys(APPS[appKey].expected).length);
       expect(new Set(violations.map((v) => v.kind))).toEqual(new Set(['LIBC_STRIPPED']));
-      expect(kindsFor(violations, '@img/sharp-linux-x64')).toEqual(['LIBC_STRIPPED']);
-      expect(kindsFor(violations, '@img/sharp-linuxmusl-x64')).toEqual(['LIBC_STRIPPED']);
+      // The @unrs x64 pair is present in all three manifests.
+      expect(kindsFor(violations, '@unrs/resolver-binding-linux-x64-gnu'))
+        .toEqual(['LIBC_STRIPPED']);
+      expect(kindsFor(violations, '@unrs/resolver-binding-linux-x64-musl'))
+        .toEqual(['LIBC_STRIPPED']);
     },
   );
 
@@ -249,7 +259,9 @@ describe('package-lock.json libc guard', () => {
       expect(report).toContain('LIBC_STRIPPED (1)');
       expect(report).toContain(app.reproCommand);
       expect(report).toContain('--libc=musl');
-      expect(report).toContain('node:26.5.0-alpine');
+      // The consequence paragraph is embedded verbatim and must stay honest
+      // per app (alpine/musl for backend+admin, bookworm/glibc for gateway).
+      expect(report).toContain(app.consequenceNote);
       expect(report).toContain(app.label);
       expect(report).toContain('scripts/check-lockfile-libc.mjs');
     }

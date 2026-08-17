@@ -7,6 +7,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "check:lockfile-libc": "node ../../scripts/check-lockfile-libc.mjs device-gateway",
     "lint": "node scripts/lint.mjs",
     "soak:replay": "node scripts/soak-replay.mjs",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"

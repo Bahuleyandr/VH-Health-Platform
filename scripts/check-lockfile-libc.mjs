@@ -2,7 +2,7 @@
 // Fails CI if an app's package-lock.json loses the `libc` platform constraints
 // on its linux glibc/musl variant packages.
 //
-//   node scripts/check-lockfile-libc.mjs <backend|admin> [lockfile-path]
+//   node scripts/check-lockfile-libc.mjs <backend|admin|device-gateway> [lockfile-path]
 //
 // PR #878 (found and fixed in 83bbea121): a session added a `deepmerge-ts`
 // override and regenerated apps/backend/package-lock.json with npm 11.14.1.
@@ -87,6 +87,23 @@ const BACKEND_EXPECTED_LIBC = Object.freeze({
   '@unrs/resolver-binding-linux-x64-musl': ['musl'],
 });
 
+// device-gateway's ten are all dev-dep @unrs resolver bindings (jest), and its
+// production image is Debian bookworm-slim (glibc) with `npm ci --omit=dev` —
+// so a strip there is a lockfile-integrity signal rather than a prod breaker.
+// Guarded anyway: it is the same npm-11 defect, and it must not land silently.
+const DEVICE_GATEWAY_EXPECTED_LIBC = Object.freeze({
+  '@unrs/resolver-binding-linux-arm64-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-arm64-musl': ['musl'],
+  '@unrs/resolver-binding-linux-loong64-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-loong64-musl': ['musl'],
+  '@unrs/resolver-binding-linux-ppc64-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-riscv64-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-riscv64-musl': ['musl'],
+  '@unrs/resolver-binding-linux-s390x-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-x64-gnu': ['glibc'],
+  '@unrs/resolver-binding-linux-x64-musl': ['musl'],
+});
+
 const ADMIN_EXPECTED_LIBC = Object.freeze({
   '@img/sharp-libvips-linux-arm': ['glibc'],
   '@img/sharp-libvips-linux-arm64': ['glibc'],
@@ -158,6 +175,17 @@ const ADMIN_EXPECTED_LIBC = Object.freeze({
   'lightningcss-linux-x64-musl': ['musl'],
 });
 
+// Every consequenceNote must stay honest per app: backend and admin ship
+// musl (Alpine) production images, so a strip there sends glibc binaries into
+// prod; device-gateway ships glibc (bookworm-slim) with --omit=dev, so a strip
+// there is caught for lockfile integrity, not as a prod breaker.
+const ALPINE_CONSEQUENCE = (label) =>
+  `The ${label} production image is node:26.5.0-alpine (musl) and its\n` +
+  'Dockerfile runs `npm ci`. Without "libc", npm cannot tell a glibc variant\n' +
+  'from a musl one, so a musl install also pulls glibc binaries into the Alpine\n' +
+  'image. No other CI job can see this: app jobs run on ubuntu-latest (glibc)\n' +
+  'and the Alpine image is built post-merge.';
+
 export const APPS = Object.freeze({
   backend: {
     label: 'apps/backend',
@@ -165,6 +193,7 @@ export const APPS = Object.freeze({
     expected: BACKEND_EXPECTED_LIBC,
     reproCommand:
       'cd apps/backend && npm ci --dry-run --ignore-scripts --os=linux --cpu=x64 --libc=musl',
+    consequenceNote: ALPINE_CONSEQUENCE('apps/backend'),
     // A correct lockfile selects ONLY these for musl/x64. A stripped one
     // additionally selects @img/sharp-linux-x64 + @img/sharp-libvips-linux-x64.
     selectionNote:
@@ -178,11 +207,29 @@ export const APPS = Object.freeze({
     expected: ADMIN_EXPECTED_LIBC,
     reproCommand:
       'cd apps/admin && npm ci --dry-run --ignore-scripts --os=linux --cpu=x64 --libc=musl',
+    consequenceNote: ALPINE_CONSEQUENCE('apps/admin'),
     selectionNote:
       'A correct lockfile selects exactly one flavor per package family (e.g.\n' +
       '@img/sharp-linuxmusl-x64, @next/swc-linux-x64-musl,\n' +
       '@rollup/rollup-linux-x64-musl). The pre-repair lockfile selected BOTH the\n' +
       'musl and glibc variants of nine families on a musl target.',
+  },
+  'device-gateway': {
+    label: 'apps/device-gateway',
+    lockfilePath: path.join(REPO_ROOT, 'apps', 'device-gateway', 'package-lock.json'),
+    expected: DEVICE_GATEWAY_EXPECTED_LIBC,
+    reproCommand:
+      'cd apps/device-gateway && npm ci --dry-run --ignore-scripts --os=linux --cpu=x64 --libc=musl',
+    consequenceNote:
+      'The apps/device-gateway production image is node:26.5.0-bookworm-slim\n' +
+      '(glibc) built with `npm ci --omit=dev`, and its libc-constrained packages\n' +
+      'are all dev-dep @unrs resolver bindings — so this is a lockfile-integrity\n' +
+      'gate, not a prod-image breaker. A strip here is the same npm-11 defect\n' +
+      'that DID send glibc binaries into the backend/admin Alpine images.',
+    selectionNote:
+      'A correct lockfile selects ONLY @unrs/resolver-binding-linux-x64-musl for\n' +
+      'musl/x64. A stripped one additionally selects\n' +
+      '@unrs/resolver-binding-linux-x64-gnu.',
   },
 });
 
@@ -343,11 +390,7 @@ export function formatReport(violations, app) {
   }
 
   lines.push(
-    `The ${app.label} production image is node:26.5.0-alpine (musl) and its`,
-    'Dockerfile runs `npm ci`. Without "libc", npm cannot tell a glibc variant',
-    'from a musl one, so a musl install also pulls glibc binaries into the Alpine',
-    'image. No other CI job can see this: app jobs run on ubuntu-latest (glibc)',
-    'and the Alpine image is built post-merge.',
+    app.consequenceNote,
     '',
     'Reproduce the real effect (npm simulates the target platform):',
     `  ${app.reproCommand}`,
