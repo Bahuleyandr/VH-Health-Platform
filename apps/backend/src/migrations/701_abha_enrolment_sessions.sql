@@ -70,9 +70,13 @@ CREATE TABLE IF NOT EXISTS abha_enrolment_sessions (
   metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- DEFERRABLE: the patient-merge sweep re-points composite patient_uid FKs
+  -- parent-then-child inside one transaction (migration 634 pin, enforced by
+  -- patient-merge-execution.deep.test.js).
   CONSTRAINT fk_abha_enrolment_patient
     FOREIGN KEY (tenant_id, patient_uid)
-    REFERENCES users (tenant_id, uid) ON DELETE CASCADE,
+    REFERENCES users (tenant_id, uid) ON DELETE CASCADE
+    DEFERRABLE INITIALLY IMMEDIATE,
   -- enrolled/linked require the resulting ABHA number + instant.
   CONSTRAINT chk_abha_enrolment_result_evidence
     CHECK (
