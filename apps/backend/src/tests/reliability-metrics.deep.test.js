@@ -33,7 +33,7 @@ import { REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY } from '../utils/notifications/tena
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
-const prisma = (await import('../lib/prisma.js')).default;
+const { default: prisma, setTenant } = await import('../lib/prisma.js');
 const { collectReliabilityMetrics, serializeReliabilityMetrics } =
   await import('../observability/reliabilityMetrics.js');
 
@@ -50,6 +50,64 @@ const RETIRED_GENERATION = 1_000_000
 function gaugeValue(text, name) {
   const m = text.match(new RegExp(`^${name} (\\d+(?:\\.\\d+)?)$`, 'm'));
   return m ? Number(m[1]) : null;
+}
+
+async function expectedNotificationMetrics() {
+  // notification_outbox is FORCE RLS. Match the collector's fleet-wide
+  // semantics by aggregating the same predicates once inside each tenant
+  // context, rather than comparing against the ambient test tenant only.
+  const tenants = await prisma.$queryRawUnsafe(`SELECT id::text FROM tenants ORDER BY id`);
+  const totals = {
+    reconciliation_required: 0,
+    dead_letter: 0,
+    terminal_dead_letter: 0,
+  };
+  for (const tenant of tenants) {
+    const [row] = await setTenant(
+      tenant.id,
+      tx => tx.$queryRawUnsafe(
+        `SELECT
+           COUNT(*) FILTER (
+             WHERE status = 'RECONCILIATION_REQUIRED'
+               AND COALESCE(failure_reason, '') <> 'operator_replay_superseded'
+           )::int AS reconciliation_required,
+           COUNT(*) FILTER (
+             WHERE (status = 'FAILED' AND retry_count >= 3)
+                OR (status = 'RECONCILIATION_REQUIRED'
+                    AND COALESCE(failure_reason, '') <> 'operator_replay_superseded')
+           )::int AS dead_letter,
+           COUNT(*) FILTER (
+             WHERE (status = 'FAILED' AND retry_count >= 3
+                    AND failure_reason = 'provider_terminal_rejection')
+                OR (status = 'RECONCILIATION_REQUIRED'
+                    AND COALESCE(failure_reason, '') <> $1::text
+                    AND (replay_generation >= $2::smallint
+                         OR NOT COALESCE(
+                           CASE
+                             WHEN replay_generation = 0 THEN created_at
+                             WHEN jsonb_typeof(payload -> $4::text) = 'number'
+                               AND payload ->> $4::text ~ '^[0-9]{13}$'
+                               THEN to_timestamp(
+                                 (payload ->> $4::text)::double precision / 1000.0
+                               )
+                             ELSE NULL
+                           END > NOW() - INTERVAL '24 hours',
+                           FALSE
+                         )
+                         OR COALESCE(failure_reason, '') <> ALL($3::text[])))
+           )::int AS terminal_dead_letter
+         FROM notification_outbox`,
+        OPERATOR_REPLAY_SUPERSEDED_REASON,
+        NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+        AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+        REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+      ),
+    );
+    totals.reconciliation_required += Number(row?.reconciliation_required ?? 0);
+    totals.dead_letter += Number(row?.dead_letter ?? 0);
+    totals.terminal_dead_letter += Number(row?.terminal_dead_letter ?? 0);
+  }
+  return totals;
 }
 
 async function cleanup() {
@@ -211,43 +269,7 @@ d('reliability metrics collector (QA DB)', () => {
   it('reports notification_outbox pending/failed/reconciliation-required/dead-letter gauges', async () => {
     await collectReliabilityMetrics();
     const out = serializeReliabilityMetrics();
-    const [expected] = await prisma.$queryRawUnsafe(
-      `SELECT
-         COUNT(*) FILTER (
-           WHERE status = 'RECONCILIATION_REQUIRED'
-             AND COALESCE(failure_reason, '') <> 'operator_replay_superseded'
-         )::int AS reconciliation_required,
-         COUNT(*) FILTER (
-           WHERE (status = 'FAILED' AND retry_count >= 3)
-              OR (status = 'RECONCILIATION_REQUIRED'
-                  AND COALESCE(failure_reason, '') <> 'operator_replay_superseded')
-         )::int AS dead_letter,
-         COUNT(*) FILTER (
-           WHERE (status = 'FAILED' AND retry_count >= 3
-                  AND failure_reason = 'provider_terminal_rejection')
-              OR (status = 'RECONCILIATION_REQUIRED'
-                  AND COALESCE(failure_reason, '') <> $1::text
-                  AND (replay_generation >= $2::smallint
-                       OR NOT COALESCE(
-                         CASE
-                           WHEN replay_generation = 0 THEN created_at
-                           WHEN jsonb_typeof(payload -> $4::text) = 'number'
-                             AND payload ->> $4::text ~ '^[0-9]{13}$'
-                             THEN to_timestamp(
-                               (payload ->> $4::text)::double precision / 1000.0
-                             )
-                           ELSE NULL
-                         END > NOW() - INTERVAL '24 hours',
-                         FALSE
-                       )
-                       OR COALESCE(failure_reason, '') <> ALL($3::text[])))
-         )::int AS terminal_dead_letter
-       FROM notification_outbox`,
-      OPERATOR_REPLAY_SUPERSEDED_REASON,
-      NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
-      AUTO_REPLAYABLE_RECONCILIATION_REASONS,
-      REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
-    );
+    const expected = await expectedNotificationMetrics();
     expect(gaugeValue(out, 'notification_outbox_pending_rows')).toBeGreaterThanOrEqual(1);
     expect(gaugeValue(out, 'notification_outbox_failed_rows')).toBeGreaterThanOrEqual(2);
     expect(gaugeValue(out, 'notification_outbox_reconciliation_required_rows'))
