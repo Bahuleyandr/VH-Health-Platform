@@ -322,8 +322,10 @@ void main() {
         searchItems: ({String? search}) async => [
           _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
         ],
-        requestWitnessApproval:
-            ({required sale, required idempotencyKey}) async => {'id': '72'},
+        requestWitnessApproval: ({
+          required sale,
+          required idempotencyKey,
+        }) async => {'id': '72'},
         approveWitnessApproval:
             ({
               required approvalId,
@@ -426,11 +428,10 @@ void main() {
           searchItems: ({String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
-          requestWitnessApproval:
-              ({required sale, required idempotencyKey}) async => {
-                'id': '82',
-                'status': 'pending',
-              },
+          requestWitnessApproval: ({
+            required sale,
+            required idempotencyKey,
+          }) async => {'id': '82', 'status': 'pending'},
           approveWitnessApproval:
               ({
                 required approvalId,

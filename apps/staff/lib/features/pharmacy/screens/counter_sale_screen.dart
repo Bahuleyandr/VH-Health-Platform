@@ -8,20 +8,20 @@ import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef CounterSaleItemSearcher =
-    Future<List<Map<String, dynamic>>> Function({String? search});
-typedef CounterSaleCreator =
-    Future<Map<String, dynamic>> Function({
-      required List<Map<String, dynamic>> lines,
-      String? patientUid,
-      String? customerName,
-      String? customerPhone,
-      Map<String, dynamic>? rx,
-      String? witnessApprovalId,
-      required String paymentMode,
-      String? paymentReference,
-      String? notes,
-    });
+typedef CounterSaleItemSearcher = Future<List<Map<String, dynamic>>> Function({
+  String? search,
+});
+typedef CounterSaleCreator = Future<Map<String, dynamic>> Function({
+  required List<Map<String, dynamic>> lines,
+  String? patientUid,
+  String? customerName,
+  String? customerPhone,
+  Map<String, dynamic>? rx,
+  String? witnessApprovalId,
+  required String paymentMode,
+  String? paymentReference,
+  String? notes,
+});
 typedef CounterSaleWitnessApprovalRequester =
     Future<Map<String, dynamic>> Function({
       required Map<String, dynamic> sale,
@@ -35,10 +35,14 @@ typedef CounterSaleWitnessApprovalApprover =
       required String password,
       required String idempotencyKey,
     });
-typedef CounterSaleLister =
-    Future<List<Map<String, dynamic>>> Function({String? status, String? date});
-typedef CounterSaleVoider =
-    Future<Map<String, dynamic>> Function(String id, String reason);
+typedef CounterSaleLister = Future<List<Map<String, dynamic>>> Function({
+  String? status,
+  String? date,
+});
+typedef CounterSaleVoider = Future<Map<String, dynamic>> Function(
+  String id,
+  String reason,
+);
 
 const _kPaymentModes = [
   'CASH',
