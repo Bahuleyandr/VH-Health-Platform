@@ -142,6 +142,25 @@ describe('validateEnv signed integration secrets', () => {
 
     expect(result.status).toBe(0);
   });
+
+  it('refuses to boot production with legacy unbound ABDM callback signatures enabled', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: 'true',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND');
+  });
 });
 
 describe('validateEnv Twilio SMS callback contract', () => {

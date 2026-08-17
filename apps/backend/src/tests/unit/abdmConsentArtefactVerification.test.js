@@ -183,6 +183,7 @@ describe('POST /abdm/consent/on-notify', () => {
       .post('/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
       .set('x-cm-id', 'CM-TEST')
+      .set('x-abdm-signature-version', 'v1')
       .send({
         notification: {
           consentRequestId: 'cr-9',
@@ -236,6 +237,7 @@ describe('POST /abdm/consent/on-notify', () => {
     const res = await request(buildApp())
       .post('/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({
         notification: {
           consentRequestId: 'cr-9',

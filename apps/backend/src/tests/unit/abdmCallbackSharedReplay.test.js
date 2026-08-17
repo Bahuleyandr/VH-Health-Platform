@@ -127,6 +127,7 @@ function buildApp() {
 }
 
 const SIGNATURE = 'a'.repeat(64);
+const SIGNATURE_VERSION = 'v1';
 const TIMESTAMP = '1718800000000';
 const REQUEST_ID = 'abdm-req-123';
 
@@ -135,6 +136,7 @@ function postValidCallback(app) {
     .post('/consent/on-notify')
     .set('x-hip-id', 'TEST_HIP')
     .set('x-abdm-signature', SIGNATURE)
+    .set('x-abdm-signature-version', SIGNATURE_VERSION)
     .set('timestamp', TIMESTAMP)
     .set('request-id', REQUEST_ID)
     .send({
@@ -166,12 +168,22 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(res.status).toBe(202);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(Buffer.isBuffer(verifySignedRequest.mock.calls[0][0].payload)).toBe(true);
+    expect(verifySignedRequest.mock.calls[0][0]).toMatchObject({
+      signatureVersion: SIGNATURE_VERSION,
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    });
     expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
     const arg = assertSharedReplayOnce.mock.calls[0][0];
     expect(arg.replayNamespace).toBe('abdm-callback');
     expect(arg.requestId).toBe(REQUEST_ID);
     expect(String(arg.timestamp)).toBe(TIMESTAMP);
     expect(arg.signature).toBe(SIGNATURE);
+    expect(arg).toMatchObject({
+      signatureVersion: SIGNATURE_VERSION,
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    });
     expect(recordAuthenticatedAbdmCallback).toHaveBeenCalledTimes(1);
     expect(assertSharedReplayOnce.mock.invocationCallOrder[0])
       .toBeLessThan(recordAuthenticatedAbdmCallback.mock.invocationCallOrder[0]);
@@ -218,6 +230,7 @@ describe('ABDM callback cross-replica replay protection', () => {
       .post('/patients/profile/share')
       .set('x-hip-id', 'TEST_HIP')
       .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
       .set('timestamp', TIMESTAMP)
       .set('request-id', REQUEST_ID)
       .send({ requestId: 'req-abc', profile: { patient: { name: 'Asha' } } });
@@ -245,6 +258,7 @@ describe('ABDM callback cross-replica replay protection', () => {
       .post('/patients/profile/share')
       .set('x-hip-id', 'TEST_HIP')
       .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
       .set('timestamp', TIMESTAMP)
       .set('request-id', REQUEST_ID)
       .send({ requestId: 'req-abc' });
@@ -258,6 +272,7 @@ describe('ABDM callback cross-replica replay protection', () => {
       .post('/hiu/health-info/push')
       .set('x-hip-id', 'SOMEONE_ELSES_HIP')
       .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
       .set('timestamp', TIMESTAMP)
       .set('request-id', REQUEST_ID)
       .send({ transactionId: 'txn-1', entries: [] });
@@ -272,6 +287,7 @@ describe('ABDM callback cross-replica replay protection', () => {
       .post('/hiu/health-info/push')
       .set('x-hip-id', 'TEST_HIP')
       .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
       .set('timestamp', TIMESTAMP)
       .set('request-id', REQUEST_ID)
       .send({ transactionId: 'txn-1', pageNumber: 1, pageCount: 1, entries: [] });
@@ -299,5 +315,41 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(res.status).toBe(503);
     expect(spy).not.toHaveBeenCalled();
     expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
+  });
+
+  it('derives the canonical application path without query or forwarded proxy prefix', async () => {
+    jest.spyOn(abdmService, 'handleConsentRequest')
+      .mockResolvedValue({ consent_id: 'test-consent' });
+
+    const res = await request(buildApp())
+      .post('/consent/on-notify?admin=true')
+      .set('x-forwarded-prefix', '/hospital-edge')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', `${REQUEST_ID}-query`)
+      .send({ notification: { consentRequestId: 'cr-query' } });
+
+    expect(res.status).toBe(202);
+    expect(verifySignedRequest).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    }));
+  });
+
+  it('rejects an unversioned callback before HMAC or replay work', async () => {
+    const res = await request(buildApp())
+      .post('/consent/on-notify')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', `${REQUEST_ID}-unversioned`)
+      .send({ notification: { consentRequestId: 'cr-unversioned' } });
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('ABDM_CALLBACK_SIGNATURE_VERSION_REQUIRED');
+    expect(verifySignedRequest).not.toHaveBeenCalled();
+    expect(assertSharedReplayOnce).not.toHaveBeenCalled();
   });
 });

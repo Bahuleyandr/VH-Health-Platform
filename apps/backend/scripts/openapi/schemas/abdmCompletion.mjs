@@ -33,7 +33,54 @@ const callbackErrorResponses = {
   409: errorResponse('The callback conflicted with retained transaction or page evidence.'),
   429: errorResponse('The callback source exceeded the public webhook rate limit.'),
   500: errorResponse('The authenticated callback could not be recorded; the sender may retry.'),
+  503: errorResponse('The ABDM integration or durable replay authority was unavailable.'),
 };
+const ABDM_CALLBACK_PARAMETERS = [
+  {
+    name: 'x-hip-id',
+    in: 'header',
+    required: true,
+    schema: { type: 'string', minLength: 1 },
+    description: 'Tenant-resolving HIP identity covered by the callback credential selection.',
+  },
+  {
+    name: 'x-abdm-signature-version',
+    in: 'header',
+    required: true,
+    schema: { type: 'string', enum: ['v1'] },
+    description:
+      'Endpoint-bound signature contract. Production accepts only v1. A separately configured, '
+      + 'sandbox-only migration seam may temporarily accept an unversioned legacy signature.',
+  },
+  {
+    name: 'x-abdm-signature',
+    in: 'header',
+    required: true,
+    schema: { type: 'string', pattern: '^(?:sha256=)?[0-9a-fA-F]{64}$' },
+    description:
+      'HMAC-SHA256 over vhhealth.signed-request.v1, POST, the canonical application path, '
+      + 'timestamp, request-id, and the exact raw request bytes, separated by LF bytes.',
+  },
+  {
+    name: 'timestamp',
+    in: 'header',
+    required: true,
+    schema: { type: 'string', minLength: 1 },
+    description: 'Fresh signed timestamp within the callback replay window.',
+  },
+  {
+    name: 'request-id',
+    in: 'header',
+    required: true,
+    schema: { type: 'string', minLength: 1 },
+    description: 'Signed request identity used by the durable, endpoint-bound replay claim.',
+  },
+];
+const ABDM_CALLBACK_SIGNATURE_DESCRIPTION =
+  'Authenticity uses endpoint-bound v1 HMAC over the exact raw JSON bytes, HTTP method, and '
+  + 'canonical application path (/api/v1/abdm plus the callback route). Query parameters and '
+  + 'reverse-proxy prefixes are excluded from that canonical path. A wrong method/path fails '
+  + 'signature verification before the replay identity is claimed.';
 
 export const schemas = {
   AbdmCompletionErrorResponse: {
@@ -489,38 +536,43 @@ export const operations = {
   },
 
   'POST /api/v1/abdm/patients/profile/share': {
-    description: 'Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. Self-authenticated exactly like the legacy ABDM callbacks — x-hip-id tenant resolution, HMAC over the exact raw bytes, durable cross-replica replay claim. Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token.',
+    description: `Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION} Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token.`,
     response: 'AbdmShareCallbackAckResponse',
     responseStatus: 202,
     security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consent-requests/on-init': {
-    description: 'Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). Same authenticity chain as every ABDM callback.',
+    description: `Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuCallbackAckResponse',
     responseStatus: 202,
     security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consents/notify': {
-    description: 'Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables.',
+    description: `Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuCallbackAckResponse',
     responseStatus: 202,
     security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/health-info/on-request': {
-    description: 'Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged).',
+    description: `Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged). ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuCallbackAckResponse',
     responseStatus: 202,
     security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/health-info/push': {
-    description: 'Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session\'s persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page).',
+    description: `Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page). ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuDataPushAckResponse',
     responseStatus: 202,
     security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
     additionalResponses: callbackErrorResponses,
   },
 
@@ -574,5 +626,21 @@ export const operations = {
     response: 'AbdmHiuBundleContentResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
+  },
+  'POST /api/v1/abdm/consent/on-notify': {
+    description:
+      `Public ABDM consent notification callback. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
+    responseStatus: 202,
+    security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
+    additionalResponses: callbackErrorResponses,
+  },
+  'POST /api/v1/abdm/health-info/on-request': {
+    description:
+      `Public ABDM health-information request callback. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
+    responseStatus: 202,
+    security: [],
+    parameters: ABDM_CALLBACK_PARAMETERS,
+    additionalResponses: callbackErrorResponses,
   },
 };

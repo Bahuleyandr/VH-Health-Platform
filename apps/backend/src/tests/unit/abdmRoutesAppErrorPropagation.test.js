@@ -236,6 +236,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9', patient: { id: 'abha@sbx' } } });
 
     expect(response.statusCode).toBe(403);
@@ -255,6 +256,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9' } });
 
     expect(response.statusCode).toBe(401);
@@ -271,6 +273,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9' } });
 
     expect(response.statusCode).toBe(401);

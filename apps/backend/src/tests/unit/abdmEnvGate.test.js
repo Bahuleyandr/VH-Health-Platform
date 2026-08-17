@@ -55,6 +55,36 @@ describe('ABDM artefact verification env gate (CAN-026)', () => {
 });
 
 describe('ABHA enrolment environment binding', () => {
+  it('defaults legacy unbound callback compatibility off in sandbox', () => {
+    const { error, value } = envSchema.validate({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'sandbox',
+    }, { abortEarly: false });
+
+    expect((error?.details || []).map(detail => detail.message).join(' | '))
+      .not.toMatch(/ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND/);
+    expect(value.ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND).toBe('false');
+  });
+
+  it('allows an explicit legacy callback migration seam only in sandbox', () => {
+    expect(messages({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'sandbox',
+      ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: 'true',
+    })).not.toMatch(/ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND/);
+  });
+
+  it('rejects legacy unbound callback compatibility in production', () => {
+    expect(messages({
+      ...VERIFIED_ABDM,
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: 'true',
+      ABDM_CM_ID: 'prod-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+      ...PRODUCTION_URLS,
+    })).toMatch(/ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND/);
+  });
+
   it('requires an explicit enrolment base URL in production', () => {
     expect(messages({
       ...VERIFIED_ABDM,

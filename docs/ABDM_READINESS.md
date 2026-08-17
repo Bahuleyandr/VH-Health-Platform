@@ -19,11 +19,20 @@ For the wider Indian hospital go-live packet, pair this technical checklist with
 | Care-context registry | Built | `abdm_care_contexts` |
 | Gateway client + token handling | Built (sandbox URLs default) | `src/services/abdm/abdmGateway.js`, `src/config/abdmConfig.js` |
 | Routes (admin + patient surfaces) | Mounted; return **503 until `ABDM_CLIENT_ID`/`ABDM_CLIENT_SECRET` are set** | `src/routes/abdm/`, `src/routes/admin/abdmFullRoutes.js` |
-| Callback authenticity | Built; requires `ABDM_CALLBACK_SECRET` in production | `src/routes/abdm/abdmRoutes.js` |
-| Callback replay protection | Built; signature timestamp + request id namespace | `src/routes/abdm/abdmRoutes.js` |
+| Callback authenticity | Built; endpoint-bound v1 HMAC requires `ABDM_CALLBACK_SECRET` | `src/routes/abdm/abdmRoutes.js`, `src/utils/signedRequest.js` |
+| Callback replay protection | Built; the durable identity binds signature version + method + canonical path + timestamp + request id + signature | `src/routes/abdm/abdmRoutes.js`, `src/utils/signedRequest.js` |
 | HIP data-push URL SSRF guard | Built; unsafe `dataPushUrl` hosts are rejected before outbound POST | `src/services/abdm/abdmService.js`, `src/services/abdm/abdmGateway.js` |
 | FHIR R4 source data for HI types | Strong after roadmap C3 (Patient/Encounter/Observation/Condition incl. problem list/DiagnosticReport/DocumentReference) | `/api/v1/fhir` |
 | Audit trail for consent/PHI access | Hash-chained after roadmap C4 | `clinical_audit_events` |
+
+ABDM callback senders must set `x-abdm-signature-version: v1` and calculate
+HMAC-SHA256 over the exact raw body with this prefix (LF separators):
+`vhhealth.signed-request.v1`, uppercase HTTP method, canonical application path,
+timestamp, and request id. The canonical path is `/api/v1/abdm` plus the exact
+callback route; query parameters, origin, and reverse-proxy prefixes are not
+included. `ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND=true` is a sandbox-only,
+time-bounded bridge migration seam. It defaults off, and production environment
+validation rejects it.
 
 ## Blockers before certification
 

@@ -706,6 +706,8 @@ describe('OpenAPI contract overlays (static gate)', () => {
   it('publishes explicit ABDM, UHI, SMS, and facility authentication and response contracts', () => {
     const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
     const abdmCallbacks = [
+      '/api/v1/abdm/consent/on-notify',
+      '/api/v1/abdm/health-info/on-request',
       '/api/v1/abdm/patients/profile/share',
       '/api/v1/abdm/hiu/consent-requests/on-init',
       '/api/v1/abdm/hiu/consents/notify',
@@ -724,9 +726,20 @@ describe('OpenAPI contract overlays (static gate)', () => {
     }
     for (const path of abdmCallbacks) {
       expect(spec.paths[path].post.responses['202']).toBeDefined();
-      for (const status of ['400', '401', '409', '429', '500']) {
+      for (const status of ['400', '401', '409', '429', '500', '503']) {
         expect(spec.paths[path].post.responses[status]).toBeDefined();
       }
+      const parameters = spec.paths[path].post.parameters;
+      expect(parameters.map(parameter => parameter.name)).toEqual(expect.arrayContaining([
+        'x-hip-id',
+        'x-abdm-signature-version',
+        'x-abdm-signature',
+        'timestamp',
+        'request-id',
+      ]));
+      expect(parameters.find(parameter => parameter.name === 'x-abdm-signature-version'))
+        .toMatchObject({ required: true, schema: { type: 'string', enum: ['v1'] } });
+      expect(spec.paths[path].post.description).toMatch(/canonical application path/i);
     }
     for (const path of uhiCallbacks) {
       expect(spec.paths[path].post.responses['200']).toBeDefined();

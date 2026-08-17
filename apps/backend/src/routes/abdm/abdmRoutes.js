@@ -11,7 +11,11 @@ import abdmService from '../../services/abdm/abdmService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
-import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
+import { AppError } from '../../utils/AppError.js';
+import {
+  verifySignedRequest,
+  assertSharedReplayOnce,
+} from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { resolveInteropCredentialSnapshot } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
@@ -44,9 +48,41 @@ const ABDM_CALLBACK_PATHS = new Set([
   '/hiu/health-info/on-request',
   '/hiu/health-info/push',
 ]);
+const ABDM_CALLBACK_CANONICAL_ROOT = '/api/v1/abdm';
+const ABDM_BOUND_SIGNATURE_VERSION = 'v1';
+const ABDM_LEGACY_SIGNATURE_VERSION = 'legacy';
 const ABDM_CALLBACK_ENVIRONMENT = process.env.ABDM_ENVIRONMENT === 'production'
   ? 'production'
   : 'sandbox';
+
+function resolveAbdmSignatureVersion(value) {
+  const supplied = String(value || '').trim().toLowerCase();
+  if (supplied === ABDM_BOUND_SIGNATURE_VERSION) {
+    return ABDM_BOUND_SIGNATURE_VERSION;
+  }
+  if (!supplied && ABDM_CONFIG.allowLegacyUnboundCallbacks === true) {
+    return ABDM_LEGACY_SIGNATURE_VERSION;
+  }
+  if (!supplied) {
+    throw AppError.unauthorized(
+      'ABDM callback signature version is required',
+      'ABDM_CALLBACK_SIGNATURE_VERSION_REQUIRED',
+    );
+  }
+  if (supplied === ABDM_LEGACY_SIGNATURE_VERSION) {
+    if (ABDM_CONFIG.allowLegacyUnboundCallbacks === true) {
+      return ABDM_LEGACY_SIGNATURE_VERSION;
+    }
+    throw AppError.unauthorized(
+      'Legacy ABDM callback signatures are disabled',
+      'ABDM_CALLBACK_LEGACY_SIGNATURE_DISABLED',
+    );
+  }
+  throw AppError.unauthorized(
+    'ABDM callback signature version is unsupported',
+    'ABDM_CALLBACK_SIGNATURE_VERSION_UNSUPPORTED',
+  );
+}
 
 /**
  * Middleware: Validate ABDM gateway request authenticity.
@@ -112,6 +148,15 @@ async function validateABDMRequest(req, res, next) {
   }
 
   try {
+    const signatureVersion = resolveAbdmSignatureVersion(
+      req.headers['x-abdm-signature-version'],
+    );
+    // The signature binds the application-owned public callback path, not
+    // req.originalUrl or X-Forwarded-Prefix. Reverse-proxy prefixes therefore
+    // cannot rewrite signed intent, and query parameters (unused by these
+    // callbacks) are deliberately outside the canonical endpoint identity.
+    const method = req.method;
+    const canonicalPath = `${ABDM_CALLBACK_CANONICAL_ROOT}${req.path}`;
     // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
       secret: callbackSecret,
@@ -122,6 +167,9 @@ async function validateABDMRequest(req, res, next) {
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
       replayNamespace: 'abdm-callback',
+      signatureVersion,
+      method,
+      canonicalPath,
     });
     // Cross-replica replay guard (the per-process Map above is defeated by the
     // multi-worker / multi-replica cluster). Fail-closed like HL7: a detected
@@ -133,12 +181,18 @@ async function validateABDMRequest(req, res, next) {
       signature,
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
+      signatureVersion,
+      method,
+      canonicalPath,
     });
     req.abdmAuthEvidence = Object.freeze({
       hipId: String(hipId),
       requestId: String(requestId),
       timestamp: String(timestamp),
       signature: String(signature),
+      signatureVersion,
+      method,
+      canonicalPath,
       authenticatedAt: new Date().toISOString(),
     });
   } catch (err) {

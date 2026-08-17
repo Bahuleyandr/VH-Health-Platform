@@ -667,6 +667,13 @@ export const envSchema = Joi.object({
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CALLBACK_SECRET'),
+  // The endpoint-unbound callback contract exists only as an explicit sandbox
+  // migration seam. Production must never boot with downgrade acceptance.
+  ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().valid('false').default('false'),
+    otherwise: Joi.string().valid('true', 'false').default('false'),
+  }).label('ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND'),
   // CAN-026: Consent-Manager artefact signature verification is a mandatory
   // trust layer for the national health network — an ABDM-enabled deployment
   // must run with it ON and a CM public key present, so it can't silently accept
