@@ -145,10 +145,39 @@ export const schemas = {
       provider_refund_id: { type: 'string', nullable: true },
       amount: { type: 'number' },
       currency: { type: 'string' },
-      status: { type: 'string', enum: ['initiated', 'pending', 'processed', 'failed'] },
+      status: { type: 'string', enum: ['initiated', 'pending', 'processed', 'failed', 'requires_reconciliation'] },
       reason: { type: 'string', nullable: true },
       initiated_at: { type: 'string', format: 'date-time' },
       processed_at: { type: 'string', format: 'date-time', nullable: true },
+      failed_at: { type: 'string', format: 'date-time', nullable: true },
+      failure_code: { type: 'string', nullable: true },
+      failure_reason: { type: 'string', nullable: true },
+      reconciled_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciliation_note: { type: 'string', nullable: true, maxLength: 500 },
+      reconciled_by: { type: 'string', format: 'uuid', nullable: true },
+    },
+  },
+
+  PaymentGatewayRefundReconciliationList: {
+    type: 'object',
+    required: ['refunds', 'limit', 'offset'],
+    properties: {
+      refunds: { type: 'array', items: { $ref: '#/components/schemas/PaymentGatewayRefund' } },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+    },
+  },
+
+  PaymentGatewayRefundReconcileRequest: {
+    type: 'object',
+    required: ['note'],
+    properties: {
+      note: {
+        type: 'string',
+        minLength: 10,
+        maxLength: 500,
+        description: 'What the operator verified or completed at the provider and in billing for this parked refund.',
+      },
     },
   },
 
@@ -214,6 +243,7 @@ export const schemas = {
   PaymentGatewayOrderCheckoutResponse: envelope('PaymentGatewayOrderCheckout'),
   PaymentGatewayOrderResponse: envelope('PaymentGatewayOrder'),
   PaymentGatewayRefundResponse: envelope('PaymentGatewayRefund'),
+  PaymentGatewayRefundReconciliationListResponse: envelope('PaymentGatewayRefundReconciliationList'),
   PaymentGatewayConfigListResponse: envelope('PaymentGatewayConfigList'),
   PaymentGatewayConfigViewResponse: envelope('PaymentGatewayConfigView'),
   PaymentGatewayWebhookAckResponse: envelope('PaymentGatewayWebhookAck'),
@@ -253,6 +283,17 @@ export const operations = {
     request: 'PaymentGatewayRefundCreateRequest',
     response: 'PaymentGatewayRefundResponse',
   },
+  'GET /api/v1/billing/gateway/refund-reconciliation': {
+    description:
+      'Admin work queue of provider refund legs parked in requires_reconciliation. Unresolved rows only by default; include_resolved=true includes operator-stamped history. Provider idempotency keys remain write-only.',
+    response: 'PaymentGatewayRefundReconciliationListResponse',
+  },
+  'POST /api/v1/billing/gateway/refunds/{id}/reconcile': {
+    description:
+      'Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing.',
+    request: 'PaymentGatewayRefundReconcileRequest',
+    response: 'PaymentGatewayRefundResponse',
+  },
   'GET /api/v1/billing/gateway/config': {
     description:
       'Admin read of the tenant provider configs plus the env/tenant gate states. Secrets are write-only — reads expose has_key_secret / has_webhook_secret booleans and the tenant webhook path only.',
@@ -266,7 +307,7 @@ export const operations = {
   },
   'POST /webhooks/payments/{webhookToken}': {
     description:
-      'Public provider webhook intake (pre-auth mount). The opaque URL token resolves the tenant fail-closed (unknown → 404, nothing written); authenticity is HMAC-SHA256 over the raw body vs x-razorpay-signature, verified timing-safe against the tenant’s encrypted webhook secret. Deliveries are recorded durably before processing; the UNIQUE (tenant, provider, provider_event_id) key plus a cross-replica replay claim collapse redeliveries, which are 200-acked without reprocessing. payment.captured/order.paid books money exclusively through collectPayment with billing_payments.reference = provider payment id; unbookable captures park as requires_reconciliation and are still 2xx-acked.',
+      'Public provider webhook intake (pre-auth mount). The opaque URL token resolves the tenant fail-closed (unknown → 404, nothing written); authenticity is HMAC-SHA256 over the raw body vs x-razorpay-signature. A disabled config or rotated signing secret is inbound-only and accepted only when the payload exactly binds a nonterminal order/refund owned by that config. Deliveries are recorded durably before processing; the UNIQUE (tenant, provider, provider_event_id) key plus a cross-replica replay claim collapse redeliveries. Captures require exact provider payment id, integer amount, and currency before collectPayment can run; unbookable captures park as requires_reconciliation.',
     response: 'PaymentGatewayWebhookAckResponse',
   },
 };

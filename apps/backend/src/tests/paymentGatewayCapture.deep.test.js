@@ -47,11 +47,13 @@ async function makeIssuedInvoice(patientUid, total) {
   return inv.id;
 }
 
-function capturePayload({ providerOrderId, providerPaymentId, amountPaise, method = 'upi' }) {
+function capturePayload({ providerOrderId, providerPaymentId, amountPaise, method = 'upi', currency = 'INR' }) {
   return {
     event: 'payment.captured',
     created_at: Math.floor(Date.now() / 1000),
-    payload: { payment: { entity: { id: providerPaymentId, order_id: providerOrderId, method, amount: amountPaise } } },
+    payload: { payment: { entity: {
+      id: providerPaymentId, order_id: providerOrderId, method, amount: amountPaise, currency,
+    } } },
   };
 }
 
@@ -137,9 +139,46 @@ afterAll(async () => {
   if (prevGatewayEnabled === undefined) delete process.env.PAYMENT_GATEWAY_ENABLED;
   else process.env.PAYMENT_GATEWAY_ENABLED = prevGatewayEnabled;
   await prisma.$disconnect().catch(() => {});
-});
+}, 30_000);
 
 d('payment gateway capture (deep)', () => {
+  it('recovers the same persisted order intent after a provider-bind crash window', async () => {
+    const patient = await makePatient();
+    const invoiceId = await makeIssuedInvoice(patient, 125);
+    const idempotencyKey = `deep-order-${randomUUID()}`;
+    const first = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceId,
+      actor: { uid: patient, role: 'PATIENT' },
+      idempotency_key: idempotencyKey,
+    });
+    cleanup.orderIds.push(first.orderId);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_orders
+          SET provider_order_id = NULL,
+              metadata = metadata || '{"order_create_state":"intent_persisted"}'::jsonb
+        WHERE id = $1::int`,
+      first.orderId,
+    );
+    const recovered = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceId,
+      actor: { uid: patient, role: 'PATIENT' },
+      idempotency_key: idempotencyKey,
+    });
+    expect(recovered.orderId).toBe(first.orderId);
+    expect(recovered.providerOrderId).toBe(first.providerOrderId);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM payment_gateway_orders
+        WHERE tenant_id = $1::uuid AND receipt = (
+          SELECT receipt FROM payment_gateway_orders WHERE id = $2::int
+        )`,
+      TENANT, first.orderId,
+    );
+    expect(rows[0].n).toBe(1);
+  });
+
   it('books capture → ONE billing_payments row (reference = provider payment id) + same-tx ledger entry; replay stays one row', async () => {
     const patient = await makePatient();
     const invoiceId = await makeIssuedInvoice(patient, 500);
@@ -328,6 +367,29 @@ d('payment gateway capture (deep)', () => {
     await expect(gateway.resolveGatewayOrderReconciliation({
       tenantId: TENANT, id: order.orderId, note: 'second stamp attempt should conflict',
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_ORDER_NOT_RECONCILABLE' });
+  });
+
+  it('never books a capture without exact amount and currency evidence', async () => {
+    const patient = await makePatient();
+    const invoiceId = await makeIssuedInvoice(patient, 90);
+    const order = await gateway.createGatewayOrder({
+      tenantId: TENANT, invoice_id: invoiceId, actor: { uid: patient, role: 'PATIENT' },
+    });
+    cleanup.orderIds.push(order.orderId);
+    const providerPaymentId = `pay_dry_${randomUUID().slice(0, 8)}`;
+    const payload = capturePayload({
+      providerOrderId: order.providerOrderId,
+      providerPaymentId,
+      amountPaise: toPaise(90),
+    });
+    delete payload.payload.payment.entity.currency;
+    const result = await gateway.handleCaptureEvent({ tenantId: TENANT, config, payload });
+    expect(result.outcome).toBe('requires_reconciliation');
+    const payments = await prisma.$queryRawUnsafe(
+      `SELECT id FROM billing_payments WHERE tenant_id = $1::uuid AND reference = $2`,
+      TENANT, providerPaymentId,
+    );
+    expect(payments).toHaveLength(0);
   });
 
   it('webhook intake dedupes durably on (tenant, provider, provider_event_id)', async () => {

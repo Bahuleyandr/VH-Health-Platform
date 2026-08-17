@@ -20,7 +20,8 @@ const TENANT = '11111111-2222-4333-8444-555555555555';
 const TOKEN = 'test-webhook-route-token-0000000';
 
 const resolveWebhookConfigByToken = jest.fn();
-const decryptedWebhookSecret = jest.fn(() => WEBHOOK_SECRET);
+const decryptedWebhookSecrets = jest.fn(() => [{ secret: WEBHOOK_SECRET, current: true }]);
+const hasBoundNonterminalWebhookIntent = jest.fn(async () => true);
 const recordWebhookEvent = jest.fn();
 const markWebhookEvent = jest.fn(async () => {});
 const processWebhookEvent = jest.fn(async () => ({ outcome: 'captured', orderId: 5 }));
@@ -28,7 +29,8 @@ const assertSharedReplayOnce = jest.fn(async () => true);
 
 jest.unstable_mockModule('../../services/billing/paymentGatewayService.js', () => ({
   resolveWebhookConfigByToken,
-  decryptedWebhookSecret,
+  decryptedWebhookSecrets,
+  hasBoundNonterminalWebhookIntent,
   recordWebhookEvent,
   markWebhookEvent,
   processWebhookEvent,
@@ -70,7 +72,7 @@ const configRow = (overrides = {}) => ({
 const payload = {
   event: 'payment.captured',
   created_at: 1765000000,
-  payload: { payment: { entity: { id: 'pay_dry_1', order_id: 'order_dry_pg-1', method: 'upi', amount: 50000 } } },
+  payload: { payment: { entity: { id: 'pay_dry_1', order_id: 'order_dry_pg-1', method: 'upi', amount: 50000, currency: 'INR' } } },
 };
 
 function signedPost(body, { eventId = 'evt_1', secret = WEBHOOK_SECRET, signature } = {}) {
@@ -86,7 +88,8 @@ function signedPost(body, { eventId = 'evt_1', secret = WEBHOOK_SECRET, signatur
 
 beforeEach(() => {
   jest.clearAllMocks();
-  decryptedWebhookSecret.mockReturnValue(WEBHOOK_SECRET);
+  decryptedWebhookSecrets.mockReturnValue([{ secret: WEBHOOK_SECRET, current: true }]);
+  hasBoundNonterminalWebhookIntent.mockResolvedValue(true);
   resolveWebhookConfigByToken.mockResolvedValue(configRow());
   recordWebhookEvent.mockResolvedValue({
     duplicate: false,
@@ -107,9 +110,37 @@ describe('tenant resolution (fail-closed, pre-RLS mount)', () => {
   });
 
   it('answers 401 when the config carries no webhook secret — never verifies blind', async () => {
-    decryptedWebhookSecret.mockReturnValue(null);
+    decryptedWebhookSecrets.mockReturnValue([]);
     const res = await signedPost(payload);
     expect(res.status).toBe(401);
+    expect(recordWebhookEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('disabled and rotated credential settlement boundary', () => {
+  it('accepts a disabled config only for an exactly bound nonterminal intent', async () => {
+    resolveWebhookConfigByToken.mockResolvedValue(configRow({ enabled: false }));
+    const accepted = await signedPost(payload);
+    expect(accepted.status).toBe(200);
+    expect(hasBoundNonterminalWebhookIntent).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ enabled: false }),
+      payload,
+    }));
+
+    hasBoundNonterminalWebhookIntent.mockResolvedValue(false);
+    const rejected = await signedPost(payload, { eventId: 'evt_unbound' });
+    expect(rejected.status).toBe(404);
+    expect(recordWebhookEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a historical rotated secret as inbound-only even while the config is enabled', async () => {
+    decryptedWebhookSecrets.mockReturnValue([
+      { secret: 'current-webhook-material-fixture', current: true },
+      { secret: WEBHOOK_SECRET, current: false },
+    ]);
+    hasBoundNonterminalWebhookIntent.mockResolvedValue(false);
+    const res = await signedPost(payload);
+    expect(res.status).toBe(404);
     expect(recordWebhookEvent).not.toHaveBeenCalled();
   });
 });

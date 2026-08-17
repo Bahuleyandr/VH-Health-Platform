@@ -100,6 +100,38 @@ export async function createOrder({ keyId, keySecret, amountPaise, currency = 'I
   };
 }
 
+export async function findOrderByReceipt({ keyId, keySecret, receipt } = {}) {
+  if (!receipt) {
+    throw new AppError('receipt is required', 400, 'PAYMENT_GATEWAY_BAD_RECEIPT');
+  }
+  const result = await razorpayRequest({
+    keyId,
+    keySecret,
+    method: 'GET',
+    path: `/orders?receipt=${encodeURIComponent(String(receipt))}&count=10`,
+  });
+  const matches = Array.isArray(result?.items)
+    ? result.items.filter((order) => String(order?.receipt || '') === String(receipt))
+    : [];
+  if (!matches.length) return null;
+  if (matches.length !== 1) {
+    throw new AppError(
+      'Payment gateway returned multiple orders for the durable receipt',
+      502,
+      'PAYMENT_GATEWAY_ORDER_RECOVERY_AMBIGUOUS',
+    );
+  }
+  const order = matches[0];
+  return {
+    providerOrderId: order?.id,
+    amountPaise: order?.amount == null ? null : Number(order.amount),
+    currency: order?.currency,
+    receipt: order?.receipt,
+    status: order?.status,
+    raw: order,
+  };
+}
+
 export async function fetchPayment({ keyId, keySecret, paymentId } = {}) {
   const payment = await razorpayRequest({
     keyId,
@@ -163,4 +195,11 @@ export function verifyWebhookSignature(rawBody, signature, secret) {
   return verifyHmacSha256Signature(rawBody, signature, secret);
 }
 
-export default { provider, createOrder, fetchPayment, createRefund, verifyWebhookSignature };
+export default {
+  provider,
+  createOrder,
+  findOrderByReceipt,
+  fetchPayment,
+  createRefund,
+  verifyWebhookSignature,
+};

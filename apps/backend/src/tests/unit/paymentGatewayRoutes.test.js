@@ -20,6 +20,9 @@ const listGatewayConfigs = jest.fn();
 const upsertGatewayConfig = jest.fn();
 const listReconciliationGatewayOrders = jest.fn();
 const resolveGatewayOrderReconciliation = jest.fn();
+const listReconciliationGatewayRefunds = jest.fn();
+const resolveGatewayRefundReconciliation = jest.fn();
+const logAudit = jest.fn(async () => {});
 
 const claimIdempotencyKey = jest.fn();
 const finaliseIdempotencyKey = jest.fn(async () => {});
@@ -34,6 +37,8 @@ jest.unstable_mockModule('../../services/billing/paymentGatewayService.js', () =
   upsertGatewayConfig,
   listReconciliationGatewayOrders,
   resolveGatewayOrderReconciliation,
+  listReconciliationGatewayRefunds,
+  resolveGatewayRefundReconciliation,
 }));
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
   claimIdempotencyKey,
@@ -46,7 +51,7 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => 'trusted-tenant',
 }));
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
-  logAudit: jest.fn(async () => {}),
+  logAudit,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
@@ -90,7 +95,7 @@ describe('order creation idempotency', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.orderId).toBe(21);
     expect(createGatewayOrder).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'trusted-tenant', invoice_id: 12,
+      tenantId: 'trusted-tenant', invoice_id: 12, idempotency_key: 'order-key-1',
     }));
   });
 
@@ -219,6 +224,60 @@ describe('role gates', () => {
       .put('/api/v1/billing/gateway/config')
       .send({ provider: 'razorpay', enabled: true, key_id: 'rzp_test', key_secret: 's' });
     expect(ok.status).toBe(200);
+  });
+
+  it('never echoes rejected config secret values in validation errors', async () => {
+    const secret = 'provider-signing-material-that-must-not-echo';
+    const res = await request(app('ADMIN'))
+      .put('/api/v1/billing/gateway/config')
+      .send({
+        provider: 'not-a-provider',
+        enabled: 'not-a-boolean',
+        key_secret: secret.repeat(20),
+        webhook_secret: secret.repeat(20),
+      });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain(secret);
+    expect(res.body).not.toHaveProperty('errors');
+    expect(res.body.details?.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'provider' }),
+    ]));
+  });
+
+  it('refund reconciliation queue and resolution are admin-only and audited', async () => {
+    const forbidden = await request(app('CASHIER'))
+      .get('/api/v1/billing/gateway/refund-reconciliation');
+    expect(forbidden.status).toBe(403);
+    expect(listReconciliationGatewayRefunds).not.toHaveBeenCalled();
+
+    listReconciliationGatewayRefunds.mockResolvedValue({ refunds: [], limit: 50, offset: 0 });
+    const listed = await request(app('ADMIN'))
+      .get('/api/v1/billing/gateway/refund-reconciliation?include_resolved=true');
+    expect(listed.status).toBe(200);
+    expect(listReconciliationGatewayRefunds).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant', include_resolved: true,
+    }));
+
+    resolveGatewayRefundReconciliation.mockResolvedValue({
+      id: 7,
+      status: 'requires_reconciliation',
+      amount: 150,
+      reconciliation_note: 'Verified provider refund and billing payout manually',
+    });
+    const resolved = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({ note: 'Verified provider refund and billing payout manually' });
+    expect(resolved.status).toBe(200);
+    expect(resolveGatewayRefundReconciliation).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant', id: '7',
+      resolved_by: '11111111-1111-4111-8111-111111111111',
+    }));
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      'PAYMENT_GATEWAY_REFUND_RECONCILED',
+      expect.anything(),
+      expect.objectContaining({ resource: 'payment_gateway_refund', resourceId: 7 }),
+    );
   });
 
   it('refund execution requires a finance/cashier/admin tier', async () => {

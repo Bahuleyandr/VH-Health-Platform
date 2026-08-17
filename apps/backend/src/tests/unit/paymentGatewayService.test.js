@@ -133,6 +133,64 @@ describe('config gate — DEFAULT OFF, all three legs required', () => {
   });
 });
 
+describe('webhook credential rotation', () => {
+  it('keeps the stable token and prior encrypted secret for settlement-only callbacks', async () => {
+    process.env.FIELD_ENCRYPTION_KEY = 'payment-gateway-test-field-key-32chars';
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{
+        webhook_secret_ciphertext: 'encrypted-prior-secret',
+        metadata: { webhook_token: 'stable-webhook-token-0000000000', marker: 'preserved' },
+      }])
+      .mockResolvedValueOnce([{ ...enabledConfig, webhook_secret_ciphertext: 'encrypted-new-secret' }]);
+
+    await gateway.upsertGatewayConfig({
+      tenantId: TENANT,
+      provider: 'dry_run',
+      environment: 'sandbox',
+      enabled: true,
+      webhook_secret: 'replacement-webhook-secret',
+      created_by: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const metadata = JSON.parse(txQueryRawUnsafe.mock.calls[1][10]);
+    expect(metadata).toEqual(expect.objectContaining({
+      webhook_token: 'stable-webhook-token-0000000000',
+      marker: 'preserved',
+      webhook_secret_history: ['encrypted-prior-secret'],
+    }));
+    delete process.env.FIELD_ENCRYPTION_KEY;
+  });
+});
+
+describe('late webhook intent binding', () => {
+  it('binds a refund callback to the exact config, payment, billing refund, and nonterminal state', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
+    const allowed = await gateway.hasBoundNonterminalWebhookIntent({
+      config: { ...enabledConfig, enabled: false },
+      payload: { payload: { refund: { entity: {
+        id: 'rfnd_R7',
+        payment_id: 'pay_R9',
+        notes: { billing_refund_id: '9' },
+      } } } },
+    });
+    expect(allowed).toBe(true);
+    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('o.provider_config_id = $4::int');
+    expect(sql).toContain("r.status IN ('initiated', 'pending', 'requires_reconciliation')");
+    expect(params).toEqual([
+      TENANT, 'dry_run', 'sandbox', 3, 'rfnd_R7', 'pay_R9', 9,
+    ]);
+  });
+
+  it('rejects an uncorrelated payment callback', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+    await expect(gateway.hasBoundNonterminalWebhookIntent({
+      config: { ...enabledConfig, enabled: false },
+      payload: { payload: { payment: { entity: { order_id: 'order_unknown' } } } },
+    })).resolves.toBe(false);
+  });
+});
+
 describe('order creation (dry_run adapter — zero credentials)', () => {
   it('creates a provider order for an ISSUED invoice and persists the row with explicit tenant', async () => {
     queryRawUnsafe
@@ -140,10 +198,18 @@ describe('order creation (dry_run adapter — zero credentials)', () => {
       .mockResolvedValueOnce([ISSUED_INVOICE])  // invoice subject
       .mockImplementationOnce(async (sql, ...params) => [{
         id: 21, provider: 'dry_run', environment: 'sandbox',
+        provider_config_id: 3, patient_uid: ISSUED_INVOICE.patient_uid,
         amount: '500.00', currency: 'INR',
-        receipt: params[9], provider_order_id: params[10],
+        receipt: params[8], provider_order_id: null, inserted: true,
         status: 'created', invoice_id: 12, payment_link_id: null,
         expires_at: new Date(),
+      }])
+      .mockImplementationOnce(async (_sql, ...params) => [{
+        id: 21, provider: 'dry_run', environment: 'sandbox',
+        provider_config_id: 3, patient_uid: ISSUED_INVOICE.patient_uid,
+        amount: '500.00', currency: 'INR', receipt: 'pg-test',
+        provider_order_id: params[0], status: 'created', invoice_id: 12,
+        payment_link_id: null, expires_at: new Date(),
       }]);
 
     const order = await gateway.createGatewayOrder({
@@ -159,6 +225,8 @@ describe('order creation (dry_run adapter — zero credentials)', () => {
     const insertCall = queryRawUnsafe.mock.calls[2];
     expect(insertCall[0]).toContain('INSERT INTO payment_gateway_orders');
     expect(insertCall[1]).toBe(TENANT); // tenant_id written explicitly
+    expect(insertCall[0]).toContain('provider_order_id, status');
+    expect(insertCall[0]).toContain("NULL, 'created'");
   });
 
   it('blocks a PATIENT from paying another patient’s invoice', async () => {
@@ -178,19 +246,69 @@ describe('order creation (dry_run adapter — zero credentials)', () => {
     await expect(gateway.createGatewayOrder({ tenantId: TENANT, invoice_id: 12, amount: 600 }))
       .rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_AMOUNT_EXCEEDS_DUE' });
   });
+
+  it('fails closed when provider order evidence does not exactly bind the persisted intent', async () => {
+    const { default: razorpayAdapter } = await import(
+      '../../services/billing/gatewayProviders/razorpayAdapter.js'
+    );
+    const createOrderSpy = jest.spyOn(razorpayAdapter, 'createOrder').mockResolvedValueOnce({
+      providerOrderId: 'order_R_mismatch',
+      amountPaise: 49999,
+      currency: 'USD',
+      receipt: 'wrong-receipt',
+      status: 'attempted',
+    });
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        ...enabledConfig,
+        provider: 'razorpay',
+        key_id: 'rzp_test',
+        key_secret_ciphertext: 'test-key-secret',
+        webhook_secret_ciphertext: 'test-webhook-secret',
+      }])
+      .mockResolvedValueOnce([ISSUED_INVOICE])
+      .mockImplementationOnce(async (_sql, ...params) => [{
+        id: 31,
+        provider: 'razorpay',
+        environment: 'sandbox',
+        provider_config_id: 3,
+        patient_uid: ISSUED_INVOICE.patient_uid,
+        amount: '500.00',
+        currency: 'INR',
+        receipt: params[8],
+        provider_order_id: null,
+        inserted: true,
+        status: 'created',
+        invoice_id: 12,
+        payment_link_id: null,
+      }]);
+
+    await expect(gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: 12,
+      idempotency_key: 'strict-order-response',
+    })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_ORDER_EVIDENCE_MISMATCH' });
+    expect(executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'failed'"),
+      expect.stringContaining('amount'),
+      31,
+      TENANT,
+    );
+    createOrderSpy.mockRestore();
+  });
 });
 
 describe('capture booking (payment.captured)', () => {
   const config = enabledConfig;
   const capturePayload = {
     event: 'payment.captured',
-    payload: { payment: { entity: { id: 'pay_dry_9', order_id: 'order_dry_pg-x', method: 'upi', amount: 50000 } } },
+    payload: { payment: { entity: { id: 'pay_dry_9', order_id: 'order_dry_pg-x', method: 'upi', amount: 50000, currency: 'INR' } } },
   };
   const orderRow = {
     id: 21, tenant_id: TENANT, provider: 'dry_run', status: 'created',
     invoice_id: 12, payment_link_id: null,
     patient_uid: ISSUED_INVOICE.patient_uid, amount: '500.00', receipt: 'pg-x',
-    provider_order_id: 'order_dry_pg-x',
+    provider_order_id: 'order_dry_pg-x', currency: 'INR',
   };
 
   it('books through collectPayment IN the tx with reference = provider_payment_id, then flips the order paid', async () => {
@@ -218,7 +336,9 @@ describe('capture booking (payment.captured)', () => {
   });
 
   it('replays are a no-op: an already-paid order never books a second payment', async () => {
-    txQueryRawUnsafe.mockResolvedValueOnce([{ ...orderRow, status: 'paid', billing_payment_id: 77 }]);
+    txQueryRawUnsafe.mockResolvedValueOnce([{
+      ...orderRow, status: 'paid', billing_payment_id: 77, provider_payment_id: 'pay_dry_9',
+    }]);
     const result = await gateway.handleCaptureEvent({
       tenantId: TENANT, config, event: { id: 11, event_type: 'payment.captured' }, payload: capturePayload,
     });
@@ -238,6 +358,20 @@ describe('capture booking (payment.captured)', () => {
     expect(collectPayment).not.toHaveBeenCalled();
     const parked = executeRawUnsafe.mock.calls.find(([sql]) => sql.includes("'requires_reconciliation'"));
     expect(parked).toBeTruthy();
+  });
+
+  it('missing currency evidence parks the capture before collectPayment', async () => {
+    txQueryRawUnsafe.mockResolvedValueOnce([orderRow]);
+    queryRawUnsafe.mockResolvedValueOnce([{ id: 21, status: 'created' }]);
+    const entity = { ...capturePayload.payload.payment.entity };
+    delete entity.currency;
+    const result = await gateway.handleCaptureEvent({
+      tenantId: TENANT,
+      config,
+      payload: { ...capturePayload, payload: { payment: { entity } } },
+    });
+    expect(result.outcome).toBe('requires_reconciliation');
+    expect(collectPayment).not.toHaveBeenCalled();
   });
 
   it('a business booking failure (e.g. voided invoice) parks instead of swallowing into paid', async () => {
@@ -324,7 +458,7 @@ describe('refund initiation (double-execution guard)', () => {
     expect(result.replay).toBe(false);
     expect(result.id).toBe(7);
     // dry_run adapter derived the deterministic provider refund id.
-    expect(result.provider_refund_id).toBe('rfnd_dry_pgr-9');
+    expect(result.provider_refund_id).toMatch(/^rfnd_dry_pgr-7-[A-Za-z0-9_-]{16}$/);
     expect(result.provider_idempotency_key).toBeUndefined();
     const intentInsert = txQueryRawUnsafe.mock.calls.find(([sql]) => (
       sql.includes('INSERT INTO payment_gateway_refunds')
@@ -481,11 +615,81 @@ describe('refund initiation (double-execution guard)', () => {
     expect(createRefundSpy).toHaveBeenCalledWith(expect.objectContaining({
       providerPaymentId: 'pay_R9',
       amountPaise: 4000,
-      receipt: 'pgr-9',
+      receipt: 'pgr-8-isted-replay-key',
       notes: { billing_refund_id: '9' },
       idempotencyKey: 'pgr-persisted-replay-key',
     }));
     expect(setTenantTx).toHaveBeenCalledTimes(1);
+    createRefundSpy.mockRestore();
+  });
+
+  it('immediately finalizes billing when the provider create response is already processed', async () => {
+    const { default: razorpayAdapter } = await import(
+      '../../services/billing/gatewayProviders/razorpayAdapter.js'
+    );
+    const createRefundSpy = jest.spyOn(razorpayAdapter, 'createRefund').mockResolvedValueOnce({
+      providerRefundId: 'rfnd_R_processed',
+      providerPaymentId: 'pay_R9',
+      amountPaise: 15000,
+      currency: 'INR',
+      status: 'processed',
+    });
+    const intentRow = {
+      id: 10,
+      tenant_id: TENANT,
+      provider: 'razorpay',
+      environment: 'sandbox',
+      status: 'initiated',
+      billing_refund_id: 9,
+      gateway_order_id: 21,
+      amount: '150.00',
+      currency: 'INR',
+      provider_payment_id: 'pay_R9',
+      provider_refund_id: null,
+      provider_idempotency_key: 'pgr-immediate-processed-key',
+    };
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        ...enabledConfig,
+        provider: 'razorpay',
+        key_id: 'rzp_test',
+        key_secret_ciphertext: 'test-key-secret',
+        webhook_secret_ciphertext: 'test-webhook-secret',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([intentRow])
+      .mockResolvedValueOnce([{ id: 10 }])
+      .mockResolvedValueOnce([{
+        ...intentRow,
+        status: 'processed',
+        provider_refund_id: 'rfnd_R_processed',
+      }]);
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'immediate provider processing', approval_status: 'APPROVED',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 21, provider: 'razorpay', environment: 'sandbox',
+        provider_payment_id: 'pay_R9', amount: '500.00', invoice_id: 12,
+        patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
+        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
+        payment_mode: 'UPI', config_provider: 'razorpay', config_environment: 'sandbox',
+        key_id: 'rzp_test', key_secret_ciphertext: 'test-key-secret',
+      }])
+      .mockResolvedValueOnce([{ refunded_amount: '0' }])
+      .mockResolvedValueOnce([intentRow]);
+
+    const result = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: 9, gateway_order_id: 21,
+    });
+    expect(result).toMatchObject({ status: 'processed', provider_refund_id: 'rfnd_R_processed' });
+    expect(markRefundPaid).toHaveBeenCalledWith(9, expect.objectContaining({
+      tenantId: TENANT,
+      reference: 'rfnd_R_processed',
+    }));
     createRefundSpy.mockRestore();
   });
 });

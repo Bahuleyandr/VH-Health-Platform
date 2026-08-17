@@ -5,10 +5,10 @@
 // Config-gated DEFAULT OFF: writes 403 PAYMENT_GATEWAY_DISABLED until the
 // env kill switch + tenant setting + an enabled provider config all hold.
 //
-// Money-moving POSTs carry requireIdempotencyKey with retainOnServerError
-// (counterSaleRoutes precedent): order creation talks to the provider and
-// refund initiation moves provider money before the response is assembled,
-// so a post-commit 5xx must serve the recorded outcome, not re-execute.
+// Money-moving POSTs carry requireIdempotencyKey. Order creation persists a
+// durable intent before provider I/O and may release a failed HTTP envelope so
+// a retry can recover by its provider receipt. Refund initiation retains the
+// recorded response because it may move provider money before replying.
 
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
@@ -23,6 +23,7 @@ import {
   gatewayOrderCreateValidator,
   gatewayOrderIdValidator,
   gatewayOrderReconcileValidator,
+  gatewayRefundReconcileValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 } from '../../validators/paymentGatewayValidator.js';
@@ -39,7 +40,15 @@ const GATEWAY_REFUND_ROLES = [
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  if (!errors.isEmpty()) {
+    return error(res, 'Payment gateway request validation failed', 400, {
+      errors: errors.array({ onlyFirstError: true }).map(({ type, path, msg }) => ({
+        type,
+        path,
+        message: msg,
+      })),
+    });
+  }
   next();
 };
 
@@ -120,17 +129,16 @@ router.put('/config', requireAdmin, ...gatewayConfigUpsertValidator, validate, w
 
 // ── Orders ────────────────────────────────────────────────────────────
 router.post('/orders', requireIdempotencyKey({
-  // This handler creates a provider-side order before responding — a 5xx
-  // while assembling the response does NOT mean nothing happened, and the
-  // transport's automatic replay must serve the recorded outcome rather
-  // than minting a second provider order.
-  required: true, scope: 'payment_gateway_order', retainOnServerError: true,
+  // The durable intent survives a 5xx. Releasing the transport envelope lets
+  // the same request key retry and recover the provider order by its receipt.
+  required: true, scope: 'payment_gateway_order', retainOnServerError: false,
 }), ...gatewayOrderCreateValidator, validate, wrap(async (req) => {
   const order = await gateway.createGatewayOrder({
     tenantId: tenantOf(req),
     invoice_id: req.body.invoice_id,
     payment_link_token: req.body.payment_link_token,
     amount: req.body.amount,
+    idempotency_key: req.idempotencyClaim?.requestKey,
     created_by: req.user?.uid,
     actor: { uid: req.user?.uid, role: req.user?.role },
   });
@@ -203,9 +211,38 @@ router.post('/orders/:id/reconcile', requireAdmin, ...gatewayOrderReconcileValid
 }));
 
 // ── Refund execution leg ──────────────────────────────────────────────
+router.get('/refund-reconciliation', requireAdmin, wrap(async (req) =>
+  gateway.listReconciliationGatewayRefunds({
+    tenantId: tenantOf(req),
+    include_resolved: String(req.query.include_resolved || '') === 'true',
+    limit: req.query.limit,
+    offset: req.query.offset,
+  }),
+));
+
+router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileValidator, validate, wrap(async (req) => {
+  const refund = await gateway.resolveGatewayRefundReconciliation({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    note: req.body.note,
+    resolved_by: req.user?.uid,
+  });
+  await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_RECONCILED', {
+    gateway_refund_id: refund?.id ?? Number(req.params.id),
+    billing_refund_id: refund?.billing_refund_id ?? null,
+    provider_refund_id: refund?.provider_refund_id ?? null,
+    amount: refund?.amount ?? null,
+    note: req.body?.note ?? null,
+  }, {
+    resource: 'payment_gateway_refund',
+    resourceId: refund?.id ?? req.params.id,
+  });
+  return refund;
+}));
+
 router.post('/refunds', requireGatewayRefundRole, requireIdempotencyKey({
   // Initiating a provider refund moves money at the provider before the
-  // response exists — same retain rationale as order creation.
+  // response exists, so the recorded transport result remains authoritative.
   required: true, scope: 'payment_gateway_refund', retainOnServerError: true,
 }), ...gatewayRefundCreateValidator, validate, wrap(async (req) => {
   const refund = await gateway.initiateGatewayRefund({

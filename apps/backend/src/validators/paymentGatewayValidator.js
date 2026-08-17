@@ -48,6 +48,16 @@ export const gatewayOrderReconcileValidator = [
     .isLength({ min: 10, max: 500 }).withMessage('note must be 10-500 chars describing the manual resolution'),
 ];
 
+/** POST /api/v1/billing/gateway/refunds/:id/reconcile */
+export const gatewayRefundReconcileValidator = [
+  paramId('id'),
+  body('note')
+    .exists({ checkFalsy: true }).withMessage('note is required')
+    .isString()
+    .trim()
+    .isLength({ min: 10, max: 500 }).withMessage('note must be 10-500 chars describing the manual resolution'),
+];
+
 /** POST /api/v1/billing/gateway/refunds */
 export const gatewayRefundCreateValidator = [
   body('billing_refund_id')
@@ -90,6 +100,7 @@ export default {
   gatewayOrderCreateValidator,
   gatewayOrderIdValidator,
   gatewayOrderReconcileValidator,
+  gatewayRefundReconcileValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 };

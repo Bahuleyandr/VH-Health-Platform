@@ -29,6 +29,13 @@ export async function createOrder({ amountPaise, currency = 'INR', receipt, note
   };
 }
 
+export async function findOrderByReceipt(args = {}) {
+  // The dry-run provider is receipt-deterministic, so lookup and create have
+  // the same exact evidence. This models provider-side recovery after the
+  // local intent committed but the bind update was interrupted.
+  return createOrder(args);
+}
+
 export async function fetchPayment(paymentId) {
   if (!paymentId) throw new Error('dry_run fetchPayment requires a payment id');
   return {
@@ -62,4 +69,11 @@ export function verifyWebhookSignature(rawBody, signature, secret) {
   return verifyHmacSha256Signature(rawBody, signature, secret);
 }
 
-export default { provider, createOrder, fetchPayment, createRefund, verifyWebhookSignature };
+export default {
+  provider,
+  createOrder,
+  findOrderByReceipt,
+  fetchPayment,
+  createRefund,
+  verifyWebhookSignature,
+};

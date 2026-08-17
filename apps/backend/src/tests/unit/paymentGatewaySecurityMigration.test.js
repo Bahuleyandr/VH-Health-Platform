@@ -33,4 +33,13 @@ describe('payment gateway security migration contracts', () => {
     expect(sql).toMatch(/provider_idempotency_key IS NULL[\s\S]*status = 'initiated'/i);
     expect(sql).toContain("status = 'requires_reconciliation'");
   });
+
+  it('adds an accountable unresolved-refund work queue without changing published migrations', () => {
+    const sql = migration('712_payment_gateway_operational_safety.sql');
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ/i);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciliation_note VARCHAR\(500\)/i);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciled_by UUID/i);
+    expect(sql).toMatch(/status = 'requires_reconciliation'[\s\S]*reconciled_at IS NULL/i);
+    expect(sql).toMatch(/length\(btrim\(reconciliation_note\)\) BETWEEN 10 AND 500/i);
+  });
 });

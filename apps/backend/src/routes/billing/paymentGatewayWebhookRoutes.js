@@ -4,10 +4,9 @@
 // validateApiKey / jwtAuth / tenant middleware (next to /pay and the ABDM
 // callbacks). Self-authenticated by the provider signature:
 //
-//   1. The URL's opaque token routes to exactly ONE enabled provider config
-//      row → tenant + webhook secret. Unknown/malformed token → 404, nothing
-//      written, never a default-tenant row (fail-closed tenant resolution on
-//      a pre-RLS mount; migration 695 header documents this contract).
+//   1. The URL's opaque token routes to exactly ONE provider config row.
+//      Disabled configs and rotated secrets remain inbound-only and are
+//      accepted only for an exactly bound nonterminal order/refund.
 //   2. HMAC-SHA256 over the RAW body (captured by app.js's express.json
 //      verify hook) vs x-razorpay-signature, timing-safe. Bad signature →
 //      401 (the provider keeps retrying — correct: the event was not
@@ -59,19 +58,34 @@ router.post('/:webhookToken', async (req, res) => {
       logger.error('payment gateway webhook missing raw body capture — check app.js verify hook');
       return error(res, 'Unable to verify webhook signature', 400);
     }
-    const secret = gateway.decryptedWebhookSecret(config);
-    if (!secret) {
-      // Enabled config without a webhook secret cannot authenticate deliveries.
+    const secrets = gateway.decryptedWebhookSecrets(config);
+    if (!secrets.length) {
       logger.warn('payment gateway webhook rejected: no webhook secret configured');
       return error(res, 'Webhook signature verification unavailable', 401);
     }
     const adapter = resolveAdapter(config.provider);
     const signature = req.get(SIGNATURE_HEADER);
-    if (!adapter.verifyWebhookSignature(rawBody, signature, secret)) {
+    const matchedCredential = secrets.find(({ secret }) => (
+      adapter.verifyWebhookSignature(rawBody, signature, secret)
+    ));
+    if (!matchedCredential) {
       logger.warn('payment gateway webhook rejected: invalid signature', {
         provider: config.provider,
       });
       return error(res, 'Invalid webhook signature', 401);
+    }
+
+    const lateCredential = config.enabled !== true || matchedCredential.current !== true;
+    if (lateCredential && !(await gateway.hasBoundNonterminalWebhookIntent({
+      config,
+      payload: req.body || {},
+    }))) {
+      logger.warn('payment gateway late webhook rejected: no exact nonterminal intent binding', {
+        provider: config.provider,
+        disabled_config: config.enabled !== true,
+        rotated_credential: matchedCredential.current !== true,
+      });
+      return error(res, 'Not found', 404);
     }
 
     const providerEventId = req.get(EVENT_ID_HEADER);

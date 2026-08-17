@@ -53,7 +53,10 @@ async function makeCapturedGatewayPayment(patient, total) {
     tenantId: TENANT, config, event: { event_type: 'payment.captured' },
     payload: {
       event: 'payment.captured',
-      payload: { payment: { entity: { id: providerPaymentId, order_id: order.providerOrderId, method: 'upi', amount: toPaise(total) } } },
+      payload: { payment: { entity: {
+        id: providerPaymentId, order_id: order.providerOrderId, method: 'upi',
+        amount: toPaise(total), currency: 'INR',
+      } } },
     },
   });
   expect(result.outcome).toBe('captured');
@@ -119,7 +122,7 @@ afterAll(async () => {
   if (prevGatewayEnabled === undefined) delete process.env.PAYMENT_GATEWAY_ENABLED;
   else process.env.PAYMENT_GATEWAY_ENABLED = prevGatewayEnabled;
   await prisma.$disconnect().catch(() => {});
-});
+}, 30_000);
 
 d('payment gateway refund execution leg (deep)', () => {
   it('APPROVED refund → provider execution row → processed webhook drives markRefundPaid + ledger REFUND_PAID; replay is inert', async () => {
@@ -138,7 +141,7 @@ d('payment gateway refund execution leg (deep)', () => {
       tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
     });
     expect(leg.status).toBe('pending');
-    expect(leg.provider_refund_id).toBe(`rfnd_dry_pgr-${refund.id}`);
+    expect(leg.provider_refund_id).toMatch(new RegExp(`^rfnd_dry_pgr-${leg.id}-[A-Za-z0-9_-]{16}$`));
     expect(Number(leg.gateway_order_id)).toBe(orderId);
     expect(leg.provider_payment_id).toBe(providerPaymentId);
     expect(Number(leg.amount)).toBe(150);
@@ -225,7 +228,7 @@ d('payment gateway refund execution leg (deep)', () => {
       TENANT, Number(refund.id),
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].provider_refund_id).toBe(`rfnd_dry_pgr-${refund.id}`);
+    expect(rows[0].provider_refund_id).toMatch(new RegExp(`^rfnd_dry_pgr-${rows[0].id}-[A-Za-z0-9_-]{16}$`));
   });
 
   it('refund.failed recovers an initiated crash-window intent and is inert on redelivery', async () => {
@@ -317,6 +320,50 @@ d('payment gateway refund execution leg (deep)', () => {
       Number(leg.id),
     );
     expect(updatedLeg).toMatchObject({ status: 'failed', provider_refund_id: leg.provider_refund_id });
+  });
+
+  it('a failed refund retry gets a new provider-safe receipt/id and survives the prior failed evidence', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 220);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 55, reason: 'retry after provider failure', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    const first = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+    await gateway.processWebhookEvent({
+      tenantId: TENANT,
+      config,
+      event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: {
+        id: first.provider_refund_id,
+        payment_id: providerPaymentId,
+        amount: toPaise(55),
+        currency: 'INR',
+        status: 'failed',
+        notes: { billing_refund_id: String(refund.id) },
+      } } } },
+    });
+
+    const retry = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+    expect(retry.id).not.toBe(first.id);
+    expect(retry.provider_refund_id).not.toBe(first.provider_refund_id);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, status, provider_refund_id, provider_idempotency_key
+         FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int
+        ORDER BY id`,
+      TENANT, Number(refund.id),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0].status).toBe('failed');
+    expect(rows[1].status).toBe('pending');
+    expect(rows[1].provider_refund_id).not.toBe(rows[0].provider_refund_id);
+    expect(rows[1].provider_idempotency_key).not.toBe(rows[0].provider_idempotency_key);
   });
 
   it('refuses execution for a refund that is not APPROVED or not gateway-collected', async () => {

@@ -1,5 +1,5 @@
 // Retained-database proof for published migration 697 followed by additive
-// migration 708. Runs in an isolated schema inside the configured test DB.
+// migrations 708 and 712. Runs in an isolated schema inside the configured test DB.
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -14,8 +14,11 @@ const published697 = readFileSync(
 const upgrade708 = readFileSync(
   new URL('../migrations/708_payment_gateway_refund_security_upgrade.sql', import.meta.url), 'utf8',
 );
+const upgrade712 = readFileSync(
+  new URL('../migrations/712_payment_gateway_operational_safety.sql', import.meta.url), 'utf8',
+);
 
-d('payment gateway retained migration 697 → 708', () => {
+d('payment gateway retained migration 697 → 708 → 712', () => {
   let client;
   let schema;
 
@@ -60,6 +63,8 @@ d('payment gateway retained migration 697 → 708', () => {
 
     await client.query(upgrade708);
     await client.query(upgrade708);
+    await client.query(upgrade712);
+    await client.query(upgrade712);
 
     const rows = await client.query(
       `SELECT id, status, provider_idempotency_key, failure_code
@@ -102,5 +107,22 @@ d('payment gateway retained migration 697 → 708', () => {
     const indexSql = definitions.rows.map(row => row.indexdef).join('\n');
     expect(indexSql).toContain('ux_pg_refund_provider_idempotency');
     expect(indexSql).toContain('requires_reconciliation');
+    expect(indexSql).toContain('idx_pg_refund_reconciliation_queue');
+
+    const resolved = await client.query(
+      `UPDATE payment_gateway_refunds
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Verified retained provider refund manually',
+              reconciled_by = $1::uuid
+        WHERE id = $2
+        RETURNING reconciled_at, reconciliation_note, reconciled_by`,
+      [randomUUID(), retained.rows[0].id],
+    );
+    expect(resolved.rows[0].reconciled_at).not.toBeNull();
+    expect(resolved.rows[0].reconciliation_note).toContain('retained provider refund');
+    await expect(client.query(
+      `UPDATE payment_gateway_refunds SET status = 'failed' WHERE id = $1`,
+      [retained.rows[0].id],
+    )).rejects.toMatchObject({ code: '23514' });
   });
 });

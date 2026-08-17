@@ -151,6 +151,35 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
     expect(sent.receipt).toBe('pg-r1');
   });
 
+  it('recovers exactly one provider order by its durable receipt', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      items: [{
+        id: 'order_R1', amount: 50000, currency: 'INR', receipt: 'pg-r1', status: 'created',
+      }],
+    });
+    const order = await razorpayAdapter.findOrderByReceipt({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret', receipt: 'pg-r1',
+    });
+    expect(order).toMatchObject({
+      providerOrderId: 'order_R1', amountPaise: 50000, currency: 'INR',
+      receipt: 'pg-r1', status: 'created',
+    });
+    expect(fetchMock.mock.calls[0][0])
+      .toBe('https://api.razorpay.com/v1/orders?receipt=pg-r1&count=10');
+  });
+
+  it('fails closed when provider receipt recovery is ambiguous', async () => {
+    mockFetchOnce(200, {
+      items: [
+        { id: 'order_R1', receipt: 'pg-r1' },
+        { id: 'order_R2', receipt: 'pg-r1' },
+      ],
+    });
+    await expect(razorpayAdapter.findOrderByReceipt({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret', receipt: 'pg-r1',
+    })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_ORDER_RECOVERY_AMBIGUOUS' });
+  });
+
   it('creates a refund against the original provider payment id', async () => {
     const fetchMock = mockFetchOnce(200, {
       id: 'rfnd_R1', payment_id: 'pay_R9', amount: 20000, currency: 'INR', status: 'pending',

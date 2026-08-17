@@ -75,6 +75,14 @@ function generateReceipt() {
   return `pg-${randomBytes(12).toString('hex')}`;
 }
 
+function orderReceiptForRequest(tenantId, idempotencyKey) {
+  const key = String(idempotencyKey || '').trim();
+  if (!key) return generateReceipt();
+  // The caller's key is not disclosed to the provider. The deterministic
+  // digest is the durable recovery handle for a local-intent-first saga.
+  return `pg-${sha256Hex(`${tenantId}:${key}`).slice(0, 32)}`;
+}
+
 function isUniqueViolation(err) {
   const code = err?.meta?.code
     || err?.meta?.driverAdapterError?.cause?.originalCode
@@ -232,14 +240,39 @@ export async function upsertGatewayConfig({
 
   let rows;
   try {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenantTx(tenant, async (tx) => {
+      const existingRows = await tx.$queryRawUnsafe(
+        `SELECT webhook_secret_ciphertext, metadata
+           FROM payment_gateway_provider_configs
+          WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
+          FOR UPDATE`,
+        tenant, providerValue, environmentValue,
+      );
+      const existing = existingRows[0] || null;
+      const existingMetadata = existing?.metadata && typeof existing.metadata === 'object'
+        ? existing.metadata
+        : {};
+      const priorSecrets = Array.isArray(existingMetadata.webhook_secret_history)
+        ? existingMetadata.webhook_secret_history.filter((value) => typeof value === 'string')
+        : [];
+      if (webhookSecretCipher && existing?.webhook_secret_ciphertext) {
+        priorSecrets.unshift(existing.webhook_secret_ciphertext);
+      }
+      const metadata = {
+        ...existingMetadata,
+        webhook_token: existingMetadata.webhook_token || webhookToken,
+        ...(priorSecrets.length
+          ? { webhook_secret_history: [...new Set(priorSecrets)].slice(0, 5) }
+          : {}),
+      };
+      return tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_provider_configs
          (tenant_id, provider, environment, enabled, display_name, key_id,
           key_secret_ciphertext, webhook_secret_ciphertext, accepted_methods,
           metadata, created_by)
        VALUES ($1::uuid, $2, $3, $4::boolean, $5, $6, $7, $8,
                COALESCE($9::text[], ARRAY['upi','card']::text[]),
-               jsonb_build_object('webhook_token', $10::text), $11::uuid)
+               $10::jsonb, $11::uuid)
        ON CONFLICT (tenant_id, provider, environment) DO UPDATE SET
          enabled = EXCLUDED.enabled,
          display_name = COALESCE(EXCLUDED.display_name, payment_gateway_provider_configs.display_name),
@@ -247,23 +280,17 @@ export async function upsertGatewayConfig({
          key_secret_ciphertext = COALESCE(EXCLUDED.key_secret_ciphertext, payment_gateway_provider_configs.key_secret_ciphertext),
          webhook_secret_ciphertext = COALESCE(EXCLUDED.webhook_secret_ciphertext, payment_gateway_provider_configs.webhook_secret_ciphertext),
          accepted_methods = COALESCE($9::text[], payment_gateway_provider_configs.accepted_methods),
-         -- Keep the existing webhook token stable across updates: providers
-         -- are configured with the URL once; re-minting would break delivery.
-         metadata = CASE
-           WHEN payment_gateway_provider_configs.metadata ? 'webhook_token'
-             THEN payment_gateway_provider_configs.metadata
-           ELSE payment_gateway_provider_configs.metadata
-                || jsonb_build_object('webhook_token', $10::text)
-         END,
+         metadata = $10::jsonb,
          updated_at = NOW()
        RETURNING ${CONFIG_VIEW_COLUMNS}`,
       tenant, providerValue, environmentValue, enabled === true,
       display_name ? String(display_name).slice(0, 120) : null,
       key_id ? String(key_id).slice(0, 120) : null,
       keySecretCipher, webhookSecretCipher,
-      methods, webhookToken,
+      methods, JSON.stringify(metadata),
       created_by ? String(created_by) : null,
-    );
+      );
+    });
   } catch (err) {
     if (isUniqueViolation(err)) {
       throw AppError.conflict(
@@ -358,6 +385,7 @@ async function resolveOrderSubject({ tenantId, invoice_id, payment_link_token })
  */
 export async function createGatewayOrder({
   tenantId, invoice_id, payment_link_token, amount, created_by, actor = {},
+  idempotency_key,
 }) {
   const tenant = requireTenantId(tenantId);
   const context = await requireGatewayContext(tenant);
@@ -382,42 +410,136 @@ export async function createGatewayOrder({
     );
   }
 
-  const adapter = resolveAdapter(config.provider);
-  const receipt = generateReceipt();
-  const providerOrder = await adapter.createOrder({
-    keyId: config.key_id,
-    keySecret: decryptedKeySecret(config),
-    amountPaise: toPaise(orderAmount),
-    currency: 'INR',
-    receipt,
-    notes: {
-      tenant_id: tenant,
-      ...(subject.invoiceId ? { invoice_id: String(subject.invoiceId) } : {}),
-      ...(subject.paymentLinkId ? { payment_link_id: String(subject.paymentLinkId) } : {}),
-    },
-  });
-
+  const receipt = orderReceiptForRequest(tenant, idempotency_key);
   const defaultExpiry = new Date(Date.now() + DEFAULT_ORDER_EXPIRY_HOURS * 3600 * 1000);
   const expiresAt = subject.linkExpiresAt && subject.linkExpiresAt < defaultExpiry
     ? subject.linkExpiresAt
     : defaultExpiry;
-
-  const rows = await prisma.$queryRawUnsafe(
+  const intentRows = await prisma.$queryRawUnsafe(
     `INSERT INTO payment_gateway_orders
        (tenant_id, provider, environment, provider_config_id, patient_uid,
         invoice_id, payment_link_id, amount, currency, receipt,
-        provider_order_id, status, expires_at, created_by)
-     VALUES ($1::uuid, $2, $3, $4::int, $5::uuid, $6, $7, $8::numeric, $9,
-             $10, $11, 'created', $12::timestamptz, $13::uuid)
-     RETURNING *`,
+        provider_order_id, status, expires_at, created_by, metadata)
+     VALUES ($1::uuid, $2, $3, $4::int, $5::uuid, $6, $7, $8::numeric, 'INR',
+             $9, NULL, 'created', $10::timestamptz, $11::uuid,
+             jsonb_build_object('order_create_state', 'intent_persisted'))
+     ON CONFLICT (tenant_id, receipt) WHERE receipt IS NOT NULL DO UPDATE
+       SET updated_at = payment_gateway_orders.updated_at
+     RETURNING *, (xmax = 0) AS inserted`,
     tenant, config.provider, config.environment, Number(config.id),
-    subject.patientUid,
-    subject.invoiceId, subject.paymentLinkId,
-    orderAmount, 'INR', receipt,
-    providerOrder.providerOrderId, expiresAt.toISOString(),
+    subject.patientUid, subject.invoiceId, subject.paymentLinkId,
+    orderAmount, receipt, expiresAt.toISOString(),
     created_by ? String(created_by) : null,
   );
-  const order = rows[0];
+  const intent = intentRows[0];
+  if (!intent) throw new AppError('Payment gateway order intent could not be persisted', 503, 'PAYMENT_GATEWAY_ORDER_INTENT_UNAVAILABLE');
+  const sameIntent = Number(intent.provider_config_id) === Number(config.id)
+    && String(intent.patient_uid).toLowerCase() === String(subject.patientUid).toLowerCase()
+    && Number(intent.invoice_id || 0) === Number(subject.invoiceId || 0)
+    && Number(intent.payment_link_id || 0) === Number(subject.paymentLinkId || 0)
+    && toPaise(intent.amount) === toPaise(orderAmount)
+    && String(intent.currency).toUpperCase() === 'INR';
+  if (!sameIntent) {
+    throw AppError.conflict(
+      'Idempotency key is already bound to a different payment order intent',
+      'PAYMENT_GATEWAY_ORDER_INTENT_MISMATCH',
+    );
+  }
+  if (intent.provider_order_id) return toGatewayOrderCheckout(intent, config);
+  if (!['created', 'attempted'].includes(String(intent.status))) {
+    throw AppError.conflict(
+      `Payment gateway order intent cannot be recovered from ${intent.status}`,
+      'PAYMENT_GATEWAY_ORDER_NOT_RECOVERABLE',
+    );
+  }
+
+  const adapter = resolveAdapter(config.provider);
+  const providerArgs = {
+    keyId: config.key_id,
+    keySecret: decryptedKeySecret(config),
+    amountPaise: toPaise(intent.amount),
+    currency: String(intent.currency),
+    receipt: String(intent.receipt),
+    notes: {
+      tenant_id: tenant,
+      ...(intent.invoice_id ? { invoice_id: String(intent.invoice_id) } : {}),
+      ...(intent.payment_link_id ? { payment_link_id: String(intent.payment_link_id) } : {}),
+    },
+  };
+  let providerOrder = null;
+  try {
+    if (intent.inserted !== true && typeof adapter.findOrderByReceipt === 'function') {
+      providerOrder = await adapter.findOrderByReceipt(providerArgs);
+    }
+    if (!providerOrder) providerOrder = await adapter.createOrder(providerArgs);
+  } catch (err) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_orders
+          SET failure_code = 'provider_order_create_uncertain',
+              failure_reason = $1, updated_at = NOW()
+        WHERE id = $2::int AND tenant_id = $3::uuid AND provider_order_id IS NULL`,
+      String(err?.code || 'upstream_error').slice(0, 500), Number(intent.id), tenant,
+    ).catch(() => {});
+    throw err;
+  }
+
+  const orderMismatches = providerOrderEvidenceMismatches(intent, providerOrder);
+  if (orderMismatches.length) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_orders
+          SET status = 'failed', failure_code = 'provider_order_evidence_mismatch',
+              failure_reason = $1, updated_at = NOW()
+        WHERE id = $2::int AND tenant_id = $3::uuid AND provider_order_id IS NULL`,
+      `Provider order response mismatch: ${orderMismatches.join(', ')}`.slice(0, 500),
+      Number(intent.id), tenant,
+    );
+    throw new AppError(
+      'Payment gateway returned an order that did not match the persisted intent',
+      502,
+      'PAYMENT_GATEWAY_ORDER_EVIDENCE_MISMATCH',
+      { fields: orderMismatches },
+    );
+  }
+
+  const boundRows = await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_orders
+        SET provider_order_id = $1,
+            failure_code = NULL, failure_reason = NULL,
+            metadata = metadata || jsonb_build_object('order_create_state', 'provider_bound'),
+            updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND provider_order_id IS NULL AND status IN ('created', 'attempted')
+      RETURNING *`,
+    String(providerOrder.providerOrderId), Number(intent.id), tenant,
+  );
+  const order = boundRows[0] || (await prisma.$queryRawUnsafe(
+    `SELECT * FROM payment_gateway_orders
+      WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+    Number(intent.id), tenant,
+  ))[0];
+  if (!order || String(order.provider_order_id) !== String(providerOrder.providerOrderId)) {
+    throw AppError.conflict(
+      'Payment gateway order was concurrently bound to different provider evidence',
+      'PAYMENT_GATEWAY_ORDER_BINDING_CONFLICT',
+    );
+  }
+  return toGatewayOrderCheckout(order, config);
+}
+
+function providerOrderEvidenceMismatches(intent, evidence) {
+  const mismatches = [];
+  const providerOrderId = String(evidence?.providerOrderId || '').trim();
+  if (!providerOrderId || providerOrderId.length > 120) mismatches.push('order_id');
+  if (!Number.isInteger(Number(evidence?.amountPaise))
+      || Number(evidence.amountPaise) !== toPaise(intent.amount)) mismatches.push('amount');
+  if (String(evidence?.currency || '').trim().toUpperCase()
+      !== String(intent.currency || '').trim().toUpperCase()) mismatches.push('currency');
+  if (String(evidence?.receipt || '') !== String(intent.receipt || '')) mismatches.push('receipt');
+  if (String(evidence?.status || '').trim().toLowerCase() !== 'created') mismatches.push('status');
+  return mismatches;
+}
+
+function toGatewayOrderCheckout(order, config) {
   return {
     orderId: Number(order.id),
     providerOrderId: order.provider_order_id,
@@ -571,9 +693,11 @@ const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * Fail-closed tenant resolution for the public webhook mount: the URL's
- * opaque token selects exactly one ENABLED config row (and thereby the
- * tenant + webhook secret). Unknown token → null → the route answers 404
- * and NOTHING is written — never a default-tenant row.
+ * opaque token selects exactly one config row (and thereby the tenant +
+ * webhook credentials). Disabled/rotated credentials are accepted by the
+ * route only after signature verification AND exact binding to an existing
+ * nonterminal order/refund. This keeps inbound settlement evidence available
+ * after an operator disables outbound calls without reopening outbound use.
  */
 export async function resolveWebhookConfigByToken(webhookToken) {
   if (typeof webhookToken !== 'string' || !WEBHOOK_TOKEN_RE.test(webhookToken)) return null;
@@ -582,7 +706,6 @@ export async function resolveWebhookConfigByToken(webhookToken) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM payment_gateway_provider_configs
       WHERE metadata->>'webhook_token' = $1
-        AND enabled = true
       LIMIT 1`,
     String(webhookToken),
   );
@@ -591,6 +714,78 @@ export async function resolveWebhookConfigByToken(webhookToken) {
 
 export function decryptedWebhookSecret(config) {
   return config?.webhook_secret_ciphertext ? decryptField(config.webhook_secret_ciphertext) : null;
+}
+
+export function decryptedWebhookSecrets(config) {
+  const ciphertexts = [
+    config?.webhook_secret_ciphertext,
+    ...(Array.isArray(config?.metadata?.webhook_secret_history)
+      ? config.metadata.webhook_secret_history
+      : []),
+  ].filter((value) => typeof value === 'string' && value.length > 0);
+  return ciphertexts.map((ciphertext, index) => ({
+    secret: decryptField(ciphertext),
+    current: index === 0,
+  }));
+}
+
+/**
+ * A delivery authenticated by a disabled config or an old rotated secret is
+ * settlement-only. It must name an exact nonterminal intent owned by the same
+ * config row; token+signature alone never grants an unbounded callback path.
+ */
+export async function hasBoundNonterminalWebhookIntent({ config, payload }) {
+  const tenant = requireTenantId(config?.tenant_id);
+  const refund = payload?.payload?.refund?.entity || null;
+  if (refund) {
+    const providerRefundId = String(refund.id || '').trim();
+    const providerPaymentId = String(refund.payment_id || '').trim();
+    const billingRefundId = Number(refund.notes?.billing_refund_id);
+    if (!providerRefundId
+        && (!providerPaymentId || !Number.isInteger(billingRefundId) || billingRefundId <= 0)) {
+      return false;
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT r.id
+         FROM payment_gateway_refunds r
+         JOIN payment_gateway_orders o
+           ON o.id = r.gateway_order_id AND o.tenant_id = r.tenant_id
+        WHERE r.tenant_id = $1::uuid
+          AND r.provider = $2 AND r.environment = $3
+          AND o.provider_config_id = $4::int
+          AND r.status IN ('initiated', 'pending', 'requires_reconciliation')
+          AND (
+            ($5::text <> '' AND r.provider_refund_id = $5)
+            OR (
+              $6::text <> '' AND $7::int > 0
+              AND r.provider_payment_id = $6
+              AND r.billing_refund_id = $7::int
+            )
+          )
+        LIMIT 1`,
+      tenant, config.provider, config.environment, Number(config.id),
+      providerRefundId, providerPaymentId,
+      Number.isInteger(billingRefundId) && billingRefundId > 0 ? billingRefundId : 0,
+    );
+    return rows.length > 0;
+  }
+
+  const payment = payload?.payload?.payment?.entity || {};
+  const order = payload?.payload?.order?.entity || {};
+  const providerOrderId = String(payment.order_id || order.id || '').trim();
+  if (!providerOrderId) return false;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM payment_gateway_orders
+      WHERE tenant_id = $1::uuid
+        AND provider = $2 AND environment = $3
+        AND provider_config_id = $4::int
+        AND provider_order_id = $5
+        AND status IN ('created', 'attempted')
+      LIMIT 1`,
+    tenant, config.provider, config.environment, Number(config.id), providerOrderId,
+  );
+  return rows.length > 0;
 }
 
 /**
@@ -688,9 +883,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
   if (!providerOrderId || !providerPaymentId) {
     return { outcome: 'ignored', reason: 'missing payment/order entity identifiers' };
   }
-  const providerAmountPaise = Number.isFinite(Number(paymentEntity.amount))
-    ? Number(paymentEntity.amount)
-    : null;
+  const providerAmountPaise = Number(paymentEntity.amount);
   const method = normalizeOrderMethod(paymentEntity.method);
   const mode = paymentModeForMethod(paymentEntity.method);
 
@@ -711,7 +904,34 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
         );
       }
       const order = orderRows[0];
+      const evidenceMismatches = [];
+      if (typeof providerPaymentId !== 'string'
+          || !providerPaymentId.trim() || providerPaymentId.length > 120) {
+        evidenceMismatches.push('payment_id');
+      }
+      if (!Number.isInteger(providerAmountPaise)
+          || providerAmountPaise <= 0
+          || providerAmountPaise !== toPaise(order.amount)) {
+        evidenceMismatches.push('amount');
+      }
+      if (typeof paymentEntity.currency !== 'string'
+          || paymentEntity.currency.trim().toUpperCase()
+            !== String(order.currency || '').trim().toUpperCase()) {
+        evidenceMismatches.push('currency');
+      }
+      if (evidenceMismatches.length) {
+        throw AppError.badRequest(
+          `Captured payment evidence does not match the order: ${evidenceMismatches.join(', ')}`,
+          'PAYMENT_GATEWAY_CAPTURE_EVIDENCE_MISMATCH',
+        );
+      }
       if (order.status === 'paid') {
+        if (String(order.provider_payment_id) !== String(providerPaymentId)) {
+          throw AppError.conflict(
+            'Capture replay payment id does not match the booked payment',
+            'PAYMENT_GATEWAY_CAPTURE_REPLAY_MISMATCH',
+          );
+        }
         // Replay (or a second event for the already-booked capture).
         return {
           outcome: 'replay',
@@ -720,13 +940,6 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
           payment: null,
         };
       }
-      if (providerAmountPaise !== null && providerAmountPaise !== toPaise(order.amount)) {
-        throw AppError.badRequest(
-          `Captured amount ${providerAmountPaise} paise does not match order amount ${toPaise(order.amount)} paise`,
-          'PAYMENT_GATEWAY_AMOUNT_MISMATCH',
-        );
-      }
-
       const payment = await collectPayment({
         tenantId: tenant,
         invoice_id: order.invoice_id != null ? Number(order.invoice_id) : null,
@@ -804,12 +1017,13 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
       // amount drift...). Park for manual reconciliation + alert — the
       // capture is real and must not be dropped.
       const orderRows = await prisma.$queryRawUnsafe(
-        `SELECT id FROM payment_gateway_orders
+        `SELECT id, status FROM payment_gateway_orders
           WHERE tenant_id = $1::uuid AND provider = $2 AND provider_order_id = $3
           LIMIT 1`,
         tenant, config.provider, String(providerOrderId),
       );
       if (orderRows.length) {
+        if (orderRows[0].status === 'paid') throw err;
         await setOrderRequiresReconciliation({
           tenantId: tenant,
           orderId: orderRows[0].id,
@@ -886,6 +1100,76 @@ function toGatewayRefundResult(row, replay) {
     amount: Number(row.amount),
     replay: replay === true,
   };
+}
+
+const REFUND_VIEW_COLUMNS = `
+  id, provider, environment, gateway_order_id, billing_refund_id,
+  provider_payment_id, provider_refund_id, amount, currency, status, reason,
+  initiated_by, initiated_at, processed_at, failed_at, failure_code,
+  failure_reason, reconciled_at, reconciliation_note, reconciled_by,
+  created_at, updated_at`;
+
+export async function listReconciliationGatewayRefunds({
+  tenantId, include_resolved = false, limit = 50, offset = 0,
+} = {}) {
+  const tenant = requireTenantId(tenantId);
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 200));
+  const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${REFUND_VIEW_COLUMNS}
+       FROM payment_gateway_refunds
+      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
+        AND ($2::boolean OR reconciled_at IS NULL)
+      ORDER BY initiated_at ASC, id ASC
+      LIMIT $3::int OFFSET $4::int`,
+    tenant, include_resolved === true, safeLimit, safeOffset,
+  );
+  return {
+    refunds: rows.map((row) => toGatewayRefundResult(row, false)),
+    limit: safeLimit,
+    offset: safeOffset,
+  };
+}
+
+export async function resolveGatewayRefundReconciliation({
+  tenantId, id, note, resolved_by,
+}) {
+  const tenant = requireTenantId(tenantId);
+  const trimmedNote = String(note || '').trim();
+  if (trimmedNote.length < 10 || trimmedNote.length > 500) {
+    throw AppError.badRequest(
+      'A reconciliation note of 10-500 chars describing the manual resolution is required',
+      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_NOTE_REQUIRED',
+    );
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_refunds
+        SET reconciled_at = NOW(), reconciliation_note = $1,
+            reconciled_by = $2::uuid, updated_at = NOW()
+      WHERE id = $3::int AND tenant_id = $4::uuid
+        AND status = 'requires_reconciliation' AND reconciled_at IS NULL
+      RETURNING ${REFUND_VIEW_COLUMNS}`,
+    trimmedNote, resolved_by ? String(resolved_by) : null, Number(id), tenant,
+  );
+  if (!rows.length) {
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, status, reconciled_at FROM payment_gateway_refunds
+        WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      Number(id), tenant,
+    );
+    if (!existing.length) throw AppError.notFound('Payment gateway refund not found');
+    throw AppError.conflict(
+      existing[0].reconciled_at
+        ? 'This gateway refund was already reconciled'
+        : 'Gateway refund is not awaiting reconciliation',
+      'PAYMENT_GATEWAY_REFUND_NOT_RECONCILABLE',
+    );
+  }
+  logger.info('payment gateway refund manually reconciled', {
+    gateway_refund_id: Number(rows[0].id),
+    resolved_by: resolved_by ? String(resolved_by) : null,
+  });
+  return toGatewayRefundResult(rows[0], false);
 }
 
 const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
@@ -1162,7 +1446,7 @@ export async function initiateGatewayRefund({
       // same provider idempotency key.
       providerPaymentId: intent.row.provider_payment_id,
       amountPaise: toPaise(intent.row.amount),
-      receipt: `pgr-${intent.row.billing_refund_id}`,
+      receipt: gatewayRefundReceipt(intent.row),
       notes: { billing_refund_id: String(intent.row.billing_refund_id) },
       idempotencyKey: intent.row.provider_idempotency_key,
     });
@@ -1206,6 +1490,52 @@ export async function initiateGatewayRefund({
     return toGatewayRefundResult(completed, intent.replay);
   }
 
+  if (providerRefund.status === 'processed') {
+    try {
+      await handleRefundProcessedEvent({
+        tenantId: tenant,
+        config: intent.order,
+        payload: {
+          payload: {
+            refund: {
+              entity: {
+                id: providerRefund.providerRefundId,
+                payment_id: providerRefund.providerPaymentId,
+                amount: providerRefund.amountPaise,
+                currency: providerRefund.currency,
+                status: 'processed',
+                notes: { billing_refund_id: String(intent.row.billing_refund_id) },
+              },
+            },
+          },
+        },
+      });
+    } catch (err) {
+      const parkedRows = await prisma.$queryRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET provider_refund_id = COALESCE(provider_refund_id, $1),
+                status = 'requires_reconciliation',
+                failure_code = 'billing_refund_finalize_failed',
+                failure_reason = $2, updated_at = NOW()
+          WHERE id = $3::int AND tenant_id = $4::uuid
+            AND status IN ('initiated', 'pending', 'requires_reconciliation')
+          RETURNING *`,
+        String(providerRefund.providerRefundId),
+        `Provider refund processed but billing finalization failed: ${err?.code || 'internal_error'}`.slice(0, 500),
+        Number(intent.row.id), tenant,
+      );
+      if (parkedRows.length) return toGatewayRefundResult(parkedRows[0], intent.replay);
+      throw err;
+    }
+    const processedRows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_refunds
+        WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      Number(intent.row.id), tenant,
+    );
+    if (!processedRows.length) throw AppError.notFound('Gateway refund intent not found');
+    return toGatewayRefundResult(processedRows[0], intent.replay);
+  }
+
   const providerStatus = providerRefund.status === 'failed' ? 'failed' : 'pending';
   const completed = await setTenantTx(tenant, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
@@ -1234,6 +1564,10 @@ export async function initiateGatewayRefund({
   return toGatewayRefundResult(completed, intent.replay);
 }
 
+function gatewayRefundReceipt(row) {
+  return `pgr-${Number(row.id)}-${String(row.provider_idempotency_key).slice(-16)}`;
+}
+
 /**
  * refund.processed webhook → mark the execution leg processed and drive
  * markRefundPaid (billingV2 authority; posts REFUND_PAID per ledger wiring)
@@ -1251,6 +1585,9 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   });
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
+  }
+  if (gatewayRefund.reconciled_at) {
+    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
   if (gatewayRefund.status === 'processed') {
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
@@ -1313,6 +1650,9 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
   });
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
+  }
+  if (gatewayRefund.reconciled_at) {
+    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
   if (gatewayRefund.status === 'failed') {
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
