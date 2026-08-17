@@ -115,9 +115,18 @@ function inactiveHiuConsentError() {
   );
 }
 
+// Expiry instants arrive as epoch milliseconds computed by Postgres, never as a
+// driver-materialised Date. `EXTRACT(EPOCH FROM timestamptz)` is the absolute
+// instant and is therefore identical in every session timezone, whereas reading
+// the column back through the pg driver yields a Date shifted by the session
+// timezone (a non-UTC session skewed this check by the session offset).
+// `now` is still sampled per call on purpose: dataEraseAt is a clock boundary
+// rather than a row mutation, so a boundary crossed while R2 was in flight has
+// to be caught by the post-read re-check, which a precomputed remaining-time
+// value could not do.
 function assertBundleTimeWindow(row) {
-  const artifactExpiry = new Date(row?.artifact_expiry_at).getTime();
-  const requestExpiry = new Date(row?.request_expiry_at).getTime();
+  const artifactExpiry = Number(row?.artifact_expiry_epoch_ms);
+  const requestExpiry = Number(row?.request_expiry_epoch_ms);
   const now = Date.now();
   if (!Number.isFinite(artifactExpiry) || !Number.isFinite(requestExpiry)
       || artifactExpiry <= now || requestExpiry <= now) {
@@ -1682,8 +1691,8 @@ export async function getFetchSession({ tenantId = null, sessionId } = {}) {
 async function lockActiveHiuSessionAccess(tx, tenantId, sessionId) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT s.id, s.patient_uid, s.parts_received, s.metadata,
-            a.expiry_at AS artifact_expiry_at,
-            r.expiry_at AS request_expiry_at
+            (EXTRACT(EPOCH FROM a.expiry_at) * 1000)::bigint AS artifact_expiry_epoch_ms,
+            (EXTRACT(EPOCH FROM r.expiry_at) * 1000)::bigint AS request_expiry_epoch_ms
        FROM abdm_hiu_fetch_sessions s
        JOIN abdm_consent_artifacts a
          ON a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id

@@ -1100,8 +1100,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1,
       metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
-      artifact_expiry_at: expiry,
-      request_expiry_at: expiry,
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
     }]);
     getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
 
@@ -1124,6 +1124,38 @@ describe('received bundle access follows the live consent', () => {
     )).toBe(true);
   });
 
+  it('compares consent expiry as a server-computed instant, not a driver Date', async () => {
+    // A timestamptz read back through the pg driver materialises a Date shifted
+    // by the DATABASE SESSION timezone, so comparing it against Date.now() is
+    // only correct when that session is UTC. CI runs a UTC database and so
+    // cannot catch a relapse behaviourally — pin the SQL shape instead.
+    const expiry = new Date(Date.now() + 60_000);
+    route('FROM abdm_hiu_received_bundles b', () => [BUNDLE]);
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
+    }]);
+    getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
+
+    await hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    });
+
+    const sessionSelect = txQuery.mock.calls
+      .map((call) => call[0])
+      .find((sql) => sql.includes('FOR SHARE OF s, a, r, u'));
+    expect(sessionSelect).toContain('EXTRACT(EPOCH FROM a.expiry_at)');
+    expect(sessionSelect).toContain('EXTRACT(EPOCH FROM r.expiry_at)');
+    expect(sessionSelect).not.toMatch(/a\.expiry_at AS artifact_expiry_at/);
+    expect(sessionSelect).not.toMatch(/r\.expiry_at AS request_expiry_at/);
+  });
+
   it('does not return bytes when dataEraseAt elapses while R2 is in flight', async () => {
     const base = Date.now();
     const nowSpy = jest.spyOn(Date, 'now')
@@ -1135,8 +1167,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1,
       metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
-      artifact_expiry_at: new Date(base + 1_000),
-      request_expiry_at: new Date(base + 1_000),
+      artifact_expiry_epoch_ms: BigInt(base + 1_000),
+      request_expiry_epoch_ms: BigInt(base + 1_000),
     }]);
     getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
 
@@ -1162,8 +1194,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1000,
       metadata: { hiu_bundle_bytes_received: 1024 },
-      artifact_expiry_at: expiry,
-      request_expiry_at: expiry,
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
     }]);
 
     const result = await hiuService.listReceivedBundles({
@@ -1202,8 +1234,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1,
       metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
-      artifact_expiry_at: new Date(base + 1_000),
-      request_expiry_at: new Date(base + 1_000),
+      artifact_expiry_epoch_ms: BigInt(base + 1_000),
+      request_expiry_epoch_ms: BigInt(base + 1_000),
     }]);
 
     try {
@@ -1223,8 +1255,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1,
       metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
-      artifact_expiry_at: expiry,
-      request_expiry_at: expiry,
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
     }]);
     route('FROM abdm_hiu_received_bundles b', () => [{ ...BUNDLE, metadata: {} }]);
 
@@ -1243,8 +1275,8 @@ describe('received bundle access follows the live consent', () => {
       metadata: {
         hiu_bundle_bytes_received: hiuService.__testing__.MAX_HIU_SESSION_BYTES + 1,
       },
-      artifact_expiry_at: expiry,
-      request_expiry_at: expiry,
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
     }]);
     await expect(hiuService.getReceivedBundleContent({
       tenantId: TENANT_ID,
@@ -1261,8 +1293,8 @@ describe('received bundle access follows the live consent', () => {
       patient_uid: PATIENT_UID,
       parts_received: 1,
       metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
-      artifact_expiry_at: expiry,
-      request_expiry_at: expiry,
+      artifact_expiry_epoch_ms: BigInt(expiry.getTime()),
+      request_expiry_epoch_ms: BigInt(expiry.getTime()),
     }]);
     route('FROM abdm_hiu_received_bundles b', () => [BUNDLE]);
     getFileFromR2.mockResolvedValue(Buffer.from('{"resourceType":"Patient"}'));
