@@ -250,7 +250,15 @@ d('payment gateway retained migration 697 → 708 → published 712-713 → 715'
     await expect(client.query(
       `DELETE FROM payment_gateway_refunds WHERE id = $1`,
       [retained.rows[1].id],
-    )).rejects.toMatchObject({ code: '23503' });
+    )).rejects.toMatchObject({
+      // ON DELETE RESTRICT violations raise SQLSTATE 23503
+      // (foreign_key_violation) on PostgreSQL <= 17 but the SQL-standard
+      // 23001 (restrict_violation) on PostgreSQL 18+ — CI runs pg18 while
+      // local/prod clusters run older majors, so accept both and pin the
+      // constraint identity instead.
+      code: expect.stringMatching(/^23(?:503|001)$/),
+      constraint: 'fk_billing_refund_gateway_execution',
+    });
 
     const retainedManualAuthority = await client.query(
       `SELECT payout_rail, gateway_refund_id, payout_rail_claimed_at
