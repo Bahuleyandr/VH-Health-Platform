@@ -19,7 +19,12 @@ import { jest } from '@jest/globals';
 const verifyAuditChainMock = jest.fn();
 const sendSecurityWebhookMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
-const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+const loggerMock = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+};
 const pgConnectMock = jest.fn();
 const pgEndMock = jest.fn();
 const pgQueryMock = jest.fn();
@@ -68,6 +73,7 @@ beforeEach(() => {
   verifyAuditChainMock.mockReset();
   sendSecurityWebhookMock.mockReset();
   queryRawUnsafeMock.mockReset();
+  loggerMock.debug.mockReset();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
