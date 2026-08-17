@@ -172,7 +172,12 @@ router.get('/sessions/:id', sessionPatientGuard, handle('Failed to get ABDM HIU 
 router.get('/sessions/:id/bundles', sessionPatientGuard, handle('Failed to list ABDM HIU bundles', async (req, res) => {
   const id = positiveInt(req.params.id);
   if (id === null) return error(res, 'A numeric session id is required', 400);
-  const result = await listReceivedBundles({ tenantId: req.tenantId, sessionId: id });
+  const result = await listReceivedBundles({
+    tenantId: req.tenantId,
+    sessionId: id,
+    limit: req.query?.limit,
+    offset: req.query?.offset,
+  });
   return success(res, result, 'HIU received bundles retrieved', 200);
 }));
 

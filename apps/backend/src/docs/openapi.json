@@ -119,7 +119,10 @@
         "type": "object",
         "required": [
           "bundles",
-          "count"
+          "count",
+          "total",
+          "limit",
+          "offset"
         ],
         "properties": {
           "bundles": {
@@ -130,6 +133,20 @@
           },
           "count": {
             "type": "integer"
+          },
+          "total": {
+            "type": "integer",
+            "maximum": 1000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
           }
         }
       },
@@ -315,7 +332,8 @@
           "abha_address",
           "hi_types",
           "date_from",
-          "date_to"
+          "date_to",
+          "expiry"
         ],
         "properties": {
           "abha_address": {
@@ -348,8 +366,7 @@
           },
           "expiry": {
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "format": "date-time"
           }
         }
       },
@@ -628,8 +645,8 @@
         "required": [
           "id",
           "fetch_session_id",
-          "bundle_storage_key",
-          "bundle_sha256"
+          "bundle_sha256",
+          "byte_length"
         ],
         "properties": {
           "id": {
@@ -637,6 +654,13 @@
           },
           "fetch_session_id": {
             "type": "integer"
+          },
+          "fetch_page_id": {
+            "type": "integer"
+          },
+          "page_number": {
+            "type": "integer",
+            "minimum": 1
           },
           "care_context_reference": {
             "type": "string",
@@ -650,12 +674,14 @@
             "type": "integer",
             "nullable": true
           },
-          "bundle_storage_key": {
-            "type": "string",
-            "description": "R2 object key of the decrypted FHIR bundle — PHI bytes never land in Postgres."
-          },
           "bundle_sha256": {
             "type": "string"
+          },
+          "byte_length": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 524288,
+            "description": "Verified decrypted byte length. The private R2 object key is never exposed."
           },
           "checksum_verified": {
             "type": "boolean"
@@ -1077,6 +1103,7 @@
             "enum": [
               "initiated",
               "otp_sent",
+              "otp_verifying",
               "otp_verified",
               "enrolled",
               "linked",
@@ -47393,7 +47420,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48174,7 +48201,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48336,6 +48363,45 @@
             "ApiKeyAuth": [],
             "BearerAuth": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Verified patient context required by the clinical PHI access guard."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "granted",
+                "denied",
+                "revoked",
+                "expired",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
         ]
       },
       "post": {
@@ -48416,6 +48482,16 @@
           },
           "500": {
             "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ABDM HIU is disabled or unavailable.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48512,7 +48588,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48674,6 +48750,29 @@
             "ApiKeyAuth": [],
             "BearerAuth": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Verified patient context required by the clinical PHI access guard."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
         ]
       }
     },
@@ -48745,7 +48844,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48755,7 +48854,7 @@
             }
           }
         },
-        "description": "Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables. Authenticity uses endpoint-bound v1 HMAC over the exact raw JSON bytes, HTTP method, and canonical application path (/api/v1/abdm plus the callback route). Query parameters and reverse-proxy prefixes are excluded from that canonical path. A wrong method/path fails signature verification before the replay identity is claimed.",
+        "description": "Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Every GRANTED notification must carry a signed consent artefact; signature verification is mandatory on this HIU path regardless of the optional HIP-side verification toggle. Revocation and expiry immediately deny bundle access and schedule durable R2 cleanup. Authenticity uses endpoint-bound v1 HMAC over the exact raw JSON bytes, HTTP method, and canonical application path (/api/v1/abdm plus the callback route). Query parameters and reverse-proxy prefixes are excluded from that canonical path. A wrong method/path fails signature verification before the replay identity is claimed.",
         "security": [],
         "parameters": [
           {
@@ -48899,6 +48998,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "ABDM HIU is disabled or unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Starts a health-information fetch against an ACTIVE consent artefact: generates the X25519 receive keypair, persists the private key encryptField-encrypted for the async hi-request → data-push gap (NULLed after decrypt; 30-min liability window), creates the direction-in transfer row, and hands the public key material + dataPushUrl to the CM.",
@@ -48988,7 +49097,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49103,6 +49212,16 @@
               }
             }
           },
+          "413": {
+            "description": "The callback exceeded an ABDM page, object, or byte limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "The callback source exceeded the public webhook rate limit.",
             "content": {
@@ -49124,7 +49243,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49134,7 +49253,7 @@
             }
           }
         },
-        "description": "Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page). Authenticity uses endpoint-bound v1 HMAC over the exact raw JSON bytes, HTTP method, and canonical application path (/api/v1/abdm plus the callback route). Query parameters and reverse-proxy prefixes are excluded from that canonical path. A wrong method/path fails signature verification before the replay identity is claimed.",
+        "description": "Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, and consent is revalidated before durable storage references commit. Page redeliveries collapse per (transactionId, page). Limits are 100 pages, 1000 bundles per session, 1000 entries per page, 1 MiB per request/decrypted page, 512 KiB per decrypted bundle, and 20 MiB of decrypted bundles per session. Authenticity uses endpoint-bound v1 HMAC over the exact raw JSON bytes, HTTP method, and canonical application path (/api/v1/abdm plus the callback route). Query parameters and reverse-proxy prefixes are excluded from that canonical path. A wrong method/path fails signature verification before the replay identity is claimed.",
         "security": [],
         "parameters": [
           {
@@ -49285,6 +49404,46 @@
           {
             "ApiKeyAuth": [],
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Verified patient context required by the clinical PHI access guard."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "acknowledged",
+                "receiving",
+                "completed",
+                "partial",
+                "failed",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
           }
         ]
       }
@@ -49484,7 +49643,7 @@
             }
           }
         },
-        "description": "Reference rows for the decrypted bundles a fetch session received. PHI bytes live in R2, not in these rows.",
+        "description": "Bounded reference-page for decrypted bundles received by a fetch session. Access fails closed after revocation, expiry, dataEraseAt, or inconsistent byte/object accounting. PHI bytes live in R2, not in these rows.",
         "security": [
           {
             "ApiKeyAuth": [],
@@ -49498,6 +49657,28 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647,
+              "default": 0
             }
           }
         ]
@@ -49591,7 +49772,7 @@
             }
           }
         },
-        "description": "Streams one decrypted FHIR bundle from R2 for transient rendering. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.",
+        "description": "Streams one decrypted FHIR bundle from R2 for transient rendering only while the exact tenant, patient, request, artefact, session, byte-count, and SHA-256 chain remains valid. Revocation, expiry, dataEraseAt, or accounting drift fails closed before content is returned. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.",
         "security": [
           {
             "ApiKeyAuth": [],
@@ -49770,7 +49951,7 @@
             }
           },
           "503": {
-            "description": "The ABDM integration or durable replay authority was unavailable.",
+            "description": "The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -110256,6 +110437,46 @@
           {
             "ApiKeyAuth": [],
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "received",
+                "matched",
+                "registered",
+                "linked_visit",
+                "dismissed",
+                "expired",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
           }
         ]
       }

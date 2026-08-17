@@ -56,7 +56,16 @@ const KEY_TTL_MINUTES = 30;
 const LIVE_SESSION_STATUSES = ['requested', 'acknowledged', 'receiving'];
 const PAGE_CLAIM_TTL_MINUTES = 5;
 const MAX_DATA_PUSH_ENTRIES_PER_PAGE = 1000;
+const MAX_HIU_SESSION_PAGES = 100;
+const MAX_HIU_SESSION_BUNDLES = 1000;
+const MAX_HIU_DATA_PUSH_BYTES = 1024 * 1024;
+const MAX_HIU_BUNDLE_BYTES = 512 * 1024;
+const MAX_HIU_SESSION_BYTES = 20 * 1024 * 1024;
 const POSTGRES_INTEGER_MAX = 2147483647;
+const BUNDLE_READ_TX_TIMEOUT_MS = 100000;
+const BUNDLE_UPLOAD_CLAIM_TX_TIMEOUT_MS = 100000;
+const BUNDLE_PURGE_TX_TIMEOUT_MS = 35000;
+const MAX_BUNDLE_PURGE_BATCH = 200;
 
 const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   data_transfer_id, patient_uid, transaction_id, request_id, hi_types,
@@ -64,9 +73,176 @@ const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   parts_received, pages_expected, next_page_number, initiated_by_uid, requested_at, acknowledged_at,
   completed_at, failure_reason, metadata, created_at, updated_at`;
 
-const BUNDLE_RETURNING = `id, tenant_id, fetch_session_id, fetch_page_id, page_number,
-  care_context_reference, hi_type, part_number, bundle_storage_key, bundle_sha256, checksum_verified,
-  media_type, received_at, metadata, created_at`;
+const BUNDLE_SELECT = `b.id, b.tenant_id, b.fetch_session_id, b.fetch_page_id, b.page_number,
+  b.care_context_reference, b.hi_type, b.part_number, b.bundle_storage_key, b.bundle_sha256,
+  b.checksum_verified, b.media_type, b.received_at, b.metadata, b.created_at`;
+
+// Consent-chain activity is independent of the fetch lifecycle: requested and
+// acknowledged sessions still need to survive the retention sweep. Bundle
+// reads additionally require a state in which decrypted content may exist.
+const ACTIVE_HIU_CONSENT_CHAIN_PREDICATE = `
+  s.consent_artifact_id IS NOT NULL
+  AND s.patient_uid IS NOT NULL
+  AND a.id IS NOT NULL
+  AND a.environment = s.environment
+  AND a.patient_uid = s.patient_uid
+  AND a.status = 'active'
+  AND a.expiry_at IS NOT NULL
+  AND a.expiry_at > clock_timestamp()
+  AND r.id IS NOT NULL
+  AND r.tenant_id = s.tenant_id
+  AND r.environment = s.environment
+  AND r.flow_kind = 'hiu'
+  AND r.patient_uid = s.patient_uid
+  AND r.status = 'granted'
+  AND r.expiry_at IS NOT NULL
+  AND r.expiry_at > clock_timestamp()
+  AND u.uid = s.patient_uid
+  AND u.role = 'PATIENT'
+  AND u.is_active = TRUE
+  AND u.is_deleted = FALSE
+  AND u.abha_verification_status = 'verified'
+  AND LOWER(u.abha_address) = LOWER(r.metadata->>'abha_address')`;
+
+const ACTIVE_BUNDLE_CONSENT_PREDICATE = `
+  s.status IN ('receiving', 'completed', 'partial')
+  AND ${ACTIVE_HIU_CONSENT_CHAIN_PREDICATE}`;
+
+function inactiveHiuConsentError() {
+  return AppError.forbidden(
+    'HIU consent is no longer active for this bundle',
+    'ABDM_HIU_CONSENT_INACTIVE',
+  );
+}
+
+function assertBundleTimeWindow(row) {
+  const artifactExpiry = new Date(row?.artifact_expiry_at).getTime();
+  const requestExpiry = new Date(row?.request_expiry_at).getTime();
+  const now = Date.now();
+  if (!Number.isFinite(artifactExpiry) || !Number.isFinite(requestExpiry)
+      || artifactExpiry <= now || requestExpiry <= now) {
+    throw inactiveHiuConsentError();
+  }
+}
+
+function payloadTooLarge(message, code, details = null) {
+  return new AppError(message, 413, code, details);
+}
+
+function sessionBundleBytes(session) {
+  const value = session?.metadata?.hiu_bundle_bytes_received;
+  if (value == null && Number(session?.parts_received ?? 0) === 0) return 0;
+  const bytes = Number(value);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw AppError.conflict(
+      'Fetch session byte accounting is unavailable',
+      'ABDM_HIU_SESSION_BYTE_ACCOUNTING_UNAVAILABLE',
+    );
+  }
+  return bytes;
+}
+
+function assertSessionObjectCapacity(session, incomingCount) {
+  const nextCount = Number(session?.parts_received ?? 0) + Number(incomingCount);
+  if (!Number.isSafeInteger(nextCount) || nextCount > MAX_HIU_SESSION_BUNDLES) {
+    throw payloadTooLarge(
+      'Fetch session exceeds the supported bundle count',
+      'ABDM_HIU_SESSION_BUNDLE_LIMIT',
+      { maximum: MAX_HIU_SESSION_BUNDLES },
+    );
+  }
+  return nextCount;
+}
+
+function assertPreparedBundleCapacity(sessionBytes, preparedBundles) {
+  let pageBytes = 0;
+  for (const prepared of preparedBundles) {
+    if (prepared.byteLength > MAX_HIU_BUNDLE_BYTES) {
+      throw payloadTooLarge(
+        'Decrypted FHIR bundle exceeds the supported size',
+        'ABDM_HIU_BUNDLE_SIZE_LIMIT',
+        { maximumBytes: MAX_HIU_BUNDLE_BYTES },
+      );
+    }
+    pageBytes += prepared.byteLength;
+  }
+  if (!Number.isSafeInteger(pageBytes) || pageBytes > MAX_HIU_DATA_PUSH_BYTES) {
+    throw payloadTooLarge(
+      'Decrypted data-push page exceeds the supported byte limit',
+      'ABDM_HIU_DATA_PUSH_SIZE_LIMIT',
+      { maximumBytes: MAX_HIU_DATA_PUSH_BYTES },
+    );
+  }
+  if (!Number.isSafeInteger(sessionBytes + pageBytes)
+      || sessionBytes + pageBytes > MAX_HIU_SESSION_BYTES) {
+    throw payloadTooLarge(
+      'Fetch session exceeds the supported decrypted-byte limit',
+      'ABDM_HIU_SESSION_BYTE_LIMIT',
+      { maximumBytes: MAX_HIU_SESSION_BYTES },
+    );
+  }
+  return { pageBytes, sessionBytesAfter: sessionBytes + pageBytes };
+}
+
+function assertReadableSessionAccounting(session) {
+  const partsReceived = Number(session?.parts_received ?? 0);
+  if (!Number.isSafeInteger(partsReceived) || partsReceived < 0
+      || partsReceived > MAX_HIU_SESSION_BUNDLES) {
+    throw AppError.conflict(
+      'Fetch session bundle accounting is outside the supported limit',
+      'ABDM_HIU_SESSION_BUNDLE_ACCOUNTING_INVALID',
+    );
+  }
+  const bytes = sessionBundleBytes(session);
+  if (bytes > MAX_HIU_SESSION_BYTES) {
+    throw AppError.conflict(
+      'Fetch session byte accounting is outside the supported limit',
+      'ABDM_HIU_SESSION_BYTE_ACCOUNTING_INVALID',
+    );
+  }
+  return bytes;
+}
+
+function bundleByteLength(row) {
+  const bytes = Number(row?.metadata?.byte_length);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw AppError.conflict(
+      'Received bundle byte accounting is unavailable',
+      'ABDM_HIU_BUNDLE_BYTE_ACCOUNTING_UNAVAILABLE',
+    );
+  }
+  if (bytes > MAX_HIU_BUNDLE_BYTES) {
+    throw AppError.conflict(
+      'Received bundle byte accounting exceeds the supported limit',
+      'ABDM_HIU_BUNDLE_BYTE_ACCOUNTING_INVALID',
+    );
+  }
+  return bytes;
+}
+
+function publicBundle(row) {
+  if (!row) return null;
+  const {
+    bundle_storage_key: _storageKey,
+    metadata: _metadata,
+    ...rest
+  } = row;
+  return { ...rest, byte_length: bundleByteLength(row) };
+}
+
+function boundedListInteger(value, {
+  name, fallback, minimum = 0, maximum = POSTGRES_INTEGER_MAX,
+}) {
+  if (value == null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw AppError.badRequest(
+      `${name} must be an integer between ${minimum} and ${maximum}`,
+      'ABDM_HIU_BUNDLE_PAGE_INVALID',
+    );
+  }
+  return parsed;
+}
 
 /** Public projection: NEVER exposes key material columns. */
 function publicSession(row) {
@@ -192,6 +368,147 @@ async function markWebhookFailed(tenantId, event, err) {
     eventId: event.id,
     error: markErr.message,
   }));
+}
+
+async function deleteClaimStorageKeys(storageKeys, { sessionId = null } = {}) {
+  const failed = [];
+  for (const storageKey of [...new Set(storageKeys)]) {
+    try {
+      await deleteObject(storageKey);
+    } catch (err) {
+      failed.push(storageKey);
+      logger.error('ABDM HIU orphan cleanup failed', {
+        sessionId,
+        storageKey,
+        error: err.message,
+      });
+    }
+  }
+  return failed;
+}
+
+async function mergeClaimCleanupEvidence({
+  tenantId, eventId, claimId, storageKeys, markFailed = false,
+}) {
+  if (!eventId || !claimId || storageKeys.length === 0) return;
+  await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `UPDATE abdm_webhook_events w
+        SET status = CASE WHEN $5::boolean THEN 'failed' ELSE w.status END,
+            processed_at = CASE WHEN $5::boolean THEN NOW() ELSE w.processed_at END,
+            failure_reason = CASE
+              WHEN $5::boolean THEN 'HIU claimant R2 cleanup pending'
+              ELSE w.failure_reason
+            END,
+            metadata = jsonb_set(
+              COALESCE(w.metadata, '{}'::jsonb) || jsonb_build_object(
+                'hiu_claim_cleanup',
+                COALESCE(w.metadata->'hiu_claim_cleanup', '{}'::jsonb)
+              ),
+              ARRAY['hiu_claim_cleanup', $4::text],
+              (
+                SELECT COALESCE(jsonb_agg(DISTINCT cleanup_key), '[]'::jsonb)
+                  FROM (
+                    SELECT jsonb_array_elements_text(
+                      COALESCE(
+                        w.metadata #> ARRAY['hiu_claim_cleanup', $4::text],
+                        '[]'::jsonb
+                      )
+                    ) AS cleanup_key
+                    UNION ALL
+                    SELECT jsonb_array_elements_text($3::jsonb) AS cleanup_key
+                  ) pending
+              ),
+              true
+            )
+      WHERE id = $1 AND tenant_id = $2::uuid
+      RETURNING id`,
+    Number(eventId), tenantId, JSON.stringify(storageKeys), claimId, markFailed,
+  ));
+}
+
+async function persistOrphanCleanupEvidence(args) {
+  await mergeClaimCleanupEvidence({ ...args, markFailed: true });
+}
+
+async function clearClaimCleanupEvidence({ tenantId, eventId, claimId }) {
+  if (!eventId || !claimId) return;
+  await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `UPDATE abdm_webhook_events w
+        SET metadata = jsonb_set(
+          COALESCE(w.metadata, '{}'::jsonb),
+          '{hiu_claim_cleanup}',
+          COALESCE(w.metadata->'hiu_claim_cleanup', '{}'::jsonb) - $3::text,
+          true
+        )
+      WHERE id = $1 AND tenant_id = $2::uuid
+      RETURNING id`,
+    Number(eventId), tenantId, claimId,
+  ));
+}
+
+async function drainOrphanCleanupEvidence({ tenantId, event }) {
+  if (!event?.id) {
+    throw AppError.serviceUnavailable(
+      'Prior HIU claimant object cleanup evidence is unavailable',
+      'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+    );
+  }
+  const currentEvents = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `SELECT id, metadata
+       FROM abdm_webhook_events
+      WHERE id = $1 AND tenant_id = $2::uuid
+      FOR SHARE`,
+    Number(event.id), tenantId,
+  ));
+  const currentEvent = currentEvents[0];
+  if (!currentEvent) {
+    throw AppError.serviceUnavailable(
+      'Prior HIU claimant object cleanup evidence is unavailable',
+      'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+    );
+  }
+  const legacyKeys = Array.isArray(currentEvent.metadata?.hiu_orphan_storage_keys)
+    ? currentEvent.metadata.hiu_orphan_storage_keys.filter(
+      (key) => typeof key === 'string' && key,
+    )
+    : [];
+  const claimEvidence = currentEvent.metadata?.hiu_claim_cleanup;
+  const claimKeys = claimEvidence && typeof claimEvidence === 'object'
+    ? Object.values(claimEvidence).flatMap((keys) => (
+      Array.isArray(keys) ? keys.filter((key) => typeof key === 'string' && key) : []
+    ))
+    : [];
+  const storageKeys = [...new Set([...legacyKeys, ...claimKeys])];
+  if (storageKeys.length === 0) return;
+  const referencedRows = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `SELECT bundle_storage_key
+       FROM abdm_hiu_received_bundles
+      WHERE tenant_id = $1::uuid AND bundle_storage_key = ANY($2::text[])`,
+    tenantId, storageKeys,
+  ));
+  const referencedKeys = new Set(referencedRows.map((row) => row.bundle_storage_key));
+  const orphanKeys = storageKeys.filter((key) => !referencedKeys.has(key));
+  const failed = await deleteClaimStorageKeys(orphanKeys);
+  if (failed.length > 0) {
+    await persistOrphanCleanupEvidence({
+      tenantId,
+      eventId: currentEvent.id,
+      claimId: 'retry',
+      storageKeys: failed,
+    });
+    throw AppError.serviceUnavailable(
+      'Prior HIU claimant object cleanup is still pending',
+      'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+    );
+  }
+  await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `UPDATE abdm_webhook_events
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          - 'hiu_orphan_storage_keys' - 'hiu_claim_cleanup'
+      WHERE id = $1 AND tenant_id = $2::uuid
+      RETURNING id`,
+    Number(currentEvent.id), tenantId,
+  ));
 }
 
 // ---------------------------------------------------------------------------
@@ -594,11 +911,12 @@ export async function startHiuFetch({
        (tenant_id, environment, consent_artifact_id, patient_uid, transaction_id,
         request_id, hi_types, date_range_from, date_range_to, data_push_url,
         key_material_private_ciphertext, key_material_nonce,
-        key_material_expires_at, status, initiated_by_uid)
+        key_material_expires_at, status, initiated_by_uid, metadata)
      VALUES ($1::uuid, $2::text, $3::integer, $4::uuid, $5::text,
              $5::text, $6::text[], $7::timestamptz, $8::timestamptz, $9::text,
              $10::text, $11::text,
-             NOW() + ($12::int * INTERVAL '1 minute'), 'requested', $13::uuid)
+             NOW() + ($12::int * INTERVAL '1 minute'), 'requested', $13::uuid,
+             jsonb_build_object('hiu_bundle_bytes_received', 0, 'hiu_limits_version', 1))
      RETURNING ${SESSION_RETURNING}`,
     tid, ABDM_CONFIG.environment, artifact.id, artifact.patient_uid, requestId,
     artifact.hi_types || [], artifact.data_from, artifact.data_to, dataPushUrl,
@@ -734,13 +1052,28 @@ export async function handleHiuDataPush({
     throw AppError.badRequest('Data push page contract is invalid', 'ABDM_HIU_PAGE_INVALID');
   }
   if (body.entries.length > MAX_DATA_PUSH_ENTRIES_PER_PAGE) {
-    throw AppError.badRequest(
+    throw payloadTooLarge(
       'Data push page exceeds the supported entry limit',
       'ABDM_HIU_PAGE_ENTRY_LIMIT',
+      { maximum: MAX_DATA_PUSH_ENTRIES_PER_PAGE },
+    );
+  }
+  if (pageCount > MAX_HIU_SESSION_PAGES) {
+    throw payloadTooLarge(
+      'Data push exceeds the supported page count',
+      'ABDM_HIU_SESSION_PAGE_LIMIT',
+      { maximum: MAX_HIU_SESSION_PAGES },
     );
   }
   if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
     throw AppError.badRequest('Exact data-push request bytes are required', 'ABDM_HIU_RAW_BODY_REQUIRED');
+  }
+  if (rawBody.length > MAX_HIU_DATA_PUSH_BYTES) {
+    throw payloadTooLarge(
+      'Data push request exceeds the supported byte limit',
+      'ABDM_HIU_DATA_PUSH_SIZE_LIMIT',
+      { maximumBytes: MAX_HIU_DATA_PUSH_BYTES },
+    );
   }
   const payloadSha256 = crypto.createHash('sha256').update(rawBody).digest('hex');
 
@@ -829,12 +1162,19 @@ export async function handleHiuDataPush({
         );
       }
       if (existingPage?.status === 'completed') {
-        return { session, page: existingPage, completed: true };
+        return {
+          session,
+          page: existingPage,
+          completed: true,
+          cleanupPriorClaims: true,
+        };
       }
 
       if (!LIVE_SESSION_STATUSES.includes(session.status)) {
         throw AppError.conflict('Fetch session is not receiving', 'ABDM_HIU_SESSION_NOT_LIVE');
       }
+      const sessionBytesBefore = sessionBundleBytes(session);
+      assertSessionObjectCapacity(session, body.entries.length);
       if (Number(session.next_page_number) !== pageNumber
           || (session.pages_expected != null && Number(session.pages_expected) !== pageCount)) {
         throw AppError.conflict('Data push page is out of order', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
@@ -871,6 +1211,7 @@ export async function handleHiuDataPush({
       }
 
       let page;
+      let cleanupPriorClaims = false;
       if (existingPage) {
         const freshClaim = existingPage.status === 'claimed'
           && new Date(existingPage.claimed_at).getTime()
@@ -890,6 +1231,7 @@ export async function handleHiuDataPush({
           existingPage.id, tid, payloadSha256, claimId,
         );
         page = reclaimed[0];
+        cleanupPriorClaims = true;
       } else {
         const inserted = await tx.$queryRawUnsafe(
           `INSERT INTO abdm_hiu_fetch_pages
@@ -906,8 +1248,22 @@ export async function handleHiuDataPush({
       if (!page) {
         throw AppError.conflict('Data push page claim was lost', 'ABDM_HIU_PAGE_CLAIM_LOST');
       }
-      return { session, page, completed: false };
+      return {
+        session,
+        page,
+        completed: false,
+        cleanupPriorClaims,
+        sessionBytesBefore,
+      };
     });
+
+    // Cleanup evidence belongs to a prior claimant. It is safe to drain only
+    // after this transaction proves the page completed or atomically replaces
+    // a stale/failed claim. A duplicate observing a fresh claim must not touch
+    // that active claimant's R2 objects.
+    if (pageClaim.cleanupPriorClaims) {
+      await drainOrphanCleanupEvidence({ tenantId: tid, event: eventIntake.event });
+    }
 
     if (pageClaim.completed) {
       if (ownsWebhookEvent) {
@@ -967,17 +1323,52 @@ export async function handleHiuDataPush({
       );
       const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
       const storageKey = `abdm-hiu/${tid}/${session.id}/page-${pageNumber}/${payloadSha256}/claim-${claimId}/${i}-${sha256}.json`;
-      await uploadFileToR2(bytes, storageKey, 'application/fhir+json');
-      uploadedStorageKeys.push(storageKey);
       preparedBundles.push({
         partNumber: i,
         careContextReference: String(entry.careContextReference).slice(0, 120),
         hiType: String(entry.hiType).slice(0, 60),
         storageKey,
         sha256,
+        bytes,
+        byteLength: bytes.length,
         mediaType: String(entry.media || 'application/fhir+json').slice(0, 60),
       });
     }
+    assertPreparedBundleCapacity(
+      pageClaim.sessionBytesBefore,
+      preparedBundles,
+    );
+    await mergeClaimCleanupEvidence({
+      tenantId: tid,
+      eventId: eventIntake.event?.id,
+      claimId,
+      storageKeys: preparedBundles.map((prepared) => prepared.storageKey),
+    });
+    await setTenantTx(tid, async (tx) => {
+      const activeClaimRows = await tx.$queryRawUnsafe(
+        `SELECT p.id
+           FROM abdm_hiu_fetch_pages p
+          WHERE p.id = $1::integer AND p.tenant_id = $2::uuid
+            AND p.status = 'claimed' AND p.claim_id = $3::uuid
+            AND p.payload_sha256 = $4::char(64)
+          FOR SHARE OF p`,
+        pageClaim.page.id, tid, claimId, payloadSha256,
+      );
+      if (!activeClaimRows[0]) {
+        throw AppError.conflict(
+          'Data push page claim was lost before storage',
+          'ABDM_HIU_PAGE_CLAIM_LOST',
+        );
+      }
+      // The SHARE lock spans the R2 writes. A successor cannot replace this
+      // claim (and drain its planned keys) until every possible upload has
+      // materialized; a claimant paused before this fence cannot upload after
+      // a successor takes over.
+      for (const prepared of preparedBundles) {
+        await uploadFileToR2(prepared.bytes, prepared.storageKey, 'application/fhir+json');
+        uploadedStorageKeys.push(prepared.storageKey);
+      }
+    }, { timeout: BUNDLE_UPLOAD_CLAIM_TX_TIMEOUT_MS });
 
     commitStarted = true;
     const commitResult = await setTenantTx(tid, async (tx) => {
@@ -993,7 +1384,8 @@ export async function handleHiuDataPush({
         throw AppError.conflict('Data push page claim was lost', 'ABDM_HIU_PAGE_CLAIM_LOST');
       }
       const lockedSessions = await tx.$queryRawUnsafe(
-        `SELECT status, next_page_number, pages_expected, key_material_expires_at
+        `SELECT status, next_page_number, pages_expected, parts_received, metadata,
+                key_material_expires_at
            FROM abdm_hiu_fetch_sessions
           WHERE id = $1::integer AND tenant_id = $2::uuid
           FOR UPDATE`,
@@ -1008,20 +1400,46 @@ export async function handleHiuDataPush({
             && new Date(lockedSession.key_material_expires_at).getTime() < Date.now())) {
         throw AppError.conflict('Data push page lost its ordering claim', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
       }
+      const lockedSessionBytes = sessionBundleBytes(lockedSession);
+      assertSessionObjectCapacity(lockedSession, preparedBundles.length);
+      const lockedCapacity = assertPreparedBundleCapacity(lockedSessionBytes, preparedBundles);
+
+      // The consent was checked before decrypt/upload, but a signed revoke or
+      // dataEraseAt may land while R2 is in flight. Re-lock the complete
+      // binding immediately before the durable bundle references are written.
+      // A concurrent revoke waits behind these SHARE locks; if it committed
+      // first, this query returns no row and the catch path deletes the upload.
+      const activeConsentRows = await tx.$queryRawUnsafe(
+        `SELECT a.expiry_at AS artifact_expiry_at,
+                r.expiry_at AS request_expiry_at
+           FROM abdm_hiu_fetch_sessions s
+           JOIN abdm_consent_artifacts a
+             ON a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id
+           JOIN abdm_consent_requests r
+             ON r.id = a.consent_request_id AND r.tenant_id = s.tenant_id
+           JOIN users u
+             ON u.uid = s.patient_uid AND u.tenant_id = s.tenant_id
+          WHERE s.id = $1::integer AND s.tenant_id = $2::uuid
+            AND ${ACTIVE_HIU_CONSENT_CHAIN_PREDICATE}
+          FOR SHARE OF a, r, u`,
+        session.id, tid,
+      );
+      if (!activeConsentRows[0]) throw inactiveHiuConsentError();
 
       for (const prepared of preparedBundles) {
         await tx.$queryRawUnsafe(
           `INSERT INTO abdm_hiu_received_bundles
              (tenant_id, fetch_session_id, fetch_page_id, page_number,
               care_context_reference, hi_type, part_number, bundle_storage_key,
-              bundle_sha256, checksum_verified, media_type)
+              bundle_sha256, checksum_verified, media_type, metadata)
            VALUES ($1::uuid, $2::integer, $3::integer, $4::integer,
                    $5::text, $6::text, $7::integer, $8::text,
-                   $9::char(64), true, $10::text)
+                   $9::char(64), true, $10::text,
+                   jsonb_build_object('byte_length', $11::integer))
            RETURNING id`,
           tid, session.id, pageClaim.page.id, pageNumber,
           prepared.careContextReference, prepared.hiType, prepared.partNumber,
-          prepared.storageKey, prepared.sha256, prepared.mediaType,
+          prepared.storageKey, prepared.sha256, prepared.mediaType, prepared.byteLength,
         );
       }
 
@@ -1036,6 +1454,12 @@ export async function handleHiuDataPush({
                 key_material_private_ciphertext = CASE
                   WHEN $6::boolean THEN NULL ELSE key_material_private_ciphertext
                 END,
+                metadata = jsonb_set(
+                  metadata,
+                  '{hiu_bundle_bytes_received}',
+                  to_jsonb($8::bigint),
+                  true
+                ),
                 updated_at = NOW()
           WHERE id = $1::integer AND tenant_id = $2::uuid
             AND next_page_number = $7::int
@@ -1044,6 +1468,7 @@ export async function handleHiuDataPush({
           RETURNING ${SESSION_RETURNING}`,
         session.id, tid, finalPage ? 'completed' : 'receiving',
         preparedBundles.length, pageCount, finalPage, pageNumber,
+        lockedCapacity.sessionBytesAfter,
       );
       if (!rows[0]) {
         throw AppError.conflict('Data push page lost its ordering claim', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
@@ -1064,6 +1489,11 @@ export async function handleHiuDataPush({
     });
 
     const updatedSession = commitResult.session;
+    await clearClaimCleanupEvidence({
+      tenantId: tid,
+      eventId: eventIntake.event?.id,
+      claimId,
+    });
     if (commitResult.finalPage) {
       if (session.data_transfer_id) {
         await transitionDataTransfer({
@@ -1106,9 +1536,21 @@ export async function handleHiuDataPush({
     if (commitStarted && pageClaim?.page?.id) {
       try {
         const completedRows = await prisma.$queryRawUnsafe(
-          `SELECT parts_count FROM abdm_hiu_fetch_pages
-            WHERE id = $1::integer AND tenant_id = $2::uuid
-              AND payload_sha256 = $3::char(64) AND status = 'completed'
+          `SELECT p.parts_count,
+                  COALESCE(
+                    ARRAY_AGG(b.bundle_storage_key ORDER BY b.part_number)
+                      FILTER (WHERE b.id IS NOT NULL),
+                    ARRAY[]::varchar[]
+                  ) AS referenced_storage_keys
+             FROM abdm_hiu_fetch_pages p
+             LEFT JOIN abdm_hiu_received_bundles b
+               ON b.tenant_id = p.tenant_id
+              AND b.fetch_session_id = p.fetch_session_id
+              AND b.fetch_page_id = p.id
+              AND b.page_number = p.page_number
+            WHERE p.id = $1::integer AND p.tenant_id = $2::uuid
+              AND p.payload_sha256 = $3::char(64) AND p.status = 'completed'
+            GROUP BY p.id, p.parts_count
             LIMIT 1`,
           pageClaim.page.id, tid, payloadSha256,
         );
@@ -1119,6 +1561,42 @@ export async function handleHiuDataPush({
           pageId: pageClaim.page.id, error: checkErr.message,
         });
       }
+    }
+    if (commitStarted && !completionCheckSucceeded) {
+      await persistOrphanCleanupEvidence({
+        tenantId: tid,
+        eventId: eventIntake.event?.id,
+        claimId,
+        storageKeys: uploadedStorageKeys,
+      });
+      throw AppError.serviceUnavailable(
+        'HIU claimant commit reconciliation is pending retry',
+        'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+      );
+    }
+    if (completionCheckSucceeded) {
+      const referencedKeys = new Set(committedPage?.referenced_storage_keys ?? []);
+      const staleClaimKeys = uploadedStorageKeys.filter((key) => !referencedKeys.has(key));
+      const failedCleanupKeys = await deleteClaimStorageKeys(staleClaimKeys, {
+        sessionId: pageClaim?.session?.id,
+      });
+      if (failedCleanupKeys.length > 0) {
+        await persistOrphanCleanupEvidence({
+          tenantId: tid,
+          eventId: eventIntake.event?.id,
+          claimId,
+          storageKeys: failedCleanupKeys,
+        });
+        throw AppError.serviceUnavailable(
+          'HIU claimant object cleanup is pending retry',
+          'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+        );
+      }
+      await clearClaimCleanupEvidence({
+        tenantId: tid,
+        eventId: eventIntake.event?.id,
+        claimId,
+      });
     }
     if (committedPage) {
       if (ownsWebhookEvent) {
@@ -1134,13 +1612,24 @@ export async function handleHiuDataPush({
         failed: 0,
       };
     }
-    if (!commitStarted || completionCheckSucceeded) {
-      await Promise.all(uploadedStorageKeys.map((storageKey) => deleteObject(storageKey)
-        .catch((cleanupErr) => logger.error('ABDM HIU orphan cleanup failed', {
-          sessionId: pageClaim?.session?.id,
-          storageKey,
-          error: cleanupErr.message,
-        }))));
+    if (!commitStarted) {
+      const failedCleanupKeys = await deleteClaimStorageKeys(uploadedStorageKeys, {
+        sessionId: pageClaim?.session?.id,
+      });
+      if (failedCleanupKeys.length > 0) {
+        await persistOrphanCleanupEvidence({
+          tenantId: tid,
+          eventId: eventIntake.event?.id,
+          claimId,
+          storageKeys: failedCleanupKeys,
+        });
+      } else {
+        await clearClaimCleanupEvidence({
+          tenantId: tid,
+          eventId: eventIntake.event?.id,
+          claimId,
+        });
+      }
     }
     if (pageClaim?.page?.id) {
       await prisma.$executeRawUnsafe(
@@ -1190,16 +1679,71 @@ export async function getFetchSession({ tenantId = null, sessionId } = {}) {
   return publicSession(rows[0]);
 }
 
-export async function listReceivedBundles({ tenantId = null, sessionId } = {}) {
-  const tid = requireTenantId(tenantId);
-  await getFetchSession({ tenantId: tid, sessionId });
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${BUNDLE_RETURNING} FROM abdm_hiu_received_bundles
-      WHERE tenant_id = $1::uuid AND fetch_session_id = $2::integer
-      ORDER BY page_number ASC, part_number ASC, received_at ASC`,
-    tid, Number(sessionId),
+async function lockActiveHiuSessionAccess(tx, tenantId, sessionId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT s.id, s.patient_uid, s.parts_received, s.metadata,
+            a.expiry_at AS artifact_expiry_at,
+            r.expiry_at AS request_expiry_at
+       FROM abdm_hiu_fetch_sessions s
+       JOIN abdm_consent_artifacts a
+         ON a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id
+       JOIN abdm_consent_requests r
+         ON r.id = a.consent_request_id AND r.tenant_id = s.tenant_id
+       JOIN users u
+         ON u.uid = s.patient_uid AND u.tenant_id = s.tenant_id
+      WHERE s.id = $1::integer AND s.tenant_id = $2::uuid
+        AND ${ACTIVE_BUNDLE_CONSENT_PREDICATE}
+      FOR SHARE OF s, a, r, u`,
+    Number(sessionId), tenantId,
   );
-  return { bundles: rows, count: rows.length };
+  if (!rows[0]) throw inactiveHiuConsentError();
+  assertBundleTimeWindow(rows[0]);
+  assertReadableSessionAccounting(rows[0]);
+  return rows[0];
+}
+
+export async function listReceivedBundles({
+  tenantId = null, sessionId, limit = 50, offset = 0,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const safeLimit = boundedListInteger(limit, {
+    name: 'limit', fallback: 50, minimum: 1, maximum: 100,
+  });
+  const safeOffset = boundedListInteger(offset, {
+    name: 'offset', fallback: 0,
+  });
+  return setTenantTx(tid, async (tx) => {
+    const access = await lockActiveHiuSessionAccess(tx, tid, sessionId);
+    const totals = await tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS total
+         FROM abdm_hiu_received_bundles b
+        WHERE b.tenant_id = $1::uuid AND b.fetch_session_id = $2::integer`,
+      tid, Number(sessionId),
+    );
+    const total = Number(totals[0]?.total ?? 0);
+    if (!Number.isSafeInteger(total) || total < 0 || total > MAX_HIU_SESSION_BUNDLES) {
+      throw AppError.conflict(
+        'Fetch session bundle count is outside the supported limit',
+        'ABDM_HIU_SESSION_BUNDLE_ACCOUNTING_INVALID',
+      );
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT ${BUNDLE_SELECT} FROM abdm_hiu_received_bundles b
+        WHERE b.tenant_id = $1::uuid AND b.fetch_session_id = $2::integer
+        ORDER BY b.page_number ASC, b.part_number ASC, b.received_at ASC
+        LIMIT $3::integer OFFSET $4::integer
+        FOR SHARE OF b`,
+      tid, Number(sessionId), safeLimit, safeOffset,
+    );
+    assertBundleTimeWindow(access);
+    return {
+      bundles: rows.map(publicBundle),
+      count: rows.length,
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+    };
+  });
 }
 
 /**
@@ -1208,56 +1752,229 @@ export async function listReceivedBundles({ tenantId = null, sessionId } = {}) {
  */
 export async function getReceivedBundleContent({ tenantId = null, sessionId, bundleId } = {}) {
   const tid = requireTenantId(tenantId);
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${BUNDLE_RETURNING} FROM abdm_hiu_received_bundles
-      WHERE id = $1::integer AND tenant_id = $2::uuid AND fetch_session_id = $3::integer
-      LIMIT 1`,
-    Number(bundleId), tid, Number(sessionId),
-  );
-  const row = rows[0];
-  if (!row) {
-    throw AppError.notFound('Received bundle not found', 'ABDM_HIU_BUNDLE_NOT_FOUND');
-  }
-  const bytes = Buffer.from(await getFileFromR2(row.bundle_storage_key));
-  let bundle;
-  try {
-    bundle = JSON.parse(bytes.toString('utf8'));
-  } catch {
-    bundle = bytes.toString('utf8');
-  }
-  return { bundle: row, content: bundle };
+  return setTenantTx(tid, async (tx) => {
+    const access = await lockActiveHiuSessionAccess(tx, tid, sessionId);
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT ${BUNDLE_SELECT} FROM abdm_hiu_received_bundles b
+        WHERE b.id = $1::integer AND b.tenant_id = $2::uuid
+          AND b.fetch_session_id = $3::integer
+        LIMIT 1
+        FOR SHARE OF b`,
+      Number(bundleId), tid, Number(sessionId),
+    );
+    const row = rows[0];
+    if (!row) {
+      throw AppError.notFound('Received bundle not found', 'ABDM_HIU_BUNDLE_NOT_FOUND');
+    }
+    const declaredByteLength = bundleByteLength(row);
+
+    // Keep the consent/request/session SHARE locks until the decrypted bytes
+    // are ready. A revoke cannot commit underneath this read, and a purge
+    // cannot delete the object before the read completes. dataEraseAt is a
+    // clock boundary rather than a row mutation, so check it again after R2.
+    const bytes = Buffer.from(await getFileFromR2(row.bundle_storage_key));
+    assertBundleTimeWindow(access);
+    if (bytes.length !== declaredByteLength || bytes.length > MAX_HIU_BUNDLE_BYTES) {
+      throw AppError.conflict(
+        'Received bundle bytes do not match durable accounting',
+        'ABDM_HIU_BUNDLE_SIZE_MISMATCH',
+      );
+    }
+    const actualSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (actualSha256 !== row.bundle_sha256) {
+      throw AppError.conflict(
+        'Received bundle bytes failed integrity verification',
+        'ABDM_HIU_BUNDLE_INTEGRITY_MISMATCH',
+      );
+    }
+    let bundle;
+    try {
+      bundle = JSON.parse(bytes.toString('utf8'));
+    } catch {
+      bundle = bytes.toString('utf8');
+    }
+    return { bundle: publicBundle(row), content: bundle };
+  }, { timeout: BUNDLE_READ_TX_TIMEOUT_MS });
 }
 
 /**
- * Cron sweep (abdm-hiu-fetch-expiry): expire live sessions whose key material
- * aged out, and destroy any key a terminal session still holds — key material
- * is a liability, not evidence.
+ * Delete R2 bundles whose consent chain is no longer readable. The reference
+ * row is the durable retry ledger: it is removed only after the object delete
+ * succeeds, so an R2 failure cannot orphan PHI without its cleanup pointer.
  */
-export async function sweepExpiredHiuFetchSessions() {
-  const expired = await prisma.$queryRawUnsafe(
-    `UPDATE abdm_hiu_fetch_sessions
-        SET status = 'expired', key_material_private_ciphertext = NULL,
-            failure_reason = COALESCE(failure_reason, 'key material expired before transfer'),
-            updated_at = NOW()
-      WHERE status IN ('${LIVE_SESSION_STATUSES.join("', '")}')
-        AND key_material_expires_at IS NOT NULL AND key_material_expires_at < NOW()
-      RETURNING id`,
+export async function purgeInactiveHiuBundles({
+  tenantId = null,
+  limit = MAX_BUNDLE_PURGE_BATCH,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const safeLimit = Math.min(
+    Math.max(Number.parseInt(limit, 10) || MAX_BUNDLE_PURGE_BATCH, 1),
+    1000,
   );
-  const scrubbed = await prisma.$queryRawUnsafe(
-    `UPDATE abdm_hiu_fetch_sessions
-        SET key_material_private_ciphertext = NULL, updated_at = NOW()
-      WHERE status IN ('completed', 'partial', 'failed', 'expired')
-        AND key_material_private_ciphertext IS NOT NULL
-      RETURNING id`,
-  );
-  if (expired.length > 0 || scrubbed.length > 0) {
-    logger.info('ABDM HIU fetch expiry sweep complete', {
+  const candidates = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
+    `SELECT b.id, b.tenant_id
+       FROM abdm_hiu_received_bundles b
+       JOIN abdm_hiu_fetch_sessions s
+         ON s.id = b.fetch_session_id AND s.tenant_id = b.tenant_id
+       LEFT JOIN abdm_consent_artifacts a
+         ON a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id
+       LEFT JOIN abdm_consent_requests r
+         ON r.id = a.consent_request_id AND r.tenant_id = s.tenant_id
+       LEFT JOIN users u
+         ON u.uid = s.patient_uid AND u.tenant_id = s.tenant_id
+      WHERE b.tenant_id = $1::uuid
+        AND (${ACTIVE_BUNDLE_CONSENT_PREDICATE}) IS NOT TRUE
+      ORDER BY b.id ASC
+      LIMIT $2::integer`,
+    tid, safeLimit,
+  ));
+
+  let purged = 0;
+  let errors = 0;
+  for (const candidate of candidates) {
+    try {
+      const deleted = await setTenantTx(tid, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT b.id, b.bundle_storage_key
+             FROM abdm_hiu_received_bundles b
+             JOIN abdm_hiu_fetch_sessions s
+               ON s.id = b.fetch_session_id AND s.tenant_id = b.tenant_id
+             LEFT JOIN abdm_consent_artifacts a
+               ON a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id
+             LEFT JOIN abdm_consent_requests r
+               ON r.id = a.consent_request_id AND r.tenant_id = s.tenant_id
+             LEFT JOIN users u
+               ON u.uid = s.patient_uid AND u.tenant_id = s.tenant_id
+            WHERE b.id = $1::integer AND b.tenant_id = $2::uuid
+              AND (${ACTIVE_BUNDLE_CONSENT_PREDICATE}) IS NOT TRUE
+            FOR UPDATE OF b`,
+          Number(candidate.id), tid,
+        );
+        if (!rows[0]) return false;
+        await deleteObject(rows[0].bundle_storage_key);
+        const removed = await tx.$queryRawUnsafe(
+          `DELETE FROM abdm_hiu_received_bundles
+            WHERE id = $1::integer AND tenant_id = $2::uuid
+            RETURNING id`,
+          Number(candidate.id), tid,
+        );
+        return Boolean(removed[0]);
+      }, { timeout: BUNDLE_PURGE_TX_TIMEOUT_MS });
+      if (deleted) purged += 1;
+    } catch (err) {
+      errors += 1;
+      logger.error('ABDM HIU bundle purge failed; durable reference retained for retry', {
+        tenantId: tid,
+        bundleId: candidate.id,
+        error: err.message,
+      });
+    }
+  }
+  return { candidates: candidates.length, purged, errors };
+}
+
+/**
+ * Tenant-scoped cron sweep: persist dataEraseAt expiry, expire unsafe live
+ * sessions and keys, then erase decrypted bundles with durable retry semantics.
+ */
+export async function sweepExpiredHiuFetchSessions({ tenantId = null } = {}) {
+  const tid = requireTenantId(tenantId);
+  const state = await setTenantTx(tid, async (tx) => {
+    const artifactsExpired = await tx.$queryRawUnsafe(
+      `UPDATE abdm_consent_artifacts a
+          SET status = 'expired', expired_at = clock_timestamp(), updated_at = NOW()
+         FROM abdm_consent_requests r
+        WHERE a.tenant_id = $1::uuid
+          AND r.id = a.consent_request_id AND r.tenant_id = a.tenant_id
+          AND r.flow_kind = 'hiu'
+          AND a.status = 'active' AND a.expiry_at IS NOT NULL
+          AND a.expiry_at <= clock_timestamp()
+        RETURNING a.id`,
+      tid,
+    );
+    const requestsExpired = await tx.$queryRawUnsafe(
+      `UPDATE abdm_consent_requests
+          SET status = 'expired', decided_at = clock_timestamp(), updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND flow_kind = 'hiu' AND status = 'granted'
+          AND expiry_at IS NOT NULL AND expiry_at <= clock_timestamp()
+        RETURNING id`,
+      tid,
+    );
+    const expired = await tx.$queryRawUnsafe(
+      `UPDATE abdm_hiu_fetch_sessions s
+          SET status = 'expired', key_material_private_ciphertext = NULL,
+              failure_reason = COALESCE(
+                failure_reason,
+                CASE
+                  WHEN s.key_material_expires_at IS NOT NULL
+                   AND s.key_material_expires_at <= clock_timestamp()
+                    THEN 'key material expired before transfer'
+                  ELSE 'consent inactive or data retention elapsed'
+                END
+              ),
+              updated_at = NOW()
+        WHERE s.tenant_id = $1::uuid
+          AND s.status IN ('${LIVE_SESSION_STATUSES.join("', '")}')
+          AND (
+            (s.key_material_expires_at IS NOT NULL
+              AND s.key_material_expires_at <= clock_timestamp())
+            OR NOT EXISTS (
+              SELECT 1
+                FROM abdm_consent_artifacts a
+                JOIN abdm_consent_requests r
+                  ON r.id = a.consent_request_id AND r.tenant_id = a.tenant_id
+                JOIN users u
+                  ON u.uid = s.patient_uid AND u.tenant_id = s.tenant_id
+               WHERE a.id = s.consent_artifact_id AND a.tenant_id = s.tenant_id
+                 AND ${ACTIVE_HIU_CONSENT_CHAIN_PREDICATE}
+            )
+          )
+        RETURNING s.id`,
+      tid,
+    );
+    const scrubbed = await tx.$queryRawUnsafe(
+      `UPDATE abdm_hiu_fetch_sessions
+          SET key_material_private_ciphertext = NULL, updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND status IN ('completed', 'partial', 'failed', 'expired')
+          AND key_material_private_ciphertext IS NOT NULL
+        RETURNING id`,
+      tid,
+    );
+    return {
+      artifactsExpired: artifactsExpired.length,
+      requestsExpired: requestsExpired.length,
       expired: expired.length,
       keysScrubbed: scrubbed.length,
+    };
+  });
+  const cleanup = await purgeInactiveHiuBundles({ tenantId: tid });
+  if (state.expired > 0 || state.keysScrubbed > 0 || state.artifactsExpired > 0
+      || state.requestsExpired > 0 || cleanup.purged > 0 || cleanup.errors > 0) {
+    logger.info('ABDM HIU retention sweep complete', {
+      tenantId: tid,
+      ...state,
+      bundlesPurged: cleanup.purged,
+      cleanupErrors: cleanup.errors,
     });
   }
-  return { expired: expired.length, keysScrubbed: scrubbed.length };
+  return {
+    ...state,
+    bundlesPurged: cleanup.purged,
+    cleanupErrors: cleanup.errors,
+  };
 }
+
+export const __testing__ = Object.freeze({
+  MAX_HIU_SESSION_PAGES,
+  MAX_HIU_SESSION_BUNDLES,
+  MAX_HIU_DATA_PUSH_BYTES,
+  MAX_HIU_BUNDLE_BYTES,
+  MAX_HIU_SESSION_BYTES,
+  assertPreparedBundleCapacity,
+  persistOrphanCleanupEvidence,
+  drainOrphanCleanupEvidence,
+});
 
 export default {
   createHiuConsentRequest,
@@ -1270,5 +1987,7 @@ export default {
   getFetchSession,
   listReceivedBundles,
   getReceivedBundleContent,
+  purgeInactiveHiuBundles,
   sweepExpiredHiuFetchSessions,
+  __testing__,
 };

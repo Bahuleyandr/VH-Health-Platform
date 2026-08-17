@@ -33,7 +33,17 @@ const callbackErrorResponses = {
   409: errorResponse('The callback conflicted with retained transaction or page evidence.'),
   429: errorResponse('The callback source exceeded the public webhook rate limit.'),
   500: errorResponse('The authenticated callback could not be recorded; the sender may retry.'),
-  503: errorResponse('The ABDM integration or durable replay authority was unavailable.'),
+  503: errorResponse(
+    'The ABDM integration, durable replay authority, or safe storage cleanup was unavailable; the sender must retry.',
+  ),
+};
+const hiuAuthenticatedErrorResponses = {
+  ...authenticatedErrorResponses,
+  503: errorResponse('ABDM HIU is disabled or unavailable.'),
+};
+const hiuDataPushCallbackErrorResponses = {
+  ...callbackErrorResponses,
+  413: errorResponse('The callback exceeded an ABDM page, object, or byte limit.'),
 };
 const ABDM_CALLBACK_PARAMETERS = [
   {
@@ -153,7 +163,7 @@ export const schemas = {
       environment: { type: 'string', enum: ['sandbox', 'production'] },
       status: {
         type: 'string',
-        enum: ['initiated', 'otp_sent', 'otp_verified', 'enrolled', 'linked', 'failed', 'expired', 'cancelled'],
+        enum: ['initiated', 'otp_sent', 'otp_verifying', 'otp_verified', 'enrolled', 'linked', 'failed', 'expired', 'cancelled'],
       },
       otp_attempts: { type: 'integer' },
       mobile_last4: { type: 'string', nullable: true, description: 'The only demographic echo kept — never the full mobile, never any Aadhaar material.' },
@@ -301,7 +311,7 @@ export const schemas = {
 
   AbdmHiuConsentRequestCreate: {
     type: 'object',
-    required: ['abha_address', 'hi_types', 'date_from', 'date_to'],
+    required: ['abha_address', 'hi_types', 'date_from', 'date_to', 'expiry'],
     properties: {
       abha_address: { type: 'string', description: 'Patient ABHA address (name@abdm / name@sbx).' },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
@@ -309,7 +319,7 @@ export const schemas = {
       hi_types: { type: 'array', items: { type: 'string' }, minItems: 1 },
       date_from: { type: 'string', format: 'date-time' },
       date_to: { type: 'string', format: 'date-time' },
-      expiry: { type: 'string', format: 'date-time', nullable: true },
+      expiry: { type: 'string', format: 'date-time' },
     },
   },
   AbdmHiuConsentRequest: {
@@ -397,15 +407,22 @@ export const schemas = {
   },
   AbdmHiuReceivedBundle: {
     type: 'object',
-    required: ['id', 'fetch_session_id', 'bundle_storage_key', 'bundle_sha256'],
+    required: ['id', 'fetch_session_id', 'bundle_sha256', 'byte_length'],
     properties: {
       id: { type: 'integer' },
       fetch_session_id: { type: 'integer' },
+      fetch_page_id: { type: 'integer' },
+      page_number: { type: 'integer', minimum: 1 },
       care_context_reference: { type: 'string', nullable: true },
       hi_type: { type: 'string', nullable: true },
       part_number: { type: 'integer', nullable: true },
-      bundle_storage_key: { type: 'string', description: 'R2 object key of the decrypted FHIR bundle — PHI bytes never land in Postgres.' },
       bundle_sha256: { type: 'string' },
+      byte_length: {
+        type: 'integer',
+        minimum: 0,
+        maximum: 524288,
+        description: 'Verified decrypted byte length. The private R2 object key is never exposed.',
+      },
       checksum_verified: { type: 'boolean' },
       media_type: { type: 'string' },
       received_at: { type: 'string', format: 'date-time' },
@@ -413,10 +430,13 @@ export const schemas = {
   },
   AbdmHiuBundleList: {
     type: 'object',
-    required: ['bundles', 'count'],
+    required: ['bundles', 'count', 'total', 'limit', 'offset'],
     properties: {
       bundles: { type: 'array', items: { $ref: '#/components/schemas/AbdmHiuReceivedBundle' } },
       count: { type: 'integer' },
+      total: { type: 'integer', maximum: 1000 },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      offset: { type: 'integer', minimum: 0, maximum: 2147483647 },
     },
   },
   AbdmHiuBundleContent: {
@@ -477,6 +497,20 @@ const enrolmentOps = (base, audience) => ({
   },
 });
 
+const patientUidQuery = {
+  name: 'patient_uid',
+  in: 'query',
+  required: true,
+  schema: { type: 'string', format: 'uuid' },
+  description: 'Verified patient context required by the clinical PHI access guard.',
+};
+const listLimitQuery = (maximum = 200, defaultValue = 50) => ({
+  name: 'limit',
+  in: 'query',
+  required: false,
+  schema: { type: 'integer', minimum: 1, maximum, default: defaultValue },
+});
+
 export const operations = {
   ...enrolmentOps('/api/v1/portal/abdm/enrolment', 'patient self-service; target is always the caller'),
   'GET /api/v1/portal/abdm/enrolment/status': {
@@ -495,6 +529,24 @@ export const operations = {
 
   'GET /api/v1/front-desk/abdm/share-intakes': {
     description: 'Front-desk queue of Scan & Share intakes (patient-scanned counter QR → CM profile share). Filter with ?status=received for the live counter screen.',
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['received', 'matched', 'registered', 'linked_visit', 'dismissed', 'expired', 'failed'],
+        },
+      },
+      listLimitQuery(),
+      {
+        name: 'offset',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, default: 0 },
+      },
+    ],
     response: 'AbdmShareIntakeListResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
@@ -552,7 +604,7 @@ export const operations = {
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consents/notify': {
-    description: `Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
+    description: `Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Every GRANTED notification must carry a signed consent artefact; signature verification is mandatory on this HIU path regardless of the optional HIP-side verification toggle. Revocation and expiry immediately deny bundle access and schedule durable R2 cleanup. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuCallbackAckResponse',
     responseStatus: 202,
     security: [],
@@ -568,12 +620,12 @@ export const operations = {
     additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/health-info/push': {
-    description: `Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page). ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
+    description: `Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, and consent is revalidated before durable storage references commit. Page redeliveries collapse per (transactionId, page). Limits are 100 pages, 1000 bundles per session, 1000 entries per page, 1 MiB per request/decrypted page, 512 KiB per decrypted bundle, and 20 MiB of decrypted bundles per session. ${ABDM_CALLBACK_SIGNATURE_DESCRIPTION}`,
     response: 'AbdmHiuDataPushAckResponse',
     responseStatus: 202,
     security: [],
     parameters: ABDM_CALLBACK_PARAMETERS,
-    additionalResponses: callbackErrorResponses,
+    additionalResponses: hiuDataPushCallbackErrorResponses,
   },
 
   'POST /api/v1/abdm/hiu/consent-requests': {
@@ -582,16 +634,27 @@ export const operations = {
     response: 'AbdmHiuConsentRequestResponse',
     responseStatus: 201,
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: hiuAuthenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/consent-requests': {
     description: 'HIU consent requests for this tenant (flow_kind hiu), newest first.',
+    parameters: [
+      patientUidQuery,
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['requested', 'granted', 'denied', 'revoked', 'expired', 'failed'] },
+      },
+      listLimitQuery(),
+    ],
     response: 'AbdmHiuConsentRequestListResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/consents': {
     description: 'Consent artefacts granted against HIU consent requests.',
+    parameters: [patientUidQuery, listLimitQuery()],
     response: 'AbdmHiuConsentArtifactListResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
@@ -601,10 +664,23 @@ export const operations = {
     response: 'AbdmHiuFetchSessionResponse',
     responseStatus: 201,
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: hiuAuthenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions': {
     description: 'HIU fetch sessions (requested → acknowledged → receiving → completed | partial | failed | expired). Key material columns are never exposed.',
+    parameters: [
+      patientUidQuery,
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['requested', 'acknowledged', 'receiving', 'completed', 'partial', 'failed', 'expired'],
+        },
+      },
+      listLimitQuery(),
+    ],
     response: 'AbdmHiuFetchSessionListResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
@@ -616,13 +692,22 @@ export const operations = {
     additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions/{id}/bundles': {
-    description: 'Reference rows for the decrypted bundles a fetch session received. PHI bytes live in R2, not in these rows.',
+    description: 'Bounded reference-page for decrypted bundles received by a fetch session. Access fails closed after revocation, expiry, dataEraseAt, or inconsistent byte/object accounting. PHI bytes live in R2, not in these rows.',
+    parameters: [
+      listLimitQuery(100),
+      {
+        name: 'offset',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, maximum: 2147483647, default: 0 },
+      },
+    ],
     response: 'AbdmHiuBundleListResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions/{id}/bundles/{bundleId}': {
-    description: 'Streams one decrypted FHIR bundle from R2 for transient rendering. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.',
+    description: 'Streams one decrypted FHIR bundle from R2 for transient rendering only while the exact tenant, patient, request, artefact, session, byte-count, and SHA-256 chain remains valid. Revocation, expiry, dataEraseAt, or accounting drift fails closed before content is returned. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.',
     response: 'AbdmHiuBundleContentResponse',
     security: AUTHENTICATED_SECURITY,
     additionalResponses: authenticatedErrorResponses,

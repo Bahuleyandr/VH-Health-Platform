@@ -248,7 +248,9 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       claimed_at: new Date(),
       parts_count: 0,
     }]);
+    route('SELECT p.id', () => [{ id: 91 }]);
     route('SELECT id FROM abdm_hiu_fetch_pages', () => [{ id: 91 }]);
+    route('SELECT id, metadata', () => [{ id: 61, metadata: {} }]);
     route('SELECT status, next_page_number', () => [session]);
     route('UPDATE abdm_hiu_fetch_sessions', (sql, args) => [{
       ...session,
@@ -283,7 +285,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     let sessionSelectSql;
     let consentSelectSql;
     route('FROM abdm_hiu_fetch_sessions', (sql) => {
-      if (sql.includes('FROM abdm_hiu_fetch_sessions s')) sessionSelectSql = sql;
+      if (sql.includes('key_material_private_ciphertext')) sessionSelectSql = sql;
       return [session];
     });
     route('SELECT 1 FROM abdm_consent_artifacts', (sql) => {
@@ -422,7 +424,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       if (insertAttempts === 1) throw new Error('first worker lost its transaction');
       return [{ id: 82 }];
     });
-    route('SELECT parts_count FROM abdm_hiu_fetch_pages', () => []);
+    route('SELECT p.parts_count', () => []);
     route("SET status = 'failed'", () => {
       pageState = { ...pageState, status: 'failed' };
       return [];
@@ -438,6 +440,292 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     expect(successorKey).not.toBe(staleKey);
     expect(successorKey).toMatch(/\/claim-[0-9a-f-]{36}\//);
     expect(deleteObject).not.toHaveBeenCalledWith(successorKey);
+  });
+
+  it('retires only the stale claimant keys when a successor commits first', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const successorKey = 'abdm-hiu/successor/claim-successor/bundle.json';
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('INSERT INTO abdm_hiu_received_bundles', () => {
+      throw new Error('stale claimant lost commit race');
+    });
+    route('SELECT p.parts_count', () => [{
+      parts_count: 1,
+      referenced_storage_keys: [successorKey],
+    }]);
+
+    const result = await push({
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    });
+
+    const staleKey = uploadFileToR2.mock.calls[0][1];
+    expect(result).toMatchObject({ duplicate: true, stored: 1 });
+    expect(staleKey).not.toBe(successorKey);
+    expect(deleteObject).toHaveBeenCalledWith(staleKey);
+    expect(deleteObject).not.toHaveBeenCalledWith(successorKey);
+    const claimEvidenceWrite = txQuery.mock.calls.find(
+      (call) => call[0].includes("ARRAY['hiu_claim_cleanup', $4::text]") && call[5] === false,
+    );
+    const claimEvidenceClear = txQuery.mock.calls.find(
+      (call) => call[0].includes("'{hiu_claim_cleanup}'") && call[3] === claimEvidenceWrite[4],
+    );
+    expect(claimEvidenceWrite).toBeDefined();
+    expect(claimEvidenceClear).toBeDefined();
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(expect.objectContaining({
+      id: 61,
+      status: 'processed',
+    }));
+  });
+
+  it('a fresh duplicate cannot drain the active claimant R2 keys', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    };
+    let pageState = null;
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('SELECT id, page_number, page_count', () => (pageState ? [pageState] : []));
+    route('INSERT INTO abdm_hiu_fetch_pages', (_sql, args) => {
+      pageState = {
+        id: 91,
+        page_number: 1,
+        page_count: 1,
+        payload_sha256: args[4],
+        status: 'claimed',
+        claim_id: args[5],
+        claimed_at: new Date(),
+        parts_count: 0,
+      };
+      return [pageState];
+    });
+    route('INSERT INTO abdm_hiu_received_bundles', () => [{ id: 81 }]);
+
+    const objects = new Map();
+    let signalUploadStarted;
+    const uploadStarted = new Promise((resolve) => { signalUploadStarted = resolve; });
+    let releaseUpload;
+    const holdUpload = new Promise((resolve) => { releaseUpload = resolve; });
+    uploadFileToR2.mockImplementation(async (bytes, storageKey) => {
+      objects.set(storageKey, Buffer.from(bytes));
+      signalUploadStarted();
+      await holdUpload;
+      return `local://${storageKey}`;
+    });
+    deleteObject.mockImplementation(async (storageKey) => {
+      objects.delete(storageKey);
+    });
+    let intakeCount = 0;
+    hipHiuMock.recordWebhookEvent.mockImplementation(async () => {
+      intakeCount += 1;
+      return {
+        event: {
+          id: '61',
+          status: intakeCount === 1 ? 'pending' : 'processed',
+          metadata: intakeCount === 1 ? {} : {
+            hiu_claim_cleanup: { active: [...objects.keys()] },
+          },
+        },
+        duplicate: intakeCount > 1,
+      };
+    });
+
+    const activePush = push(body);
+    let activeKey;
+    try {
+      await uploadStarted;
+      activeKey = [...objects.keys()][0];
+      await expect(push(body)).rejects.toMatchObject({
+        code: 'ABDM_HIU_PAGE_IN_PROGRESS',
+        statusCode: 409,
+      });
+      expect(objects.has(activeKey)).toBe(true);
+      expect(deleteObject).not.toHaveBeenCalledWith(activeKey);
+    } finally {
+      releaseUpload();
+      await activePush.catch(() => {});
+    }
+    await expect(activePush).resolves.toMatchObject({ stored: 1, failed: 0 });
+    const durableInsert = txQuery.mock.calls.find(
+      (call) => call[0].includes('INSERT INTO abdm_hiu_received_bundles'),
+    );
+    expect(durableInsert[8]).toBe(activeKey);
+    expect(objects.has(activeKey)).toBe(true);
+  });
+
+  it('a claimant paused before upload cannot materialize keys after stale reclaim', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    };
+    let pageState = null;
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('SELECT id, page_number, page_count', () => (pageState ? [pageState] : []));
+    route('INSERT INTO abdm_hiu_fetch_pages', (_sql, args) => {
+      pageState = {
+        id: 91,
+        page_number: 1,
+        page_count: 1,
+        payload_sha256: args[4],
+        status: 'claimed',
+        claim_id: args[5],
+        claimed_at: new Date(),
+        parts_count: 0,
+      };
+      return [pageState];
+    });
+    route("SET status = 'claimed'", (_sql, args) => {
+      pageState = {
+        ...pageState,
+        status: 'claimed',
+        claim_id: args[3],
+        claimed_at: new Date(),
+      };
+      return [pageState];
+    });
+    route('SELECT p.id', (_sql, args) => (
+      pageState.status === 'claimed' && pageState.claim_id === args[2]
+        ? [{ id: pageState.id }]
+        : []
+    ));
+    route('INSERT INTO abdm_hiu_received_bundles', () => [{ id: 82 }]);
+    route("SET status = 'completed', parts_count", () => {
+      pageState = { ...pageState, status: 'completed', parts_count: 1 };
+      return [{ id: pageState.id }];
+    });
+
+    const webhookEvent = { id: '61', status: 'pending', metadata: {} };
+    let durableEventMetadata = {};
+    route('SELECT id, metadata', () => [{ id: 61, metadata: durableEventMetadata }]);
+    let intakeCount = 0;
+    hipHiuMock.recordWebhookEvent.mockImplementation(async () => {
+      intakeCount += 1;
+      return { event: webhookEvent, duplicate: intakeCount > 1 };
+    });
+    let signalFirstEvidence;
+    const firstEvidenceWritten = new Promise((resolve) => { signalFirstEvidence = resolve; });
+    let releaseFirstEvidence;
+    const holdFirstEvidence = new Promise((resolve) => { releaseFirstEvidence = resolve; });
+    let evidenceWrites = 0;
+    let staleClaimId;
+    let staleClaimKey;
+    route("ARRAY['hiu_claim_cleanup', $4::text]", async (_sql, args) => {
+      evidenceWrites += 1;
+      if (evidenceWrites === 1) {
+        staleClaimId = args[3];
+        [staleClaimKey] = JSON.parse(args[2]);
+        durableEventMetadata = {
+          hiu_claim_cleanup: { [staleClaimId]: [staleClaimKey] },
+        };
+        signalFirstEvidence();
+        await holdFirstEvidence;
+      }
+      return [{ id: 61 }];
+    });
+
+    const objects = new Map();
+    uploadFileToR2.mockImplementation(async (bytes, storageKey) => {
+      objects.set(storageKey, Buffer.from(bytes));
+      return `local://${storageKey}`;
+    });
+    deleteObject.mockImplementation(async (storageKey) => {
+      objects.delete(storageKey);
+    });
+
+    const stalePush = push(body);
+    try {
+      await firstEvidenceWritten;
+      pageState.claimed_at = new Date(Date.now() - 6 * 60 * 1000);
+
+      await expect(push(body)).resolves.toMatchObject({ stored: 1, failed: 0 });
+      const successorKey = uploadFileToR2.mock.calls[0][1];
+      expect(successorKey).not.toBe(staleClaimKey);
+      expect(deleteObject).toHaveBeenCalledWith(staleClaimKey);
+      expect(objects.has(successorKey)).toBe(true);
+      expect(objects.has(staleClaimKey)).toBe(false);
+    } finally {
+      releaseFirstEvidence();
+    }
+
+    await expect(stalePush).rejects.toMatchObject({
+      code: 'ABDM_HIU_PAGE_CLAIM_LOST',
+      statusCode: 409,
+    });
+    expect(uploadFileToR2).toHaveBeenCalledTimes(1);
+    expect(objects.has(staleClaimKey)).toBe(false);
+  });
+
+  it('persists retry evidence when stale-claimant key retirement fails', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const successorKey = 'abdm-hiu/successor/claim-successor/bundle.json';
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('INSERT INTO abdm_hiu_received_bundles', () => {
+      throw new Error('stale claimant lost commit race');
+    });
+    route('SELECT p.parts_count', () => [{
+      parts_count: 1,
+      referenced_storage_keys: [successorKey],
+    }]);
+    route('UPDATE abdm_webhook_events w', () => [{ id: 61 }]);
+    deleteObject.mockRejectedValueOnce(new Error('R2 unavailable'));
+
+    await expect(push({
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    })).rejects.toMatchObject({
+      code: 'ABDM_HIU_ORPHAN_CLEANUP_PENDING',
+      statusCode: 503,
+    });
+
+    const staleKey = uploadFileToR2.mock.calls[0][1];
+    const evidenceWrite = txQuery.mock.calls.find(
+      (call) => call[0].includes('HIU claimant R2 cleanup pending') && call[5] === true,
+    );
+    expect(evidenceWrite).toBeDefined();
+    expect(evidenceWrite[3]).toContain(staleKey);
+    expect(evidenceWrite[3]).not.toContain(successorKey);
+    expect(deleteObject).not.toHaveBeenCalledWith(successorKey);
+    expect(hipHiuMock.markWebhookProcessed).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'processed',
+    }));
   });
 
   it('rejects out-of-order or page-count-changing pushes before decrypting', async () => {
@@ -571,7 +859,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
 
     const result = await push(body);
     expect(result).toMatchObject({ duplicate: false, stored: 1, failed: 0 });
-    expect(setTenantTx).toHaveBeenCalledTimes(2);
+    expect(setTenantTx.mock.calls.length).toBeGreaterThanOrEqual(2);
     const statements = txQuery.mock.calls.map((call) => call[0]);
     const bundleIndex = statements.findIndex((sql) => sql.includes('INSERT INTO abdm_hiu_received_bundles'));
     const sessionIndex = statements.findIndex((sql) => sql.includes('UPDATE abdm_hiu_fetch_sessions'));
@@ -580,6 +868,32 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     expect(sessionIndex).toBeGreaterThan(bundleIndex);
     expect(pageIndex).toBeGreaterThan(sessionIndex);
     expect(prismaQuery.mock.calls.some(
+      (call) => call[0].includes('INSERT INTO abdm_hiu_received_bundles'),
+    )).toBe(false);
+  });
+
+  it('drops an uploaded bundle when consent is revoked before the commit fence', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('SELECT a.expiry_at AS artifact_expiry_at', () => []);
+
+    await expect(push({
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_CONSENT_INACTIVE', statusCode: 403 });
+
+    expect(uploadFileToR2).toHaveBeenCalledTimes(1);
+    expect(deleteObject).toHaveBeenCalledWith(uploadFileToR2.mock.calls[0][1]);
+    expect(txQuery.mock.calls.some(
       (call) => call[0].includes('INSERT INTO abdm_hiu_received_bundles'),
     )).toBe(false);
   });
@@ -614,10 +928,86 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       entries: Array.from({ length: 1001 }, () => ({})),
     };
     await expect(push(rejectedBody)).rejects.toMatchObject({
-      code: 'ABDM_HIU_PAGE_ENTRY_LIMIT', statusCode: 400,
+      code: 'ABDM_HIU_PAGE_ENTRY_LIMIT', statusCode: 413,
     });
     expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
     expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
+  it('bounds page count and raw callback bytes before durable intake', async () => {
+    const atPageLimit = {
+      transactionId: 'txn-page-boundary', pageNumber: 1, pageCount: 100,
+      consent: { id: 'cm-artifact-1' }, entries: [],
+    };
+    await expect(push(atPageLimit)).rejects.toMatchObject({
+      code: 'ABDM_HIU_SESSION_NOT_FOUND',
+    });
+    expect(hipHiuMock.recordWebhookEvent).toHaveBeenCalledTimes(1);
+
+    hipHiuMock.recordWebhookEvent.mockClear();
+    setTenantTx.mockClear();
+    await expect(push({ ...atPageLimit, pageCount: 101 })).rejects.toMatchObject({
+      code: 'ABDM_HIU_SESSION_PAGE_LIMIT', statusCode: 413,
+    });
+    expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
+
+    const atRawLimit = Buffer.alloc(hiuService.__testing__.MAX_HIU_DATA_PUSH_BYTES, 0x61);
+    await expect(push({ ...atPageLimit, pageCount: 1 }, atRawLimit))
+      .rejects.toMatchObject({ code: 'ABDM_HIU_SESSION_NOT_FOUND' });
+    expect(hipHiuMock.recordWebhookEvent).toHaveBeenCalledTimes(1);
+
+    hipHiuMock.recordWebhookEvent.mockClear();
+    setTenantTx.mockClear();
+    const overRawLimit = Buffer.alloc(
+      hiuService.__testing__.MAX_HIU_DATA_PUSH_BYTES + 1,
+      0x61,
+    );
+    await expect(push({ ...atPageLimit, pageCount: 1 }, overRawLimit))
+      .rejects.toMatchObject({ code: 'ABDM_HIU_DATA_PUSH_SIZE_LIMIT', statusCode: 413 });
+    expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('bounds aggregate session objects before decrypt or R2 storage', async () => {
+    const { session } = buildSessionAndEntry();
+    route('FROM abdm_hiu_fetch_sessions', () => [{
+      ...session,
+      parts_received: hiuService.__testing__.MAX_HIU_SESSION_BUNDLES,
+      metadata: { hiu_bundle_bytes_received: 1024 },
+    }]);
+
+    await expect(push({
+      transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      entries: [{}],
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_SESSION_BUNDLE_LIMIT', statusCode: 413 });
+    expect(uploadFileToR2).not.toHaveBeenCalled();
+  });
+
+  it('enforces decrypted bundle, page, and aggregate-byte boundaries before storage', () => {
+    const limits = hiuService.__testing__;
+    expect(limits.assertPreparedBundleCapacity(0, [{
+      byteLength: limits.MAX_HIU_BUNDLE_BYTES,
+    }])).toEqual({
+      pageBytes: limits.MAX_HIU_BUNDLE_BYTES,
+      sessionBytesAfter: limits.MAX_HIU_BUNDLE_BYTES,
+    });
+    expect(() => limits.assertPreparedBundleCapacity(0, [{
+      byteLength: limits.MAX_HIU_BUNDLE_BYTES + 1,
+    }])).toThrow(expect.objectContaining({ code: 'ABDM_HIU_BUNDLE_SIZE_LIMIT' }));
+    expect(() => limits.assertPreparedBundleCapacity(0, [
+      { byteLength: limits.MAX_HIU_BUNDLE_BYTES },
+      { byteLength: limits.MAX_HIU_BUNDLE_BYTES },
+      { byteLength: 1 },
+    ])).toThrow(expect.objectContaining({ code: 'ABDM_HIU_DATA_PUSH_SIZE_LIMIT' }));
+    expect(limits.assertPreparedBundleCapacity(
+      limits.MAX_HIU_SESSION_BYTES - 1,
+      [{ byteLength: 1 }],
+    ).sessionBytesAfter).toBe(limits.MAX_HIU_SESSION_BYTES);
+    expect(() => limits.assertPreparedBundleCapacity(
+      limits.MAX_HIU_SESSION_BYTES,
+      [{ byteLength: 1 }],
+    )).toThrow(expect.objectContaining({ code: 'ABDM_HIU_SESSION_BYTE_LIMIT' }));
   });
 
   it('rejects page coordinates outside PostgreSQL int32 before durable intake', async () => {
@@ -667,6 +1057,251 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
         transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
         consent: { id: 'cm-artifact-1' }, entries: [],
     })).rejects.toMatchObject({ code: 'ABDM_HIU_KEY_EXPIRED' });
+  });
+});
+
+describe('received bundle access follows the live consent', () => {
+  const BUNDLE_BYTES = Buffer.from('{"resourceType":"Bundle"}');
+  const BUNDLE = {
+    id: 81,
+    tenant_id: TENANT_ID,
+    fetch_session_id: 71,
+    fetch_page_id: 91,
+    page_number: 1,
+    care_context_reference: 'cc-81',
+    hi_type: 'Prescription',
+    part_number: 0,
+    bundle_storage_key: 'abdm-hiu/revoked/bundle.json',
+    bundle_sha256: crypto.createHash('sha256').update(BUNDLE_BYTES).digest('hex'),
+    checksum_verified: true,
+    media_type: 'application/fhir+json',
+    metadata: { byte_length: BUNDLE_BYTES.length },
+  };
+
+  it('does not read the decrypted object after consent revocation', async () => {
+    route('FROM abdm_hiu_received_bundles', (sql) => (
+      sql.includes('JOIN abdm_consent_artifacts') ? [] : [BUNDLE]
+    ));
+    getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
+
+    await expect(hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_CONSENT_INACTIVE', statusCode: 403 });
+    expect(getFileFromR2).not.toHaveBeenCalled();
+  });
+
+  it('preserves a legitimate active-consent read under shared DB locks', async () => {
+    const expiry = new Date(Date.now() + 60_000);
+    route('FROM abdm_hiu_received_bundles b', () => [BUNDLE]);
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_at: expiry,
+      request_expiry_at: expiry,
+    }]);
+    getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
+
+    const result = await hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    });
+
+    expect(result.content).toEqual({ resourceType: 'Bundle' });
+    expect(result.bundle).toMatchObject({ id: 81, byte_length: BUNDLE_BYTES.length });
+    expect(result.bundle).not.toHaveProperty('bundle_storage_key');
+    expect(result.bundle).not.toHaveProperty('metadata');
+    expect(getFileFromR2).toHaveBeenCalledWith(BUNDLE.bundle_storage_key);
+    expect(txQuery.mock.calls.some(
+      (call) => call[0].includes('FOR SHARE OF s, a, r, u'),
+    )).toBe(true);
+    expect(txQuery.mock.calls.some(
+      (call) => call[0].includes('FOR SHARE OF b'),
+    )).toBe(true);
+  });
+
+  it('does not return bytes when dataEraseAt elapses while R2 is in flight', async () => {
+    const base = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(base)
+      .mockReturnValue(base + 2_000);
+    route('FROM abdm_hiu_received_bundles b', () => [BUNDLE]);
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_at: new Date(base + 1_000),
+      request_expiry_at: new Date(base + 1_000),
+    }]);
+    getFileFromR2.mockResolvedValue(BUNDLE_BYTES);
+
+    try {
+      await expect(hiuService.getReceivedBundleContent({
+        tenantId: TENANT_ID,
+        sessionId: 71,
+        bundleId: 81,
+      })).rejects.toMatchObject({ code: 'ABDM_HIU_CONSENT_INACTIVE', statusCode: 403 });
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(getFileFromR2).toHaveBeenCalledTimes(1);
+  });
+
+  it('paginates bundle references at the documented boundary', async () => {
+    const expiry = new Date(Date.now() + 60_000);
+    route('FROM abdm_hiu_received_bundles b', (sql) => (
+      sql.includes('COUNT(*)') ? [{ total: 1000 }] : [BUNDLE]
+    ));
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1000,
+      metadata: { hiu_bundle_bytes_received: 1024 },
+      artifact_expiry_at: expiry,
+      request_expiry_at: expiry,
+    }]);
+
+    const result = await hiuService.listReceivedBundles({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      limit: 100,
+      offset: 900,
+    });
+
+    expect(result).toMatchObject({ count: 1, total: 1000, limit: 100, offset: 900 });
+    expect(result.bundles[0]).not.toHaveProperty('bundle_storage_key');
+    const pageQuery = txQuery.mock.calls.find(
+      (call) => call[0].includes('LIMIT $3::integer OFFSET $4::integer'),
+    );
+    expect(pageQuery.slice(1)).toEqual([TENANT_ID, 71, 100, 900]);
+
+    setTenantTx.mockClear();
+    await expect(hiuService.listReceivedBundles({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      limit: 101,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_BUNDLE_PAGE_INVALID', statusCode: 400 });
+    expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
+  it('does not return bundle metadata when dataEraseAt elapses during listing', async () => {
+    const base = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(base)
+      .mockReturnValue(base + 2_000);
+    route('FROM abdm_hiu_received_bundles b', (sql) => (
+      sql.includes('COUNT(*)') ? [{ total: 1 }] : [BUNDLE]
+    ));
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_at: new Date(base + 1_000),
+      request_expiry_at: new Date(base + 1_000),
+    }]);
+
+    try {
+      await expect(hiuService.listReceivedBundles({
+        tenantId: TENANT_ID,
+        sessionId: 71,
+      })).rejects.toMatchObject({ code: 'ABDM_HIU_CONSENT_INACTIVE', statusCode: 403 });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('fails closed before R2 when durable byte accounting is missing or oversized', async () => {
+    const expiry = new Date(Date.now() + 60_000);
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_at: expiry,
+      request_expiry_at: expiry,
+    }]);
+    route('FROM abdm_hiu_received_bundles b', () => [{ ...BUNDLE, metadata: {} }]);
+
+    await expect(hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_BUNDLE_BYTE_ACCOUNTING_UNAVAILABLE' });
+    expect(getFileFromR2).not.toHaveBeenCalled();
+
+    routes = [];
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: {
+        hiu_bundle_bytes_received: hiuService.__testing__.MAX_HIU_SESSION_BYTES + 1,
+      },
+      artifact_expiry_at: expiry,
+      request_expiry_at: expiry,
+    }]);
+    await expect(hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_SESSION_BYTE_ACCOUNTING_INVALID' });
+    expect(getFileFromR2).not.toHaveBeenCalled();
+  });
+
+  it('does not return R2 bytes when size or SHA-256 evidence drifts', async () => {
+    const expiry = new Date(Date.now() + 60_000);
+    route('FROM abdm_hiu_fetch_sessions s', () => [{
+      id: 71,
+      patient_uid: PATIENT_UID,
+      parts_received: 1,
+      metadata: { hiu_bundle_bytes_received: BUNDLE_BYTES.length },
+      artifact_expiry_at: expiry,
+      request_expiry_at: expiry,
+    }]);
+    route('FROM abdm_hiu_received_bundles b', () => [BUNDLE]);
+    getFileFromR2.mockResolvedValue(Buffer.from('{"resourceType":"Patient"}'));
+
+    await expect(hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_BUNDLE_SIZE_MISMATCH' });
+
+    getFileFromR2.mockResolvedValue(Buffer.from('x'.repeat(BUNDLE_BYTES.length)));
+    await expect(hiuService.getReceivedBundleContent({
+      tenantId: TENANT_ID,
+      sessionId: 71,
+      bundleId: 81,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_BUNDLE_INTEGRITY_MISMATCH' });
+  });
+
+  it('retains the durable cleanup pointer on R2 failure and removes it on retry', async () => {
+    route('DELETE FROM abdm_hiu_received_bundles', () => [{ id: 81 }]);
+    route('FROM abdm_hiu_received_bundles b', (sql) => (
+      sql.includes('FOR UPDATE OF b')
+        ? [{ id: 81, bundle_storage_key: BUNDLE.bundle_storage_key }]
+        : [{ id: 81, tenant_id: TENANT_ID }]
+    ));
+    deleteObject.mockRejectedValueOnce(new Error('R2 unavailable'));
+
+    await expect(hiuService.purgeInactiveHiuBundles({ tenantId: TENANT_ID }))
+      .resolves.toEqual({ candidates: 1, purged: 0, errors: 1 });
+    expect(txQuery.mock.calls.some(
+      (call) => call[0].includes('DELETE FROM abdm_hiu_received_bundles'),
+    )).toBe(false);
+
+    await expect(hiuService.purgeInactiveHiuBundles({ tenantId: TENANT_ID }))
+      .resolves.toEqual({ candidates: 1, purged: 1, errors: 0 });
+    expect(deleteObject).toHaveBeenLastCalledWith(BUNDLE.bundle_storage_key);
+    expect(txQuery.mock.calls.some(
+      (call) => call[0].includes('DELETE FROM abdm_hiu_received_bundles'),
+    )).toBe(true);
   });
 });
 
@@ -877,7 +1512,9 @@ describe('consent request leg + acks', () => {
 
 describe('sweep — key material is a liability', () => {
   it('expires aged live sessions (key NULLed) and scrubs terminal stragglers', async () => {
-    route("SET status = 'expired'", (sql) => {
+    route('UPDATE abdm_consent_artifacts a', () => []);
+    route('UPDATE abdm_consent_requests', () => []);
+    route('UPDATE abdm_hiu_fetch_sessions s', (sql) => {
       expect(sql).toContain('key_material_private_ciphertext = NULL');
       return [{ id: 1 }];
     });
@@ -885,8 +1522,16 @@ describe('sweep — key material is a liability', () => {
       expect(sql).toContain("status IN ('completed', 'partial', 'failed', 'expired')");
       return [{ id: 2 }, { id: 3 }];
     });
+    route('FROM abdm_hiu_received_bundles b', () => []);
 
-    const result = await hiuService.sweepExpiredHiuFetchSessions();
-    expect(result).toEqual({ expired: 1, keysScrubbed: 2 });
+    const result = await hiuService.sweepExpiredHiuFetchSessions({ tenantId: TENANT_ID });
+    expect(result).toEqual({
+      artifactsExpired: 0,
+      requestsExpired: 0,
+      expired: 1,
+      keysScrubbed: 2,
+      bundlesPurged: 0,
+      cleanupErrors: 0,
+    });
   });
 });

@@ -1086,13 +1086,14 @@ if (process.env.NODE_ENV !== 'test') {
     await sweepExpiredShareIntakes();
   }));
 
-  // 🔑 Every 5 minutes — HIU fetch-session expiry + key scrub (migration 703).
-  // Persisted X25519 receive keys are a liability, not evidence: live sessions
-  // whose key aged out expire (key NULLed), and any terminal session still
-  // holding a key is scrubbed.
+  // 🔑 Every 5 minutes — tenant-scoped HIU expiry, key scrub and R2 erasure.
+  // Consent dataEraseAt is persisted into request/artifact state; decrypted
+  // bundles remain durable retry pointers until their R2 delete succeeds.
   registerCron('*/5 * * * *', withJobLock('abdm-hiu-fetch-expiry', async () => {
     const { sweepExpiredHiuFetchSessions } = await import('../services/abdm/abdmHiuService.js');
-    await sweepExpiredHiuFetchSessions();
+    await runForEachTenant('abdm-hiu-retention', tenantId => (
+      sweepExpiredHiuFetchSessions({ tenantId })
+    ));
   }));
 
   // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
