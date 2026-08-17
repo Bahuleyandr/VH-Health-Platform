@@ -438,6 +438,34 @@ export async function handleUhiConfirm({ tenantId, environment, context, body, l
       'UHI_JOURNEY_MISMATCH',
     );
   }
+  const terminalRows = await prisma.$queryRawUnsafe(
+    `SELECT action FROM uhi_transactions
+      WHERE tenant_id = $1::uuid AND environment = $2::text
+        AND counterparty_subscriber_id = $3::text
+        AND transaction_id = $4::text
+        AND action IN ('confirm', 'cancel')
+        AND direction = 'inbound' AND signature_verified = TRUE
+        AND status = 'processed'
+      ORDER BY id DESC
+      LIMIT 1`,
+    tenantId,
+    environment,
+    context.consumerId,
+    context.transactionId,
+  );
+  if (terminalRows[0]) {
+    const errorBody = {
+      code: 'UHI_JOURNEY_TERMINAL',
+      message: 'This UHI booking journey is already terminal',
+    };
+    await markLeg(tenantId, legId, {
+      status: 'rejected', ack: 'NACK', errorCode: errorBody.code, errorMessage: errorBody.message,
+    });
+    const callback = await dispatchCallback({
+      tenantId, environment, context, action: 'on_confirm', error: errorBody,
+    });
+    return { error: errorBody, callback };
+  }
   const patients = await prisma.$queryRawUnsafe(
     `SELECT id, uid, name, phone FROM users
       WHERE tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE

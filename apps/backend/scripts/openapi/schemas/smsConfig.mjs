@@ -8,6 +8,8 @@
 // SMS_PROVIDER=logger is the deployment-wide kill switch.
 import { envelope } from './_helpers.mjs';
 
+const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
+
 const errorResponse = description => ({
   description,
   content: {
@@ -16,6 +18,15 @@ const errorResponse = description => ({
     },
   },
 });
+const authenticatedErrorResponses = {
+  400: errorResponse('The SMS provider or template configuration was invalid.'),
+  401: errorResponse('The API key or bearer token was missing or invalid.'),
+  403: errorResponse('The caller was not permitted to administer tenant SMS configuration.'),
+  404: errorResponse('The tenant-scoped SMS configuration or template was not found.'),
+  409: errorResponse('The requested SMS configuration conflicts with an enabled provider or template.'),
+  429: errorResponse('The caller exceeded the API rate limit.'),
+  500: errorResponse('The SMS configuration operation failed without exposing credentials.'),
+};
 
 export const schemas = {
   SmsProviderConfigView: {
@@ -255,29 +266,39 @@ export const operations = {
     description:
       'Admin read of the tenant SMS provider configs plus the env/tenant gate states. Credentials are write-only — reads expose has_auth_key / has_callback_token booleans only.',
     response: 'SmsProviderConfigListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'PUT /api/v1/admin/notifications/sms/config': {
     description:
       'Admin upsert of the per-tenant SMS provider config (one row per provider; at most one enabled per tenant). auth_key is write-only tenant-bound encryptField() ciphertext and validator failures never echo it; enabling a non-dry_run provider without sender_id + dlt_entity_id + auth_key is rejected, and enabled Twilio additionally requires account_sid (699 + 711 checks). When the row has no DLR callback token (or rotation is requested) a fresh bearer token is minted and returned EXACTLY ONCE as callback_token + dlr_path; only its SHA-256 lookup hash and encryptField() ciphertext are retained.',
     request: 'SmsProviderConfigUpsertRequest',
     response: 'SmsProviderConfigViewResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/admin/notifications/sms/templates': {
     description:
       'Lists the tenant DLT template registrations (outbox template_version key → TRAI DLT content template id + provider flow/content id). The adapter refuses to send any template kind without an active registration.',
     response: 'SmsTemplateRegistrationListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/admin/notifications/sms/templates': {
     description:
       'Registers a DLT content template id for an outbox template key on a provider config (unique per tenant/config/key). Until a template kind is registered, sends of that kind terminally reject with dlt_template_not_registered.',
     request: 'SmsTemplateCreateRequest',
     response: 'SmsTemplateRegistrationResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'PUT /api/v1/admin/notifications/sms/templates/{id}': {
     description:
       'Updates a template registration (DLT id, provider template id, active flag). Deactivating a registration fail-closes future sends of that template kind.',
     request: 'SmsTemplateUpdateRequest',
     response: 'SmsTemplateRegistrationResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /webhooks/sms/dlr/{token}': {
     description:

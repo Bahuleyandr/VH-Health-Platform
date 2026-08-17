@@ -45,7 +45,7 @@ router.post('/dlr/:token', async (req, res) => {
     });
   } catch (err) {
     logger.error('sms-dlr: msg91 callback processing failed', {
-      code: err?.code, error: err?.message,
+      code: err?.code,
     });
     if (err?.code === 'SMS_DLR_DATA_INVALID' || err?.code === 'SMS_DLR_BATCH_TOO_LARGE') {
       return error(
@@ -77,7 +77,7 @@ router.post('/twilio-status/:token', async (req, res) => {
     });
   } catch (err) {
     logger.error('sms-dlr: twilio status callback processing failed', {
-      code: err?.code, error: err?.message,
+      code: err?.code,
     });
     return error(res, 'Delivery status processing failed', 500);
   }

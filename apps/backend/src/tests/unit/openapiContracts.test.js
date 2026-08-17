@@ -702,4 +702,86 @@ describe('OpenAPI contract overlays (static gate)', () => {
       }
     }
   });
+
+  it('publishes explicit ABDM, UHI, SMS, and facility authentication and response contracts', () => {
+    const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+    const abdmCallbacks = [
+      '/api/v1/abdm/patients/profile/share',
+      '/api/v1/abdm/hiu/consent-requests/on-init',
+      '/api/v1/abdm/hiu/consents/notify',
+      '/api/v1/abdm/hiu/health-info/on-request',
+      '/api/v1/abdm/hiu/health-info/push',
+    ];
+    const uhiCallbacks = [
+      '/api/v1/uhi/search',
+      '/api/v1/uhi/init',
+      '/api/v1/uhi/confirm',
+      '/api/v1/uhi/status',
+      '/api/v1/uhi/cancel',
+    ];
+    for (const path of [...abdmCallbacks, ...uhiCallbacks]) {
+      expect(spec.paths[path].post.security).toEqual([]);
+    }
+    for (const path of abdmCallbacks) {
+      expect(spec.paths[path].post.responses['202']).toBeDefined();
+      for (const status of ['400', '401', '409', '429', '500']) {
+        expect(spec.paths[path].post.responses[status]).toBeDefined();
+      }
+    }
+    for (const path of uhiCallbacks) {
+      expect(spec.paths[path].post.responses['200']).toBeDefined();
+      for (const status of ['400', '401', '404', '429', '500']) {
+        expect(spec.paths[path].post.responses[status]).toBeDefined();
+      }
+      expect(spec.paths[path].post.responses['409']).toBeUndefined();
+    }
+
+    const uhiConfirm = spec.paths['/api/v1/uhi/confirm'].post;
+    expect(uhiConfirm.responses['200'].content['application/json'].schema.$ref)
+      .toBe('#/components/schemas/UhiAckResponse');
+    expect(uhiConfirm.description).toMatch(/transport-ACKed with HTTP 200.*business NACK/s);
+    expect(spec.components.schemas.UhiNackResponse.required).toEqual(['message', 'error']);
+    expect(spec.components.schemas.UhiNackResponse.properties).not.toHaveProperty('success');
+    expect(uhiConfirm.responses['400'].content['application/json'].schema.oneOf)
+      .toEqual(expect.arrayContaining([
+        { $ref: '#/components/schemas/UhiErrorResponse' },
+        { $ref: '#/components/schemas/UhiNackResponse' },
+      ]));
+
+    const publicOperationKeys = new Set([
+      ...abdmCallbacks.map(path => `POST ${path}`),
+      ...uhiCallbacks.map(path => `POST ${path}`),
+      'POST /webhooks/sms/dlr/{token}',
+      'POST /webhooks/sms/twilio-status/{token}',
+    ]);
+    for (const module of [abdmCompletion, smsConfig, facilityAssets, uhi]) {
+      for (const operationKey of Object.keys(module.operations)) {
+        if (publicOperationKeys.has(operationKey)) continue;
+        const [method, path] = operationKey.split(' ');
+        expect(spec.paths[path][method.toLowerCase()].security).toEqual(bearerSecurity);
+      }
+    }
+
+    for (const path of [
+      '/api/v1/portal/abdm/enrolment/start',
+      '/api/v1/abdm/enrolment/start',
+      '/api/v1/front-desk/abdm/share-intakes/{id}/register',
+      '/api/v1/abdm/hiu/consent-requests',
+      '/api/v1/abdm/hiu/consents/{artifactId}/fetch',
+      '/api/v1/facility/assets',
+    ]) {
+      expect(spec.paths[path].post.responses['201']).toBeDefined();
+    }
+    const authenticatedExamples = [
+      spec.paths['/api/v1/portal/abdm/enrolment/start'].post,
+      spec.paths['/api/v1/admin/notifications/sms/config'].get,
+      spec.paths['/api/v1/facility/assets'].get,
+      spec.paths['/api/v1/admin/uhi/transactions'].get,
+    ];
+    for (const operation of authenticatedExamples) {
+      for (const status of ['400', '401', '403', '429', '500']) {
+        expect(operation.responses[status]).toBeDefined();
+      }
+    }
+  });
 });

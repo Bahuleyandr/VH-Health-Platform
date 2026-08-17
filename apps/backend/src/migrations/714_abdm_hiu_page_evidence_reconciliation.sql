@@ -8,11 +8,12 @@
 -- exact signed callback bound to tenant, environment, transaction, page, page
 -- count, entry count, and the HIP named by the consent artefact.
 --
--- Published-703 events can be accepted only when the tenant now has exactly
--- one active ABDM callback credential and every bundle on the page carries
--- 707's deterministic legacy provenance. Mixed native/legacy parts on one
--- page, duplicate receipts, malformed protocol integers, and missing or
--- ambiguous provider identity abort the whole migration.
+-- Published-703 events can be accepted only when the authenticated callback
+-- itself retained its HIP identity and every bundle on the page carries 707's
+-- deterministic legacy provenance. Current tenant credentials are not
+-- historical signer evidence. Mixed native/legacy parts on one page,
+-- duplicate receipts, malformed protocol integers, and missing or ambiguous
+-- provider identity abort the whole migration.
 
 BEGIN;
 
@@ -118,11 +119,7 @@ SELECT page.*,
          THEN (event.payload->>'entryCount')::numeric
        END AS evidence_entry_count,
        event.payload->>'payloadSha256' AS evidence_payload_sha256,
-       CASE
-         WHEN event.payload ? 'authenticatedHipId'
-         THEN NULLIF(BTRIM(event.payload->>'authenticatedHipId'), '')
-         ELSE legacy_credential.sender_identifier
-       END AS authenticated_hip_id,
+       NULLIF(BTRIM(event.payload->>'authenticatedHipId'), '') AS authenticated_hip_id,
        COALESCE(event.payload ? 'authenticatedHipId', FALSE) AS authenticated_hip_recorded,
        COALESCE(event.payload ? 'payloadSha256', FALSE) AS payload_sha256_recorded
   FROM _m714_hiu_pages page
@@ -138,14 +135,7 @@ SELECT page.*,
          WHEN JSONB_TYPEOF(event.payload->'pageNumber') = 'number'
           AND (event.payload->>'pageNumber') ~ '^[0-9]+$'
          THEN (event.payload->>'pageNumber')::numeric
-       END = page.page_number
-  LEFT JOIN LATERAL (
-    SELECT CASE WHEN COUNT(*) = 1 THEN MIN(sender_identifier) END AS sender_identifier
-      FROM tenant_interop_secrets
-     WHERE tenant_id = page.tenant_id
-       AND kind = 'abdm_callback'
-       AND status = 'active'
-  ) legacy_credential ON TRUE;
+       END = page.page_number;
 
 DO $hiu_preflight$
 BEGIN
@@ -202,7 +192,7 @@ BEGIN
          OR e.expected_hip_id IS NULL
          OR e.authenticated_hip_id IS NULL
          OR e.authenticated_hip_id <> e.expected_hip_id
-         OR e.authenticated_hip_recorded <> e.payload_sha256_recorded
+         OR NOT e.authenticated_hip_recorded
          OR (
            e.payload_sha256_recorded
            AND (
@@ -212,7 +202,7 @@ BEGIN
            )
          )
          OR (
-           NOT e.authenticated_hip_recorded
+           NOT e.payload_sha256_recorded
            AND (
              e.bundle_count = 0
              OR e.legacy_bundle_count <> e.bundle_count
@@ -327,6 +317,6 @@ UPDATE abdm_hiu_fetch_sessions s
    );
 
 COMMENT ON TABLE abdm_hiu_fetch_pages IS
-  'Durable exact-payload page claims. Native pages bind the authenticated HIP and raw-body SHA-256; migration-707 pages require an unambiguous retained credential and deterministic bundle-ledger digest. Bundle and session counts are reconciled by migration 714.';
+  'Durable exact-payload page claims. Native pages bind the authenticated HIP and raw-body SHA-256; migration-707 pages require retained callback signer evidence and deterministic bundle-ledger provenance. Bundle and session counts are reconciled by migration 714.';
 
 COMMIT;

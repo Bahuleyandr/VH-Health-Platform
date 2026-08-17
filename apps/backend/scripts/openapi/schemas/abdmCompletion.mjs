@@ -9,7 +9,44 @@
 // forwarded — never persisted, logged, or echoed by any endpoint here.
 import { envelope } from './_helpers.mjs';
 
+const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const errorResponse = description => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/AbdmCompletionErrorResponse' },
+    },
+  },
+});
+const authenticatedErrorResponses = {
+  400: errorResponse('The request was malformed or failed ABDM protocol validation.'),
+  401: errorResponse('The API key or bearer token was missing or invalid.'),
+  403: errorResponse('The caller, tenant, or ABDM feature gate did not permit this operation.'),
+  404: errorResponse('The tenant-scoped ABDM resource was not found.'),
+  409: errorResponse('The request conflicted with the current enrolment, consent, or intake state.'),
+  429: errorResponse('The caller exceeded an enrolment, OTP, or API rate limit.'),
+  500: errorResponse('The ABDM operation failed without exposing protected health information.'),
+};
+const callbackErrorResponses = {
+  400: errorResponse('The callback body or ABDM protocol fields were invalid.'),
+  401: errorResponse('The callback signature or provider identity could not be authenticated.'),
+  409: errorResponse('The callback conflicted with retained transaction or page evidence.'),
+  429: errorResponse('The callback source exceeded the public webhook rate limit.'),
+  500: errorResponse('The authenticated callback could not be recorded; the sender may retry.'),
+};
+
 export const schemas = {
+  AbdmCompletionErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
   AbhaEnrolmentStartRequest: {
     type: 'object',
     properties: {
@@ -366,21 +403,30 @@ const enrolmentOps = (base, audience) => ({
     description: `Starts an ABHA enrolment session (${audience}). Validates the 12-digit Aadhaar (Verhoeff), encrypts it in memory with the gateway certificate, requests the enrolment OTP, and returns the session (status otp_sent). One live session per patient; OTP rate-limited (3 per 10 min). 403 ABDM_ENROLMENT_DISABLED until tenants.settings.abdmEnrolment.enabled AND ABDM_ENABLED hold. No Aadhaar material is ever persisted, logged, or echoed.`,
     request: 'AbhaEnrolmentStartRequest',
     response: 'AbhaEnrolmentSessionResponse',
+    responseStatus: 201,
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   [`POST ${base}/otp`]: {
     description: `Verifies the enrolment OTP (${audience}). Aadhaar flow completes enrolment at the gateway and links the resulting ABHA through the migration-653 verified gate (users.abha_verification_status='verified' + clinical_audit_events row, one transaction; no clinical timeline row — identity, not clinical care). Attempts cap at 3, then the session fails. 409 ABHA_ALREADY_LINKED when another patient holds the verified slot.`,
     request: 'AbhaEnrolmentOtpRequest',
     response: 'AbhaEnrolmentSessionResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   [`POST ${base}/resend`]: {
     description: `Re-sends the enrolment OTP (${audience}). The Aadhaar number is never stored, so the aadhaar_otp flow must re-supply it (validated, encrypted in memory, discarded). Capped at 3 resends; OTP rate-limited.`,
     request: 'AbhaEnrolmentResendRequest',
     response: 'AbhaEnrolmentSessionResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   [`POST ${base}/cancel`]: {
     description: `Cancels a live enrolment session (${audience}).`,
     request: 'AbhaEnrolmentCancelRequest',
     response: 'AbhaEnrolmentSessionResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
 });
 
@@ -389,94 +435,144 @@ export const operations = {
   'GET /api/v1/portal/abdm/enrolment/status': {
     description: 'The calling patient\'s latest ABHA enrolment session (safe projection — no txn id, no profile snapshot).',
     response: 'AbhaEnrolmentStatusResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   ...enrolmentOps('/api/v1/abdm/enrolment', 'front-desk assisted; patient_uid in the body, patient-registry write roles'),
   'GET /api/v1/abdm/enrolment/status/{patientUid}': {
     description: 'Front-desk view of a patient\'s latest ABHA enrolment session.',
     response: 'AbhaEnrolmentStatusResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
 
   'GET /api/v1/front-desk/abdm/share-intakes': {
     description: 'Front-desk queue of Scan & Share intakes (patient-scanned counter QR → CM profile share). Filter with ?status=received for the live counter screen.',
     response: 'AbdmShareIntakeListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/front-desk/abdm/share-intakes/{id}': {
     description: 'One Scan & Share intake with the shared (allowlisted) demographics.',
     response: 'AbdmShareIntakeResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/front-desk/abdm/share-intakes/{id}/match': {
     description: 'Attaches the intake to an EXISTING patient (status received → matched). Audited front-office identity action.',
     request: 'AbdmShareIntakeMatchRequest',
     response: 'AbdmShareIntakeResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/front-desk/abdm/share-intakes/{id}/register': {
     description: 'Registers a NEW patient from the intake through the guarded front-desk flow: exact-phone probe + duplicate candidate scan 409 PATIENT_DUPLICATE_REVIEW_REQUIRED until reviewed or overridden with an audited reason (min 10 chars). On create the shared ABHA links via the registerABHA verified-gate pathway; a linkage refusal is recorded on the intake, never a rollback. Status → registered.',
     request: 'AbdmShareIntakeRegisterRequest',
     response: 'AbdmShareIntakeRegisterResponse',
+    responseStatus: 201,
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/front-desk/abdm/share-intakes/{id}/link-visit': {
     description: 'Attaches an existing OP appointment belonging to the resolved patient (status matched/registered → linked_visit).',
     request: 'AbdmShareIntakeLinkVisitRequest',
     response: 'AbdmShareIntakeResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/front-desk/abdm/share-intakes/{id}/dismiss': {
     description: 'Dismisses an intake without action (audited).',
     request: 'AbdmShareIntakeDismissRequest',
     response: 'AbdmShareIntakeResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
 
   'POST /api/v1/abdm/patients/profile/share': {
     description: 'Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. Self-authenticated exactly like the legacy ABDM callbacks — x-hip-id tenant resolution, HMAC over the exact raw bytes, durable cross-replica replay claim. Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token.',
     response: 'AbdmShareCallbackAckResponse',
+    responseStatus: 202,
+    security: [],
+    additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consent-requests/on-init': {
     description: 'Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). Same authenticity chain as every ABDM callback.',
     response: 'AbdmHiuCallbackAckResponse',
+    responseStatus: 202,
+    security: [],
+    additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consents/notify': {
     description: 'Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables.',
     response: 'AbdmHiuCallbackAckResponse',
+    responseStatus: 202,
+    security: [],
+    additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/health-info/on-request': {
     description: 'Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged).',
     response: 'AbdmHiuCallbackAckResponse',
+    responseStatus: 202,
+    security: [],
+    additionalResponses: callbackErrorResponses,
   },
   'POST /api/v1/abdm/hiu/health-info/push': {
     description: 'Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session\'s persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page).',
     response: 'AbdmHiuDataPushAckResponse',
+    responseStatus: 202,
+    security: [],
+    additionalResponses: callbackErrorResponses,
   },
 
   'POST /api/v1/abdm/hiu/consent-requests': {
     description: 'Clinician-initiated HIU consent request: persists the abdm_consent_requests row (flow_kind hiu, durable evidence first), then inits at the gateway — a gateway refusal fails the row. 403 ABDM_HIU_DISABLED until tenants.settings.abdmHiu.enabled AND ABDM_ENABLED hold.',
     request: 'AbdmHiuConsentRequestCreate',
     response: 'AbdmHiuConsentRequestResponse',
+    responseStatus: 201,
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/consent-requests': {
     description: 'HIU consent requests for this tenant (flow_kind hiu), newest first.',
     response: 'AbdmHiuConsentRequestListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/consents': {
     description: 'Consent artefacts granted against HIU consent requests.',
     response: 'AbdmHiuConsentArtifactListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/abdm/hiu/consents/{artifactId}/fetch': {
     description: 'Starts a health-information fetch against an ACTIVE consent artefact: generates the X25519 receive keypair, persists the private key encryptField-encrypted for the async hi-request → data-push gap (NULLed after decrypt; 30-min liability window), creates the direction-in transfer row, and hands the public key material + dataPushUrl to the CM.',
     response: 'AbdmHiuFetchSessionResponse',
+    responseStatus: 201,
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions': {
     description: 'HIU fetch sessions (requested → acknowledged → receiving → completed | partial | failed | expired). Key material columns are never exposed.',
     response: 'AbdmHiuFetchSessionListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions/{id}': {
     description: 'One HIU fetch session (safe projection — no key material).',
     response: 'AbdmHiuFetchSessionResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions/{id}/bundles': {
     description: 'Reference rows for the decrypted bundles a fetch session received. PHI bytes live in R2, not in these rows.',
     response: 'AbdmHiuBundleListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/abdm/hiu/sessions/{id}/bundles/{bundleId}': {
     description: 'Streams one decrypted FHIR bundle from R2 for transient rendering. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.',
     response: 'AbdmHiuBundleContentResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
 };

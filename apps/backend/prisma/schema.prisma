@@ -28160,29 +28160,30 @@ model abdm_hiu_received_bundles {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model abdm_patient_share_intakes {
-  id                    Int           @id @default(autoincrement())
-  tenant_id             String        @db.Uuid
-  environment           String        @default("sandbox") @db.VarChar(20)
-  request_id            String        @db.VarChar(120)
-  token_number          String?       @db.VarChar(20)
-  counter_context       String?       @db.VarChar(120)
-  abha_number           String?       @db.VarChar(20)
-  abha_address          String?       @db.VarChar(120)
-  profile               Json          @default("{}")
-  status                String        @default("received") @db.VarChar(24)
-  matched_patient_uid   String?       @db.Uuid
-  linked_appointment_id Int?
-  processed_by_uid      String?       @db.Uuid
-  processed_at          DateTime?     @db.Timestamptz(6)
-  failure_reason        String?       @db.VarChar(500)
-  received_at           DateTime      @default(now()) @db.Timestamptz(6)
-  expires_at            DateTime?     @db.Timestamptz(6)
-  metadata              Json          @default("{}")
-  created_at            DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime      @default(now()) @db.Timestamptz(6)
-  appointments          appointments? @relation(fields: [linked_appointment_id], references: [id], onUpdate: NoAction)
-  tenants               tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                 users?        @relation(fields: [tenant_id, matched_patient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_share_intake_patient")
+  id                         Int           @id @default(autoincrement())
+  tenant_id                  String        @db.Uuid
+  environment                String        @default("sandbox") @db.VarChar(20)
+  request_id                 String        @db.VarChar(120)
+  token_number               String?       @db.VarChar(20)
+  counter_context            String?       @db.VarChar(120)
+  abha_number                String?       @db.VarChar(20)
+  abha_address               String?       @db.VarChar(120)
+  profile                    Json          @default("{}")
+  status                     String        @default("received") @db.VarChar(24)
+  matched_patient_uid        String?       @db.Uuid
+  linked_appointment_id      Int?
+  processed_by_uid           String?       @db.Uuid
+  processed_at               DateTime?     @db.Timestamptz(6)
+  failure_reason             String?       @db.VarChar(500)
+  received_at                DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at                 DateTime?     @db.Timestamptz(6)
+  metadata                   Json          @default("{}")
+  created_at                 DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime      @default(now()) @db.Timestamptz(6)
+  matched_patient_deleted_at DateTime?     @db.Timestamptz(6)
+  appointments               appointments? @relation(fields: [linked_appointment_id], references: [id], onUpdate: NoAction)
+  tenants                    tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                      users?        @relation(fields: [tenant_id, matched_patient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_share_intake_patient")
 
   @@unique([tenant_id, request_id, environment], map: "uq_abdm_share_intake_request")
   @@index([tenant_id, abha_number], map: "idx_abdm_share_intake_abha", where: raw("(abha_number IS NOT NULL)"))
@@ -28219,6 +28220,9 @@ model abha_enrolment_sessions {
   updated_at              DateTime  @default(now()) @db.Timestamptz(6)
   verification_claim_id   String?   @db.Uuid
   verification_claimed_at DateTime? @db.Timestamptz(6)
+  resend_count            Int       @default(0) @db.SmallInt
+  resend_claim_id         String?   @db.Uuid
+  resend_claimed_at       DateTime? @db.Timestamptz(6)
   tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users                   users     @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: Cascade, onUpdate: NoAction, map: "fk_abha_enrolment_patient")
 

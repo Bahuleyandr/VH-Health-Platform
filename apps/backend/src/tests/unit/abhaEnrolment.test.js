@@ -123,6 +123,9 @@ const BASE_SESSION = {
   error_code: null,
   txn_id: 'txn-001',
   metadata: {},
+  resend_count: 0,
+  resend_claim_id: null,
+  resend_claimed_at: null,
   otp_sent_at: new Date(),
   expires_at: new Date(Date.now() + 10 * 60 * 1000),
   created_at: new Date(),
@@ -161,6 +164,12 @@ beforeEach(() => {
     otp_attempts: 1,
     verification_claim_id: CLAIM_ID,
     verification_claimed_at: new Date(),
+  }]);
+  route('SET resend_count = resend_count + 1', (_sql, args) => [{
+    ...BASE_SESSION,
+    resend_count: 1,
+    resend_claim_id: args[3],
+    resend_claimed_at: new Date(),
   }]);
   route('SELECT id, tenant_id, patient_uid, flow', () => [BASE_SESSION]);
   route("SET abha_number = $1", () => [{ uid: PATIENT_UID }]);
@@ -496,7 +505,15 @@ describe('verifyEnrolmentOtp — failure modes', () => {
 
 describe('resend / cancel / status / sweep', () => {
   it('resendOtp re-requires the Aadhaar (never stored), resets attempts, caps resends', async () => {
-    route('SELECT id, tenant_id, patient_uid, flow', () => [{ ...BASE_SESSION, metadata: { resend_count: 1 } }]);
+    route('SELECT id, tenant_id, patient_uid, flow', () => [{
+      ...BASE_SESSION, resend_count: 1, metadata: { resend_count: 1 },
+    }]);
+    route('SET resend_count = resend_count + 1', (_sql, args) => [{
+      ...BASE_SESSION,
+      resend_count: 2,
+      resend_claim_id: args[3],
+      resend_claimed_at: new Date(),
+    }]);
     route('otp_attempts = 0', () => [{ ...BASE_SESSION }]);
 
     await enrolmentService.resendEnrolmentOtp({
@@ -508,10 +525,72 @@ describe('resend / cancel / status / sweep', () => {
     expect(allMockSurfaces()).not.toContain(VALID_AADHAAR);
 
     // Cap: resend_count 3 refuses.
-    route('SELECT id, tenant_id, patient_uid, flow', () => [{ ...BASE_SESSION, metadata: { resend_count: 3 } }]);
+    route('SELECT id, tenant_id, patient_uid, flow', () => [{
+      ...BASE_SESSION, resend_count: 3, metadata: { resend_count: 3 },
+    }]);
     await expect(enrolmentService.resendEnrolmentOtp({
       tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, aadhaarNumber: VALID_AADHAAR,
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_RESEND_EXCEEDED', statusCode: 429 });
+  });
+
+  it('admits only one concurrent resend claim and sends only once', async () => {
+    let claimAttempts = 0;
+    let releaseGateway;
+    requestEnrolmentOtp.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseGateway = resolve;
+    }));
+    route('SELECT id, tenant_id, patient_uid, flow', () => [{
+      ...BASE_SESSION,
+      resend_claim_id: claimAttempts > 0 ? CLAIM_ID : null,
+      resend_claimed_at: claimAttempts > 0 ? new Date() : null,
+    }]);
+    route('SET resend_count = resend_count + 1', (_sql, args) => {
+      claimAttempts += 1;
+      return claimAttempts === 1 ? [{
+        ...BASE_SESSION,
+        resend_count: 1,
+        resend_claim_id: args[3],
+        resend_claimed_at: new Date(),
+      }] : [];
+    });
+    route('otp_attempts = 0', () => [{ ...BASE_SESSION, resend_count: 1 }]);
+
+    const first = enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: PATIENT_UID,
+      aadhaarNumber: VALID_AADHAAR,
+    });
+    await new Promise(setImmediate);
+    await expect(enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: PATIENT_UID,
+      aadhaarNumber: VALID_AADHAAR,
+    })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_RESEND_IN_PROGRESS', statusCode: 409 });
+
+    releaseGateway({ txnId: 'txn-002' });
+    await expect(first).resolves.toMatchObject({ status: 'otp_sent' });
+    expect(requestEnrolmentOtp).toHaveBeenCalledTimes(1);
+    expect(claimAttempts).toBe(2);
+  });
+
+  it('releases a failed resend lease without decrementing the durable count', async () => {
+    requestEnrolmentOtp.mockRejectedValueOnce(new Error('gateway unavailable'));
+    route('resend_claim_id = NULL, resend_claimed_at = NULL', () => []);
+
+    await expect(enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: 11,
+      patientUid: PATIENT_UID,
+      aadhaarNumber: VALID_AADHAAR,
+    })).rejects.toThrow('gateway unavailable');
+
+    const release = prismaExecute.mock.calls.find(
+      ([sql]) => sql.includes('resend_claim_id = NULL, resend_claimed_at = NULL'),
+    );
+    expect(release).toBeDefined();
+    expect(release[0]).not.toContain('resend_count = resend_count -');
   });
 
   it('cancelEnrolment cancels only live sessions', async () => {

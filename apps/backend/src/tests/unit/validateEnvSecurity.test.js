@@ -100,6 +100,8 @@ describe('validateEnv signed integration secrets', () => {
       ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
       ABDM_ENVIRONMENT: 'production',
       ABDM_CM_ID: 'production-cm',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
     });
 
     expect(result.status).toBe(1);
@@ -116,6 +118,8 @@ describe('validateEnv signed integration secrets', () => {
       ABDM_ENVIRONMENT: 'production',
       ABDM_CM_ID: 'production-cm',
       ABHA_ENROLMENT_BASE_URL: 'https://abhasbx.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
     });
 
     expect(result.status).toBe(1);
@@ -132,6 +136,8 @@ describe('validateEnv signed integration secrets', () => {
       ABDM_ENVIRONMENT: 'production',
       ABDM_CM_ID: 'production-cm',
       ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
     });
 
     expect(result.status).toBe(0);

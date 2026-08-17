@@ -328,7 +328,9 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     const [bytes, storageKey, mime] = uploadFileToR2.mock.calls[0];
     expect(JSON.parse(bytes.toString('utf8'))).toEqual(FHIR_BUNDLE);
     expect(storageKey).toMatch(
-      new RegExp(`^abdm-hiu/${TENANT_ID}/71/page-1/[0-9a-f]{64}/0-[0-9a-f]{64}\\.json$`),
+      new RegExp(
+        `^abdm-hiu/${TENANT_ID}/71/page-1/[0-9a-f]{64}/claim-[0-9a-f-]{36}/0-[0-9a-f]{64}\\.json$`,
+      ),
     );
     expect(mime).toBe('application/fhir+json');
     // Reference row: explicit tenant + sha256 of the decrypted bytes.
@@ -372,6 +374,70 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(expect.objectContaining({
       status: 'failed',
     }));
+  });
+
+  it('isolates reclaimed uploads so stale cleanup cannot delete successor-owned objects', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    };
+    let pageState = null;
+    let insertAttempts = 0;
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('SELECT id, page_number, page_count', () => (pageState ? [pageState] : []));
+    route('INSERT INTO abdm_hiu_fetch_pages', (_sql, args) => {
+      pageState = {
+        id: 91,
+        page_number: 1,
+        page_count: 1,
+        payload_sha256: args[4],
+        status: 'claimed',
+        claim_id: args[5],
+        claimed_at: new Date(),
+        parts_count: 0,
+      };
+      return [pageState];
+    });
+    route("SET status = 'claimed'", (_sql, args) => {
+      pageState = {
+        ...pageState,
+        status: 'claimed',
+        claim_id: args[3],
+        claimed_at: new Date(),
+      };
+      return [pageState];
+    });
+    route('INSERT INTO abdm_hiu_received_bundles', () => {
+      insertAttempts += 1;
+      if (insertAttempts === 1) throw new Error('first worker lost its transaction');
+      return [{ id: 82 }];
+    });
+    route('SELECT parts_count FROM abdm_hiu_fetch_pages', () => []);
+    route("SET status = 'failed'", () => {
+      pageState = { ...pageState, status: 'failed' };
+      return [];
+    });
+
+    await expect(push(body)).rejects.toThrow('first worker lost its transaction');
+    const staleKey = uploadFileToR2.mock.calls[0][1];
+    expect(deleteObject).toHaveBeenCalledWith(staleKey);
+
+    const result = await push(body);
+    const successorKey = uploadFileToR2.mock.calls[1][1];
+    expect(result).toMatchObject({ stored: 1, failed: 0 });
+    expect(successorKey).not.toBe(staleKey);
+    expect(successorKey).toMatch(/\/claim-[0-9a-f-]{36}\//);
+    expect(deleteObject).not.toHaveBeenCalledWith(successorKey);
   });
 
   it('rejects out-of-order or page-count-changing pushes before decrypting', async () => {

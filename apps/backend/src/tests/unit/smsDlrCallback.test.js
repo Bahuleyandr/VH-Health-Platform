@@ -98,6 +98,20 @@ beforeEach(() => {
 });
 
 describe('MSG91 DLR — token auth is the whole authentication', () => {
+  it('returns 500 without logging the callback bearer when processing throws', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockRejectedValueOnce(
+      Object.assign(new Error('database failure containing callback bearer'), { code: 'DB_DOWN' }),
+    );
+
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-log-redaction', status: 'delivered' });
+
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(TOKEN);
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain('database failure');
+  });
+
   it('provider-binds token resolution and rejects a Twilio config on the MSG91 path', async () => {
     resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
       id: 7, tenant_id: TENANT_ID, provider: 'twilio', auth_key_ciphertext: 'enc:key',
@@ -320,6 +334,19 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     }
     return req.send(overrides.form ?? form);
   }
+
+  it('returns 500 without logging the callback bearer when processing throws', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockRejectedValueOnce(
+      Object.assign(new Error('database failure containing callback bearer'), { code: 'DB_DOWN' }),
+    );
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+
+    const res = await postTwilio();
+
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(TOKEN);
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain('database failure');
+  });
 
   it('401s an unknown token', async () => {
     resolveSmsConfigByCallbackTokenMock.mockResolvedValue(null);

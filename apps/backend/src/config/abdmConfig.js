@@ -1,9 +1,13 @@
 // src/config/abdmConfig.js
 // Configuration for ABDM (Ayushman Bharat Digital Mission) integration
 
+const IS_PRODUCTION_ABDM = process.env.ABDM_ENVIRONMENT === 'production';
+
 export const ABDM_CONFIG = {
-  gatewayUrl: process.env.ABDM_GATEWAY_URL || 'https://dev.abdm.gov.in/gateway',
-  bridgeUrl: process.env.ABDM_BRIDGE_URL || 'https://dev.abdm.gov.in/devservice/v1',
+  gatewayUrl: process.env.ABDM_GATEWAY_URL
+    || (IS_PRODUCTION_ABDM ? '' : 'https://dev.abdm.gov.in/gateway'),
+  bridgeUrl: process.env.ABDM_BRIDGE_URL
+    || (IS_PRODUCTION_ABDM ? '' : 'https://dev.abdm.gov.in/devservice/v1'),
   // ABHA enrolment API (v3) base — sandbox by default; production sets
   // ABHA_ENROLMENT_BASE_URL explicitly alongside ABDM_ENVIRONMENT.
   abhaEnrolmentBaseUrl: process.env.ABHA_ENROLMENT_BASE_URL || 'https://abhasbx.abdm.gov.in/abha/api/v3',
@@ -20,7 +24,7 @@ export const ABDM_CONFIG = {
   // Explicit environment (was implicit: gateway hardcoded X-CM-ID 'sbx').
   // 'sandbox' unless ABDM_ENVIRONMENT=production; ABDM_CM_ID overrides the
   // Consent-Manager id header independently (sandbox default 'sbx').
-  environment: process.env.ABDM_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+  environment: IS_PRODUCTION_ABDM ? 'production' : 'sandbox',
   cmId: process.env.ABDM_CM_ID
     || (process.env.ABDM_ENVIRONMENT === 'production' ? '' : 'sbx'),
 

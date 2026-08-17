@@ -11,6 +11,9 @@ const databaseUrl = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
 const published701 = readFileSync(
   new URL('../migrations/701_abha_enrolment_sessions.sql', import.meta.url), 'utf8',
 );
+const published702 = readFileSync(
+  new URL('../migrations/702_abdm_patient_share_intakes.sql', import.meta.url), 'utf8',
+);
 const published703 = readFileSync(
   new URL('../migrations/703_abdm_hiu_fetch_sessions.sql', import.meta.url), 'utf8',
 );
@@ -22,6 +25,10 @@ const published707 = readFileSync(
 );
 const upgrade714 = readFileSync(
   new URL('../migrations/714_abdm_hiu_page_evidence_reconciliation.sql', import.meta.url),
+  'utf8',
+);
+const upgrade716 = readFileSync(
+  new URL('../migrations/716_abdm_resend_signer_and_patient_delete_safety.sql', import.meta.url),
   'utf8',
 );
 
@@ -71,6 +78,7 @@ d('ABDM HIU retained migration 707 → 714', () => {
       LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
     `);
     await client.query(published701);
+    await client.query(published702);
     await client.query(published703);
     await client.query(published705);
   }
@@ -262,7 +270,12 @@ d('ABDM HIU retained migration 707 → 714', () => {
       pageCount: 2,
       legacyPartNumbers: [0],
       eventPayloads: [
-        { pageNumber: 1, pageCount: 2, entryCount: 1 },
+        {
+          pageNumber: 1,
+          pageCount: 2,
+          entryCount: 1,
+          authenticatedHipId: 'HIP-RETAINED',
+        },
         {
           pageNumber: 2,
           pageCount: 2,
@@ -287,6 +300,14 @@ d('ABDM HIU retained migration 707 → 714', () => {
 
     await client.query(upgrade714);
     await client.query(upgrade714);
+    await client.query(
+      `UPDATE tenant_interop_secrets
+          SET sender_identifier = 'HIP-ROTATED', status = 'inactive'
+        WHERE tenant_id = $1`,
+      [retained.tenantId],
+    );
+    await client.query(upgrade716);
+    await client.query(upgrade716);
 
     const session = await client.query(
       `SELECT parts_received, pages_expected, next_page_number
@@ -315,6 +336,110 @@ d('ABDM HIU retained migration 707 → 714', () => {
       { page_number: 1, parts_count: 1 },
       { page_number: 2, parts_count: 1 },
     ]);
+    const resendColumns = await client.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = 'abha_enrolment_sessions'
+          AND column_name IN ('resend_count', 'resend_claim_id', 'resend_claimed_at')`,
+      [schema],
+    );
+    expect(resendColumns.rows).toHaveLength(3);
+  });
+
+  it('blocks a retained old-714 inference when the callback retained no signer identity', async () => {
+    const retained = await seedSession({
+      pageCount: 1,
+      legacyPartNumbers: [0],
+      eventPayloads: [{ pageNumber: 1, pageCount: 1, entryCount: 1 }],
+    });
+    await client.query(published707);
+
+    // This is the only durable mutation the old local 714 could commit after
+    // accepting the tenant's then-current credential as historical evidence:
+    // artifact normalization and counter reconciliation. It never modified
+    // abdm_webhook_events.payload, so 716 can still judge the original receipt.
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE abdm_consent_artifacts
+          SET metadata = jsonb_set(metadata, '{hip_id}', '"HIP-RETAINED"'::jsonb, TRUE),
+              updated_at = NOW()
+        WHERE tenant_id = $1`,
+      [retained.tenantId],
+    );
+    await client.query(
+      `UPDATE abdm_hiu_fetch_sessions
+          SET parts_received = (
+                SELECT COUNT(*)::integer FROM abdm_hiu_received_bundles b
+                 WHERE b.tenant_id = $1 AND b.fetch_session_id = $2
+              ),
+              updated_at = NOW()
+        WHERE tenant_id = $1 AND id = $2`,
+      [retained.tenantId, retained.sessionId],
+    );
+    await client.query('COMMIT');
+    const before = await client.query(
+      `SELECT payload FROM abdm_webhook_events WHERE tenant_id = $1`,
+      [retained.tenantId],
+    );
+    expect(before.rows[0].payload).not.toHaveProperty('authenticatedHipId');
+
+    await client.query(
+      `UPDATE tenant_interop_secrets
+          SET sender_identifier = 'HIP-ROTATED'
+        WHERE tenant_id = $1`,
+      [retained.tenantId],
+    );
+    await expect(client.query(upgrade716)).rejects.toMatchObject({ code: '23514' });
+    await client.query('ROLLBACK');
+
+    const after = await client.query(
+      `SELECT payload FROM abdm_webhook_events WHERE tenant_id = $1`,
+      [retained.tenantId],
+    );
+    expect(after.rows).toEqual(before.rows);
+    const resendColumns = await client.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = 'abha_enrolment_sessions'
+          AND column_name = 'resend_count'`,
+      [schema],
+    );
+    expect(resendColumns.rows).toHaveLength(0);
+  });
+
+  it('preserves a resolved intake while clearing only the deleted patient UID', async () => {
+    const tenantId = randomUUID();
+    const patientUid = randomUUID();
+    await client.query('INSERT INTO tenants (id) VALUES ($1)', [tenantId]);
+    await client.query(
+      'INSERT INTO users (tenant_id, uid) VALUES ($1, $2)',
+      [tenantId, patientUid],
+    );
+    await client.query(
+      `INSERT INTO abdm_patient_share_intakes
+         (tenant_id, request_id, status, matched_patient_uid, processed_at)
+       VALUES ($1, 'delete-safety', 'matched', $2, NOW())`,
+      [tenantId, patientUid],
+    );
+    await client.query(published707);
+    await client.query(upgrade716);
+
+    await client.query(
+      'DELETE FROM users WHERE tenant_id = $1 AND uid = $2',
+      [tenantId, patientUid],
+    );
+
+    const rows = await client.query(
+      `SELECT tenant_id, status, matched_patient_uid, matched_patient_deleted_at
+         FROM abdm_patient_share_intakes
+        WHERE tenant_id = $1 AND request_id = 'delete-safety'`,
+      [tenantId],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      tenant_id: tenantId,
+      status: 'matched',
+      matched_patient_uid: null,
+    });
+    expect(rows.rows[0].matched_patient_deleted_at).toBeInstanceOf(Date);
   });
 
   it('fails closed when published 707 bound native and legacy parts onto one page', async () => {

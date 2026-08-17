@@ -45,6 +45,7 @@ const MAX_OTP_RESENDS = 3;
 const OTP_TTL_MINUTES = 10;
 const SESSION_TTL_MINUTES = 30;
 const OTP_VERIFY_CLAIM_TTL_MINUTES = 5;
+const OTP_RESEND_CLAIM_TTL_MINUTES = 5;
 
 // ---------------------------------------------------------------------------
 // Aadhaar validation — Verhoeff checksum (UIDAI standard). The value never
@@ -214,7 +215,7 @@ async function assertEnrolmentEnabled(tenantId) {
 const SESSION_RETURNING = `id, tenant_id, patient_uid, flow, environment, status,
   otp_attempts, mobile_last4, abha_number, abha_address, error_code,
   otp_sent_at, otp_verified_at, enrolled_at, linked_at, expires_at,
-  created_at, updated_at`;
+  resend_count, resend_claim_id, resend_claimed_at, created_at, updated_at`;
 
 /** Public projection: never includes txn_id, profile_snapshot, or metadata. */
 function publicSession(row) {
@@ -357,6 +358,42 @@ async function releaseOtpVerificationClaim({
     terminal && failureReason ? String(failureReason).slice(0, 500) : null,
   );
   return rows[0] ?? null;
+}
+
+async function claimOtpResend(tenantId, sessionId, patientUid) {
+  const claimId = crypto.randomUUID();
+  const expectedPatientUid = requirePatientUid(patientUid);
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE abha_enrolment_sessions
+        SET resend_count = resend_count + 1,
+            resend_claim_id = $4::uuid,
+            resend_claimed_at = NOW(),
+            updated_at = NOW()
+      WHERE id = $1::integer AND tenant_id = $2::uuid
+        AND patient_uid = $3::uuid AND status = 'otp_sent'
+        AND (expires_at IS NULL OR expires_at >= NOW())
+        AND resend_count < $5::smallint
+        AND (
+          resend_claim_id IS NULL
+          OR resend_claimed_at <= NOW() - ($6::int * INTERVAL '1 minute')
+        )
+      RETURNING ${SESSION_RETURNING}, txn_id, metadata`,
+    Number(sessionId), tenantId, expectedPatientUid, claimId,
+    MAX_OTP_RESENDS, OTP_RESEND_CLAIM_TTL_MINUTES,
+  );
+  return rows[0] ?? null;
+}
+
+async function releaseOtpResendClaim(tenantId, sessionId, claimId) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE abha_enrolment_sessions
+        SET resend_claim_id = NULL, resend_claimed_at = NULL, updated_at = NOW()
+      WHERE id = $1::integer AND tenant_id = $2::uuid
+        AND resend_claim_id = $3::uuid AND status = 'otp_sent'`,
+    Number(sessionId), tenantId, claimId,
+  ).catch((err) => logger.error('Failed to release ABHA OTP resend claim', {
+    sessionId, error: err.message,
+  }));
 }
 
 function verificationClaimLost() {
@@ -778,7 +815,7 @@ export async function resendEnrolmentOtp({
   if (session.status !== 'otp_sent') {
     throw AppError.invalidTransition(session.status, 'otp_sent', ['otp_sent']);
   }
-  const resends = Number(session.metadata?.resend_count ?? 0);
+  const resends = Number(session.resend_count ?? session.metadata?.resend_count ?? 0);
   if (resends >= MAX_OTP_RESENDS) {
     throw new AppError(
       'Too many OTP resends for this enrolment session',
@@ -791,24 +828,59 @@ export async function resendEnrolmentOtp({
     ? requireValidAadhaar(aadhaarNumber)
     : requireValidMobile(mobile);
   const encryptedValue = await encryptForEnrolment(cleanValue);
-  const otpResult = await abdmGateway.requestEnrolmentOtp({
-    scope: session.flow === 'aadhaar_otp' ? 'abha-enrol' : 'mobile-verify',
-    encryptedValue,
-    txnId: session.txn_id,
-  });
+  const claimed = await claimOtpResend(tid, session.id, patientUid);
+  if (!claimed) {
+    const current = await loadSession(tid, session.id, patientUid);
+    const currentResends = Number(current.resend_count ?? current.metadata?.resend_count ?? 0);
+    if (currentResends >= MAX_OTP_RESENDS) {
+      throw new AppError(
+        'Too many OTP resends for this enrolment session',
+        429,
+        'ABHA_ENROLMENT_RESEND_EXCEEDED',
+      );
+    }
+    if (current.resend_claim_id) {
+      throw AppError.conflict(
+        'An OTP resend is already being processed',
+        'ABHA_ENROLMENT_RESEND_IN_PROGRESS',
+      );
+    }
+    throw AppError.conflict(
+      'Enrolment session left the otp_sent state',
+      'ABHA_ENROLMENT_STATE',
+    );
+  }
+
+  let otpResult;
+  try {
+    otpResult = await abdmGateway.requestEnrolmentOtp({
+      scope: claimed.flow === 'aadhaar_otp' ? 'abha-enrol' : 'mobile-verify',
+      encryptedValue,
+      txnId: claimed.txn_id,
+    });
+  } catch (err) {
+    await releaseOtpResendClaim(tid, claimed.id, claimed.resend_claim_id);
+    throw err;
+  }
 
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE abha_enrolment_sessions
         SET txn_id = $3::text, otp_sent_at = NOW(), otp_attempts = 0,
             expires_at = NOW() + ($4::int * INTERVAL '1 minute'),
             metadata = metadata || jsonb_build_object('resend_count', $5::int),
+            resend_claim_id = NULL, resend_claimed_at = NULL,
             updated_at = NOW()
       WHERE id = $1::integer AND tenant_id = $2::uuid AND status = 'otp_sent'
+        AND patient_uid = $6::uuid AND resend_claim_id = $7::uuid
       RETURNING ${SESSION_RETURNING}`,
-    session.id, tid, String(otpResult.txnId), OTP_TTL_MINUTES, resends + 1,
+    claimed.id, tid, String(otpResult.txnId), OTP_TTL_MINUTES,
+    Number(claimed.resend_count), requirePatientUid(patientUid), claimed.resend_claim_id,
   );
   if (!rows[0]) {
-    throw AppError.conflict('Enrolment session left the otp_sent state', 'ABHA_ENROLMENT_STATE');
+    throw AppError.conflict(
+      'OTP resend was completed or reclaimed by another request',
+      'ABHA_ENROLMENT_RESEND_SUPERSEDED',
+    );
   }
   return publicSession(rows[0]);
 }

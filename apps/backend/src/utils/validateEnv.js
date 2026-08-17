@@ -13,9 +13,25 @@ import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVe
 // but Joi.min counts characters; 32 is the floor below which we refuse to boot).
 const MIN_KEY_LENGTH = 32;
 const ABHA_ENROLMENT_SANDBOX_HOST = 'abhasbx.abdm.gov.in';
+const NON_PRODUCTION_HOST_LABEL = /(^|[.-])(dev|sandbox|sbx)([.-]|$)/i;
 
 function rejectProductionAbhaSandboxHost(value, helpers) {
   if (new URL(value).hostname.toLowerCase() === ABHA_ENROLMENT_SANDBOX_HOST) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
+
+function rejectProductionAbdmNonProductionHost(value, helpers) {
+  const hostname = new URL(value).hostname.toLowerCase();
+  if (
+    hostname === 'localhost'
+    || hostname === '0.0.0.0'
+    || hostname === '[::1]'
+    || hostname.endsWith('.local')
+    || /^127\./.test(hostname)
+    || NON_PRODUCTION_HOST_LABEL.test(hostname)
+  ) {
     return helpers.error('any.invalid');
   }
   return value;
@@ -678,6 +694,26 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CM_ID'),
+  ABDM_GATEWAY_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/gateway'),
+  }).label('ABDM_GATEWAY_URL'),
+  ABDM_BRIDGE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/devservice/v1'),
+  }).label('ABDM_BRIDGE_URL'),
   // ABHA enrolment API base (v3). Sandbox keeps the known-safe default;
   // production must name a non-sandbox host explicitly so Aadhaar/mobile/OTP
   // material cannot cross environments through a forgotten URL override.

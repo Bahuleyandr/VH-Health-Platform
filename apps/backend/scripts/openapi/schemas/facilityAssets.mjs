@@ -5,6 +5,25 @@
 // clinical-ai biomed CMMS surface.
 import { envelope } from './_helpers.mjs';
 
+const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const errorResponse = description => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/FacilityAssetErrorResponse' },
+    },
+  },
+});
+const authenticatedErrorResponses = {
+  400: errorResponse('The facility asset request was invalid.'),
+  401: errorResponse('The API key or bearer token was missing or invalid.'),
+  403: errorResponse('The caller was not permitted to access the facility asset register.'),
+  404: errorResponse('The tenant-scoped facility asset was not found.'),
+  409: errorResponse('The request conflicted with the asset version, tag, custodian, or lifecycle state.'),
+  429: errorResponse('The caller exceeded the API rate limit.'),
+  500: errorResponse('The facility asset operation could not be completed.'),
+};
+
 const CATEGORIES = [
   'furniture', 'hvac', 'electrical', 'plumbing', 'it_equipment',
   'generator', 'vehicle', 'kitchen', 'laundry', 'safety',
@@ -26,6 +45,17 @@ const queryParameter = (name, schema) => ({
 });
 
 export const schemas = {
+  FacilityAssetErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
   FacilityAsset: {
     type: 'object',
     required: ['id', 'assetTag', 'name', 'category', 'condition', 'status', 'version'],
@@ -255,6 +285,8 @@ export const operations = {
       }),
     ],
     response: 'FacilityAssetListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/facility/assets/custodians': {
     description:
@@ -264,34 +296,47 @@ export const operations = {
       queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 }),
     ],
     response: 'FacilityAssetCustodianListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/facility/assets': {
     description:
       'Registers a general facility asset (furniture, HVAC, electrical/plumbing plant, IT, generators, vehicles, kitchen/laundry, safety, infrastructure). Asset tag is unique per tenant. Writes the asset row plus a created history event in the same transaction. ADMIN/SUPER_ADMIN/MAINTENANCE/BIOMEDICAL_STAFF.',
     request: 'FacilityAssetCreateRequest',
     response: 'FacilityAssetResponse',
+    responseStatus: 201,
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/facility/assets/{id}': {
     description: 'Fetches one facility asset with its most recent history events.',
     response: 'FacilityAssetDetailResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'PATCH /api/v1/facility/assets/{id}': {
     description:
       'Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Explicit null clears nullable fields. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. New custodians must be active non-patient staff in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.',
     request: 'FacilityAssetUpdateRequest',
     response: 'FacilityAssetResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/facility/assets/{id}/status': {
     description:
       'Transitions the asset status through the guarded state machine (active ⇄ under_repair → condemned → disposed; direct disposal allowed). Disposal requires a reason and stamps the disposal evidence columns; disposed is terminal. The transition event is written in the same transaction.',
     request: 'FacilityAssetTransitionRequest',
     response: 'FacilityAssetResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'POST /api/v1/facility/assets/{id}/maintenance': {
     description:
       'Records a maintenance action (cost/vendor/notes) against a non-disposed asset as an append-only history event without changing status.',
     request: 'FacilityAssetMaintenanceRequest',
     response: 'FacilityAssetMaintenanceResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
   'GET /api/v1/facility/assets/{id}/events': {
     description: 'Pages through the asset\'s full append-only history (newest first).',
@@ -302,5 +347,7 @@ export const operations = {
       }),
     ],
     response: 'FacilityAssetEventListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: authenticatedErrorResponses,
   },
 };

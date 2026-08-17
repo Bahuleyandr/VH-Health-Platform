@@ -601,6 +601,68 @@ d('UHI adapter (migration 705)', () => {
     expect(sendUhiCallback).toHaveBeenCalledWith(expect.objectContaining({ action: 'on_cancel' }));
   });
 
+  it('NACKs confirm after cancel and does not create another appointment', async () => {
+    const ctx = context({ messageId: 'msg-confirm-after-cancel' });
+    const body = {
+      message: {
+        order: {
+          fulfillment: {
+            agent: { id: String(doctorUserId) },
+            start: { time: { timestamp: `${APPT_DATE}T10:00:00` } },
+          },
+          customer: { person: { name: 'UHI Deep Patient' }, contact: { phone: PATIENT_PHONE } },
+        },
+      },
+    };
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM appointments WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    const intake = await recordUhiLeg({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      transactionId: ctx.transactionId,
+      messageId: ctx.messageId,
+      action: 'confirm',
+      direction: 'inbound',
+      counterpartySubscriberId: ctx.consumerId,
+      payload: body,
+      signatureVerified: true,
+    });
+
+    const result = await handleUhiConfirm({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      context: ctx,
+      body,
+      legId: intake.row.id,
+    });
+
+    expect(result.error).toMatchObject({ code: 'UHI_JOURNEY_TERMINAL' });
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM appointments WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    expect(after[0].n).toBe(before[0].n);
+    const legs = await prisma.$queryRawUnsafe(
+      `SELECT status, ack, error_code, appointment_id FROM uhi_transactions
+        WHERE tenant_id = $1::uuid AND message_id = 'msg-confirm-after-cancel'`,
+      TENANT_ID,
+    );
+    expect(legs[0]).toMatchObject({
+      status: 'rejected',
+      ack: 'NACK',
+      error_code: 'UHI_JOURNEY_TERMINAL',
+      appointment_id: null,
+    });
+    expect(sendUhiCallback).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'on_confirm',
+      body: expect.objectContaining({
+        error: expect.objectContaining({ code: 'UHI_JOURNEY_TERMINAL' }),
+      }),
+    }));
+  });
+
   it('binds every leg to its resolved tenant — tenant B sees nothing of tenant A', async () => {
     const mine = await listUhiTransactions(TENANT_ID, {});
     expect(mine.transactions.length).toBeGreaterThanOrEqual(6);

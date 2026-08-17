@@ -966,7 +966,7 @@ export async function handleHiuDataPush({
         typeof bundle === 'string' ? bundle : JSON.stringify(bundle), 'utf8',
       );
       const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-      const storageKey = `abdm-hiu/${tid}/${session.id}/page-${pageNumber}/${payloadSha256}/${i}-${sha256}.json`;
+      const storageKey = `abdm-hiu/${tid}/${session.id}/page-${pageNumber}/${payloadSha256}/claim-${claimId}/${i}-${sha256}.json`;
       await uploadFileToR2(bytes, storageKey, 'application/fhir+json');
       uploadedStorageKeys.push(storageKey);
       preparedBundles.push({

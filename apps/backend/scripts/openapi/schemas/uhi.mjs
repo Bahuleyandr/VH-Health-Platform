@@ -5,12 +5,87 @@
 // (UHI_ENABLED + tenants.settings.uhi), sandbox default.
 import { envelope } from './_helpers.mjs';
 
+const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const errorResponse = (description, schema = { $ref: '#/components/schemas/UhiErrorResponse' }) => ({
+  description,
+  content: {
+    'application/json': {
+      schema,
+    },
+  },
+});
+const UHI_PUBLIC_ERROR_SCHEMA = {
+  oneOf: [
+    { $ref: '#/components/schemas/UhiErrorResponse' },
+    { $ref: '#/components/schemas/UhiNackResponse' },
+  ],
+};
+const publicErrorResponses = {
+  400: errorResponse('The UHI protocol envelope or signed context was invalid.', UHI_PUBLIC_ERROR_SCHEMA),
+  401: errorResponse('The UHI signature or subscriber identity could not be authenticated.', UHI_PUBLIC_ERROR_SCHEMA),
+  404: errorResponse('The UHI adapter, tenant, journey, or requested resource was not available.'),
+  429: errorResponse('The callback source exceeded the public webhook rate limit.'),
+  500: errorResponse(
+    'The authenticated UHI request could not be processed; the sender may retry.',
+    UHI_PUBLIC_ERROR_SCHEMA,
+  ),
+};
+const adminErrorResponses = {
+  400: errorResponse('The UHI transaction filters were invalid.'),
+  401: errorResponse('The API key or bearer token was missing or invalid.'),
+  403: errorResponse('The caller was not permitted to inspect the UHI evidence ledger.'),
+  429: errorResponse('The caller exceeded the API rate limit.'),
+  500: errorResponse('The UHI evidence ledger could not be read.'),
+};
+
 const UHI_ACTIONS = [
   'search', 'on_search', 'init', 'on_init', 'confirm', 'on_confirm',
   'status', 'on_status', 'cancel', 'on_cancel',
 ];
 
 export const schemas = {
+  UhiErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
+  UhiNackResponse: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['message', 'error'],
+    properties: {
+      message: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ack'],
+        properties: {
+          ack: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['status'],
+            properties: {
+              status: { type: 'string', enum: ['NACK'] },
+            },
+          },
+        },
+      },
+      error: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['code', 'message'],
+        properties: {
+          code: { type: 'string' },
+          message: { type: 'string' },
+        },
+      },
+    },
+  },
   UhiContext: {
     type: 'object',
     required: ['transaction_id', 'message_id'],
@@ -130,30 +205,42 @@ export const operations = {
     description: `Receives a UHI discovery intent and answers an on_search catalog of matching doctors and open slots. ${WEBHOOK_DESCRIPTION_SUFFIX}`,
     request: 'UhiInboundMessage',
     response: 'UhiAckResponse',
+    security: [],
+    additionalResponses: publicErrorResponses,
   },
   'POST /api/v1/uhi/init': {
     description: `Receives a UHI booking init, soft-validates the requested slot, and answers an on_init quote. No hold rows are created (thin adapter scope). ${WEBHOOK_DESCRIPTION_SUFFIX}`,
     request: 'UhiInboundMessage',
     response: 'UhiAckResponse',
+    security: [],
+    additionalResponses: publicErrorResponses,
   },
   'POST /api/v1/uhi/confirm': {
-    description: `Receives a UHI booking confirm and books through the platform's existing appointment service (canonical clinical timeline + audit evidence inherited), stamping appointment correlation + booking snapshot on the evidence row, then answers on_confirm. Unregistered customers are NACKed (UHI_PATIENT_NOT_REGISTERED). ${WEBHOOK_DESCRIPTION_SUFFIX}`,
+    description: `Receives a UHI booking confirm and books through the platform's existing appointment service (canonical clinical timeline + audit evidence inherited), stamping appointment correlation + booking snapshot on the evidence row, then answers on_confirm. Unregistered customers are NACKed (UHI_PATIENT_NOT_REGISTERED). A confirm received after a processed confirm/cancel is transport-ACKed with HTTP 200 and produces a business NACK on on_confirm (UHI_JOURNEY_TERMINAL); it never creates an appointment. ${WEBHOOK_DESCRIPTION_SUFFIX}`,
     request: 'UhiInboundMessage',
     response: 'UhiAckResponse',
+    security: [],
+    additionalResponses: publicErrorResponses,
   },
   'POST /api/v1/uhi/status': {
     description: `Answers on_status with the state of the booking confirmed under this transaction. ${WEBHOOK_DESCRIPTION_SUFFIX}`,
     request: 'UhiInboundMessage',
     response: 'UhiAckResponse',
+    security: [],
+    additionalResponses: publicErrorResponses,
   },
   'POST /api/v1/uhi/cancel': {
     description: `Cancels the booking confirmed under this transaction through the existing appointment transition path (canonical evidence inherited) and answers on_cancel. ${WEBHOOK_DESCRIPTION_SUFFIX}`,
     request: 'UhiInboundMessage',
     response: 'UhiAckResponse',
+    security: [],
+    additionalResponses: publicErrorResponses,
   },
   'GET /api/v1/admin/uhi/transactions': {
     description:
       'Lists the tenant\'s UHI protocol-leg evidence/dedupe ledger (inbound intents and outbound on_* callbacks) for ops debugging, filterable by status/action/transaction id. ADMIN or SUPER_ADMIN. Returns an enabled:false marker instead of erroring while the adapter is disabled.',
     response: 'UhiTransactionListResponse',
+    security: AUTHENTICATED_SECURITY,
+    additionalResponses: adminErrorResponses,
   },
 };

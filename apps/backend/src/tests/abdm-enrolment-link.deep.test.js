@@ -286,6 +286,62 @@ d('ABHA enrolment deep (701 + 653 verified gate)', () => {
     });
   });
 
+  test('concurrent OTP resends atomically consume the final slot and call the gateway once', async () => {
+    const inserted = await prisma.$queryRawUnsafe(
+      `INSERT INTO abha_enrolment_sessions
+         (tenant_id, patient_uid, flow, environment, status, txn_id, resend_count, metadata)
+       VALUES ($1::uuid, $2::uuid, 'aadhaar_otp', 'sandbox', 'otp_sent',
+               'txn-resend-final-slot', 2, '{"resend_count":2}'::jsonb)
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_C,
+    );
+    let releaseGateway;
+    let gatewayEntered;
+    const entered = new Promise((resolve) => { gatewayEntered = resolve; });
+    const release = new Promise((resolve) => { releaseGateway = resolve; });
+    requestEnrolmentOtp.mockImplementationOnce(async () => {
+      gatewayEntered();
+      await release;
+      return { txnId: 'txn-resend-final-result' };
+    });
+
+    const owner = enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: inserted[0].id,
+      patientUid: PATIENT_C,
+      aadhaarNumber: VALID_AADHAAR,
+    });
+    await entered;
+    await expect(enrolmentService.resendEnrolmentOtp({
+      tenantId: TENANT_ID,
+      sessionId: inserted[0].id,
+      patientUid: PATIENT_C,
+      aadhaarNumber: VALID_AADHAAR,
+    })).rejects.toMatchObject({
+      code: 'ABHA_ENROLMENT_RESEND_EXCEEDED', statusCode: 429,
+    });
+    expect(requestEnrolmentOtp).toHaveBeenCalledTimes(1);
+    releaseGateway();
+
+    await expect(owner).resolves.toMatchObject({ status: 'otp_sent' });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT txn_id, resend_count, resend_claim_id, resend_claimed_at,
+              metadata->>'resend_count' AS metadata_resend_count
+         FROM abha_enrolment_sessions
+        WHERE id = $1::integer AND tenant_id = $2::uuid`,
+      inserted[0].id,
+      TENANT_ID,
+    );
+    expect(rows[0]).toMatchObject({
+      txn_id: 'txn-resend-final-result',
+      resend_count: 3,
+      resend_claim_id: null,
+      resend_claimed_at: null,
+      metadata_resend_count: '3',
+    });
+  });
+
   test('701 constraints are live: result-evidence CHECK, txn-presence CHECK, txn unique', async () => {
     // enrolled without abha_number/enrolled_at → CHECK violation.
     await expect(prisma.$executeRawUnsafe(

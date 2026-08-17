@@ -57,6 +57,30 @@
           }
         }
       },
+      "AbdmCompletionErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "AbdmHiuBundleContent": {
         "type": "object",
         "required": [
@@ -23970,6 +23994,30 @@
           }
         }
       },
+      "FacilityAssetErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "FacilityAssetEvent": {
         "type": "object",
         "required": [
@@ -44780,6 +44828,30 @@
           }
         }
       },
+      "UhiErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "UhiInboundMessage": {
         "type": "object",
         "required": [
@@ -44793,6 +44865,56 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Beckn message body (intent for search, order for init/confirm, order_id for status/cancel)."
+          }
+        }
+      },
+      "UhiNackResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message",
+          "error"
+        ],
+        "properties": {
+          "message": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ack"
+            ],
+            "properties": {
+              "ack": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "NACK"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
           }
         }
       },
@@ -47260,9 +47382,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Cancels a live enrolment session (front-desk assisted; patient_uid in the body, patient-registry write roles).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -47291,9 +47489,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Verifies the enrolment OTP (front-desk assisted; patient_uid in the body, patient-registry write roles). Aadhaar flow completes enrolment at the gateway and links the resulting ABHA through the migration-653 verified gate (users.abha_verification_status='verified' + clinical_audit_events row, one transaction; no clinical timeline row — identity, not clinical care). Attempts cap at 3, then the session fails. 409 ABHA_ALREADY_LINKED when another patient holds the verified slot.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -47322,9 +47596,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Re-sends the enrolment OTP (front-desk assisted; patient_uid in the body, patient-registry write roles). The Aadhaar number is never stored, so the aadhaar_otp flow must re-supply it (validated, encrypted in memory, discarded). Capped at 3 resends; OTP rate-limited.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -47344,7 +47694,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47353,9 +47703,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Starts an ABHA enrolment session (front-desk assisted; patient_uid in the body, patient-registry write roles). Validates the 12-digit Aadhaar (Verhoeff), encrypts it in memory with the gateway certificate, requests the enrolment OTP, and returns the session (status otp_sent). One live session per patient; OTP rate-limited (3 per 10 min). 403 ABDM_ENROLMENT_DISABLED until tenants.settings.abdmEnrolment.enabled AND ABDM_ENABLED hold. No Aadhaar material is ever persisted, logged, or echoed.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -47384,9 +47810,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Front-desk view of a patient's latest ABHA enrolment session.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "patientUid",
@@ -47435,9 +47937,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "HIU consent requests for this tenant (flow_kind hiu), newest first."
+        "description": "HIU consent requests for this tenant (flow_kind hiu), newest first.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_abdm_hiu_consent_requests",
@@ -47445,7 +48023,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47454,9 +48032,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Clinician-initiated HIU consent request: persists the abdm_consent_requests row (flow_kind hiu, durable evidence first), then inits at the gateway — a gateway refusal fails the row. 403 ABDM_HIU_DISABLED until tenants.settings.abdmHiu.enabled AND ABDM_ENABLED hold.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -47476,7 +48130,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47485,9 +48139,60 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The callback body or ABDM protocol fields were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The callback signature or provider identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The callback conflicted with retained transaction or page evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated callback could not be recorded; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). Same authenticity chain as every ABDM callback."
+        "description": "Public ABDM callback: gateway acknowledgement of a HIU consent-request init. Stamps the CM consent-request id (or fails the request row on error). Same authenticity chain as every ABDM callback.",
+        "security": []
       }
     },
     "/api/v1/abdm/hiu/consents": {
@@ -47506,9 +48211,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Consent artefacts granted against HIU consent requests."
+        "description": "Consent artefacts granted against HIU consent requests.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/abdm/hiu/consents/notify": {
@@ -47518,7 +48299,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47527,9 +48308,60 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The callback body or ABDM protocol fields were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The callback signature or provider identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The callback conflicted with retained transaction or page evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated callback could not be recorded; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables."
+        "description": "Public ABDM callback: CM consent notification for the HIU (GRANTED/DENIED/REVOKED/EXPIRED). Grant records consent artefacts (signature verified through the existing operator-gated CM-signature machinery) against the abdmFull consent tables.",
+        "security": []
       }
     },
     "/api/v1/abdm/hiu/consents/{artifactId}/fetch": {
@@ -47539,7 +48371,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47548,9 +48380,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Starts a health-information fetch against an ACTIVE consent artefact: generates the X25519 receive keypair, persists the private key encryptField-encrypted for the async hi-request → data-push gap (NULLed after decrypt; 30-min liability window), creates the direction-in transfer row, and hands the public key material + dataPushUrl to the CM.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "artifactId",
@@ -47570,7 +48478,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47579,9 +48487,60 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The callback body or ABDM protocol fields were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The callback signature or provider identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The callback conflicted with retained transaction or page evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated callback could not be recorded; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged)."
+        "description": "Public ABDM callback: CM acknowledgement of our health-information request — stamps the CM transactionId on the fetch session (status requested → acknowledged).",
+        "security": []
       }
     },
     "/api/v1/abdm/hiu/health-info/push": {
@@ -47591,7 +48550,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47600,9 +48559,60 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The callback body or ABDM protocol fields were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The callback signature or provider identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The callback conflicted with retained transaction or page evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated callback could not be recorded; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page)."
+        "description": "Public ABDM callback (the dataPushUrl leg): the HIP pushes encrypted FHIR entries. Each part decrypts against the session's persisted X25519 receive key (encryptField ciphertext, NULLed after the final page), checksum-failed parts are rejected, decrypted bundles go to R2 and reference rows to abdm_hiu_received_bundles. Page redeliveries collapse per (transactionId, page).",
+        "security": []
       }
     },
     "/api/v1/abdm/hiu/sessions": {
@@ -47621,9 +48631,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "HIU fetch sessions (requested → acknowledged → receiving → completed | partial | failed | expired). Key material columns are never exposed."
+        "description": "HIU fetch sessions (requested → acknowledged → receiving → completed | partial | failed | expired). Key material columns are never exposed.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/abdm/hiu/sessions/{id}": {
@@ -47642,9 +48728,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "One HIU fetch session (safe projection — no key material).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -47673,9 +48835,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Reference rows for the decrypted bundles a fetch session received. PHI bytes live in R2, not in these rows.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -47704,9 +48942,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Streams one decrypted FHIR bundle from R2 for transient rendering. This is PHI access (logPhiAccess), not a clinical write — importing a fetched record into the local chart is a separate, timeline-bearing operation this endpoint does not perform.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -47818,7 +49132,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -47827,9 +49141,60 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The callback body or ABDM protocol fields were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The callback signature or provider identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The callback conflicted with retained transaction or page evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated callback could not be recorded; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. Self-authenticated exactly like the legacy ABDM callbacks — x-hip-id tenant resolution, HMAC over the exact raw bytes, durable cross-replica replay claim. Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token."
+        "description": "Public ABDM callback (pre-auth mount): the CM posts a patient-shared profile after a counter-QR scan. Self-authenticated exactly like the legacy ABDM callbacks — x-hip-id tenant resolution, HMAC over the exact raw bytes, durable cross-replica replay claim. Transport evidence lands as a plain abdm_webhook_events row (receipt_source NULL by design); redeliveries collapse on the (tenant, request_id, environment) unique and 202-ack replay-safe with the queue token.",
+        "security": []
       }
     },
     "/api/v1/abdm/register-abha": {
@@ -64971,9 +66336,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The SMS provider or template configuration was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to administer tenant SMS configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped SMS configuration or template was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The requested SMS configuration conflicts with an enabled provider or template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The SMS configuration operation failed without exposing credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Admin read of the tenant SMS provider configs plus the env/tenant gate states. Credentials are write-only — reads expose has_auth_key / has_callback_token booleans only."
+        "description": "Admin read of the tenant SMS provider configs plus the env/tenant gate states. Credentials are write-only — reads expose has_auth_key / has_callback_token booleans only.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       },
       "put": {
         "operationId": "put_api_v1_admin_notifications_sms_config",
@@ -64990,9 +66431,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The SMS provider or template configuration was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to administer tenant SMS configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped SMS configuration or template was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The requested SMS configuration conflicts with an enabled provider or template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The SMS configuration operation failed without exposing credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Admin upsert of the per-tenant SMS provider config (one row per provider; at most one enabled per tenant). auth_key is write-only tenant-bound encryptField() ciphertext and validator failures never echo it; enabling a non-dry_run provider without sender_id + dlt_entity_id + auth_key is rejected, and enabled Twilio additionally requires account_sid (699 + 711 checks). When the row has no DLR callback token (or rotation is requested) a fresh bearer token is minted and returned EXACTLY ONCE as callback_token + dlr_path; only its SHA-256 lookup hash and encryptField() ciphertext are retained.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -65021,9 +66538,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The SMS provider or template configuration was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to administer tenant SMS configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped SMS configuration or template was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The requested SMS configuration conflicts with an enabled provider or template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The SMS configuration operation failed without exposing credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Lists the tenant DLT template registrations (outbox template_version key → TRAI DLT content template id + provider flow/content id). The adapter refuses to send any template kind without an active registration."
+        "description": "Lists the tenant DLT template registrations (outbox template_version key → TRAI DLT content template id + provider flow/content id). The adapter refuses to send any template kind without an active registration.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_admin_notifications_sms_templates",
@@ -65040,9 +66633,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The SMS provider or template configuration was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to administer tenant SMS configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped SMS configuration or template was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The requested SMS configuration conflicts with an enabled provider or template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The SMS configuration operation failed without exposing credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Registers a DLT content template id for an outbox template key on a provider config (unique per tenant/config/key). Until a template kind is registered, sends of that kind terminally reject with dlt_template_not_registered.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -65071,9 +66740,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The SMS provider or template configuration was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to administer tenant SMS configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped SMS configuration or template was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The requested SMS configuration conflicts with an enabled provider or template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The SMS configuration operation failed without exposing credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Updates a template registration (DLT id, provider template id, active flag). Deactivating a registration fail-closes future sends of that template kind.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -68548,9 +70293,65 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI transaction filters were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to inspect the UHI evidence ledger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The UHI evidence ledger could not be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Lists the tenant's UHI protocol-leg evidence/dedupe ledger (inbound intents and outbound on_* callbacks) for ops debugging, filterable by status/action/transaction id. ADMIN or SUPER_ADMIN. Returns an enabled:false marker instead of erroring while the adapter is disabled."
+        "description": "Lists the tenant's UHI protocol-leg evidence/dedupe ledger (inbound intents and outbound on_* callbacks) for ops debugging, filterable by status/action/transaction id. ADMIN or SUPER_ADMIN. Returns an enabled:false marker instead of erroring while the adapter is disabled.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/admin/upload/cleanup": {
@@ -105894,9 +107695,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Lists the tenant's general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "status",
@@ -105980,7 +107857,7 @@
           "facility-asset"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -105989,9 +107866,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Registers a general facility asset (furniture, HVAC, electrical/plumbing plant, IT, generators, vehicles, kitchen/laundry, safety, infrastructure). Asset tag is unique per tenant. Writes the asset row plus a created history event in the same transaction. ADMIN/SUPER_ADMIN/MAINTENANCE/BIOMEDICAL_STAFF.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -106020,9 +107973,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Lists active non-patient staff in the request tenant for facility asset assignment. Results are bounded to 500 and may be narrowed by name.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "q",
@@ -106062,9 +108091,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Fetches one facility asset with its most recent history events.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -106091,9 +108196,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Explicit null clears nullable fields. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. New custodians must be active non-patient staff in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -106132,9 +108313,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Pages through the asset's full append-only history (newest first).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -106183,9 +108440,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Records a maintenance action (cost/vendor/notes) against a non-disposed asset as an append-only history event without changing status.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -106224,9 +108557,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The facility asset request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not permitted to access the facility asset register.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped facility asset was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Transitions the asset status through the guarded state machine (active ⇄ under_repair → condemned → disposed; direct disposal allowed). Disposal requires a reason and stamps the disposal evidence columns; disposed is terminal. The transition event is written in the same transaction.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -107009,9 +109418,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "Front-desk queue of Scan & Share intakes (patient-scanned counter QR → CM profile share). Filter with ?status=received for the live counter screen."
+        "description": "Front-desk queue of Scan & Share intakes (patient-scanned counter QR → CM profile share). Filter with ?status=received for the live counter screen.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/front-desk/abdm/share-intakes/{id}": {
@@ -107030,9 +109515,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "One Scan & Share intake with the shared (allowlisted) demographics.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -107061,9 +109622,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Dismisses an intake without action (audited).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -107102,9 +109739,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Attaches an existing OP appointment belonging to the resolved patient (status matched/registered → linked_visit).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -107143,9 +109856,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Attaches the intake to an EXISTING patient (status received → matched). Audited front-office identity action.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -107175,7 +109964,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -107184,9 +109973,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Registers a NEW patient from the intake through the guarded front-desk flow: exact-phone probe + duplicate candidate scan 409 PATIENT_DUPLICATE_REVIEW_REQUIRED until reviewed or overridden with an audited reason (min 10 chars). On create the shared ABHA links via the registerABHA verified-gate pathway; a linkage refusal is recorded on the intake, never a rollback. Status → registered.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -127447,9 +130312,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Cancels a live enrolment session (patient self-service; target is always the caller).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -127478,9 +130419,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Verifies the enrolment OTP (patient self-service; target is always the caller). Aadhaar flow completes enrolment at the gateway and links the resulting ABHA through the migration-653 verified gate (users.abha_verification_status='verified' + clinical_audit_events row, one transaction; no clinical timeline row — identity, not clinical care). Attempts cap at 3, then the session fails. 409 ABHA_ALREADY_LINKED when another patient holds the verified slot.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -127509,9 +130526,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Re-sends the enrolment OTP (patient self-service; target is always the caller). The Aadhaar number is never stored, so the aadhaar_otp flow must re-supply it (validated, encrypted in memory, discarded). Capped at 3 resends; OTP rate-limited.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -127531,7 +130624,7 @@
           "abdm"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
@@ -127540,9 +130633,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Starts an ABHA enrolment session (patient self-service; target is always the caller). Validates the 12-digit Aadhaar (Verhoeff), encrypts it in memory with the gateway certificate, requests the enrolment OTP, and returns the session (status otp_sent). One live session per patient; OTP rate-limited (3 per 10 min). 403 ABDM_ENROLMENT_DISABLED until tenants.settings.abdmEnrolment.enabled AND ABDM_ENABLED hold. No Aadhaar material is ever persisted, logged, or echoed.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -127571,9 +130740,85 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request was malformed or failed ABDM protocol validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller, tenant, or ABDM feature gate did not permit this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant-scoped ABDM resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicted with the current enrolment, consent, or intake state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded an enrolment, OTP, or API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The ABDM operation failed without exposing protected health information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbdmCompletionErrorResponse"
+                }
+              }
+            }
           }
         },
-        "description": "The calling patient's latest ABHA enrolment session (safe projection — no txn id, no profile snapshot)."
+        "description": "The calling patient's latest ABHA enrolment session (safe projection — no txn id, no profile snapshot).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/portal/appointments": {
@@ -143357,9 +146602,81 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI protocol envelope or signed context was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The UHI signature or subscriber identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The UHI adapter, tenant, journey, or requested resource was not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated UHI request could not be processed; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "description": "Cancels the booking confirmed under this transaction through the existing appointment transition path (canonical evidence inherited) and answers on_cancel. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -143388,9 +146705,81 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI protocol envelope or signed context was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The UHI signature or subscriber identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The UHI adapter, tenant, journey, or requested resource was not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated UHI request could not be processed; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
-        "description": "Receives a UHI booking confirm and books through the platform's existing appointment service (canonical clinical timeline + audit evidence inherited), stamping appointment correlation + booking snapshot on the evidence row, then answers on_confirm. Unregistered customers are NACKed (UHI_PATIENT_NOT_REGISTERED). Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "description": "Receives a UHI booking confirm and books through the platform's existing appointment service (canonical clinical timeline + audit evidence inherited), stamping appointment correlation + booking snapshot on the evidence row, then answers on_confirm. Unregistered customers are NACKed (UHI_PATIENT_NOT_REGISTERED). A confirm received after a processed confirm/cancel is transport-ACKed with HTTP 200 and produces a business NACK on on_confirm (UHI_JOURNEY_TERMINAL); it never creates an appointment. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -143419,9 +146808,81 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI protocol envelope or signed context was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The UHI signature or subscriber identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The UHI adapter, tenant, journey, or requested resource was not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated UHI request could not be processed; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "description": "Receives a UHI booking init, soft-validates the requested slot, and answers an on_init quote. No hold rows are created (thin adapter scope). Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -143450,9 +146911,81 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI protocol envelope or signed context was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The UHI signature or subscriber identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The UHI adapter, tenant, journey, or requested resource was not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated UHI request could not be processed; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "description": "Receives a UHI discovery intent and answers an on_search catalog of matching doctors and open slots. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -143481,9 +147014,81 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The UHI protocol envelope or signed context was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The UHI signature or subscriber identity could not be authenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The UHI adapter, tenant, journey, or requested resource was not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The callback source exceeded the public webhook rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UhiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The authenticated UHI request could not be processed; the sender may retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UhiErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UhiNackResponse"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "description": "Answers on_status with the state of the booking confirmed under this transaction. Public UHI network webhook (pre-auth mount): beckn ed25519 signature over the exact raw bytes, fail-closed tenant resolution from the provider id in the context, and durable replay dedupe on (tenant, environment, transaction_id, message_id, action) — a redelivered leg answers a replay-safe ACK without reprocessing. Disabled deployments/tenants answer 404 UHI_DISABLED with nothing stored.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
