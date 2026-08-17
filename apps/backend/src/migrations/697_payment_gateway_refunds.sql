@@ -17,10 +17,8 @@
 -- refunds keep their claimed slot 697.)
 --
 -- Status machine (simple CHECK list, Razorpay refund vocabulary):
---   initiated → pending → processed | failed | requires_reconciliation
+--   initiated → pending → processed | failed
 -- processed requires provider_refund_id + processed_at (evidence CHECK).
--- The initiated row and provider_idempotency_key commit BEFORE the external
--- request; every retry reuses that key, closing the crash/replay window.
 --
 -- RLS: 683 request-path pattern; the refund webhook path is the same pre-RLS
 -- mount as 695 — tenant_id always written explicitly by code.
@@ -43,15 +41,12 @@ CREATE TABLE IF NOT EXISTS payment_gateway_refunds (
     REFERENCES billing_refunds(id) ON DELETE SET NULL,
   provider_payment_id  VARCHAR(120) NOT NULL,
   provider_refund_id   VARCHAR(120),
-  provider_idempotency_key VARCHAR(120) NOT NULL
-    CONSTRAINT chk_pg_refund_idempotency_key
-      CHECK (provider_idempotency_key ~ '^[A-Za-z0-9_-]{10,120}$'),
   amount               DECIMAL(12, 2) NOT NULL
     CONSTRAINT chk_pg_refund_amount_positive CHECK (amount > 0),
   currency             VARCHAR(3) NOT NULL DEFAULT 'INR',
-  status               VARCHAR(30) NOT NULL DEFAULT 'initiated'
+  status               VARCHAR(20) NOT NULL DEFAULT 'initiated'
     CONSTRAINT chk_pg_refund_status
-      CHECK (status IN ('initiated', 'pending', 'processed', 'failed', 'requires_reconciliation')),
+      CHECK (status IN ('initiated', 'pending', 'processed', 'failed')),
   reason               VARCHAR(500),
   initiated_by         UUID,
   initiated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -74,14 +69,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_pg_refund_tenant_provider_refund
   ON payment_gateway_refunds (tenant_id, provider, provider_refund_id)
   WHERE provider_refund_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_pg_refund_provider_idempotency
-  ON payment_gateway_refunds (tenant_id, provider, provider_idempotency_key);
-
 -- One in-flight execution leg per approved billing refund.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pg_refund_billing_refund_live
   ON payment_gateway_refunds (tenant_id, billing_refund_id)
-  WHERE billing_refund_id IS NOT NULL
-    AND status IN ('initiated', 'pending', 'processed', 'requires_reconciliation');
+  WHERE billing_refund_id IS NOT NULL AND status IN ('initiated', 'pending', 'processed');
 
 CREATE INDEX IF NOT EXISTS idx_pg_refund_tenant_status
   ON payment_gateway_refunds (tenant_id, status, initiated_at DESC);
@@ -109,7 +100,5 @@ COMMENT ON TABLE payment_gateway_refunds IS
   'Provider refund execution rows for gateway-collected payments. Authority stays in billing_refunds (raiseRefund/approveRefund/markRefundPaid); this is the execution+evidence leg. processed requires provider_refund_id + processed_at.';
 COMMENT ON COLUMN payment_gateway_refunds.billing_refund_id IS
   'Approved billing_refunds row this provider refund executes. markRefundPaid is driven by the refund.processed webhook with reference = provider_refund_id.';
-COMMENT ON COLUMN payment_gateway_refunds.provider_idempotency_key IS
-  'Durable provider retry key persisted before the irreversible refund API call; retries reuse the same key and request body.';
 
 COMMIT;
