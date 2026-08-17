@@ -888,6 +888,42 @@ function toGatewayRefundResult(row, replay) {
   };
 }
 
+const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
+
+function refundEvidenceMismatches(intent, evidence, { requireProcessed = false } = {}) {
+  const mismatches = [];
+  const providerRefundId = String(evidence?.providerRefundId || '').trim();
+  if (!providerRefundId || providerRefundId.length > 120
+      || (intent.provider_refund_id && String(intent.provider_refund_id) !== providerRefundId)) {
+    mismatches.push('refund_id');
+  }
+  if (String(evidence?.providerPaymentId || '') !== String(intent.provider_payment_id)) {
+    mismatches.push('payment_id');
+  }
+  if (!Number.isInteger(Number(evidence?.amountPaise))
+      || Number(evidence.amountPaise) !== toPaise(intent.amount)) {
+    mismatches.push('amount');
+  }
+  if (String(evidence?.currency || '').trim().toUpperCase()
+      !== String(intent.currency || '').trim().toUpperCase()) {
+    mismatches.push('currency');
+  }
+  const status = String(evidence?.status || '').trim().toLowerCase();
+  if ((requireProcessed && status !== 'processed')
+      || (!requireProcessed && !PROVIDER_REFUND_STATUSES.has(status))) {
+    mismatches.push('status');
+  }
+  if (evidence?.billingRefundId !== undefined
+      && Number(evidence.billingRefundId) !== Number(intent.billing_refund_id)) {
+    mismatches.push('billing_refund_id');
+  }
+  return mismatches;
+}
+
+function refundEvidenceMismatchReason(mismatches) {
+  return `Provider refund evidence mismatch: ${mismatches.join(', ')}`.slice(0, 500);
+}
+
 /**
  * Initiate the provider refund for an APPROVED billing_refunds row whose
  * invoice was gateway-collected. Execution/evidence only — the approval
@@ -937,7 +973,7 @@ export async function initiateGatewayRefund({
     const existingRows = await tx.$queryRawUnsafe(
       `SELECT * FROM payment_gateway_refunds
         WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int
-          AND status IN ('initiated', 'pending', 'processed')
+          AND status IN ('initiated', 'pending', 'requires_reconciliation', 'processed')
         ORDER BY id DESC
         LIMIT 1`,
       tenant, Number(refund.id),
@@ -1074,6 +1110,39 @@ export async function initiateGatewayRefund({
     throw err;
   }
 
+  const responseMismatches = refundEvidenceMismatches(intent.row, providerRefund);
+  if (responseMismatches.length) {
+    const safeProviderRefundId = String(providerRefund?.providerRefundId || '').trim();
+    const completed = await setTenantTx(tenant, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET provider_refund_id = COALESCE($1::varchar, provider_refund_id),
+                status = 'requires_reconciliation',
+                failure_code = 'provider_evidence_mismatch',
+                failure_reason = $2::text,
+                updated_at = NOW()
+          WHERE id = $3::int AND tenant_id = $4::uuid
+            AND status IN ('initiated', 'pending', 'requires_reconciliation')
+            AND provider_idempotency_key = $5::varchar
+          RETURNING *`,
+        safeProviderRefundId && safeProviderRefundId.length <= 120 ? safeProviderRefundId : null,
+        refundEvidenceMismatchReason(responseMismatches),
+        Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
+      );
+      if (rows.length) return rows[0];
+      const replayRows = await tx.$queryRawUnsafe(
+        `SELECT * FROM payment_gateway_refunds
+          WHERE id = $1::int AND tenant_id = $2::uuid
+            AND provider_idempotency_key = $3
+          LIMIT 1`,
+        Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
+      );
+      if (!replayRows.length) throw AppError.notFound('Gateway refund intent not found');
+      return replayRows[0];
+    });
+    return toGatewayRefundResult(completed, intent.replay);
+  }
+
   const providerStatus = providerRefund.status === 'failed' ? 'failed' : 'pending';
   const completed = await setTenantTx(tenant, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
@@ -1146,6 +1215,35 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
 
+  const evidenceMismatches = refundEvidenceMismatches(gatewayRefund, {
+    providerRefundId,
+    providerPaymentId,
+    amountPaise: entity.amount,
+    currency: entity.currency,
+    status: entity.status,
+    billingRefundId: notedBillingRefundId,
+  }, { requireProcessed: true });
+  if (evidenceMismatches.length) {
+    await prisma.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'requires_reconciliation',
+              provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+              failure_code = 'provider_evidence_mismatch',
+              failure_reason = $2::text,
+              updated_at = NOW()
+        WHERE id = $3::int AND tenant_id = $4::uuid
+          AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        RETURNING id`,
+      String(providerRefundId), refundEvidenceMismatchReason(evidenceMismatches),
+      Number(gatewayRefund.id), tenant,
+    );
+    return {
+      outcome: 'requires_reconciliation',
+      gatewayRefundId: Number(gatewayRefund.id),
+      reason: refundEvidenceMismatchReason(evidenceMismatches),
+    };
+  }
+
   // Authority first: flip the billing refund APPROVED → PAID (its own
   // setTenantTx; idempotent via the status guard) with the provider refund id
   // as the payout reference. A crash between this and the execution-row
@@ -1174,7 +1272,7 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
             provider_refund_id = COALESCE(provider_refund_id, $1),
             processed_at = NOW(), updated_at = NOW()
       WHERE id = $2::int AND tenant_id = $3::uuid
-        AND status IN ('initiated', 'pending')
+        AND status IN ('initiated', 'pending', 'requires_reconciliation')
       RETURNING id`,
     String(providerRefundId), Number(gatewayRefund.id), tenant,
   );

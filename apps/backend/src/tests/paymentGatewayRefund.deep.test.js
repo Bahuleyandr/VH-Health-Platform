@@ -161,7 +161,10 @@ d('payment gateway refund execution leg (deep)', () => {
     // refund.processed webhook.
     const payload = {
       event: 'refund.processed',
-      payload: { refund: { entity: { id: leg.provider_refund_id, payment_id: providerPaymentId, amount: toPaise(150) } } },
+      payload: { refund: { entity: {
+        id: leg.provider_refund_id, payment_id: providerPaymentId, amount: toPaise(150),
+        currency: 'INR', status: 'processed', notes: { billing_refund_id: String(refund.id) },
+      } } },
     };
     const processed = await gateway.handleRefundProcessedEvent({ tenantId: TENANT, config, payload });
     expect(processed.outcome).toBe('refund_processed');

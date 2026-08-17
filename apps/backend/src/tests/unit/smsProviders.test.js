@@ -61,6 +61,7 @@ function configRow(overrides = {}) {
     sender_id: 'VHHLTH',
     dlt_entity_id: '110100001234567890',
     auth_key_ciphertext: 'enc:authkey',
+    callback_token_ciphertext: 'enc:callback-token',
     account_sid: null,
     ...overrides,
   };
@@ -77,8 +78,13 @@ function registrationRow(overrides = {}) {
 }
 
 function stubDb({ configs = [], templates = [] } = {}) {
-  queryRawUnsafeMock.mockImplementation(async (sql) => {
-    if (/FROM sms_provider_configs/.test(sql)) return configs;
+  queryRawUnsafeMock.mockImplementation(async (sql, ...params) => {
+    if (/FROM sms_provider_configs/.test(sql) && /enabled = true/.test(sql)) {
+      return configs.filter(config => config.enabled === true);
+    }
+    if (/FROM sms_provider_configs/.test(sql)) {
+      return configs.filter(config => !params[1] || config.provider === params[1]);
+    }
     if (/FROM sms_template_registrations/.test(sql)) return templates;
     return [];
   });
@@ -93,8 +99,14 @@ beforeEach(() => {
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_SMS_FROM;
+  delete process.env.PUBLIC_BASE_URL;
+  process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
   getSmsSettingsMock.mockResolvedValue({ enabled: true });
-  decryptFieldMock.mockReturnValue('decrypted-auth-key');
+  decryptFieldMock.mockImplementation(value => (
+    value === 'enc:callback-token'
+      ? 'tok_abcdefghijklmnopqrstuvwxyz01'
+      : 'decrypted-auth-key'
+  ));
   stubDb();
   fetchMock = jest.fn();
   global.fetch = fetchMock;
@@ -137,6 +149,18 @@ describe('provider resolution (config-gated DEFAULT OFF)', () => {
     process.env.MSG91_DLT_ENTITY_ID = 'env-entity';
     const resolved = await resolveSmsProviderContext(TENANT_ID);
     expect(resolved).toMatchObject({ provider: 'msg91', source: 'env' });
+  });
+
+  it('binds env Twilio credentials to the tenant callback-token config', async () => {
+    process.env.SMS_PROVIDER = 'twilio';
+    process.env.TWILIO_ACCOUNT_SID = 'AC-env';
+    process.env.TWILIO_AUTH_TOKEN = 'env-auth';
+    process.env.TWILIO_SMS_FROM = 'VHHLTH';
+    stubDb({ configs: [configRow({ provider: 'twilio', enabled: false, account_sid: null })] });
+    const resolved = await resolveSmsProviderContext(TENANT_ID);
+    expect(resolved).toMatchObject({
+      provider: 'twilio', source: 'env', config: { id: 7, provider: 'twilio' },
+    });
   });
 
   it('an env provider with incomplete credentials stays dry_run', async () => {
@@ -189,6 +213,7 @@ describe('dry-run default through the seam', () => {
     await expect(sendViaTwilioSms({
       accountSid: 'AC1', authToken: 'key', from: 'VHHLTH',
       phone: '+14155552671', message: 'Hello',
+      statusCallback: 'https://api.vhhealth.app/webhooks/sms/twilio-status/test_token_abcdefghijklmnop',
     })).resolves.toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(twilioCreateMock).not.toHaveBeenCalled();
@@ -336,6 +361,7 @@ describe('Twilio adapter classification', () => {
   it('acknowledges an accepted message with the sid as the correlation reference', async () => {
     twilioCreateMock.mockResolvedValue({ sid: 'SM123', status: 'queued' });
     process.env.TWILIO_SMS_FROM = '+15005550006';
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
     const result = await sendThroughResolvedProvider({
       phone: '919876543210', message: 'Hi', tenantId: TENANT_ID,
       templateVersion: TEMPLATE_KEY, outboxId: 20,
@@ -350,7 +376,20 @@ describe('Twilio adapter classification', () => {
     });
     expect(twilioCreateMock).toHaveBeenCalledWith(expect.objectContaining({
       to: '+919876543210',
+      statusCallback: 'https://api.vhhealth.app/webhooks/sms/twilio-status/tok_abcdefghijklmnopqrstuvwxyz01',
     }));
+  });
+
+  it('fails closed before sending when a verifiable status callback cannot be constructed', async () => {
+    delete process.env.PUBLIC_BASE_URL;
+    const result = await sendThroughResolvedProvider({
+      phone: '919876543210', message: 'Hi', tenantId: TENANT_ID,
+      templateVersion: TEMPLATE_KEY, outboxId: 23,
+    });
+    expect(result).toMatchObject({
+      outcome: 'rejected', providerCode: 'sms_config_credentials_unreadable',
+    });
+    expect(twilioCreateMock).not.toHaveBeenCalled();
   });
 
   it('classifies a Twilio 4xx REST error as rejected with the Twilio code', async () => {

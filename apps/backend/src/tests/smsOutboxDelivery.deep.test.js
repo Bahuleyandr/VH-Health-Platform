@@ -29,6 +29,7 @@ import {
 import { processMsg91Dlr } from '../services/notification/smsDeliveryStatusService.js';
 import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
 import { deliverNotificationOutboxRow } from '../utils/notifications/notificationOutboxDelivery.js';
+import { decryptField } from '../utils/fieldEncryption.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -116,6 +117,15 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
     expect(typeof view.callback_token).toBe('string');
     expect(view.dlr_path).toBe(`/webhooks/sms/dlr/${view.callback_token}`);
     callbackToken = view.callback_token;
+    const [storedConfig] = await prisma.$queryRawUnsafe(
+      `SELECT callback_token_hash, callback_token_ciphertext
+         FROM sms_provider_configs
+        WHERE tenant_id = $1::uuid AND provider = 'msg91'`,
+      TENANT_ID,
+    );
+    expect(storedConfig.callback_token_hash).not.toBe(callbackToken);
+    expect(storedConfig.callback_token_ciphertext).not.toContain(callbackToken);
+    expect(decryptField(storedConfig.callback_token_ciphertext)).toBe(callbackToken);
 
     const registration = await createSmsTemplateRegistration({
       tenantId: TENANT_ID,

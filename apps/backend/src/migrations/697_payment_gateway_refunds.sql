@@ -17,7 +17,7 @@
 -- refunds keep their claimed slot 697.)
 --
 -- Status machine (simple CHECK list, Razorpay refund vocabulary):
---   initiated → pending → processed | failed
+--   initiated → pending → processed | failed | requires_reconciliation
 -- processed requires provider_refund_id + processed_at (evidence CHECK).
 -- The initiated row and provider_idempotency_key commit BEFORE the external
 -- request; every retry reuses that key, closing the crash/replay window.
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS payment_gateway_refunds (
   currency             VARCHAR(3) NOT NULL DEFAULT 'INR',
   status               VARCHAR(20) NOT NULL DEFAULT 'initiated'
     CONSTRAINT chk_pg_refund_status
-      CHECK (status IN ('initiated', 'pending', 'processed', 'failed')),
+      CHECK (status IN ('initiated', 'pending', 'processed', 'failed', 'requires_reconciliation')),
   reason               VARCHAR(500),
   initiated_by         UUID,
   initiated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -80,7 +80,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_pg_refund_provider_idempotency
 -- One in-flight execution leg per approved billing refund.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pg_refund_billing_refund_live
   ON payment_gateway_refunds (tenant_id, billing_refund_id)
-  WHERE billing_refund_id IS NOT NULL AND status IN ('initiated', 'pending', 'processed');
+  WHERE billing_refund_id IS NOT NULL
+    AND status IN ('initiated', 'pending', 'processed', 'requires_reconciliation');
 
 CREATE INDEX IF NOT EXISTS idx_pg_refund_tenant_status
   ON payment_gateway_refunds (tenant_id, status, initiated_at DESC);

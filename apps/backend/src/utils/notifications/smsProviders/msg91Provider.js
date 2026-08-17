@@ -22,6 +22,14 @@ import logger from '../../../logging/logger.js';
 import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 
 const MSG91_SEND_URL = 'https://api.msg91.com/api/v2/sendsms';
+const MSG91_REQUEST_TIMEOUT_MS = 10_000;
+
+function boundedRequestTimeout(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.trunc(parsed), MSG91_REQUEST_TIMEOUT_MS)
+    : MSG91_REQUEST_TIMEOUT_MS;
+}
 
 function boundedProviderCode(value) {
   const code = String(value ?? '').trim();
@@ -40,6 +48,7 @@ function evidenceFrom(status, body) {
 
 export async function sendViaMsg91({
   authKey, senderId, dltTemplateId, providerTemplateId, phone, message,
+  requestTimeoutMs = MSG91_REQUEST_TIMEOUT_MS,
 }) {
   if (!authKey || !senderId || !dltTemplateId) {
     return {
@@ -81,6 +90,7 @@ export async function sendViaMsg91({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authkey: authKey },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(boundedRequestTimeout(requestTimeoutMs)),
     });
   } catch (err) {
     return {

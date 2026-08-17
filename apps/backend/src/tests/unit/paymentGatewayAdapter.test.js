@@ -152,13 +152,18 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
   });
 
   it('creates a refund against the original provider payment id', async () => {
-    const fetchMock = mockFetchOnce(200, { id: 'rfnd_R1', amount: 20000, status: 'pending' });
+    const fetchMock = mockFetchOnce(200, {
+      id: 'rfnd_R1', payment_id: 'pay_R9', amount: 20000, currency: 'INR', status: 'pending',
+    });
     const refund = await razorpayAdapter.createRefund({
       keyId: 'rzp_test_key', keySecret: 'rzp_test_secret',
       providerPaymentId: 'pay_R9', amountPaise: 20000, receipt: 'pgr-7',
       idempotencyKey: 'pgr_test_0000000001',
     });
     expect(refund.providerRefundId).toBe('rfnd_R1');
+    expect(refund).toMatchObject({
+      providerPaymentId: 'pay_R9', amountPaise: 20000, currency: 'INR',
+    });
     expect(refund.status).toBe('pending');
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.razorpay.com/v1/payments/pay_R9/refund');
     expect(fetchMock.mock.calls[0][1].headers['X-Refund-Idempotency'])

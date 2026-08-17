@@ -28285,7 +28285,7 @@ model payment_gateway_refunds {
   payment_gateway_orders   payment_gateway_orders @relation(fields: [gateway_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                  tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([tenant_id, billing_refund_id], map: "ux_pg_refund_billing_refund_live", where: raw("((billing_refund_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['initiated'::character varying, 'pending'::character varying, 'processed'::character varying])::text[])))"))
+  @@unique([tenant_id, billing_refund_id], map: "ux_pg_refund_billing_refund_live", where: raw("((billing_refund_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['initiated'::character varying, 'pending'::character varying, 'processed'::character varying, 'requires_reconciliation'::character varying])::text[])))"))
   @@unique([tenant_id, provider, provider_refund_id], map: "ux_pg_refund_tenant_provider_refund", where: raw("(provider_refund_id IS NOT NULL)"))
   @@unique([tenant_id, provider, provider_idempotency_key], map: "ux_pg_refund_provider_idempotency")
   @@index([gateway_order_id], map: "idx_pg_refund_order")
@@ -28337,6 +28337,7 @@ model sms_provider_configs {
   auth_key_ciphertext        String?
   account_sid                String?                      @db.VarChar(64)
   callback_token_hash        String?                      @db.Char(64)
+  callback_token_ciphertext  String?
   metadata                   Json                         @default("{}")
   created_by                 String?                      @db.Uuid
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)

@@ -14,4 +14,10 @@ describe('payment gateway security migration contracts', () => {
     expect(sql).toContain("CHECK (provider_idempotency_key ~ '^[A-Za-z0-9_-]{10,120}$')");
     expect(sql).toMatch(/UNIQUE INDEX[\s\S]*\(tenant_id, provider, provider_idempotency_key\)/i);
   });
+
+  it('keeps evidence-mismatched refunds live and blocked for reconciliation', () => {
+    const sql = migration('697_payment_gateway_refunds.sql');
+    expect(sql).toMatch(/CHECK \(status IN \([^)]+requires_reconciliation[^)]+\)\)/i);
+    expect(sql).toMatch(/ux_pg_refund_billing_refund_live[\s\S]*requires_reconciliation/i);
+  });
 });

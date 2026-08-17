@@ -5,8 +5,9 @@
 //     dry_run), TRAI DLT identity (sender_id + dlt_entity_id), write-only
 //     encryptField() credentials, and the SHA-256 hash of the DLR callback
 //     URL bearer token (the auth for the pre-RLS /webhooks/sms mount — MSG91
-//     does not sign callbacks). The plaintext token is minted here, returned
-//     to the admin EXACTLY ONCE, and only its hash is stored.
+//     does not sign callbacks). The plaintext token is minted here and
+//     returned to the admin EXACTLY ONCE; its hash supports lookup and an
+//     encrypted copy lets the Twilio send path construct statusCallback.
 //   * sms_template_registrations — outbox template_version key → DLT content
 //     template id (+ provider flow/content id). The adapter refuses to send
 //     a template kind with no active row (fail-closed DLT gate).
@@ -56,7 +57,8 @@ const CONFIG_VIEW_COLUMNS = `
   id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
   account_sid, created_at, updated_at,
   (auth_key_ciphertext IS NOT NULL) AS has_auth_key,
-  (callback_token_hash IS NOT NULL) AS has_callback_token`;
+  (callback_token_hash IS NOT NULL
+    AND callback_token_ciphertext IS NOT NULL) AS has_callback_token`;
 
 export function dlrPathForProvider(provider, token) {
   return provider === 'twilio'
@@ -111,7 +113,8 @@ export async function listSmsProviderConfigs(tenantId) {
  * auth_key is write-only (encryptField ciphertext, only overwritten when a
  * new plaintext arrives). The DLR callback token is minted when the row has
  * none (or rotation is requested) and the PLAINTEXT is returned exactly once
- * as `callback_token` + `dlr_path`; only its SHA-256 lands in the database.
+ * as `callback_token` + `dlr_path`. Its SHA-256 lookup and encrypted send-time
+ * copy land in the database; neither is returned by later config reads.
  */
 export async function upsertSmsProviderConfig({
   tenantId, provider, enabled = false, sender_id, dlt_entity_id,
@@ -129,6 +132,7 @@ export async function upsertSmsProviderConfig({
   const authKeyCipher = auth_key ? encryptField(String(auth_key), { tenantId: tenant }) : null;
   const mintedToken = generateCallbackToken();
   const mintedHash = sha256Hex(mintedToken);
+  const mintedTokenCipher = encryptField(mintedToken, { tenantId: tenant });
   const rotate = rotate_callback_token === true;
 
   let rows;
@@ -136,9 +140,10 @@ export async function upsertSmsProviderConfig({
     rows = await prisma.$queryRawUnsafe(
       `INSERT INTO sms_provider_configs
          (tenant_id, provider, enabled, sender_id, dlt_entity_id,
-          auth_key_ciphertext, account_sid, callback_token_hash, created_by)
+          auth_key_ciphertext, account_sid, callback_token_hash,
+          callback_token_ciphertext, created_by)
        VALUES ($1::uuid, $2::text, $3::boolean, $4::text, $5::text,
-               $6::text, $7::text, $8::char(64), $9::uuid)
+               $6::text, $7::text, $8::char(64), $9::text, $10::uuid)
        ON CONFLICT (tenant_id, provider) DO UPDATE SET
          enabled = EXCLUDED.enabled,
          sender_id = COALESCE(EXCLUDED.sender_id, sms_provider_configs.sender_id),
@@ -148,9 +153,18 @@ export async function upsertSmsProviderConfig({
          -- Keep the existing callback token stable unless the admin asked
          -- for rotation (the provider dashboard holds the old URL).
          callback_token_hash = CASE
-           WHEN $10::boolean OR sms_provider_configs.callback_token_hash IS NULL
+           WHEN $11::boolean
+             OR sms_provider_configs.callback_token_hash IS NULL
+             OR sms_provider_configs.callback_token_ciphertext IS NULL
              THEN EXCLUDED.callback_token_hash
            ELSE sms_provider_configs.callback_token_hash
+         END,
+         callback_token_ciphertext = CASE
+           WHEN $11::boolean
+             OR sms_provider_configs.callback_token_hash IS NULL
+             OR sms_provider_configs.callback_token_ciphertext IS NULL
+             THEN EXCLUDED.callback_token_ciphertext
+           ELSE sms_provider_configs.callback_token_ciphertext
          END,
          updated_at = NOW()
        RETURNING ${CONFIG_VIEW_COLUMNS}, callback_token_hash`,
@@ -160,6 +174,7 @@ export async function upsertSmsProviderConfig({
       authKeyCipher,
       account_sid ? String(account_sid).slice(0, 64) : null,
       mintedHash,
+      mintedTokenCipher,
       created_by ? String(created_by) : null,
       rotate,
     );
@@ -215,7 +230,8 @@ export async function resolveSmsConfigByCallbackToken(token, expectedProvider) {
   // nothing; rotating the callback token is the revocation lever.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
-            auth_key_ciphertext, account_sid, callback_token_hash
+            auth_key_ciphertext, account_sid, callback_token_hash,
+            callback_token_ciphertext
        FROM sms_provider_configs
       WHERE callback_token_hash = $1::char(64) AND provider = $2::text
       LIMIT 1`,

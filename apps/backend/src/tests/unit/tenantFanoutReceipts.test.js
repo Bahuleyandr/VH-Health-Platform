@@ -22,6 +22,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const { runForEachTenant } = await import('../../utils/tenantFanout.js');
+const { sendViaMsg91 } = await import('../../utils/notifications/smsProviders/msg91Provider.js');
 
 describe('tenant fan-out receipt failure accounting', () => {
   beforeEach(() => {
@@ -68,5 +69,66 @@ describe('tenant fan-out receipt failure accounting', () => {
         result: { tenantsDiscovered: 2, tenantsRun: 1, errors: 1 },
       });
     expect(seen).toEqual([TENANT_A, TENANT_B]);
+  });
+
+  it('bounds a blackholed MSG91 request so the global notification drain reaches the next tenant', async () => {
+    queryRawUnsafe.mockImplementation(async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO scheduled_job_runs')) return [{ id: 102n }];
+      if (text.includes('started_at < NOW()')) return [];
+      if (text.includes('FROM tenants') && text.includes("status = 'active'")) {
+        return [{ id: TENANT_A }, { id: TENANT_B }];
+      }
+      if (text.includes("SET discovery_status = 'succeeded'")) return [{ id: 102n }];
+      if (text.includes('SET aggregate_status = $2::text')) {
+        expect(params).toEqual([102n, 'succeeded', 2, 0, 0, null]);
+        return [{ id: 102n }];
+      }
+      throw new Error(`Unexpected global receipt query: ${text}`);
+    });
+    tenantQuery.mockImplementation(async (_tenantId, sql) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO scheduled_job_tenant_runs') && !text.includes('ON CONFLICT')) {
+        return [{ run_id: 102n }];
+      }
+      if (text.includes('UPDATE scheduled_job_tenant_runs')) return [{ run_id: 102n }];
+      throw new Error(`Unexpected tenant receipt query: ${text}`);
+    });
+    const originalFetch = global.fetch;
+    const seen = [];
+    global.fetch = jest.fn(async (_url, init) => {
+      const authKey = init.headers.authkey;
+      seen.push(authKey);
+      if (authKey === 'tenant-a-key') {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            reject(Object.assign(new Error('provider timeout'), { name: 'TimeoutError' }));
+          }, { once: true });
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ type: 'success', message: 'request-b' }),
+      };
+    });
+
+    try {
+      const result = await runForEachTenant('notification-outbox-drain', tenantId => (
+        sendViaMsg91({
+          authKey: tenantId === TENANT_A ? 'tenant-a-key' : 'tenant-b-key',
+          senderId: 'VHHLTH',
+          dltTemplateId: '1107100000000012345',
+          phone: '919876543210',
+          message: 'Template-safe message',
+          requestTimeoutMs: 20,
+        })
+      ));
+
+      expect(result).toMatchObject({ tenantsDiscovered: 2, tenantsRun: 2, errors: 0 });
+      expect(seen).toEqual(['tenant-a-key', 'tenant-b-key']);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

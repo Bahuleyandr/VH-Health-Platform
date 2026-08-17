@@ -385,6 +385,19 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
 
 describe('status classification table', () => {
   it.each([
+    ['0', 'intermediate', 'sent'],
+    ['1', 'acknowledged', 'delivered'],
+    ['2', 'rejected', 'failed'],
+    ['9', 'rejected', 'ndnc'],
+    ['16', 'rejected', 'rejected'],
+    ['17', 'rejected', 'blocked'],
+    ['20', 'rejected', 'blocked'],
+    ['25', 'rejected', 'rejected'],
+  ])('maps documented MSG91 numeric status %s to %s/%s', (raw, kind, status) => {
+    expect(dlrInternals.classifyDlrStatus(raw)).toEqual({ kind, status });
+  });
+
+  it.each([
     ['delivered', 'acknowledged'],
     ['DELIVERED', 'acknowledged'],
     ['failed', 'rejected'],
@@ -394,7 +407,12 @@ describe('status classification table', () => {
     ['queued', 'intermediate'],
     ['sent', 'intermediate'],
     ['submitted', 'intermediate'],
+    ['0', 'intermediate'],
+    ['9', 'rejected'],
     ['16', 'rejected'],
+    ['17', 'rejected'],
+    ['20', 'rejected'],
+    ['25', 'rejected'],
     ['2', 'rejected'],
     ['', 'unknown'],
   ])('classifies %s as %s', (status, kind) => {

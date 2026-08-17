@@ -149,8 +149,9 @@ export async function createRefund({
   }
   return {
     providerRefundId: refund?.id,
-    providerPaymentId: String(providerPaymentId),
-    amountPaise: Number(refund?.amount ?? amountPaise),
+    providerPaymentId: refund?.payment_id,
+    amountPaise: refund?.amount == null ? null : Number(refund.amount),
+    currency: refund?.currency,
     // Razorpay refund status vocabulary: pending | processed | failed.
     status: refund?.status || 'pending',
     raw: refund,

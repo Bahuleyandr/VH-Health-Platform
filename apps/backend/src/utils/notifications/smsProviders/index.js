@@ -34,6 +34,7 @@ import { sendViaMsg91 } from './msg91Provider.js';
 import { sendViaTwilioSms } from './twilioSmsProvider.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CALLBACK_TOKEN_RE = /^[A-Za-z0-9_-]{20,64}$/;
 
 function rejected(providerCode, evidence = {}) {
   return { outcome: 'rejected', providerReference: null, providerCode, evidence };
@@ -69,11 +70,23 @@ function envTwilioSmsComplete() {
 async function getEnabledSmsConfigRow(tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
-            auth_key_ciphertext, account_sid
+            auth_key_ciphertext, account_sid, callback_token_ciphertext
        FROM sms_provider_configs
       WHERE tenant_id = $1::uuid AND enabled = true
       LIMIT 1`,
     tenantId,
+  );
+  return rows[0] || null;
+}
+
+async function getSmsConfigRowForProvider(tenantId, provider) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
+            auth_key_ciphertext, account_sid, callback_token_ciphertext
+       FROM sms_provider_configs
+      WHERE tenant_id = $1::uuid AND provider = $2::text
+      LIMIT 1`,
+    tenantId, provider,
   );
   return rows[0] || null;
 }
@@ -125,7 +138,18 @@ export async function resolveSmsProviderContext(tenantId) {
     return { provider: 'msg91', source: 'env', reason: null, config: null };
   }
   if (envProvider === 'twilio' && envTwilioSmsComplete()) {
-    return { provider: 'twilio', source: 'env', reason: null, config: null };
+    try {
+      const callbackConfig = await getSmsConfigRowForProvider(tid, 'twilio');
+      if (callbackConfig?.callback_token_ciphertext) {
+        return { provider: 'twilio', source: 'env', reason: null, config: callbackConfig };
+      }
+    } catch (err) {
+      logger.error('sms provider resolution: callback config lookup failed', { error: err?.message });
+      return { provider: 'dry_run', source: 'default', reason: 'config_unavailable', config: null };
+    }
+    return {
+      provider: 'dry_run', source: 'default', reason: 'env_callback_config_missing', config: null,
+    };
   }
   if (envProvider === 'msg91' || envProvider === 'twilio') {
     return { provider: 'dry_run', source: 'default', reason: 'env_credentials_incomplete', config: null };
@@ -159,12 +183,15 @@ export async function resolveTemplateRegistration(tenantId, templateKey, configI
   return rows[0] || null;
 }
 
-function tenantCredentials(config) {
+function tenantCredentials(config, provider) {
   return {
     authKey: config.auth_key_ciphertext ? decryptField(config.auth_key_ciphertext) : null,
     senderId: config.sender_id || null,
     dltEntityId: config.dlt_entity_id || null,
     accountSid: config.account_sid || null,
+    callbackToken: provider === 'twilio' && config.callback_token_ciphertext
+      ? decryptField(config.callback_token_ciphertext)
+      : null,
   };
 }
 
@@ -175,6 +202,7 @@ function envCredentials(provider) {
       senderId: process.env.MSG91_SENDER_ID || null,
       dltEntityId: process.env.MSG91_DLT_ENTITY_ID || null,
       accountSid: null,
+      callbackToken: null,
     };
   }
   return {
@@ -182,7 +210,25 @@ function envCredentials(provider) {
     senderId: process.env.TWILIO_SMS_FROM || null,
     dltEntityId: null,
     accountSid: process.env.TWILIO_ACCOUNT_SID || null,
+    callbackToken: null,
   };
+}
+
+function twilioStatusCallbackUrl(token) {
+  const callbackToken = String(token || '').trim();
+  const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (!CALLBACK_TOKEN_RE.test(callbackToken) || !publicBaseUrl) return null;
+  try {
+    const parsed = new URL(publicBaseUrl);
+    if (!['https:', 'http:'].includes(parsed.protocol)
+        || parsed.username || parsed.password || parsed.search || parsed.hash
+        || (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:')) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return `${publicBaseUrl}/webhooks/sms/twilio-status/${callbackToken}`;
 }
 
 /**
@@ -223,8 +269,12 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
   let credentials;
   try {
     credentials = resolution.source === 'tenant_config'
-      ? tenantCredentials(resolution.config)
+      ? tenantCredentials(resolution.config, resolution.provider)
       : envCredentials(resolution.provider);
+    if (resolution.provider === 'twilio' && !credentials.callbackToken
+        && resolution.config?.callback_token_ciphertext) {
+      credentials.callbackToken = decryptField(resolution.config.callback_token_ciphertext);
+    }
   } catch (err) {
     // decryptField failure — configuration exists but is unreadable. This is
     // a channel-level configuration fault (pause is honest), not transport.
@@ -269,6 +319,7 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       from: credentials.senderId,
       phone: normalizedPhone,
       message,
+      statusCallback: twilioStatusCallbackUrl(credentials.callbackToken),
     });
   } catch {
     return uncertain(`${resolution.provider}_transport_failure`);

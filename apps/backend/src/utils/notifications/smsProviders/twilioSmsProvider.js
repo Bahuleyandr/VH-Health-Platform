@@ -21,8 +21,10 @@ function normalisePhoneE164(phone) {
   return normalized ? `+${normalized}` : null;
 }
 
-export async function sendViaTwilioSms({ accountSid, authToken, from, phone, message }) {
-  if (!accountSid || !authToken || !from) {
+export async function sendViaTwilioSms({
+  accountSid, authToken, from, phone, message, statusCallback,
+}) {
+  if (!accountSid || !authToken || !from || !statusCallback) {
     return {
       outcome: 'rejected',
       providerReference: null,
@@ -33,6 +35,7 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
           !accountSid && 'account_sid',
           !authToken && 'auth_token',
           !from && 'from',
+          !statusCallback && 'status_callback',
         ].filter(Boolean),
       },
     };
@@ -48,6 +51,22 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
     };
   }
 
+  let callbackUrl;
+  try {
+    callbackUrl = new URL(statusCallback);
+  } catch {
+    callbackUrl = null;
+  }
+  if (!callbackUrl || !['https:', 'http:'].includes(callbackUrl.protocol)
+      || (process.env.NODE_ENV === 'production' && callbackUrl.protocol !== 'https:')) {
+    return {
+      outcome: 'rejected',
+      providerReference: null,
+      providerCode: 'sms_config_credentials_unreadable',
+      evidence: { provider: 'twilio', missing: ['status_callback'] },
+    };
+  }
+
   const mod = await import('twilio').catch(() => null);
   if (!mod) {
     return {
@@ -60,7 +79,9 @@ export async function sendViaTwilioSms({ accountSid, authToken, from, phone, mes
 
   try {
     const client = mod.default(accountSid, authToken);
-    const created = await client.messages.create({ from, to: e164, body: String(message) });
+    const created = await client.messages.create({
+      from, to: e164, body: String(message), statusCallback: callbackUrl.toString(),
+    });
     if (created?.sid) {
       return {
         outcome: 'acknowledged',

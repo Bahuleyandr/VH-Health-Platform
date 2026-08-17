@@ -49,6 +49,7 @@ export async function createRefund({ providerPaymentId, amountPaise, receipt, id
     providerRefundId: `rfnd_dry_${receipt}`,
     providerPaymentId: String(providerPaymentId),
     amountPaise,
+    currency: 'INR',
     // pending: the terminal `processed` arrives via the (simulated) webhook,
     // mirroring the live provider's asynchronous refund lifecycle.
     status: 'pending',

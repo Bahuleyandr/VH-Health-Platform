@@ -38,9 +38,14 @@ import { resolveSmsConfigByCallbackToken } from './smsProviderConfigService.js';
 // — anything unrecognized is treated as intermediate (acked, not persisted),
 // which is always safe for an append-once terminal ledger.
 const MSG91_NUMERIC_STATUS = Object.freeze({
+  0: 'sent',
   1: 'delivered',
   2: 'failed',
+  9: 'ndnc',
   16: 'rejected',
+  17: 'blocked',
+  20: 'blocked',
+  25: 'rejected',
 });
 
 const TERMINAL_ACK_STATUSES = new Set(['delivered']);
