@@ -35437,6 +35437,35 @@
           }
         }
       },
+      "PharmacyControlledDispenseWitnessErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "PharmacyCounterSale": {
         "type": "object",
         "properties": {
@@ -36062,6 +36091,140 @@
         "description": "The exact prospective sale payload to bind to a short-lived pending witness approval. Omit witness_approval_id until final submission."
       },
       "PharmacyCounterSaleWitnessApprovalResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApproval"
+          }
+        }
+      },
+      "PharmacyInventoryWitnessApprovalDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dispense"
+        ],
+        "properties": {
+          "dispense": {
+            "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalRequest"
+          },
+          "employeeId": {
+            "type": "string",
+            "pattern": "^[A-Z0-9-]{3,20}$",
+            "description": "Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "maxLength": 100,
+            "writeOnly": true,
+            "description": "Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "employeeId",
+              "password"
+            ]
+          },
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "employeeId"
+                  ]
+                },
+                {
+                  "required": [
+                    "password"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "PharmacyInventoryWitnessApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "inventory_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "inventory_item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "inventory_batch_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "prescription_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "prescription_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "prescriber_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "prescriber_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "prescriber_registration": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_id_proof_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_id_proof_last4": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyInventoryWitnessApprovalResponse": {
         "type": "object",
         "required": [
           "success",
@@ -115583,13 +115746,93 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The dispense payload, witness identity, or credential pair was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged dispense.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The controlled-dispense approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
                 }
               }
             }
           }
         },
-        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload."
+        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/{id}/approve": {
@@ -115604,7 +115847,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The dispense payload, witness identity, or credential pair was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged dispense.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The controlled-dispense approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
                 }
               }
             }
@@ -115620,7 +115933,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-orders/inventory/v2/expiry-alerts": {
@@ -118260,13 +118583,93 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The dispense payload, witness identity, or credential pair was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged dispense.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The controlled-dispense approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
                 }
               }
             }
           }
         },
-        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload."
+        "description": "Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/{id}/approve": {
@@ -118281,7 +118684,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The dispense payload, witness identity, or credential pair was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged dispense.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The controlled-dispense approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
                 }
               }
             }
@@ -118297,7 +118770,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/inventory/v2/expiry-alerts": {

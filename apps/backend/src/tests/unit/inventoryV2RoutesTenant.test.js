@@ -10,7 +10,10 @@ const recordMovementMock = jest.fn(async (input) => input);
 const dispenseControlledMock = jest.fn(async (input) => input);
 const requestWitnessApprovalMock = jest.fn(async (input) => input);
 const approveWitnessApprovalMock = jest.fn(async (input) => input);
-const authenticateWitnessMock = jest.fn(async () => ({ uid: WITNESS }));
+const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
+  uid: WITNESS,
+  tenantId,
+}));
 let actorRole = 'PHARMACY_STAFF';
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
@@ -109,11 +112,12 @@ describe('pharmacy inventory route tenant boundary', () => {
         dispense: { inventory_item_id: 17, quantity: 1 },
       });
     expect(approvalResponse.statusCode).toBe(200);
-    expect(authenticateWitnessMock).toHaveBeenCalledWith(
-      'NURSE-002',
-      'witness-secret',
-      expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
-    );
+    expect(authenticateWitnessMock).toHaveBeenCalledWith({
+      employeeId: 'NURSE-002',
+      password: 'witness-secret',
+      tenantId: TENANT,
+      req: expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
+    });
     expect(approveWitnessApprovalMock).toHaveBeenCalledWith({
       tenantId: TENANT,
       approvalId: '71',
@@ -137,5 +141,21 @@ describe('pharmacy inventory route tenant boundary', () => {
       requesterUid: null,
       dispense: { inventory_item_id: 17, quantity: 1 },
     });
+  });
+
+  test('a credential result from another tenant fails before approval', async () => {
+    authenticateWitnessMock.mockResolvedValueOnce({
+      uid: WITNESS,
+      tenantId: OTHER_TENANT,
+    });
+    const response = await request(app)
+      .post('/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/73/approve')
+      .send({
+        employeeId: 'NURSE-002',
+        password: 'witness-secret',
+        dispense: { inventory_item_id: 17, quantity: 1 },
+      });
+    expect(response.statusCode).toBe(403);
+    expect(approveWitnessApprovalMock).not.toHaveBeenCalled();
   });
 });

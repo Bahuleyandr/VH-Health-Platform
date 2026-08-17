@@ -7,7 +7,10 @@ const ACTOR = '11111111-1111-4111-8111-111111111111';
 const WITNESS = '22222222-2222-4222-8222-222222222222';
 const requestApprovalMock = jest.fn(async (input) => input);
 const approveApprovalMock = jest.fn(async (input) => input);
-const authenticateWitnessMock = jest.fn(async () => ({ uid: WITNESS }));
+const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
+  uid: WITNESS,
+  tenantId,
+}));
 
 jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => ({
   approveCounterSaleWitnessApproval: approveApprovalMock,
@@ -64,11 +67,12 @@ test('counter-sale witness endpoints bind seller and approver to authenticated a
       sale: { tenantId: 'caller-tenant', lines: [] },
     });
   expect(approvalResponse.statusCode).toBe(200);
-  expect(authenticateWitnessMock).toHaveBeenCalledWith(
-    'PHARM-002',
-    'witness-secret',
-    expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
-  );
+  expect(authenticateWitnessMock).toHaveBeenCalledWith({
+    employeeId: 'PHARM-002',
+    password: 'witness-secret',
+    tenantId: TENANT,
+    req: expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
+  });
   expect(approveApprovalMock).toHaveBeenCalledWith({
     approvalId: '71',
     actorUid: WITNESS,
@@ -98,5 +102,21 @@ test('a partial witness credential challenge fails closed', async () => {
     .send({ employeeId: 'NURSE-002', sale: { lines: [] } });
   expect(response.statusCode).toBe(400);
   expect(authenticateWitnessMock).not.toHaveBeenCalled();
+  expect(approveApprovalMock).not.toHaveBeenCalled();
+});
+
+test('a credential result from another tenant fails before approval', async () => {
+  authenticateWitnessMock.mockResolvedValueOnce({
+    uid: WITNESS,
+    tenantId: '00000000-0000-4000-8000-000000000099',
+  });
+  const response = await request(app)
+    .post('/counter-sales/witness-approvals/71/approve')
+    .send({
+      employeeId: 'NURSE-002',
+      password: 'witness-secret',
+      sale: { lines: [] },
+    });
+  expect(response.statusCode).toBe(403);
   expect(approveApprovalMock).not.toHaveBeenCalled();
 });

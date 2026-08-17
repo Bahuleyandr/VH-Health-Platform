@@ -104,7 +104,7 @@ function requireControlledDispenseApprovalHost(req, res, next) {
   )(req, res, next);
 }
 
-async function resolveWitnessActor(req) {
+async function resolveWitnessActor(req, tenantId) {
   const employeeId = req.body?.employeeId;
   const password = req.body?.password;
   if (employeeId == null && password == null) {
@@ -117,11 +117,18 @@ async function resolveWitnessActor(req) {
         'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
       );
     }
-    const witness = await StaffAuthService.authenticateControlledDispenseWitness(
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
       employeeId,
       password,
       req,
-    );
+      tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
     return { actorUid: witness.uid, requesterUid: req.user?.uid };
   } finally {
     if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
@@ -169,9 +176,10 @@ router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
 router.post('/controlled-dispense/witness-approvals/:id/approve',
   requireControlledDispenseApprovalHost,
   wrap(async (req) => {
-    const actor = await resolveWitnessActor(req);
+    const tenantId = inv.tenantOf(req);
+    const actor = await resolveWitnessActor(req, tenantId);
     return inv.approveInventoryDispenseWitnessApproval({
-      tenantId: inv.tenantOf(req),
+      tenantId,
       approvalId: req.params.id,
       ...actor,
       dispense: req.body.dispense || {},

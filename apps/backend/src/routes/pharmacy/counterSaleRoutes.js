@@ -66,7 +66,7 @@ const requireApprovalHost = requireCounterSaleRole(
   'Pharmacy seller or clinical witness role required',
 );
 
-async function resolveWitnessActor(req) {
+async function resolveWitnessActor(req, tenantId) {
   const employeeId = req.body?.employeeId;
   const password = req.body?.password;
   if (employeeId == null && password == null) {
@@ -79,11 +79,18 @@ async function resolveWitnessActor(req) {
         'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
       );
     }
-    const witness = await StaffAuthService.authenticateControlledDispenseWitness(
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
       employeeId,
       password,
       req,
-    );
+      tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
     return { actorUid: witness.uid, requesterUid: req.user?.uid };
   } finally {
     if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
@@ -108,13 +115,14 @@ router.post('/witness-approvals', requireSell, wrap(async (req) => (
 )));
 
 router.post('/witness-approvals/:id/approve', requireApprovalHost, wrap(async (req) => {
-  const actor = await resolveWitnessActor(req);
+  const tenantId = tenantOf(req);
+  const actor = await resolveWitnessActor(req, tenantId);
   return counterSales.approveCounterSaleWitnessApproval({
     approvalId: req.params.id,
     ...actor,
     sale: {
       ...(req.body.sale || {}),
-      tenantId: tenantOf(req),
+      tenantId,
     },
   });
 }));

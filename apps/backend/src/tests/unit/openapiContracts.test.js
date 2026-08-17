@@ -139,11 +139,27 @@ describe('OpenAPI contract overlays (static gate)', () => {
       expect(approve?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
       });
-      for (const suffix of [
-        '/inventory/v2/controlled-dispense/witness-approvals',
-        '/inventory/v2/controlled-dispense/witness-approvals/{id}/approve',
-      ]) {
-        expect(spec.paths[`${prefix}${suffix}`]?.post?.description).toEqual(expect.any(String));
+      const inventoryRequest = spec.paths[
+        `${prefix}/inventory/v2/controlled-dispense/witness-approvals`
+      ]?.post;
+      const inventoryApprove = spec.paths[
+        `${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`
+      ]?.post;
+      expect(inventoryRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalRequest',
+      });
+      expect(inventoryApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest',
+      });
+      for (const operation of [inventoryRequest, inventoryApprove]) {
+        expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
+          $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalResponse',
+        });
+        for (const status of ['400', '401', '403', '404', '409', '429', '500']) {
+          expect(operation?.responses?.[status]?.content?.['application/json']?.schema).toEqual({
+            $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse',
+          });
+        }
       }
     }
   });
