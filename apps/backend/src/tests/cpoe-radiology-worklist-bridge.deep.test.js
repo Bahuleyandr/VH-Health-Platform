@@ -156,16 +156,18 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     );
   });
 
-  test('contrast-enhanced ultrasound keeps the derived true intent through materialization', async () => {
-    const testName = 'Contrast-enhanced ultrasound liver';
+  test('the shipped Staff payload keeps indication-derived contrast true through materialization', async () => {
+    const testName = 'Ultrasound liver';
+    const indication = 'Contrast-enhanced study to characterise lesion';
     const { order } = await createOrder({
       patient_uid: CLEAN_PATIENT_UID,
       order_type: 'radiology',
-      details: { modality: 'ultrasound', test_name: testName, reason: 'Characterise lesion' },
+      details: { modality: 'ultrasound', test_name: testName, reason: indication },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
     });
 
+    expect(order.details.clinical_indication).toBe(indication);
     expect(order.details.contrast_planned).toBe(true);
     expect(order.details.contrast_intent).toMatchObject({
       contract: 'cpoe_radiology_contrast_v1',
@@ -180,6 +182,37 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
       contrast_planned: true,
       intent_source: 'study_text',
     });
+  });
+
+  test('explicit false contradicting the Staff indication is rejected before either row is written', async () => {
+    const testName = 'Ultrasound spleen';
+    await expect(createOrder({
+      patient_uid: CLEAN_PATIENT_UID,
+      order_type: 'radiology',
+      details: {
+        modality: 'ultrasound',
+        test_name: testName,
+        reason: 'Contrast-enhanced study for focal lesion',
+        contrast_planned: false,
+      },
+      ordered_by: DOCTOR_UID,
+      tenantId: TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
+
+    const clinical = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_orders
+        WHERE patient_uid = $1::uuid
+          AND details->>'test_name' = $2`,
+      CLEAN_PATIENT_UID,
+      testName,
+    );
+    expect(clinical).toHaveLength(0);
+    expect((await radiologyRowsFor(CLEAN_PATIENT_UID)).some(
+      (row) => row.body_part === testName,
+    )).toBe(false);
   });
 
   test('a contrast CT for a documented contrast allergy is blocked 409 with NO rows written', async () => {

@@ -330,7 +330,16 @@ async function runRadiologyContrastGate(n, data = {}) {
       'RADIOLOGY_ORDER_MODALITY_REQUIRED',
     );
   }
-  const intent = deriveCpoeContrastIntent(n.details, fields.modality);
+  // Screening and worklist materialization must consume the same effective
+  // indication. Staff sends it as details.reason, while other callers may use
+  // clinical_indication/indication or the top-level notes fallback. Promote
+  // that normalized value into the existing narrowly matched study-text field
+  // before deriving and persist it with the resulting intent contract.
+  const intentDetails = {
+    ...n.details,
+    clinical_indication: fields.clinicalIndication,
+  };
+  const intent = deriveCpoeContrastIntent(intentDetails, fields.modality);
   let screen = null;
   let override = null;
   if (intent.contrastPlanned) {
@@ -358,7 +367,7 @@ async function runRadiologyContrastGate(n, data = {}) {
     }
   }
   n.details = {
-    ...n.details,
+    ...intentDetails,
     modality: fields.modality,
     body_part: fields.bodyPart || 'unspecified',
     contrast_planned: intent.contrastPlanned,

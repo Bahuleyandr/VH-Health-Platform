@@ -174,6 +174,30 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
     })).rejects.toMatchObject({ statusCode: 409, code: 'RADIOLOGY_CONTRAST_ALLERGY_BLOCKED' });
   });
 
+  it('screens the shipped Staff payload when contrast is named in details.reason', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        reason: 'Contrast-enhanced study to characterise lesion',
+      },
+      ordered_by: DOCTOR,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'RADIOLOGY_CONTRAST_ALLERGY_BLOCKED' });
+  });
+
+  it('does not treat an unrelated use of the word contrast as a contrast study', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        reason: 'Compare and contrast with prior ultrasound findings',
+      },
+      ordered_by: DOCTOR,
+    })).rejects.toThrow(/prisma must not be reached/);
+  });
+
   it('lets an acknowledged override through the failed screen and proceeds to the write phase', async () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
@@ -196,6 +220,33 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
       details: { test_name: 'CECT Abdomen', contrast_planned: false }, ordered_by: DOCTOR,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
+  });
+
+  it.each([
+    {
+      label: 'details.reason',
+      details: { reason: 'Contrast-enhanced study to characterise lesion' },
+    },
+    {
+      label: 'top-level notes fallback',
+      details: {},
+      notes: 'Contrast-enhanced study to characterise lesion',
+    },
+  ])('rejects explicit false when contrast is named in $label', async ({ details, notes }) => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        contrast_planned: false,
+        ...details,
+      },
+      notes,
+      ordered_by: DOCTOR,
     })).rejects.toMatchObject({
       statusCode: 400,
       code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
