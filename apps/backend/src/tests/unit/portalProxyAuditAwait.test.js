@@ -19,6 +19,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   currentCanonicalTransactionRevision: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
   recordClinicalAuditEvent: recordClinicalAuditEventMock,

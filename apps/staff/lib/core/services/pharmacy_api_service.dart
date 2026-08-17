@@ -16,9 +16,14 @@ class PharmacyApiService {
 
   static Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.post(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.post(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -329,13 +334,44 @@ class PharmacyApiService {
 
   /// POST /pharmacy-orders/counter-sales — sell: FEFO dispense + schedule
   /// enforcement + billingV2 PHARMACY invoice + pay-at-counter payment.
+  static Future<Map<String, dynamic>> requestCounterSaleWitnessApproval({
+    required Map<String, dynamic> sale,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals',
+      sale,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates the second staff member without replacing the seller's
+  /// session, then approves the same sale payload that was requested.
+  static Future<Map<String, dynamic>> approveCounterSaleWitnessApproval({
+    required String approvalId,
+    required Map<String, dynamic> sale,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals/$approvalId/approve',
+      {
+        'sale': sale,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
   static Future<Map<String, dynamic>> createCounterSale({
     required List<Map<String, dynamic>> lines,
     String? patientUid,
     String? customerName,
     String? customerPhone,
     Map<String, dynamic>? rx,
-    Map<String, dynamic>? witness,
+    String? witnessApprovalId,
     required String paymentMode,
     String? paymentReference,
     String? notes,
@@ -346,7 +382,7 @@ class PharmacyApiService {
       'customer_name': ?customerName,
       'customer_phone': ?customerPhone,
       'rx': ?rx,
-      'witness': ?witness,
+      'witness_approval_id': ?witnessApprovalId,
       'payment_mode': paymentMode,
       'payment_reference': ?paymentReference,
       'notes': ?notes,

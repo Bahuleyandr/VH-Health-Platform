@@ -26,7 +26,13 @@ import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations, verifyMigrationsCurrent } from '../utils/migrations/runMigrations.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
-import { initWebSocket, initWsFanout, closeWsFanout, isWsFanoutReady } from '../utils/websocket/wsServer.js';
+import {
+  initWebSocket,
+  initWsFanout,
+  closeWsFanout,
+  isWsFanoutReady,
+  scheduleWsFanoutRewire,
+} from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
@@ -223,6 +229,9 @@ async function prepareApplication() {
               + '(visible as redis_websocket_subscriber on /health/ready):',
             wsErr.message,
           );
+          // The reinit hook fires exactly once per recovery — without this the
+          // pod would stay deaf until restart if that one attempt failed.
+          scheduleWsFanoutRewire({ getClient: getRedisClient });
         }
       },
     });
@@ -248,6 +257,12 @@ async function prepareApplication() {
       throw err;
     }
     logger.warn('WS Redis fan-out init failed — single-process broadcasts only:', err.message);
+    // PR #874 follow-up: Redis itself is up (this branch is only reached with
+    // a live client) but the fan-out subscriber failed to wire, and nothing
+    // else ever retries it — without this the pod served forever deaf to
+    // cross-pod clinical broadcasts. Bounded background rewire; degraded
+    // state stays visible on /health/ready until it recovers.
+    scheduleWsFanoutRewire({ getClient: getRedisClient });
   }
 
   // Boot-time sweep. Awaited so a rejection is surfaced/handled rather than

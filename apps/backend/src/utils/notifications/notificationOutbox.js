@@ -7,6 +7,11 @@ import {
   OPERATOR_REPLAY_SUPERSEDED_REASON,
   TERMINAL_REJECTION_CODES,
 } from './terminalRejectionCodes.js';
+import {
+  DELIVERY_CHANNELS_PAYLOAD_KEY,
+  normalizeChannelList,
+  REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+} from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
@@ -125,7 +130,28 @@ function buildIntent(notification) {
   const recipientPhone = String(notification.recipientPhone || '').trim() || null;
   const channel = normalizeChannel(notification);
   const version = templateVersion(notification);
-  const data = canonicalize(notification.data || {});
+  const rawData = canonicalize(notification.data || {});
+  const data = rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+    ? Object.fromEntries(
+      Object.entries(rawData).filter(([key]) => ![
+        DELIVERY_CHANNELS_PAYLOAD_KEY,
+        REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+      ].includes(key)),
+    )
+    : rawData;
+  const deliveryChannels = normalizeChannelList(notification.deliveryChannels);
+  const replayChainStartedAtMs = Number(rawData?.[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]);
+  const internalData = {};
+  if (deliveryChannels.length > 0) {
+    internalData[DELIVERY_CHANNELS_PAYLOAD_KEY] = deliveryChannels;
+  }
+  if (Number.isSafeInteger(replayChainStartedAtMs) && replayChainStartedAtMs > 0) {
+    internalData[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY] = replayChainStartedAtMs;
+  }
+  const storedData = Object.keys(internalData).length > 0
+    && data && typeof data === 'object' && !Array.isArray(data)
+    ? { ...data, ...internalData }
+    : data;
   const hashInput = {
     type: String(notification.type || channel),
     channel,
@@ -144,7 +170,7 @@ function buildIntent(notification) {
     recipientPhone,
     title: hashInput.title,
     body: hashInput.body,
-    data,
+    data: storedData,
     channel,
     sourceKey,
     recipientKey: recipientKey(recipientId, recipientPhone, sourceKey),
@@ -154,24 +180,36 @@ function buildIntent(notification) {
   });
 }
 
-async function queueTx(db, tenantId, intent) {
+// replay_generation is chain bookkeeping (mig-690), deliberately OUTSIDE the
+// rendered-intent hash: a requeued replacement carries the same intent bytes
+// as its original plus generation + 1. Set at INSERT only, clamped to the
+// CHECK backstop; callers other than the replay paths never pass it.
+function normalizeReplayGeneration(value) {
+  const generation = Number(value ?? 0);
+  if (!Number.isSafeInteger(generation) || generation < 0) return 0;
+  return Math.min(generation, 8);
+}
+
+async function queueTx(db, tenantId, intent, { replayGeneration = 0 } = {}) {
   const rows = await db.$queryRawUnsafe(
     `WITH inserted AS (
        INSERT INTO notification_outbox
          (tenant_id, type, recipient_id, recipient_phone, title, body, payload,
           status, created_at, channel, source_event_key, recipient_key,
-          template_version, rendered_intent_hash, ledger_version)
+          template_version, rendered_intent_hash, ledger_version, replay_generation)
        VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text,
                $7::jsonb, 'PENDING', NOW(), $8::text, $9::text, $10::text,
-               $11::text, $12::char(64), 1)
+               $11::text, $12::char(64), 1, $13::smallint)
        ON CONFLICT ON CONSTRAINT ux_notification_outbox_delivery_intent DO NOTHING
        RETURNING id, status, tenant_id::text, channel, source_event_key,
-                 recipient_key, template_version, rendered_intent_hash, false AS duplicate
+                 recipient_key, template_version, rendered_intent_hash,
+                 replay_generation, false AS duplicate
      )
      SELECT * FROM inserted
      UNION ALL
      SELECT id, status, tenant_id::text, channel, source_event_key,
-            recipient_key, template_version, rendered_intent_hash, true AS duplicate
+            recipient_key, template_version, rendered_intent_hash,
+            replay_generation, true AS duplicate
        FROM notification_outbox
       WHERE tenant_id = $1::uuid AND source_event_key = $9::text
         AND recipient_key = $10::text AND channel = $8::text
@@ -181,12 +219,13 @@ async function queueTx(db, tenantId, intent) {
     tenantId, intent.type, intent.recipientId, intent.recipientPhone,
     intent.title, intent.body, JSON.stringify(intent.data), intent.channel,
     intent.sourceKey, intent.recipientKey, intent.templateVersion, intent.renderedIntentHash,
+    normalizeReplayGeneration(replayGeneration),
   );
   return rows[0] || null;
 }
 
 class NotificationOutbox {
-  async queue(notification, { tx = null, strict = false } = {}) {
+  async queue(notification, { tx = null, strict = false, replayGeneration = 0 } = {}) {
     try {
       const intent = buildIntent(notification || {});
       const tenantId = await resolveTenantId(notification || {}, tx || prisma);
@@ -198,9 +237,9 @@ class NotificationOutbox {
         if (contexts[0]?.tenant_id !== tenantId) {
           throw new Error('Notification outbox transaction tenant does not match intent tenant');
         }
-        return await queueTx(tx, tenantId, intent);
+        return await queueTx(tx, tenantId, intent, { replayGeneration });
       }
-      return await setTenantTx(tenantId, db => queueTx(db, tenantId, intent), {
+      return await setTenantTx(tenantId, db => queueTx(db, tenantId, intent, { replayGeneration }), {
         isolationLevel: 'Serializable',
       });
     } catch (err) {
@@ -380,6 +419,7 @@ export const __testing__ = Object.freeze({
   canonicalize,
   normalizeTenantId,
   normalizeChannel,
+  normalizeReplayGeneration,
   sourceEventKey,
   recipientKey,
   templateVersion,

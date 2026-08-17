@@ -8,6 +8,7 @@ import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../services/tenant/tena
 import { isAdmin } from '../utils/roleHelpers.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../utils/responseHelper.js';
+import { AppError } from '../utils/AppError.js';
 
 export const parseNearbyCoordinates = (query = {}) => {
   const rawLatitude = query.latitude ?? query.lat;
@@ -82,6 +83,13 @@ export const createEmergencyAlert = async (req, res) => {
   }
 
   try {
+    const isTestAlert = req.body?.isTestAlert === true;
+    if (isTestAlert && !isAdminRole(req.user?.role)) {
+      throw AppError.forbidden(
+        'Only an administrator may create an SOS drill',
+        'SOS_DRILL_ROLE_REQUIRED',
+      );
+    }
     const phone = await resolveSelfServicePhone(req, req.body.phone || req.body.phoneNumber);
     if (!phone) {
       return error(res, 'Phone number is required for emergency contact', HTTP_STATUS.BAD_REQUEST);
@@ -90,6 +98,11 @@ export const createEmergencyAlert = async (req, res) => {
     const alertData = {
       ...req.body,
       phone,
+      isTestAlert,
+      drillAuthorization: isTestAlert ? {
+        actorUid: req.user?.uid ?? null,
+        actorRole: String(req.user?.role || '').trim().toUpperCase(),
+      } : null,
       ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
       userAgent: req.headers['user-agent'] || null,
       createdBy: req.user?.uid || 'patient_app'

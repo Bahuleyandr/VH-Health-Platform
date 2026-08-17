@@ -69,21 +69,103 @@ const PATTERN = 'ws:*';
  * creates two — one per simulated process — sharing a single in-memory bus, so
  * cross-instance pub/sub is genuinely exercised without a real Redis.
  */
-export function createWsFanout() {
+export function createWsFanout({ teardownTimeoutMs = 250 } = {}) {
+  const teardownDeadlineMs = Number.isFinite(Number(teardownTimeoutMs))
+    ? Math.max(1, Number(teardownTimeoutMs))
+    : 250;
   let pub = null;
   let sub = null;
   let enabled = false;
   let subscribed = false;
   let initialized = false;
+  let initializationPromise = null;
+  let closePromise = null;
   let subscriptionPromise = null;
   let subscriptionGeneration = 0;
+  let lifecycleGeneration = 0;
+  let subscriberEventHandlers = null;
+  let subOwned = false;
 
   // The local in-process delivery loops, registered by wsServer.
   //   deliverBroadcast(channel, event, data, tenantId)
   //   deliverUser(userId, event, data, tenantId)
   let deliverBroadcast = null;
   let deliverUser = null;
-  let onMessageHandler = null;
+
+  function staleGenerationError() {
+    const err = new Error('WebSocket fan-out lifecycle generation is stale');
+    err.code = 'WS_FANOUT_GENERATION_STALE';
+    return err;
+  }
+
+  function detachSubscriberHandlers(targetSub, handlers) {
+    if (!targetSub || handlers?.sub !== targetSub) return;
+    targetSub.off?.('pmessage', handlers.messageHandler);
+    targetSub.off?.('ready', handlers.readyHandler);
+    targetSub.off?.('close', handlers.closeHandler);
+    targetSub.off?.('reconnecting', handlers.reconnectingHandler);
+    targetSub.off?.('error', handlers.errorHandler);
+  }
+
+  async function teardownSubscriber(targetSub, handlers, owned, { disconnect = false } = {}) {
+    detachSubscriberHandlers(targetSub, handlers);
+    if (!targetSub || !owned) return;
+
+    if (disconnect && typeof targetSub.disconnect === 'function') {
+      try {
+        targetSub.disconnect(false);
+      } catch (err) {
+        logger.warn('WS fan-out subscriber disconnect error:', err?.message || err);
+      }
+      return;
+    }
+
+    const operations = [];
+    if (typeof targetSub.punsubscribe === 'function') {
+      try {
+        operations.push(Promise.resolve(targetSub.punsubscribe(PATTERN)).catch((err) => {
+          logger.warn('WS fan-out subscriber unsubscribe error:', err?.message || err);
+        }));
+      } catch (err) {
+        logger.warn('WS fan-out subscriber unsubscribe error:', err?.message || err);
+      }
+    }
+    if (typeof targetSub.quit === 'function') {
+      try {
+        operations.push(Promise.resolve(targetSub.quit()).catch((err) => {
+          logger.warn('WS fan-out subscriber close error:', err?.message || err);
+        }));
+      } catch (err) {
+        logger.warn('WS fan-out subscriber close error:', err?.message || err);
+      }
+    } else if (typeof targetSub.disconnect === 'function') {
+      try {
+        targetSub.disconnect(false);
+      } catch (err) {
+        logger.warn('WS fan-out subscriber disconnect error:', err?.message || err);
+      }
+      return;
+    }
+    if (operations.length === 0) return;
+
+    let deadline;
+    const timedOut = await Promise.race([
+      Promise.all(operations).then(() => false),
+      new Promise((resolve) => {
+        deadline = setTimeout(() => resolve(true), teardownDeadlineMs);
+        deadline.unref?.();
+      }),
+    ]);
+    clearTimeout(deadline);
+    if (timedOut) {
+      logger.warn(`WS fan-out subscriber teardown exceeded ${teardownDeadlineMs}ms; disconnecting`);
+      try {
+        targetSub.disconnect?.(false);
+      } catch (err) {
+        logger.warn('WS fan-out subscriber disconnect error:', err?.message || err);
+      }
+    }
+  }
 
   function registerLocalDelivery({ deliverBroadcast: db, deliverUser: du }) {
     deliverBroadcast = db;
@@ -115,13 +197,37 @@ export function createWsFanout() {
    * @param {object} opts.pub  - a client able to PUBLISH (ioredis singleton)
    * @param {object} [opts.sub] - dedicated subscriber; defaults to pub.duplicate()
    */
-  async function init({ pub: pubClient, sub: subClient } = {}) {
+  async function initialize({ pub: pubClient, sub: subClient } = {}) {
     if (!pubClient) {
       enabled = false;
       logger.warn('WS Redis fan-out disabled — no Redis client; broadcasts are single-process only');
       return false;
     }
+
+    const initializationLifecycleGeneration = lifecycleGeneration;
+    const previousSub = sub;
+    const previousHandlers = subscriberEventHandlers;
+    const previousSubOwned = subOwned;
+    const replacementGeneration = ++subscriptionGeneration;
+    subscriptionPromise = null;
+    subscribed = false;
+    enabled = false;
+    initialized = false;
+    sub = null;
+    subOwned = false;
+    subscriberEventHandlers = null;
+
+    // Detach synchronously before awaiting Redis shutdown. Even if EventEmitter
+    // already snapshotted an old callback, its generation/identity guard below
+    // keeps it inert while the owned connection is being closed.
+    if (previousSub) {
+      await teardownSubscriber(previousSub, previousHandlers, previousSubOwned);
+    }
+    if (initializationLifecycleGeneration !== lifecycleGeneration) throw staleGenerationError();
+    if (replacementGeneration !== subscriptionGeneration) return false;
+
     pub = pubClient;
+    const ownsSub = !subClient;
     sub = subClient || (typeof pubClient.duplicate === 'function' ? pubClient.duplicate() : null);
     if (!sub) {
       enabled = false;
@@ -129,7 +235,16 @@ export function createWsFanout() {
       return false;
     }
 
-    onMessageHandler = (pattern, channel, message) => {
+    subOwned = ownsSub;
+    const activeSub = sub;
+    const messageHandler = (pattern, channel, message) => {
+      if (
+        sub !== activeSub
+        || subscriberEventHandlers?.sub !== activeSub
+        || subscriberEventHandlers.messageHandler !== messageHandler
+      ) {
+        return;
+      }
       // ioredis emits ('pmessage', pattern, channel, message). A 3-arg fake bus
       // may emit (channel, message); guard both arities.
       if (message === undefined) {
@@ -138,8 +253,6 @@ export function createWsFanout() {
         handleMessage(channel, message);
       }
     };
-
-    const activeSub = sub;
     const markSubscriberUnavailable = (reason, err) => {
       if (sub !== activeSub) return;
       subscriptionGeneration += 1;
@@ -160,6 +273,9 @@ export function createWsFanout() {
       subscriptionPromise = (async () => {
         try {
           const count = await activeSub.psubscribe(PATTERN);
+          if (initializationLifecycleGeneration !== lifecycleGeneration) {
+            throw staleGenerationError();
+          }
           if (generation !== subscriptionGeneration || sub !== activeSub) {
             return false;
           }
@@ -184,31 +300,72 @@ export function createWsFanout() {
       return subscriptionPromise;
     };
 
-    activeSub.on?.('pmessage', onMessageHandler);
+    const readyHandler = () => {
+      if (initialized && sub === activeSub) void subscribe();
+    };
+    const closeHandler = () => {
+      markSubscriberUnavailable('WS fan-out subscriber closed');
+    };
+    const reconnectingHandler = () => {
+      markSubscriberUnavailable('WS fan-out subscriber reconnecting');
+    };
+    const errorHandler = (err) => {
+      markSubscriberUnavailable('WS fan-out subscriber error:', err);
+    };
+    const activeHandlers = {
+      sub: activeSub,
+      messageHandler,
+      readyHandler,
+      closeHandler,
+      reconnectingHandler,
+      errorHandler,
+    };
+    subscriberEventHandlers = activeHandlers;
+
+    activeSub.on?.('pmessage', messageHandler);
     // Re-assert the pattern subscription after any reconnect (Sentinel failover,
     // transient drop). ioredis emits 'ready' on (re)connect.
-    activeSub.on?.('ready', () => {
-      if (initialized && sub === activeSub) void subscribe();
-    });
-    activeSub.on?.('close', () => {
-      markSubscriberUnavailable('WS fan-out subscriber closed');
-    });
-    activeSub.on?.('reconnecting', () => {
-      markSubscriberUnavailable('WS fan-out subscriber reconnecting');
-    });
-    activeSub.on?.('error', (err) => {
-      markSubscriberUnavailable('WS fan-out subscriber error:', err);
-    });
+    activeSub.on?.('ready', readyHandler);
+    activeSub.on?.('close', closeHandler);
+    activeSub.on?.('reconnecting', reconnectingHandler);
+    activeSub.on?.('error', errorHandler);
 
-    const ready = await subscribe({ failInitialization: true });
-    if (!ready) {
-      const err = new Error('WebSocket fan-out subscription is not ready');
-      err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+    try {
+      const ready = await subscribe({ failInitialization: true });
+      if (!ready) {
+        const err = new Error('WebSocket fan-out subscription is not ready');
+        err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+        throw err;
+      }
+      initialized = true;
+      logger.info('🔁 WS Redis fan-out enabled (cross-process broadcast via pub/sub)');
+      return true;
+    } catch (err) {
+      if (sub === activeSub) {
+        subscriptionGeneration += 1;
+        subscriptionPromise = null;
+        subscribed = false;
+        enabled = false;
+        initialized = false;
+        subscriberEventHandlers = null;
+        sub = null;
+        subOwned = false;
+      }
+      await teardownSubscriber(activeSub, activeHandlers, ownsSub, { disconnect: true });
       throw err;
     }
-    initialized = true;
-    logger.info('🔁 WS Redis fan-out enabled (cross-process broadcast via pub/sub)');
-    return true;
+  }
+
+  function init(options = {}) {
+    if (closePromise) return Promise.reject(staleGenerationError());
+    if (isEnabled()) return Promise.resolve(true);
+    if (initializationPromise) return initializationPromise;
+
+    const pending = initialize(options).finally(() => {
+      if (initializationPromise === pending) initializationPromise = null;
+    });
+    initializationPromise = pending;
+    return pending;
   }
 
   function isEnabled() {
@@ -297,27 +454,31 @@ export function createWsFanout() {
    * (the shared singleton owned by lib/redis.js) nor an injected shared bus
    * (owned by the test).
    */
-  async function close() {
-    enabled = false;
-    subscriptionGeneration += 1;
-    subscriptionPromise = null;
-    subscribed = false;
-    initialized = false;
-    if (sub) {
-      try {
-        if (onMessageHandler) sub.off?.('pmessage', onMessageHandler);
-        if (typeof sub.punsubscribe === 'function') await sub.punsubscribe(PATTERN);
-        if (typeof sub.quit === 'function' && sub !== pub) await sub.quit();
-      } catch (err) {
-        logger.warn('WS fan-out subscriber teardown error:', err?.message || err);
-      }
-    }
-    sub = null;
-    pub = null;
-    onMessageHandler = null;
-    subscriptionPromise = null;
-    deliverBroadcast = null;
-    deliverUser = null;
+  function close() {
+    if (closePromise) return closePromise;
+    closePromise = (async () => {
+      enabled = false;
+      initializationPromise = null;
+      lifecycleGeneration += 1;
+      subscriptionGeneration += 1;
+      subscriptionPromise = null;
+      subscribed = false;
+      initialized = false;
+      const activeSub = sub;
+      const activeHandlers = subscriberEventHandlers;
+      const ownsActiveSub = subOwned;
+      sub = null;
+      subOwned = false;
+      pub = null;
+      subscriberEventHandlers = null;
+      subscriptionPromise = null;
+      await teardownSubscriber(activeSub, activeHandlers, ownsActiveSub);
+      deliverBroadcast = null;
+      deliverUser = null;
+    })().finally(() => {
+      closePromise = null;
+    });
+    return closePromise;
   }
 
   return {

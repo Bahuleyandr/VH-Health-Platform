@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const cancelWorkflowSlaMock = jest.fn(async () => []);
 const recordCanonicalClinicalEventMock = jest.fn(async () => ({ timeline: null, audit: null }));
 const hasActivePrivilegeMock = jest.fn(async () => ({ allowed: true, privilege_key: 'stroke_thrombolysis_approver' }));
 
@@ -16,6 +17,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: cancelWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
 }));
 
@@ -65,6 +67,7 @@ function activationRow(overrides = {}) {
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  cancelWorkflowSlaMock.mockClear();
   recordCanonicalClinicalEventMock.mockClear();
   hasActivePrivilegeMock.mockReset();
   hasActivePrivilegeMock.mockResolvedValue({ allowed: true, privilege_key: 'stroke_thrombolysis_approver' });
@@ -202,5 +205,53 @@ describe('strokePathwayService writes', () => {
       }),
       expect.objectContaining({ db: prismaMock }),
     );
+  });
+});
+
+describe('updateActivationStatus SLA lifecycle (SLA-halves G2)', () => {
+  it('cancelling an activation cancels every open stroke SLA clock in the same transaction', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([activationRow()])
+      .mockResolvedValueOnce([activationRow({ status: 'cancelled' })]);
+
+    const updated = await stroke.updateActivationStatus({
+      tenantId: TENANT_ID,
+      id: 41,
+      status: 'cancelled',
+      notes: 'stroke mimic',
+      actorUid: STAFF_UID,
+    });
+
+    expect(updated.status).toBe('cancelled');
+    expect(cancelWorkflowSlaMock).toHaveBeenCalledTimes(1);
+    expect(cancelWorkflowSlaMock).toHaveBeenCalledWith(
+      {
+        tenantId: TENANT_ID,
+        sourceTable: 'stroke_activations',
+        sourceId: '41',
+        metadata: { cancel_reason: 'stroke mimic', cancelled_by: STAFF_UID },
+      },
+      { db: prismaMock },
+    );
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'stroke.activation.cancelled' }),
+      expect.objectContaining({ db: prismaMock }),
+    );
+  });
+
+  it('closing an activation leaves the SLA clocks to the overdue sweep (a genuine miss is not a cancel)', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([activationRow()])
+      .mockResolvedValueOnce([activationRow({ status: 'closed' })]);
+
+    const updated = await stroke.updateActivationStatus({
+      tenantId: TENANT_ID,
+      id: 41,
+      status: 'closed',
+      actorUid: STAFF_UID,
+    });
+
+    expect(updated.status).toBe('closed');
+    expect(cancelWorkflowSlaMock).not.toHaveBeenCalled();
   });
 });

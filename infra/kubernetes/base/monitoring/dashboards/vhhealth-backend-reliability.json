@@ -192,11 +192,23 @@
       "targets": [
         {
           "expr": "max(notification_outbox_dead_letter_rows)",
-          "legendFormat": "dead letter"
+          "legendFormat": "dead letter (unresolved)"
         },
         {
           "expr": "max(notification_outbox_reconciliation_required_rows)",
-          "legendFormat": "reconciliation required"
+          "legendFormat": "reconciliation required (unresolved)"
+        },
+        {
+          "expr": "max(notification_outbox_terminal_dead_letter_rows)",
+          "legendFormat": "terminal (operator-only)"
+        },
+        {
+          "expr": "max(notification_outbox_suppressed_rows)",
+          "legendFormat": "suppressed (never-send by design)"
+        },
+        {
+          "expr": "sum by (outcome) (increase(notification_outbox_auto_replay_total[1h]))",
+          "legendFormat": "auto-replay {{outcome}} (1h)"
         }
       ]
     },

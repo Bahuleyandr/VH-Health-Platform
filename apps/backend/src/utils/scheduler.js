@@ -8,6 +8,7 @@
 import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
 import purgeArchives from '../../admin/purge-archives.js';
+import { notificationOutboxAutoReplayEnabled } from '../config/notificationOutboxConfig.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import {
   isPathwayReconciliationEnabled,
@@ -749,6 +750,18 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('drug-chart-missing-sla', () => runMissingDrugChartSweep());
   }));
 
+  // ⏱️ Every 5 minutes - Generic overdue closer for workflow_sla_instances:
+  // flips active past-due clocks to 'breached' (breached_at = due_at) so
+  // instances with no linked task (beds, housekeeping, referrals, stroke,
+  // discharge consults, cath-lab, ...) stop sitting 'active' forever. No
+  // notification here — the escalation engine consumes 'breached' status.
+  registerCron('*/5 * * * *', withJobLock('workflow-sla-overdue-sweep', async () => {
+    const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+    await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+      runWorkflowSlaOverdueSweep({ tenantId })
+    ));
+  }));
+
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
   registerCron('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
 
@@ -762,6 +775,44 @@ if (process.env.NODE_ENV !== 'test') {
       drainNotificationOutbox({ tenantId, limit: 100 })
     ));
   }));
+
+  // ♻️ Every 15 minutes - bounded auto-replay of RECONCILIATION_REQUIRED
+  // notification_outbox rows (audit MEDIUM follow-up to F7/F11). The row
+  // itself is never re-sent (mig-609: the original provider outcome is
+  // unknowable); the sweep reuses the audited operator requeue-as-new-intent
+  // path — new intent with an `:auto-replay:` source-key suffix and
+  // replay_generation + 1 (mig-690), original stamped
+  // 'operator_replay_superseded', paused cursor resumed, audit_logs row with
+  // duplicate_delivery_risk_accepted. Bounds: 2 generations per chain,
+  // >= 30-min backoff, 24-h age ceiling, 25 rows per tenant per tick.
+  // Chains past the bound are stamped terminal once (logger.error +
+  // notification_outbox_auto_replay_total{outcome="exhausted"}) and left for
+  // the operator endpoints. SUPPRESSED rows are terminal-by-design (payroll
+  // supersede semantics) and are deliberately not touched.
+  //
+  // Deliberately slower than the 2-min drain: the input state only arises
+  // after a full 3×5-min retry cycle or a lease expiry, and duplicate-risk
+  // requeues must not be hot-looped. Kill switch mirrors the SOS sweep:
+  // DEFAULT-ON (unset === enabled) so the remediation ships live, but an
+  // operator can stop duplicate-risk requeues without a revert commit +
+  // manual ArgoCD sync. Lazy import keeps the scheduler's eager module graph
+  // (and existing partial-module test mocks) unchanged.
+  if (notificationOutboxAutoReplayEnabled(process.env)) {
+    registerCron('*/15 * * * *', withJobLock('notification-outbox-auto-replay', async () => {
+      const { autoReplayReconciliationRequiredRows } = await import(
+        '../services/notification/notificationOutboxAdminService.js'
+      );
+      const result = await runForEachTenant('notification-outbox-auto-replay', (tenantId) => (
+        autoReplayReconciliationRequiredRows({ tenantId, limit: 25 })
+      ));
+      logger.info('notification-outbox-auto-replay complete', result);
+    }));
+  } else {
+    logger.warn(
+      'Notification outbox auto-replay sweep DISABLED by NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED=false — '
+        + 'RECONCILIATION_REQUIRED rows will not be requeued automatically and need operator replay.',
+    );
+  }
 
   registerCron('*/2 * * * *', withJobLock('fhir-vital-effects-recovery', async () => {
     await runFhirVitalEffectsRecoveryJob({ limitPerTenant: 25 });
@@ -1399,6 +1450,14 @@ export async function runAllScheduledTasksNow() {
     ));
     await runManualTask('drug-chart-missing-sla', () => (
       withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep))
+    ));
+    await runManualTask('workflow-sla-overdue-sweep', () => (
+      withDbAdvisoryLock('workflow-sla-overdue-sweep', () => runWithSuperAdmin(async () => {
+        const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+        await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+          runWorkflowSlaOverdueSweep({ tenantId })
+        ));
+      }))
     ));
     await runManualTask('unread-critical-notification-escalation', () => (
       withDbAdvisoryLock('unread-critical-notification-escalation', () => (

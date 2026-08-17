@@ -37,6 +37,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 let mockTxRevision = 0;
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
   // Monotonic like pg_current_xact_id() so revision keys stay unique per write.
   currentCanonicalTransactionRevision: jest.fn(async () => String(++mockTxRevision)),

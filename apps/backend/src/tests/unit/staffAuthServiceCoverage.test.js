@@ -93,6 +93,7 @@ const { StaffAuthService } = await import('../../services/auth/staffAuthService.
 const REQ = { ip: '10.0.0.9', headers: { 'user-agent': 'jest-agent' } };
 const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
 const STAFF_TENANT_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_STAFF_TENANT_ID = '99999999-9999-4999-8999-999999999999';
 
 // A fully-populated staff row as returned by the password / PIN login SELECTs.
 const STAFF_ROW = {
@@ -131,10 +132,10 @@ function read(match, rows) {
 }
 
 function configurePrisma() {
-  mockPrisma.$queryRawUnsafe.mockImplementation(async (sql) => {
+  mockPrisma.$queryRawUnsafe.mockImplementation(async (sql, ...params) => {
     for (const rule of readRules) {
       if (rule.match.test(sql)) {
-        return typeof rule.rows === 'function' ? rule.rows() : rule.rows;
+        return typeof rule.rows === 'function' ? rule.rows(params, sql) : rule.rows;
       }
     }
     return [];
@@ -167,6 +168,20 @@ describe('_checkStaffLockout', () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '2' }]);
     await expect(StaffAuthService._checkStaffLockout('EMP1', REQ)).resolves.toBeUndefined();
     expect(mockLogSecurityEvent).not.toHaveBeenCalled();
+    const [sql] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).not.toContain('CONTROLLED_DISPENSE_WITNESS');
+  });
+
+  it('counts witness failures only when the tenant identity is explicit', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    await StaffAuthService._checkStaffLockout('EMP1', REQ, '/approve', {
+      tenantId: STAFF_TENANT_ID,
+      client: mockPrisma,
+    });
+    const [sql, employeeId, tenantId] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('CONTROLLED_DISPENSE_WITNESS');
+    expect(sql).toContain('tenant_id = $2::uuid');
+    expect([employeeId, tenantId]).toEqual(['EMP1', STAFF_TENANT_ID]);
   });
 
   it('throws + logs ACCOUNT_LOCKED when count is at/above the limit', async () => {
@@ -315,6 +330,78 @@ describe('authenticateStaff', () => {
       installationId: INSTALLATION_ID,
     }))
       .rejects.toThrow('Account temporarily locked');
+  });
+});
+
+// =====================================================================
+// controlled-dispense witness password step-up (tenant-bound)
+// =====================================================================
+describe('authenticateControlledDispenseWitness', () => {
+  const FOREIGN_DUPLICATE = {
+    ...STAFF_ROW,
+    uid: 'staff-uuid-foreign',
+    tenant_id: OTHER_STAFF_TENANT_ID,
+    encrypted_password: 'foreign-password-hash',
+  };
+
+  it('selects a duplicate employee ID by explicit tenant even when RLS supplies no isolation', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    read(/FROM staff s\s+JOIN users u/, ([employeeId, tenantId]) => {
+      expect(employeeId).toBe('EMP1');
+      return tenantId === STAFF_TENANT_ID ? [STAFF_ROW] : [FOREIGN_DUPLICATE];
+    });
+    mockBcryptCompare.mockImplementation(async (password, hash) => (
+      password === 'tenant-secret' && hash === STAFF_ROW.encrypted_password
+    ));
+
+    const result = await StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId: 'emp1',
+      password: 'tenant-secret',
+      tenantId: STAFF_TENANT_ID,
+      req: REQ,
+    });
+
+    expect(result).toMatchObject({ uid: STAFF_ROW.uid, tenantId: STAFF_TENANT_ID });
+    const witnessLock = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /pg_advisory_xact_lock/.test(sql),
+    );
+    expect(witnessLock).toBeDefined();
+    expect(witnessLock.slice(1)).toEqual([
+      `controlled-dispense-witness-auth:${STAFF_TENANT_ID}:EMP1`,
+    ]);
+    const witnessLockIndex = mockPrisma.$queryRawUnsafe.mock.calls.indexOf(witnessLock);
+    const lockoutIndex = mockPrisma.$queryRawUnsafe.mock.calls.findIndex(
+      ([sql]) => /COUNT\(\*\) as cnt FROM auth_logs/.test(sql),
+    );
+    expect(witnessLockIndex).toBeLessThan(lockoutIndex);
+    const staffLookup = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /FROM staff s\s+JOIN users u/.test(sql),
+    );
+    expect(staffLookup[0]).toMatch(/s\.tenant_id = \$2::uuid/);
+    expect(staffLookup[0]).toMatch(/u\.tenant_id = s\.tenant_id/);
+    expect(staffLookup.slice(1)).toEqual(['EMP1', STAFF_TENANT_ID]);
+    const lockoutLookup = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /COUNT\(\*\) as cnt FROM auth_logs/.test(sql),
+    );
+    expect(lockoutLookup[0]).toMatch(/tenant_id = \$2::uuid/);
+    expect(lockoutLookup.slice(1)).toEqual(['EMP1', STAFF_TENANT_ID]);
+  });
+
+  it('rejects a mismatched tenant row before password verification or success audit', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    read(/FROM staff s\s+JOIN users u/, [FOREIGN_DUPLICATE]);
+
+    await expect(StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId: 'EMP1',
+      password: 'foreign-secret',
+      tenantId: STAFF_TENANT_ID,
+      req: REQ,
+    })).rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
+
+    expect(mockBcryptCompare).not.toHaveBeenCalled();
+    expect(mockPrisma.$executeRawUnsafe.mock.calls.some(
+      (call) => call[2] === 'CONTROLLED_DISPENSE_WITNESS' && call[3] === true,
+    )).toBe(false);
   });
 });
 

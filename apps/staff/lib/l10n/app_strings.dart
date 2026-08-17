@@ -8879,8 +8879,29 @@ class AppStrings {
       's4.lib.counter_sale.rx_reference': "Rx number / reference",
       's4.lib.counter_sale.witness_section':
           "Witness (required for Schedule X / narcotic)",
-      's4.lib.counter_sale.witness_uid': "Witness staff UID",
-      's4.lib.counter_sale.witness_name': "Witness name",
+      's4.lib.counter_sale.witness_two_person_hint': "Request approval for this exact sale, then hand the device to an eligible second staff member to review and sign in.",
+      's4.lib.counter_sale.witness_request': "Request witness approval",
+      's4.lib.counter_sale.witness_approve': "Review & approve",
+      's4.lib.counter_sale.witness_auth_title': "Independent witness sign-in",
+      's4.lib.counter_sale.witness_review_hint': "Confirm these medicines and quantities before entering your own staff credentials:",
+      's4.lib.counter_sale.witness_employee_id': "Witness employee ID",
+      's4.lib.counter_sale.witness_password': "Witness password",
+      's4.lib.counter_sale.witness_not_requested': "Approval not requested",
+      's4.lib.counter_sale.witness_pending': "Waiting for witness sign-in",
+      's4.lib.counter_sale.witness_approved': "Witness approval recorded",
+      's4.lib.counter_sale.witness_approved_by': "Approved by {name}",
+      's4.lib.counter_sale.witness_canonical_staff': "verified staff witness",
+      's4.lib.counter_sale.witness_required': "An approved second staff witness is required before this sale can be submitted.",
+      's4.lib.counter_sale.witness_expired':
+          "The witness approval expired. Request a new approval.",
+      's4.lib.counter_sale.witness_used':
+          "That witness approval was already used. Request a new approval.",
+      's4.lib.counter_sale.witness_self':
+          "The seller cannot witness their own controlled dispense.",
+      's4.lib.counter_sale.witness_role': "This staff account is not eligible to witness controlled dispensing.",
+      's4.lib.counter_sale.witness_changed':
+          "The sale changed, so its witness approval was invalidated.",
+      's4.lib.counter_sale.witness_auth_failed': "Witness authentication or approval failed. Check the credentials and request again.",
       's4.lib.counter_sale.payment_mode': "Payment mode",
       's4.lib.counter_sale.payment_reference': "Payment reference (txn id)",
       's4.lib.counter_sale.cash_drawer_hint':

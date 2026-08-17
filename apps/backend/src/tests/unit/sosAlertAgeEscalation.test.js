@@ -146,6 +146,28 @@ test('stalled CRITICAL alert: no ladder, marks SLA escalated, pages ops, still r
   expect(notifyEmergencyTeamMock).toHaveBeenCalled();
 });
 
+test('test alerts are excluded at BOTH the select and the claim — a drill never pages', async () => {
+  // Migration 692: an ACTIVE is_test_alert=TRUE row keeps its timeline pair
+  // and SLA clock, but the sweep must never select or claim it — excluding at
+  // the query keeps every downstream noise source (ladder step, re-fan-out,
+  // SLA escalated mark, SOS_ALERT_UNACKNOWLEDGED audit row + ops webhook)
+  // quiet in one place.
+  queryRawUnsafeMock
+    .mockResolvedValueOnce([overdueRow()])
+    .mockResolvedValueOnce([{ id: 42, severity: 'HIGH' }]);
+  escalateAlertMock.mockResolvedValueOnce({ id: 42, severity: 'CRITICAL', previousSeverity: 'HIGH' });
+
+  await runSosAlertAgeEscalationSweep({ tenantId: TENANT });
+
+  const [selectSql] = queryRawUnsafeMock.mock.calls[0];
+  expect(selectSql).toContain('sa.is_test_alert = FALSE');
+
+  // The claim must re-check too, or a test alert raced into the candidate set
+  // (or a stale plan) would still escalate after winning the UPDATE.
+  const [claimSql] = queryRawUnsafeMock.mock.calls[1];
+  expect(claimSql).toContain('is_test_alert = FALSE');
+});
+
 test('lost claim (concurrent sweep or racing respond) skips the alert entirely', async () => {
   queryRawUnsafeMock
     .mockResolvedValueOnce([overdueRow()]) // overdue SELECT

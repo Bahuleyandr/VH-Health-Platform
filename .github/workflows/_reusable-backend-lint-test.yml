@@ -114,6 +114,12 @@ jobs:
       # (mirroring _reusable-backend-quick.yml) so no suite can silently skip
       # in the canonical gate on a single-form guard.
       TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up): with the full DB env
+      # provisioned, any skipped test not declared in
+      # apps/backend/scripts/jest-skip-floor.json fails the run
+      # (scripts/jest-skip-floor-reporter.cjs) — silent env-guard skips can
+      # never pass green in the gate again.
+      JEST_ENFORCE_SKIP_FLOOR: '1'
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -264,6 +270,8 @@ jobs:
       # Same rationale as static-checks: deep-suite guards must never skip in
       # the canonical gate because only one of the two DB env names was set.
       TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up) — see static-checks.
+      JEST_ENFORCE_SKIP_FLOOR: '1'
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

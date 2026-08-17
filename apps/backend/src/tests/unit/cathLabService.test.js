@@ -13,6 +13,7 @@ const recordClinicalAuditEventMock = jest.fn(async () => ({
 }));
 const startWorkflowSlaMock = jest.fn();
 const completeWorkflowSlaMock = jest.fn();
+const cancelWorkflowSlaMock = jest.fn(async () => []);
 const assertPrivilegeForGateMock = jest.fn(async () => ({ allowed: true }));
 const isGateEnabledMock = jest.fn(key => process.env[key] === 'true');
 const privilegeKeyMock = jest.fn(value => String(value).trim().toLowerCase());
@@ -42,6 +43,7 @@ jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: cancelWorkflowSlaMock,
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
@@ -68,6 +70,7 @@ const {
   cathLabPrivilegeGateConfig,
   evaluateReadinessGate,
   recordProcedureLog,
+  transitionCaseStatus,
   validateCaseTransition,
   validateContrastRadiationInput
 } = await import('../../services/clinical/cathLabService.js');
@@ -83,6 +86,7 @@ beforeEach(() => {
   recordCanonicalClinicalEventMock.mockClear();
   startWorkflowSlaMock.mockClear();
   completeWorkflowSlaMock.mockClear();
+  cancelWorkflowSlaMock.mockClear();
   assertPrivilegeForGateMock.mockClear();
   isGateEnabledMock.mockClear();
   privilegeKeyMock.mockClear();
@@ -266,5 +270,72 @@ describe('cathLabService procedure and device ledgers', () => {
     expect(queryUnsafeMock.mock.calls[1][0]).toContain(
       'INSERT INTO cath_contrast_radiation_records'
     );
+  });
+});
+
+describe('transitionCaseStatus SLA lifecycle (SLA-halves G1)', () => {
+  function mockTransition(fromStatus, target, slaRuleCode) {
+    // caseById SELECT, then the status UPDATE ... RETURNING, then
+    // updateCaseCanonicalRefs UPDATE (and any billing readback) return [].
+    queryUnsafeMock.mockImplementation(async (sql) => {
+      if (sql.includes('FROM cath_lab_cases') && sql.includes('SELECT')) {
+        return [{ ...cathCase(fromStatus), sla_rule_code: slaRuleCode }];
+      }
+      if (sql.includes('UPDATE cath_lab_cases') && sql.includes('RETURNING *')) {
+        return [{ ...cathCase(target), status: target, sla_rule_code: slaRuleCode }];
+      }
+      return [];
+    });
+  }
+
+  test('cancelling a case cancels (never completes) its SLA clock', async () => {
+    mockTransition('scheduled', 'cancelled', 'cath_lab_turnaround');
+
+    const result = await transitionCaseStatus(
+      42,
+      { tenantId: TENANT, status: 'cancelled', reason: 'patient unfit' },
+      { actorUid: ACTOR, actorRole: 'DOCTOR' }
+    );
+
+    expect(result.status).toBe('cancelled');
+    expect(cancelWorkflowSlaMock).toHaveBeenCalledTimes(1);
+    expect(cancelWorkflowSlaMock).toHaveBeenCalledWith(
+      {
+        tenantId: TENANT,
+        ruleCode: 'cath_lab_turnaround',
+        sourceTable: 'cath_lab_cases',
+        sourceId: '42',
+        metadata: { cancel_reason: 'patient unfit', cancelled_by: ACTOR }
+      },
+      { db: __prismaDefaultMock }
+    );
+    expect(completeWorkflowSlaMock).not.toHaveBeenCalled();
+  });
+
+  test('completing a case still completes its SLA clock and never cancels it', async () => {
+    mockTransition('in_progress', 'completed', 'cath_lab_turnaround');
+
+    const result = await transitionCaseStatus(
+      42,
+      { tenantId: TENANT, status: 'completed' },
+      { actorUid: ACTOR, actorRole: 'DOCTOR' }
+    );
+
+    expect(result.status).toBe('completed');
+    expect(completeWorkflowSlaMock).toHaveBeenCalledTimes(1);
+    expect(cancelWorkflowSlaMock).not.toHaveBeenCalled();
+  });
+
+  test('cancelling a case without an SLA rule code touches no SLA', async () => {
+    mockTransition('scheduled', 'cancelled', null);
+
+    await transitionCaseStatus(
+      42,
+      { tenantId: TENANT, status: 'cancelled' },
+      { actorUid: ACTOR, actorRole: 'DOCTOR' }
+    );
+
+    expect(cancelWorkflowSlaMock).not.toHaveBeenCalled();
+    expect(completeWorkflowSlaMock).not.toHaveBeenCalled();
   });
 });

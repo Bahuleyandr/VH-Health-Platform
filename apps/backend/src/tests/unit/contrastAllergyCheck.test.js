@@ -265,37 +265,39 @@ describe('radiology contrast/allergy screening (migration 678)', () => {
         .toThrow(AppError);
     });
 
-    it('accepts a valid override, defaulting the approver to the ordering clinician', () => {
+    it('accepts a valid override only when an authenticated actor is supplied', () => {
       const override = assertContrastOrderAllowed(
         blockedScreen,
         { reason: '  Premedicated with steroids per protocol  ' },
-        'doctor-uid',
+        'ce000000-0000-4000-8000-0000000000bb',
       );
       expect(override).toEqual({
         reason: 'Premedicated with steroids per protocol',
-        approvedBy: 'doctor-uid',
+        approvedBy: 'ce000000-0000-4000-8000-0000000000bb',
       });
     });
 
-    it('prefers an explicitly named approver over the fallback actor', () => {
+    it('ignores a caller-selected approver and binds attribution to the authenticated actor', () => {
       const override = assertContrastOrderAllowed(
         blockedScreen,
         {
           reason: 'Radiologist approved low-osmolar switch',
           approvedBy: 'ce000000-0000-4000-8000-0000000000aa',
         },
-        'doctor-uid',
+        'ce000000-0000-4000-8000-0000000000bb',
       );
-      expect(override.approvedBy).toBe('ce000000-0000-4000-8000-0000000000aa');
+      expect(override.approvedBy).toBe('ce000000-0000-4000-8000-0000000000bb');
     });
 
-    it('falls back to the authenticated actor when the named approver is not a uuid', () => {
-      const override = assertContrastOrderAllowed(
+    it('rejects an override when no authenticated actor can be bound', () => {
+      expect(() => assertContrastOrderAllowed(
         blockedScreen,
         { reason: 'Radiologist approved low-osmolar switch', approvedBy: 'radiologist<script>' },
-        'doctor-uid',
-      );
-      expect(override.approvedBy).toBe('doctor-uid');
+        null,
+      )).toThrow(expect.objectContaining({
+        statusCode: 403,
+        code: 'RADIOLOGY_CONTRAST_OVERRIDE_ACTOR_REQUIRED',
+      }));
     });
   });
 });

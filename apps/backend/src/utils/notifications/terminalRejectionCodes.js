@@ -85,9 +85,31 @@ export function classifyFcmProviderResponse(response = {}) {
   };
 }
 
-// failure_reason stamped on a RECONCILIATION_REQUIRED row that an operator
-// replayed as a fresh intent; the claim/attempt/advance predicates treat rows
-// carrying it as resolved for ordering purposes.
+// failure_reason stamped on a RECONCILIATION_REQUIRED row whose intent was
+// replayed as a fresh intent (by an operator OR by the bounded auto-replay
+// sweep — both requeue paths stamp this exact string on purpose: four
+// ordering predicates hardcode it as "resolved for ordering", so a distinct
+// auto-replay reason would silently re-block the per-channel cursors).
 export const OPERATOR_REPLAY_SUPERSEDED_REASON = 'operator_replay_superseded';
+
+// The only RECONCILIATION_REQUIRED failure_reasons the auto-replay sweep may
+// requeue. Fail-closed: it excludes OPERATOR_REPLAY_SUPERSEDED_REASON (already
+// replayed), AUTO_REPLAY_EXHAUSTED_REASON (bound crossed), and any future
+// reason another writer stamps.
+export const AUTO_REPLAYABLE_RECONCILIATION_REASONS = Object.freeze([
+  'provider_delivery_outcome_uncertain',
+  'provider_state_requires_owner_reconciliation',
+]);
+
+// failure_reason stamped exactly once on a RECONCILIATION_REQUIRED row whose
+// replay chain crossed the generation bound. It is NOT a resolution: the row
+// keeps blocking ordering and stays operator-replayable; the stamp is the
+// idempotence marker for terminal alerting (counter fires once per chain).
+export const AUTO_REPLAY_EXHAUSTED_REASON = 'auto_replay_exhausted';
+
+// Max requeue-as-new-intent generations the sweep may create per intent
+// chain. A RECONCILIATION_REQUIRED row at this generation is terminal for
+// automation; only the operator endpoints can resolve it.
+export const NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS = 2;
 
 export default TERMINAL_REJECTION_CODES;

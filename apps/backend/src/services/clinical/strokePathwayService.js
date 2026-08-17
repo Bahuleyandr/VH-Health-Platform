@@ -1,7 +1,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { cancelWorkflowSla, recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { hasActivePrivilege } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -707,6 +707,22 @@ export async function updateActivationStatus({
       throw AppError.conflict('Stroke activation status changed concurrently', 'STROKE_STATUS_CONFLICT');
     }
     const updated = rows[0];
+    if (nextStatus === 'cancelled') {
+      // Mimic / stood-down stroke: the door-to-CT and door-to-needle
+      // obligations no longer exist, so stop both clocks as 'cancelled'
+      // (mirrors the STEMI stand-down cancel). Deliberately NOT done for
+      // closed/disposed/transferred — a never-met door-to-needle there is a
+      // genuine miss, which the overdue sweep surfaces as 'breached'.
+      await cancelWorkflowSla({
+        tenantId: tid,
+        sourceTable: 'stroke_activations',
+        sourceId: String(updated.id),
+        metadata: {
+          cancel_reason: cleanString(notes),
+          cancelled_by: cleanString(actorUid),
+        },
+      }, { db: tx });
+    }
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: updated.patient_uid,

@@ -24,6 +24,16 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  CONTROLLED_DISPENSE_WITNESS_ROLES,
+  approveControlledDispenseWitnessApproval,
+  consumeControlledDispenseWitnessApproval,
+  createControlledDispenseWitnessApproval,
+  isControlledDispenseWitnessEvidence,
+} from './controlledDispenseWitnessService.js';
+
+export { CONTROLLED_DISPENSE_WITNESS_ROLES };
 
 const ALLOWED_SCHEDULES = ['H', 'H1', 'X', 'OTC', null];
 const VALID_MOVEMENTS = [
@@ -362,6 +372,61 @@ export async function recordMovementTx(tx, {
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
 
+const CONTROLLED_BATCH_SAFETY_CONTRACT =
+  'usable_in_stock_nonexpired_sufficient_stock_v1';
+
+function requireControlledBatchId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest(
+      'inventory_batch_id is required for controlled dispensing',
+      'INVENTORY_BATCH_REQUIRED',
+    );
+  }
+  return id;
+}
+
+async function requireUsableControlledBatch(db, {
+  tenantId, inventoryItemId, inventoryBatchId, quantity,
+}) {
+  const batchId = requireControlledBatchId(inventoryBatchId);
+  const requestedQuantity = Number(quantity);
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+    throw AppError.badRequest('quantity must be > 0');
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, status, remaining_quantity,
+            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id = $1::uuid
+        AND inventory_item_id = $2::int
+        AND id = $3::int`,
+    tenantId,
+    Number(inventoryItemId),
+    batchId,
+  );
+  if (!rows[0]) throw AppError.notFound('Batch not found');
+  if (rows[0].status !== 'in_stock') {
+    throw AppError.badRequest(
+      `Inventory batch is not available for issue (status: ${rows[0].status})`,
+      'INVENTORY_BATCH_UNAVAILABLE',
+    );
+  }
+  if (rows[0].is_expired) {
+    throw AppError.badRequest(
+      'Inventory batch is expired and cannot be issued',
+      'INVENTORY_BATCH_EXPIRED',
+    );
+  }
+  if (Number(rows[0].remaining_quantity) < requestedQuantity) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${rows[0].remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  return rows[0];
+}
+
 /**
  * Transaction-scoped core of dispenseControlled. Runs the controlled-substance
  * pre-conditions, the stock decrement (recordMovementTx) and the statutory
@@ -375,9 +440,77 @@ export async function recordMovementTx(tx, {
  *
  * `reference_id` optionally overrides the movement's reference (defaults to
  * the prescription number) so composers can point the movement at their own
- * evidence row; `require_usable_batch` adds recordMovementTx's expired/
- * non-in-stock batch rejection.
+ * evidence row. Controlled dispensing always requires and revalidates one
+ * concrete usable batch under the stock lock.
  */
+export function controlledDispenseWitnessPayload(params = {}) {
+  return {
+    inventory_item_id: Number(params.inventory_item_id),
+    inventory_batch_id: requireControlledBatchId(params.inventory_batch_id),
+    batch_safety_contract: CONTROLLED_BATCH_SAFETY_CONTRACT,
+    quantity: Number(params.quantity),
+    patient_uid: params.patient_uid ? String(params.patient_uid) : null,
+    patient_name: params.patient_name ? String(params.patient_name).trim() : null,
+    patient_phone: params.patient_phone ? String(params.patient_phone).trim() : null,
+    prescription_id: params.prescription_id == null ? null : Number(params.prescription_id),
+    prescription_number: params.prescription_number || null,
+    prescriber_uid: params.prescriber_uid ? String(params.prescriber_uid) : null,
+    prescriber_name: params.prescriber_name || null,
+    prescriber_registration: params.prescriber_registration || null,
+    patient_id_proof_type: params.patient_id_proof_type || null,
+    patient_id_proof_last4: params.patient_id_proof_last4
+      ? String(params.patient_id_proof_last4).slice(-4)
+      : null,
+  };
+}
+
+async function requireWitnessedInventoryItem(db, { tenantId, inventoryItemId }) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, schedule_class, is_narcotic
+       FROM pharmacy_inventory_items
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    tenantId,
+    Number(inventoryItemId),
+  );
+  if (!rows[0]) throw AppError.notFound('Inventory item not found');
+  if (rows[0].schedule_class !== 'X' && rows[0].is_narcotic !== true) {
+    throw AppError.badRequest(
+      'A witness approval is only available for Schedule X / narcotic dispensing',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+}
+
+export async function requestControlledDispenseWitnessApproval(params) {
+  await requireWitnessedInventoryItem(prisma, {
+    tenantId: params.tenantId,
+    inventoryItemId: params.inventory_item_id,
+  });
+  await requireUsableControlledBatch(prisma, {
+    tenantId: params.tenantId,
+    inventoryItemId: params.inventory_item_id,
+    inventoryBatchId: params.inventory_batch_id,
+    quantity: params.quantity,
+  });
+  return createControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+    payload: controlledDispenseWitnessPayload(params),
+    requestedBy: params.requested_by,
+  });
+}
+
+export async function approveInventoryDispenseWitnessApproval(params) {
+  return approveControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    approvalId: params.approvalId,
+    actorUid: params.actorUid,
+    payload: controlledDispenseWitnessPayload(params.dispense),
+    requesterUid: params.requesterUid,
+  });
+}
+
 export async function dispenseControlledTx(tx, {
   tenantId,
   inventory_item_id, inventory_batch_id,
@@ -386,10 +519,10 @@ export async function dispenseControlledTx(tx, {
   prescriber_uid, prescriber_name, prescriber_registration,
   patient_id_proof_type, patient_id_proof_last4,
   performed_by, performed_by_name,
-  witness_uid, witness_name, notes,
+  witness_approval_id, witness_evidence = null, notes,
   reference_id = null,
-  require_usable_batch = false,
 }) {
+  const controlledBatchId = requireControlledBatchId(inventory_batch_id);
   // Pre-conditions: item must be Schedule H/H1/X (or marked narcotic).
   const items = await tx.$queryRawUnsafe(
     `SELECT id, schedule_class, is_narcotic, unit_label
@@ -403,11 +536,37 @@ export async function dispenseControlledTx(tx, {
     throw AppError.badRequest('Item is not a controlled substance — use the regular issue path');
   }
   // Witness required for Schedule X / narcotic.
-  if ((item.schedule_class === 'X' || item.is_narcotic) && (!witness_uid || !witness_name)) {
-    throw AppError.badRequest('Witness (witness_uid + witness_name) is required for Schedule X / narcotic dispense');
-  }
   if (!performed_by || !performed_by_name) {
     throw AppError.badRequest('performed_by + performed_by_name are required');
+  }
+
+  const needsWitness = item.schedule_class === 'X' || item.is_narcotic;
+  let witness = isControlledDispenseWitnessEvidence(witness_evidence)
+    ? witness_evidence
+    : null;
+  if (needsWitness && !witness) {
+    witness = await consumeControlledDispenseWitnessApproval({
+      tx,
+      tenantId,
+      approvalId: witness_approval_id,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      payload: controlledDispenseWitnessPayload({
+        inventory_item_id,
+        inventory_batch_id,
+        quantity,
+        patient_uid,
+        patient_name,
+        patient_phone,
+        prescription_id,
+        prescription_number,
+        prescriber_uid,
+        prescriber_name,
+        prescriber_registration,
+        patient_id_proof_type,
+        patient_id_proof_last4,
+      }),
+      requestedBy: performed_by,
+    });
   }
 
   {
@@ -415,14 +574,14 @@ export async function dispenseControlledTx(tx, {
     const { movement } = await recordMovementTx(tx, {
       tenantId,
       inventory_item_id,
-      inventory_batch_id,
+      inventory_batch_id: controlledBatchId,
       movement_kind: 'issue',
       quantity,
       reference_type: 'controlled_dispense',
       reference_id: reference_id || prescription_number || `pres-${prescription_id || ''}`,
       performed_by,
-      notes: `Schedule ${item.schedule_class} dispense; witness ${witness_name || 'n/a'}`,
-      require_usable_batch,
+      notes: `Schedule ${item.schedule_class} dispense; witness ${witness?.name || 'n/a'}`,
+      require_usable_batch: true,
     });
 
     // Compute running balance across batches, read inside the same tx so it
@@ -450,7 +609,7 @@ export async function dispenseControlledTx(tx, {
        RETURNING *`,
       tenantId,
       Number(inventory_item_id),
-      inventory_batch_id ? Number(inventory_batch_id) : null,
+      controlledBatchId,
       item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
       Number(quantity),
       item.unit_label,
@@ -467,8 +626,8 @@ export async function dispenseControlledTx(tx, {
       patient_id_proof_last4 ? String(patient_id_proof_last4).slice(-4) : null,
       String(performed_by),
       performed_by_name,
-      witness_uid ? String(witness_uid) : null,
-      witness_name || null,
+      witness?.uid || null,
+      witness?.name || null,
       movement.id,
       notes || null,
     );

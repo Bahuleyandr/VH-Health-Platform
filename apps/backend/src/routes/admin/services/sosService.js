@@ -4,8 +4,9 @@
 //
 // Audit F1: every function here used to be fake. The three mutators were
 // log-only stubs that returned success without touching a table, and all four
-// readers ran SQL that could not execute against this schema — sos_alerts has no
-// is_test_alert / user_uid / notes / description / address column, its statuses
+// readers ran SQL that could not execute against this schema — sos_alerts had no
+// is_test_alert / user_uid / notes / description / address column (migration 692
+// has since added is_test_alert; the others still do not exist), its statuses
 // are uppercase, and neither emergency_services nor sos_services exists. Every
 // one of those queries threw and was swallowed by safeQuery, so the console
 // rendered zeros and empty tables as if they were readings.

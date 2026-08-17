@@ -3456,6 +3456,10 @@ class AppLocalizationsMl extends AppLocalizations {
   String get splashUpdateButton => 'VH Health അപ്ഡേറ്റ് ചെയ്യുക';
 
   @override
+  String get splashUpdateNoStoreBody =>
+      'അപ്ഡേറ്റ് ചെയ്ത പതിപ്പ് ഈ ഉപകരണത്തിൽ ഡൗൺലോഡിനായി ഇതുവരെ ലഭ്യമല്ല. VH Health ന്റെ ഏറ്റവും പുതിയ പതിപ്പ് ഇൻസ്റ്റാൾ ചെയ്യാൻ സഹായത്തിനായി ആശുപത്രി റിസപ്ഷനുമായി ബന്ധപ്പെടുക.';
+
+  @override
   String get yourHealthTimelineFilterAll => 'എല്ലാം';
 
   @override

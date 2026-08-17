@@ -3466,6 +3466,10 @@ class AppLocalizationsTa extends AppLocalizations {
   String get splashUpdateButton => 'VH Health புதுப்பி';
 
   @override
+  String get splashUpdateNoStoreBody =>
+      'புதுப்பிக்கப்பட்ட பதிப்பு இந்த சாதனத்தில் பதிவிறக்கத்திற்கு இன்னும் கிடைக்கவில்லை. VH Health இன் சமீபத்திய பதிப்பை நிறுவ உதவிக்கு மருத்துவமனை வரவேற்பைத் தொடர்பு கொள்ளவும்.';
+
+  @override
   String get yourHealthTimelineFilterAll => 'அனைத்தும்';
 
   @override

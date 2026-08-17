@@ -112,6 +112,31 @@ describe('notificationOutbox durable intent identity', () => {
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('stores only a trusted delivery-channel override and excludes it from rendered bytes', async () => {
+    const replayChainStartedAtMs = Date.parse('2026-08-15T05:00:00.000Z');
+    await notificationOutbox.queue(notification({
+      deliveryChannels: ['SMS', 'sms'],
+      data: {
+        result_id: 9,
+        __delivery_channels: ['push'],
+        __replay_chain_started_at_ms: replayChainStartedAtMs,
+      },
+    }), { strict: true });
+
+    const payload = JSON.parse(queryRawUnsafeMock.mock.calls[0][7]);
+    expect(payload).toEqual({
+      result_id: 9,
+      __delivery_channels: ['sms'],
+      __replay_chain_started_at_ms: replayChainStartedAtMs,
+    });
+    const routed = __testing__.buildIntent(notification({
+      deliveryChannels: ['sms'],
+      data: { result_id: 9, __replay_chain_started_at_ms: replayChainStartedAtMs },
+    }));
+    const unrouted = __testing__.buildIntent(notification({ data: { result_id: 9 } }));
+    expect(routed.renderedIntentHash).toBe(unrouted.renderedIntentHash);
+  });
+
   it('preserves integer, uuid, bigint, and blank recipient identifiers as text or null', () => {
     expect(__testing__.buildIntent(notification({ recipientId: 42 })).recipientId).toBe('42');
     expect(__testing__.buildIntent(notification({ recipientId: RECIPIENT_UID })).recipientId)

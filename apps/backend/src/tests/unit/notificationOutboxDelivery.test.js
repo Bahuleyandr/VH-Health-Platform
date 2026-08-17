@@ -220,6 +220,38 @@ describe('notification outbox durable provider delivery', () => {
     });
   });
 
+  test('honours replay-only channels without exposing the routing control to providers', async () => {
+    getTenantSettingsMock.mockResolvedValue({
+      notificationChannels: { results_ready: ['push', 'whatsapp'] },
+    });
+    beginProviderAttemptsMock.mockResolvedValue([attempt('whatsapp')]);
+    dispatchMock.mockResolvedValue({
+      whatsapp: {
+        outcome: 'acknowledged',
+        providerReference: 'messages/replay-1',
+        providerCode: 'accepted',
+        evidence: {},
+      },
+    });
+
+    await deliverNotificationOutboxRow(row({
+      payload: {
+        tenant_id: TENANT_ID,
+        booking_id: 17,
+        __delivery_channels: ['whatsapp'],
+        __replay_chain_started_at_ms: Date.parse('2026-08-15T05:00:00.000Z'),
+      },
+    }));
+
+    expect(beginProviderAttemptsMock).toHaveBeenCalledWith(expect.objectContaining({
+      channels: ['whatsapp'],
+    }));
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      channels: ['whatsapp'],
+      data: { tenant_id: TENANT_ID, booking_id: 17 },
+    }));
+  });
+
   test('treats the legacy SMS dry-run as provider rejection, never local success', async () => {
     getTenantSettingsMock.mockResolvedValue({});
     beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);

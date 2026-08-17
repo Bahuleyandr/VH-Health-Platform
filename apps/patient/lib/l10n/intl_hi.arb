@@ -1843,6 +1843,7 @@
   "splashUpdateRequired": "अपडेट आवश्यक है",
   "splashUpdateBody": "VH Health का यह संस्करण अब समर्थित नहीं है। जारी रखने के लिए नवीनतम संस्करण इंस्टॉल करें।",
   "splashUpdateButton": "VH Health अपडेट करें",
+  "splashUpdateNoStoreBody": "अपडेट किया गया संस्करण अभी इस डिवाइस पर डाउनलोड के लिए उपलब्ध नहीं है। VH Health का नवीनतम संस्करण इंस्टॉल करने में सहायता के लिए कृपया अस्पताल के रिसेप्शन से संपर्क करें।",
   "yourHealthTimelineFilterAll": "सभी",
   "yourHealthTimelineFilterVisits": "विज़िट",
   "yourHealthTimelineFilterPrescriptions": "प्रिस्क्रिप्शन",

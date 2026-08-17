@@ -55,6 +55,7 @@ const recordCanonicalSpy = jest.fn(async (input, options) => {
 });
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: recordCanonicalSpy,
   // The NEWS2 >=5 escalation now routes through the results-inbox producer
   // (audit 2026-06-22 W1-H4), which lazily imports startWorkflowSla from this
