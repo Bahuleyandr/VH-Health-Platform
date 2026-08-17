@@ -56,6 +56,7 @@ const KEY_TTL_MINUTES = 30;
 const LIVE_SESSION_STATUSES = ['requested', 'acknowledged', 'receiving'];
 const PAGE_CLAIM_TTL_MINUTES = 5;
 const MAX_DATA_PUSH_ENTRIES_PER_PAGE = 1000;
+const POSTGRES_INTEGER_MAX = 2147483647;
 
 const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   data_transfer_id, patient_uid, transaction_id, request_id, hi_types,
@@ -105,6 +106,20 @@ function hiuDataPushUrl() {
 function normalizeConsentText(value) {
   const text = String(value ?? '').trim();
   return text || null;
+}
+
+function consentArtifactHipId({ artifact_hip_id: metadataHipId, artifact_signed_payload: stored } = {}) {
+  const normalizedMetadataHipId = normalizeConsentText(metadataHipId);
+  if (normalizedMetadataHipId) return normalizedMetadataHipId;
+  let payload = stored;
+  if (typeof payload?.raw === 'string') {
+    try {
+      payload = JSON.parse(payload.raw);
+    } catch (_err) {
+      return null;
+    }
+  }
+  return normalizeConsentText(payload?.hip?.id);
 }
 
 function normalizedHiTypes(value) {
@@ -696,8 +711,16 @@ export async function handleHiuHealthInfoOnRequest({
  */
 export async function handleHiuDataPush({
   tenantId = null, environment = 'sandbox', body = {}, rawBody = null,
+  authenticatedHipId = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
+  const providerHipId = normalizeConsentText(authenticatedHipId);
+  if (!providerHipId) {
+    throw AppError.unauthorized(
+      'Authenticated HIP identity is required for a data push',
+      'ABDM_HIU_PROVIDER_IDENTITY_REQUIRED',
+    );
+  }
   const transactionId = String(body.transactionId || '').trim();
   if (!transactionId) {
     throw AppError.badRequest('Data push transactionId is required', 'ABDM_HIU_PUSH_SHAPE');
@@ -706,6 +729,7 @@ export async function handleHiuDataPush({
   const pageCount = Number(body.pageCount ?? 1);
   if (!Number.isSafeInteger(pageNumber) || !Number.isSafeInteger(pageCount)
       || pageNumber < 1 || pageCount < 1 || pageNumber > pageCount
+      || pageNumber > POSTGRES_INTEGER_MAX || pageCount > POSTGRES_INTEGER_MAX
       || !Array.isArray(body.entries)) {
     throw AppError.badRequest('Data push page contract is invalid', 'ABDM_HIU_PAGE_INVALID');
   }
@@ -727,7 +751,12 @@ export async function handleHiuDataPush({
     source: 'abdm_public_callback',
     signatureVerified: true,
     payload: {
-      transactionId, pageNumber, pageCount, payloadSha256, entryCount: body.entries.length,
+      transactionId,
+      pageNumber,
+      pageCount,
+      payloadSha256,
+      entryCount: body.entries.length,
+      authenticatedHipId: providerHipId,
     },
     environment,
     retryFailed: true,
@@ -743,7 +772,17 @@ export async function handleHiuDataPush({
         `SELECT ${SESSION_RETURNING}, key_material_private_ciphertext, key_material_nonce,
                 key_material_expires_at,
                 (SELECT a.artifact_id FROM abdm_consent_artifacts a
-                  WHERE a.id = s.consent_artifact_id AND a.tenant_id = $1::uuid) AS artifact_id
+                  WHERE a.id = s.consent_artifact_id AND a.tenant_id = $1::uuid) AS artifact_id,
+                (SELECT NULLIF(BTRIM(a.metadata->>'hip_id'), '')
+                   FROM abdm_consent_artifacts a
+                  WHERE a.id = s.consent_artifact_id
+                    AND a.tenant_id = $1::uuid
+                    AND a.environment = $3::text) AS artifact_hip_id,
+                (SELECT a.signed_payload
+                   FROM abdm_consent_artifacts a
+                  WHERE a.id = s.consent_artifact_id
+                    AND a.tenant_id = $1::uuid
+                    AND a.environment = $3::text) AS artifact_signed_payload
            FROM abdm_hiu_fetch_sessions s
           WHERE tenant_id = $1::uuid AND transaction_id = $2::text AND environment = $3::text
           LIMIT 1
@@ -753,6 +792,20 @@ export async function handleHiuDataPush({
       const session = sessions[0];
       if (!session) {
         throw AppError.notFound('No fetch session for this transaction', 'ABDM_HIU_SESSION_NOT_FOUND');
+      }
+      const consentHipId = consentArtifactHipId(session);
+      if (!consentHipId || consentHipId !== providerHipId) {
+        throw AppError.forbidden(
+          'Authenticated HIP does not match the fetch consent',
+          'ABDM_HIU_PROVIDER_IDENTITY_MISMATCH',
+        );
+      }
+      const declaredHipId = normalizeConsentText(body?.hip?.id);
+      if (declaredHipId && declaredHipId !== providerHipId) {
+        throw AppError.forbidden(
+          'Data push HIP identity does not match the authenticated provider',
+          'ABDM_HIU_PROVIDER_IDENTITY_MISMATCH',
+        );
       }
 
       const pageRows = await tx.$queryRawUnsafe(

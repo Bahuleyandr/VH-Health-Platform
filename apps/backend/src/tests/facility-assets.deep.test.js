@@ -183,7 +183,9 @@ d('Facility asset register (migration 704)', () => {
       TENANT_ID,
       assetId,
       OTHER_CUSTODIAN_UID,
-    )).rejects.toThrow(/fk_facility_assets_custodian|foreign key constraint/i);
+    )).rejects.toThrow(
+      /fk_facility_assets_custodian|foreign key constraint|active non-patient user/i,
+    );
   });
 
   it('lists and accepts only active non-patient tenant custodians', async () => {

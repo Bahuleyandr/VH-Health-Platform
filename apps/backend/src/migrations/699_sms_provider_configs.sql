@@ -17,9 +17,7 @@
 --     idiom). callback_token_hash is the SHA-256 of a per-config bearer
 --     token embedded in the delivery-status (DLR) callback URL — MSG91 does
 --     not sign callbacks, so the URL token is the authentication for that
---     pre-RLS mount (Twilio additionally signs; both are verified). An
---     encrypted token copy lets the send path give Twilio its per-message
---     statusCallback without storing or logging plaintext.
+--     pre-RLS mount (Twilio additionally signs; both are verified).
 --   * sms_template_registrations — maps the outbox templateVersion base key
 --     (e.g. 'sms.billing_payment_link.v1', already recorded on every outbox
 --     row) to the tenant's DLT content template id + the provider-side
@@ -54,8 +52,6 @@ CREATE TABLE IF NOT EXISTS sms_provider_configs (
   callback_token_hash   CHAR(64)
     CONSTRAINT chk_sms_provider_config_cb_hash
       CHECK (callback_token_hash IS NULL OR callback_token_hash ~ '^[0-9a-f]{64}$'),
-  -- encryptField() ciphertext; decrypted only inside the provider send seam.
-  callback_token_ciphertext TEXT,
   metadata              JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_by            UUID,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -71,8 +67,6 @@ CREATE TABLE IF NOT EXISTS sms_provider_configs (
         sender_id IS NOT NULL
         AND dlt_entity_id IS NOT NULL
         AND auth_key_ciphertext IS NOT NULL
-        AND callback_token_hash IS NOT NULL
-        AND callback_token_ciphertext IS NOT NULL
       )
     )
 );
@@ -143,8 +137,6 @@ COMMENT ON TABLE sms_provider_configs IS
   'Per-tenant SMS provider config (msg91 | twilio | dry_run) with TRAI DLT identity (sender id + principal entity id). Secrets are encryptField() ciphertext. At most one enabled config per tenant. Per-tenant enablement additionally gated by tenants.settings.sms (default OFF).';
 COMMENT ON COLUMN sms_provider_configs.callback_token_hash IS
   'SHA-256 of the bearer token embedded in the DLR callback URL — the auth for the pre-RLS delivery-status mount (MSG91 sends unsigned callbacks).';
-COMMENT ON COLUMN sms_provider_configs.callback_token_ciphertext IS
-  'Encrypted callback bearer token, decrypted only to construct the Twilio per-message statusCallback URL; never returned by config reads.';
 COMMENT ON TABLE sms_template_registrations IS
   'Maps outbox template_version keys (e.g. sms.billing_payment_link.v1) to the tenant''s DLT content template id + provider flow id. No active row for a template kind = terminal send rejection, never an unregistered send.';
 

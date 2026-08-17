@@ -31,6 +31,8 @@ d('facility asset retained migration 704 → 710', () => {
       CREATE TABLE users (
         uid UUID NOT NULL,
         tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        role VARCHAR(50) DEFAULT 'STAFF',
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
         PRIMARY KEY (uid),
         CONSTRAINT ux_users_tenant_uid_for_pathways UNIQUE (tenant_id, uid)
       );
@@ -55,20 +57,56 @@ d('facility asset retained migration 704 → 710', () => {
     const otherTenantId = randomUUID();
     const custodianUid = randomUUID();
     const otherCustodianUid = randomUUID();
+    const patientUid = randomUUID();
+    const inactiveUid = randomUUID();
+    const rolelessUid = randomUUID();
+    const nullableRoleUid = randomUUID();
+    const deletedUid = randomUUID();
     await client.query(
       'INSERT INTO tenants (id) VALUES ($1), ($2)',
       [tenantId, otherTenantId],
     );
     await client.query(
-      'INSERT INTO users (uid, tenant_id) VALUES ($1, $2), ($3, $4)',
-      [custodianUid, tenantId, otherCustodianUid, otherTenantId],
+      `INSERT INTO users (uid, tenant_id, role, is_active)
+       VALUES ($1, $2, 'MAINTENANCE', TRUE),
+              ($3, $4, 'MAINTENANCE', TRUE),
+              ($5, $2, 'PATIENT', TRUE),
+              ($6, $2, 'MAINTENANCE', FALSE),
+              ($7, $2, NULL, TRUE),
+              ($8, $2, 'MAINTENANCE', TRUE),
+              ($9, $2, 'MAINTENANCE', TRUE)`,
+      [
+        custodianUid,
+        tenantId,
+        otherCustodianUid,
+        otherTenantId,
+        patientUid,
+        inactiveUid,
+        rolelessUid,
+        nullableRoleUid,
+        deletedUid,
+      ],
     );
     await client.query(
       `INSERT INTO facility_assets
          (tenant_id, asset_tag, name, category, custodian_uid)
        VALUES ($1, 'VALID-01', 'Valid retained custodian', 'other', $2),
-              ($1, 'INVALID-01', 'Cross-tenant retained custodian', 'other', $3)`,
-      [tenantId, custodianUid, otherCustodianUid],
+              ($1, 'CROSS-TENANT-01', 'Cross-tenant retained custodian', 'other', $3),
+              ($1, 'PATIENT-01', 'Patient retained custodian', 'other', $4),
+              ($1, 'INACTIVE-01', 'Inactive retained custodian', 'other', $5),
+              ($1, 'ROLELESS-01', 'Role-less retained custodian', 'other', $6),
+              ($1, 'NULL-TRANSITION-01', 'Future role-less custodian', 'other', $7),
+              ($1, 'DELETE-TRANSITION-01', 'Future deleted custodian', 'other', $8)`,
+      [
+        tenantId,
+        custodianUid,
+        otherCustodianUid,
+        patientUid,
+        inactiveUid,
+        rolelessUid,
+        nullableRoleUid,
+        deletedUid,
+      ],
     );
 
     await client.query(upgrade710);
@@ -80,7 +118,12 @@ d('facility asset retained migration 704 → 710', () => {
         ORDER BY asset_tag`,
     );
     expect(retained.rows).toEqual([
-      { asset_tag: 'INVALID-01', custodian_uid: null, version: 1 },
+      { asset_tag: 'CROSS-TENANT-01', custodian_uid: null, version: 2 },
+      { asset_tag: 'DELETE-TRANSITION-01', custodian_uid: deletedUid, version: 1 },
+      { asset_tag: 'INACTIVE-01', custodian_uid: null, version: 2 },
+      { asset_tag: 'NULL-TRANSITION-01', custodian_uid: nullableRoleUid, version: 1 },
+      { asset_tag: 'PATIENT-01', custodian_uid: null, version: 2 },
+      { asset_tag: 'ROLELESS-01', custodian_uid: null, version: 2 },
       { asset_tag: 'VALID-01', custodian_uid: custodianUid, version: 1 },
     ]);
 
@@ -89,7 +132,63 @@ d('facility asset retained migration 704 → 710', () => {
           SET custodian_uid = $2
         WHERE tenant_id = $1 AND asset_tag = 'VALID-01'`,
       [tenantId, otherCustodianUid],
-    )).rejects.toThrow(/fk_facility_assets_custodian|foreign key constraint/i);
+    )).rejects.toThrow(
+      /fk_facility_assets_custodian|foreign key constraint|active non-patient user/i,
+    );
+
+    await expect(client.query(
+      `UPDATE facility_assets
+          SET custodian_uid = $2
+        WHERE tenant_id = $1 AND asset_tag = 'VALID-01'`,
+      [tenantId, patientUid],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(client.query(
+      `UPDATE facility_assets
+          SET custodian_uid = $2
+        WHERE tenant_id = $1 AND asset_tag = 'VALID-01'`,
+      [tenantId, inactiveUid],
+    )).rejects.toMatchObject({ code: '23514' });
+
+    await client.query('UPDATE users SET is_active = FALSE WHERE uid = $1', [custodianUid]);
+    const afterDeactivation = await client.query(
+      `SELECT custodian_uid, version FROM facility_assets
+        WHERE tenant_id = $1 AND asset_tag = 'VALID-01'`,
+      [tenantId],
+    );
+    expect(afterDeactivation.rows[0]).toEqual({ custodian_uid: null, version: 2 });
+
+    await client.query('UPDATE users SET role = NULL WHERE uid = $1', [nullableRoleUid]);
+    const afterNullRole = await client.query(
+      `SELECT custodian_uid, version FROM facility_assets
+        WHERE tenant_id = $1 AND asset_tag = 'NULL-TRANSITION-01'`,
+      [tenantId],
+    );
+    expect(afterNullRole.rows[0]).toEqual({ custodian_uid: null, version: 2 });
+
+    await client.query('DELETE FROM users WHERE uid = $1', [deletedUid]);
+    const afterCustodianDelete = await client.query(
+      `SELECT custodian_uid, version FROM facility_assets
+        WHERE tenant_id = $1 AND asset_tag = 'DELETE-TRANSITION-01'`,
+      [tenantId],
+    );
+    expect(afterCustodianDelete.rows[0]).toEqual({ custodian_uid: null, version: 2 });
+
+    const custodyEvents = await client.query(
+      `SELECT asset_tag_snapshot, details->>'reason' AS reason
+         FROM facility_asset_events
+        WHERE event_type = 'custodian_assigned'
+        ORDER BY id`,
+    );
+    expect(custodyEvents.rows).toHaveLength(7);
+    expect(custodyEvents.rows.filter(
+      (row) => row.reason === 'migration_710_ineligible_custodian',
+    )).toHaveLength(4);
+    expect(custodyEvents.rows.filter(
+      (row) => row.reason === 'custodian_became_ineligible',
+    )).toHaveLength(2);
+    expect(custodyEvents.rows.filter(
+      (row) => row.reason === 'custodian_deleted',
+    )).toHaveLength(1);
 
     await client.query('DELETE FROM users WHERE uid = $1', [custodianUid]);
     const afterDelete = await client.query(
@@ -100,7 +199,7 @@ d('facility asset retained migration 704 → 710', () => {
     expect(afterDelete.rows[0]).toEqual({
       tenant_id: tenantId,
       custodian_uid: null,
-      version: 1,
+      version: 2,
     });
 
     const fresh = await client.query(

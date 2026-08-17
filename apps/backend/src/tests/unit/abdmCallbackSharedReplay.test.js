@@ -281,6 +281,7 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
     expect(handleHiuDataPush).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: expect.any(String),
+      authenticatedHipId: 'TEST_HIP',
     }));
   });
 

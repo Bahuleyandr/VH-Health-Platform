@@ -445,6 +445,7 @@ callbackRouter.post('/hiu/health-info/push', abdmCallbackHandler(
       environment: ABDM_CALLBACK_ENVIRONMENT,
       body: req.body || {},
       rawBody: req.abdmRawBody,
+      authenticatedHipId: req.abdmAuthEvidence?.hipId || null,
     });
     return {
       data: {

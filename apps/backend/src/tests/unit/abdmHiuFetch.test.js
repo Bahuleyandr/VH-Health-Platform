@@ -231,7 +231,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       consent_artifact_id: 41, data_transfer_id: 51, patient_uid: PATIENT_UID,
       transaction_id: 'txn-71', request_id: 'req-71', status: 'acknowledged',
       parts_expected: null, parts_received: 0, pages_expected: null, next_page_number: 1,
-      artifact_id: 'cm-artifact-1', hi_types: ['Prescription'],
+      artifact_id: 'cm-artifact-1', artifact_hip_id: 'TEST_HIP', hi_types: ['Prescription'],
       key_material_private_ciphertext: `enc:${privB64}`,
       key_material_nonce: receiver.nonce,
       key_material_expires_at: new Date(Date.now() + 10 * 60 * 1000),
@@ -262,17 +262,24 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     return { session, encrypted };
   }
 
-  function push(body, rawBody = Buffer.from(JSON.stringify(body))) {
+  function push(
+    body,
+    rawBody = Buffer.from(JSON.stringify(body)),
+    authenticatedHipId = 'TEST_HIP',
+  ) {
     return hiuService.handleHiuDataPush({
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body,
       rawBody,
+      authenticatedHipId,
     });
   }
 
   it('decrypts, uploads to R2, records the reference row, completes, NULLs the key', async () => {
     const { session, encrypted } = buildSessionAndEntry();
+    session.artifact_hip_id = null;
+    session.artifact_signed_payload = { raw: JSON.stringify({ hip: { id: 'TEST_HIP' } }) };
     let sessionSelectSql;
     let consentSelectSql;
     route('FROM abdm_hiu_fetch_sessions', (sql) => {
@@ -313,6 +320,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     expect(result.stored).toBe(1);
     expect(result.failed).toBe(0);
     expect(sessionSelectSql).toContain('key_material_expires_at');
+    expect(sessionSelectSql).toContain('a.signed_payload');
     expect(consentSelectSql).toContain("u.abha_verification_status = 'verified'");
     expect(consentSelectSql).toContain('r.patient_uid = a.patient_uid');
     // The DECRYPTED bundle (and only the decrypted bundle) went to R2.
@@ -516,7 +524,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       consent: { id: 'cm-artifact-1' }, entries: [],
     };
     await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID, environment: 'sandbox', body,
+      tenantId: TENANT_ID, environment: 'sandbox', body, authenticatedHipId: 'TEST_HIP',
     })).rejects.toMatchObject({ code: 'ABDM_HIU_RAW_BODY_REQUIRED' });
     expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
   });
@@ -530,7 +538,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       code: 'ABDM_HIU_SESSION_NOT_FOUND',
     });
     expect(hipHiuMock.recordWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
-      payload: expect.objectContaining({ entryCount: 1000 }),
+      payload: expect.objectContaining({ entryCount: 1000, authenticatedHipId: 'TEST_HIP' }),
     }));
 
     hipHiuMock.recordWebhookEvent.mockClear();
@@ -544,6 +552,35 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     });
     expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
     expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
+  it('rejects page coordinates outside PostgreSQL int32 before durable intake', async () => {
+    const body = {
+      transactionId: 'txn-int32-boundary',
+      pageNumber: 2147483648,
+      pageCount: 2147483648,
+      consent: { id: 'cm-artifact-1' },
+      entries: [],
+    };
+    await expect(push(body)).rejects.toMatchObject({ code: 'ABDM_HIU_PAGE_INVALID' });
+    expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
+  it('binds the authenticated HIP to the consent artefact before page processing', async () => {
+    const { session } = buildSessionAndEntry();
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    await expect(push({
+      transactionId: 'txn-71',
+      pageNumber: 1,
+      pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      entries: [],
+    }, undefined, 'OTHER-HIP')).rejects.toMatchObject({
+      code: 'ABDM_HIU_PROVIDER_IDENTITY_MISMATCH',
+      statusCode: 403,
+    });
+    expect(uploadFileToR2).not.toHaveBeenCalled();
   });
 
   it('refuses a session whose key material is gone or expired', async () => {
