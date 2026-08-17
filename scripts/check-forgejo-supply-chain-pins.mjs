@@ -214,11 +214,228 @@ const approvedBuildkitHelperCommands = new Set([
   `trap 'node ${buildkitHelperPath} cleanup release || exit 1' EXIT`,
 ]);
 
-function normalizeBuildkitIndicators(script) {
-  return script
-    .replace(/\\\r?\n[ \t]*/g, '')
-    .replace(/\\([^\r\n])/g, '$1')
-    .replace(/["']/g, '');
+const reviewedDockerSubcommands = new Set(['build', 'login', 'push', 'save', 'tag']);
+const shellCommandWrappers = new Set(['bash', 'command', 'env', 'eval', 'exec', 'sh', 'sudo', 'time']);
+const shellControlPrefixes = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'time', 'until', 'while']);
+const lifecycleWords = new Set(['bootstrap', 'create', 'inspect', 'prune', 'rm', 'use']);
+
+function skipShellExpansion(script, start, opener, closer) {
+  let depth = 1;
+  let index = start;
+  let quote = null;
+  while (index < script.length && depth > 0) {
+    const character = script[index];
+    if (quote) {
+      if (character === '\\') index += 2;
+      else {
+        if (character === quote) quote = null;
+        index += 1;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      index += 1;
+    } else if (character === '\\') index += 2;
+    else if (character === opener) {
+      depth += 1;
+      index += 1;
+    } else if (character === closer) {
+      depth -= 1;
+      index += 1;
+    } else index += 1;
+  }
+  return index;
+}
+
+function readShellWord(script, start) {
+  let index = start;
+  let value = '';
+  let canonical = true;
+  let dynamic = false;
+
+  while (index < script.length && !/[\s;&|()]/.test(script[index])) {
+    const character = script[index];
+    if (character === '\\') {
+      canonical = false;
+      if (script[index + 1] === '\r' && script[index + 2] === '\n') index += 3;
+      else if (script[index + 1] === '\n') index += 2;
+      else if (index + 1 < script.length) {
+        value += script[index + 1];
+        index += 2;
+      } else index += 1;
+      continue;
+    }
+    if (character === "'") {
+      canonical = false;
+      const end = script.indexOf("'", index + 1);
+      if (end === -1) return { end: script.length, value, canonical: false, dynamic: true };
+      value += script.slice(index + 1, end);
+      index = end + 1;
+      continue;
+    }
+    if (character === '"') {
+      canonical = false;
+      index += 1;
+      while (index < script.length && script[index] !== '"') {
+        if (script[index] === '\\' && index + 1 < script.length) {
+          value += script[index + 1];
+          index += 2;
+        } else if (script[index] === '$') {
+          dynamic = true;
+          if (script[index + 1] === '(') index = skipShellExpansion(script, index + 2, '(', ')');
+          else if (script[index + 1] === '{') index = skipShellExpansion(script, index + 2, '{', '}');
+          else {
+            index += 1;
+            while (/[A-Za-z0-9_@*#?$!~-]/.test(script[index] || '')) index += 1;
+          }
+        } else if (script[index] === '`') {
+          dynamic = true;
+          const end = script.indexOf('`', index + 1);
+          index = end === -1 ? script.length : end + 1;
+        } else {
+          value += script[index];
+          index += 1;
+        }
+      }
+      if (script[index] === '"') index += 1;
+      continue;
+    }
+    if (character === '$') {
+      canonical = false;
+      dynamic = true;
+      if (script[index + 1] === "'") {
+        const end = script.indexOf("'", index + 2);
+        index = end === -1 ? script.length : end + 1;
+      } else if (script[index + 1] === '(') {
+        index = skipShellExpansion(script, index + 2, '(', ')');
+      } else if (script[index + 1] === '{') {
+        index = skipShellExpansion(script, index + 2, '{', '}');
+      } else {
+        index += 1;
+        while (/[A-Za-z0-9_@*#?$!~-]/.test(script[index] || '')) index += 1;
+      }
+      continue;
+    }
+    if (character === '`') {
+      canonical = false;
+      dynamic = true;
+      const end = script.indexOf('`', index + 1);
+      index = end === -1 ? script.length : end + 1;
+      continue;
+    }
+    if (/[*?\[\]{}~]/.test(character)) canonical = false;
+    value += character;
+    index += 1;
+  }
+
+  return { end: index, value, canonical, dynamic };
+}
+
+function shellCommands(script) {
+  const commands = [];
+  let words = [];
+  let index = 0;
+  const finish = () => {
+    if (words.length > 0) commands.push(words);
+    words = [];
+  };
+
+  while (index < script.length) {
+    const character = script[index];
+    if (character === ' ' || character === '\t' || character === '\r') {
+      index += 1;
+      continue;
+    }
+    if (character === '\n' || /[;&|()]/.test(character)) {
+      finish();
+      index += 1;
+      continue;
+    }
+    if ((character === '{' || character === '}') && /\s/.test(script[index + 1] || ' ')) {
+      finish();
+      index += 1;
+      continue;
+    }
+    if (character === '#') {
+      const end = script.indexOf('\n', index);
+      finish();
+      index = end === -1 ? script.length : end + 1;
+      continue;
+    }
+    const word = readShellWord(script, index);
+    word.raw = script.slice(index, word.end);
+    words.push(word);
+    index = word.end;
+  }
+  finish();
+  return commands;
+}
+
+function shellCommandPosition(words) {
+  let index = 0;
+  while (index < words.length) {
+    const word = words[index];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.raw)) index += 1;
+    else if (word.canonical && shellControlPrefixes.has(word.value)) index += 1;
+    else break;
+  }
+  return index;
+}
+
+function hasLifecycleShape(words) {
+  const flattened = words.map((word) => word.value).join(' ');
+  return words.some((word) => lifecycleWords.has(word.value)) ||
+    /(?:^|[\s/])docker-buildx(?:\s|$)|\bbuildx\b.*\b(?:create|inspect|prune|rm|use)\b/i
+      .test(flattened) ||
+    /(?:--bootstrap|--buildkitd-config|--driver(?:-opt)?|buildx_buildkit_)/i.test(flattened);
+}
+
+function hasDockerText(words) {
+  return /(?:^|[\s/])docker(?:-buildx)?(?:\s|$)/i
+    .test(words.map((word) => word.value).join(' '));
+}
+
+function isReviewedDockerCommand(words, commandIndex) {
+  const command = words[commandIndex];
+  if (!command.canonical || command.value !== 'docker') return false;
+  const subcommand = words[commandIndex + 1];
+  if (!subcommand?.canonical) return false;
+  if (reviewedDockerSubcommands.has(subcommand.value)) return true;
+  if (subcommand.value === 'image') {
+    return words[commandIndex + 2]?.canonical && words[commandIndex + 2].value === 'inspect';
+  }
+  if (subcommand.value !== 'buildx') return false;
+  const build = words[commandIndex + 2];
+  if (!build?.canonical || build.value !== 'build') return false;
+  return !words.slice(commandIndex + 3).some(
+    (word) => word.value === '--builder' || word.value.startsWith('--builder='),
+  );
+}
+
+function hasUnreviewedDockerCommand(script) {
+  for (const words of shellCommands(script)) {
+    const commandIndex = shellCommandPosition(words);
+    const command = words[commandIndex];
+    if (!command) continue;
+    const commandBasename = command.value.split('/').at(-1);
+    if (commandBasename === 'docker-buildx' || commandBasename === 'buildx') return true;
+    if (commandBasename === 'docker' && command.value !== 'docker') return true;
+    if (command.value === 'docker') {
+      if (!isReviewedDockerCommand(words, commandIndex)) return true;
+      continue;
+    }
+    if (command.dynamic && hasLifecycleShape(words.slice(commandIndex))) return true;
+    if (
+      words.slice(0, commandIndex + 1).some(
+        (word) => word.canonical && shellCommandWrappers.has(word.value),
+      ) &&
+      (hasDockerText(words) || hasLifecycleShape(words))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function workflowBuildkitLifecycleViolations(content, file) {
@@ -240,37 +457,17 @@ function workflowBuildkitLifecycleViolations(content, file) {
       });
     }
 
-    const indicatorScript = run.script
+    const checkedScript = run.script
       .split(/\r?\n/)
       .filter((line) => !approvedBuildkitHelperCommands.has(line.trim()))
       .join('\n');
-    const normalized = normalizeBuildkitIndicators(indicatorScript);
-    let mutationDetected = false;
-    for (const shellCommand of normalized.split(/[\r\n;&|]+/)) {
-      if (!/buildx/i.test(shellCommand)) continue;
-      const command = shellCommand.trim();
-      const occurrences = command.match(/buildx/gi)?.length || 0;
-      const approvedBuild =
-        /^docker buildx build(?:\s|$)/.test(command) &&
-        occurrences === 1 &&
-        !/(?:^|\s)--builder(?:=|\s)/.test(command);
-      if (!approvedBuild) {
-        mutationDetected = true;
-        break;
-      }
-    }
-
-    if (
-      /(?:docker\s+(?:builder|system)\s+(?:prune|rm)|buildx_buildkit_|BUILDX_BUILDER)/i
-        .test(normalized)
-    ) {
-      mutationDetected = true;
-    }
+    const mutationDetected = hasUnreviewedDockerCommand(checkedScript) ||
+      /(?:buildx_buildkit_|BUILDX_BUILDER)/i.test(checkedScript);
     if (mutationDetected && !invalidHelperCall) {
       violations.push({
         file,
         line: run.line,
-        message: 'Workflow BuildKit lifecycle mutation must be delegated to the approved helper',
+        message: 'Workflow Docker commands must use reviewed literal forms; BuildKit lifecycle mutation must be delegated to the approved helper',
       });
     }
   }

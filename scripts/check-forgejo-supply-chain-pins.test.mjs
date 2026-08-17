@@ -202,6 +202,31 @@ test('accepts exact BuildKit helper calls and ordinary build use', () => {
   assert.deepEqual(findForgejoSupplyChainViolations(root), []);
 });
 
+test('accepts reviewed Docker commands and Docker words outside command position', () => {
+  const root = fixture({
+    workflow: [
+      'steps:',
+      '  - run: |',
+      "      echo 'docker buildx create --driver docker-container is forbidden'",
+      "      printf '%s\\n' docker buildx create",
+      '      registry=docker.io',
+      '      formatter=node',
+      '      "$formatter" --version',
+      '      printf \'%s\' "$password" | docker login "$registry" -u "$user" --password-stdin',
+      '      docker build -t "$image" .',
+      '      docker image inspect "$image" --format json',
+      '      docker save "$image" -o image.tar',
+      '      docker tag "$image" "$target"',
+      '      docker push "$target"',
+      '      docker buildx build --push "${args[@]}" .',
+      '      node scripts/run-db-guardrails-docker.mjs',
+    ].join('\n'),
+    dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
+  });
+
+  assert.deepEqual(findForgejoSupplyChainViolations(root), []);
+});
+
 test('rejects all direct workflow BuildKit lifecycle mutation', () => {
   const root = fixture({
     workflow: [
@@ -220,6 +245,11 @@ test('rejects all direct workflow BuildKit lifecycle mutation', () => {
       '  - run: docker buildx rm unsafe',
       '  - run: docker buildx use unsafe',
       '  - run: docker builder prune --force',
+      '  - run: docker inspect unsafe',
+      '  - run: docker container rm unsafe',
+      '  - run: docker version',
+      '  - run: command docker pull mutable:latest',
+      '  - run: time -p docker version',
       '  - run: BUILDX_BUILDER=unsafe docker buildx build .',
       '  - run: docker buildx build --builder unsafe .',
     ].join('\n'),
@@ -227,7 +257,7 @@ test('rejects all direct workflow BuildKit lifecycle mutation', () => {
   });
 
   const violations = findForgejoSupplyChainViolations(root);
-  assert.equal(violations.length, 11);
+  assert.equal(violations.length, 16);
   assert.ok(violations.every((violation) => /delegated to the approved helper/.test(violation.message)));
 });
 
@@ -306,12 +336,18 @@ test('rejects non-canonical Buildx argv construction and repeated driver flags',
       `  - run: docker "\${tool:-buildx}" create --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
       `  - run: docker-buildx create --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
       `  - run: /usr/libexec/docker/cli-plugins/docker-buildx create --driver-opt image=moby/buildkit@sha256:${imageDigest}`,
+      '  - run: /usr/bin/docker buildx create --driver docker-container',
+      '  - run: left=build; right=x; docker "$left$right" create --driver docker-container',
+      "  - run: docker $'\\x62\\x75\\x69\\x6c\\x64\\x78' create --driver docker-container",
+      '  - run: docker "$(printf build)$(printf x)" create --driver docker-container',
+      '  - run: tool=docker; "$tool" buildx create --driver docker-container',
+      '  - run: plugin="$(printf docker-buildx)"; "$plugin" create --driver docker-container',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
   });
 
   const violations = findForgejoSupplyChainViolations(root);
-  assert.equal(violations.length, 16);
+  assert.equal(violations.length, 22);
   assert.ok(violations.every((violation) => /delegated to the approved helper/.test(violation.message)));
 });
 

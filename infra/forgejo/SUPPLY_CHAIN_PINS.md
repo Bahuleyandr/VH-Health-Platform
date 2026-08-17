@@ -14,11 +14,15 @@ action tag, branch, workflow service image, or runner base image. The canonical
 security stage runs this check on every provider. Credential-bearing workflow
 tools must also use exact versions; `@latest` package execution and movable
 `version` channels are rejected. BuildKit creation, bootstrap, selection, and
-cleanup are not authored in workflow shell. The checker rejects direct or
-dynamically assembled lifecycle commands and accepts only the exact reviewed
-prepare/cleanup calls to `scripts/ci/forgejo-buildkit-builder.mjs`; ordinary
-`docker buildx build` use remains allowed without an alternate `--builder`.
-The helper invokes Docker without a shell and supplies the driver, config, and
+cleanup are not authored in workflow shell. As a checked-in change guard, the
+checker accepts only reviewed literal Docker command shapes: `docker login`,
+`docker build`, `docker image inspect`, `docker save`, `docker tag`, `docker
+push`, and `docker buildx build` without an alternate `--builder`. A literal
+`docker` command with a dynamic or unreviewed immediate subcommand fails, as
+does a dynamic command position paired with lifecycle-shaping arguments. The
+exact reviewed prepare/cleanup calls to
+`scripts/ci/forgejo-buildkit-builder.mjs` remain the only lifecycle path. The
+helper invokes Docker without a shell and supplies the driver, config, and
 digest-pinned BuildKit image as fixed arguments. Its exact output selects the
 one-shot builder through the job-local `BUILDX_BUILDER` environment variable;
 the helper never changes Buildx's shared default selection.
@@ -49,6 +53,7 @@ To update a pin:
 
 The pins prove immutable fetch identity. They do not make third-party code
 trusted; changes still require review, and production deployment remains an
-operator-authorized action outside CI. The checker is a change-review guard,
-not a sandbox against an author who can modify the workflow, helper, and guard
-in the same change.
+operator-authorized action outside CI. The checker helps reviewers catch
+unsupported checked-in command shapes; it is not a shell sandbox or a security
+boundary against an author who can modify the workflow, helper, and guard in
+the same change.
