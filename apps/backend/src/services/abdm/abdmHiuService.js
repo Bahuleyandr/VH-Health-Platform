@@ -55,6 +55,7 @@ import abdmService from './abdmService.js';
 const KEY_TTL_MINUTES = 30;
 const LIVE_SESSION_STATUSES = ['requested', 'acknowledged', 'receiving'];
 const PAGE_CLAIM_TTL_MINUTES = 5;
+const MAX_DATA_PUSH_ENTRIES_PER_PAGE = 1000;
 
 const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   data_transfer_id, patient_uid, transaction_id, request_id, hi_types,
@@ -707,6 +708,12 @@ export async function handleHiuDataPush({
       || pageNumber < 1 || pageCount < 1 || pageNumber > pageCount
       || !Array.isArray(body.entries)) {
     throw AppError.badRequest('Data push page contract is invalid', 'ABDM_HIU_PAGE_INVALID');
+  }
+  if (body.entries.length > MAX_DATA_PUSH_ENTRIES_PER_PAGE) {
+    throw AppError.badRequest(
+      'Data push page exceeds the supported entry limit',
+      'ABDM_HIU_PAGE_ENTRY_LIMIT',
+    );
   }
   if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
     throw AppError.badRequest('Exact data-push request bytes are required', 'ABDM_HIU_RAW_BODY_REQUIRED');

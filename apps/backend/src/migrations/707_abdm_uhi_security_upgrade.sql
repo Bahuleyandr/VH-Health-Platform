@@ -154,6 +154,48 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
+  -- Published 703 encoded pages in base 1000 without bounding the source
+  -- array. The signed callback ledger is the only retained evidence that can
+  -- prove a legacy part belongs to the page implied by that encoding. Refuse
+  -- the upgrade when the evidence is absent, malformed, oversized, or cannot
+  -- contain the derived local part; guessing would relabel PHI across pages.
+  IF EXISTS (
+    SELECT 1
+      FROM abdm_hiu_received_bundles b
+      JOIN abdm_hiu_fetch_sessions s
+        ON s.id = b.fetch_session_id AND s.tenant_id = b.tenant_id
+      LEFT JOIN LATERAL (
+        SELECT CASE
+                 WHEN JSONB_TYPEOF(e.payload->'entryCount') = 'number'
+                  AND (e.payload->>'entryCount') ~ '^[0-9]+$'
+                 THEN (e.payload->>'entryCount')::numeric
+               END AS entry_count
+          FROM abdm_webhook_events e
+         WHERE e.tenant_id = s.tenant_id
+           AND e.environment = s.environment
+           AND e.event_type = 'hiu_data_push'
+           AND e.signature_verified IS TRUE
+           AND e.payload->>'transactionId' = s.transaction_id
+           AND CASE
+                 WHEN JSONB_TYPEOF(e.payload->'pageNumber') = 'number'
+                  AND (e.payload->>'pageNumber') ~ '^[0-9]+$'
+                 THEN (e.payload->>'pageNumber')::numeric
+               END = (b.part_number / 1000) + 1
+         ORDER BY e.id DESC
+         LIMIT 1
+      ) page_evidence ON TRUE
+     WHERE b.fetch_page_id IS NULL
+       AND (
+         page_evidence.entry_count IS NULL
+         OR page_evidence.entry_count > 1000
+         OR page_evidence.entry_count <= MOD(b.part_number, 1000)
+       )
+  ) THEN
+    RAISE EXCEPTION
+      '707 preflight: legacy HIU base-1000 page identity is not proven by callback evidence'
+      USING ERRCODE = '23514';
+  END IF;
+
   IF EXISTS (
     SELECT 1
       FROM abdm_hiu_received_bundles

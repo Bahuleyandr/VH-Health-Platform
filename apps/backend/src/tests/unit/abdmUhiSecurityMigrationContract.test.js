@@ -51,6 +51,13 @@ describe('ABDM/UHI security migration contract', () => {
     expect(sql).toMatch(/payload_sha256\s+CHAR\(64\) NOT NULL/);
     expect(sql).toContain('legacy HIU bundles collide on derived page and part identity');
     expect(sql).toContain('legacy HIU bundle pages are not contiguous from page one');
+    expect(sql).toContain(
+      'legacy HIU base-1000 page identity is not proven by callback evidence',
+    );
+    expect(sql).toMatch(
+      /event_type = 'hiu_data_push'[\s\S]*?signature_verified IS TRUE[\s\S]*?entry_count > 1000/,
+    );
+    expect(sql).toMatch(/entry_count <= MOD\(b\.part_number, 1000\)/);
     expect(sql).toMatch(/ENCODE\(DIGEST\([\s\S]*?'sha256'[\s\S]*?\), 'hex'\)/);
     expect(sql).toMatch(/ALTER COLUMN fetch_page_id SET NOT NULL/);
     expect(sql).toMatch(

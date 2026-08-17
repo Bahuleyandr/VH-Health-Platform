@@ -521,6 +521,31 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
   });
 
+  it('accepts at most 1000 entries per page and rejects 1001 before durable intake', async () => {
+    const acceptedBody = {
+      transactionId: 'txn-entry-boundary', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' }, entries: Array.from({ length: 1000 }, () => ({})),
+    };
+    await expect(push(acceptedBody)).rejects.toMatchObject({
+      code: 'ABDM_HIU_SESSION_NOT_FOUND',
+    });
+    expect(hipHiuMock.recordWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ entryCount: 1000 }),
+    }));
+
+    hipHiuMock.recordWebhookEvent.mockClear();
+    setTenantTx.mockClear();
+    const rejectedBody = {
+      ...acceptedBody,
+      entries: Array.from({ length: 1001 }, () => ({})),
+    };
+    await expect(push(rejectedBody)).rejects.toMatchObject({
+      code: 'ABDM_HIU_PAGE_ENTRY_LIMIT', statusCode: 400,
+    });
+    expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
   it('refuses a session whose key material is gone or expired', async () => {
     const { session } = buildSessionAndEntry();
     route('FROM abdm_hiu_fetch_sessions', () => [{ ...session, key_material_private_ciphertext: null }]);
