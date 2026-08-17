@@ -117,7 +117,7 @@ describe('payment-link channel and teleconsult configuration', () => {
 });
 
 describe('public payment-link view', () => {
-  const TOKEN = 'abcdefghijklmnop1234567890';
+  const TOKEN = 'link-token-fixture-aaaaaaaaaaaa';
   const now = new Date('2026-08-17T00:00:00.000Z');
 
   it('rejects malformed bearer tokens before querying', async () => {

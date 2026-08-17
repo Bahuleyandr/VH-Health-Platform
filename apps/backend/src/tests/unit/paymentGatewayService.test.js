@@ -463,7 +463,7 @@ describe('refund initiation (double-execution guard)', () => {
       .mockResolvedValueOnce([{
         id: 8, provider: 'razorpay', environment: 'sandbox', status: 'initiated',
         billing_refund_id: 9, gateway_order_id: 21, amount: '40.00',
-        provider_payment_id: 'pay_R9', provider_idempotency_key: 'pgr_persisted_key_1234',
+        provider_payment_id: 'pay_R9', provider_idempotency_key: 'pgr-persisted-replay-key',
       }])
       .mockResolvedValueOnce([{
         id: 21, provider: 'razorpay', environment: 'sandbox', provider_payment_id: 'pay_R9',
@@ -483,7 +483,7 @@ describe('refund initiation (double-execution guard)', () => {
       amountPaise: 4000,
       receipt: 'pgr-9',
       notes: { billing_refund_id: '9' },
-      idempotencyKey: 'pgr_persisted_key_1234',
+      idempotencyKey: 'pgr-persisted-replay-key',
     }));
     expect(setTenantTx).toHaveBeenCalledTimes(1);
     createRefundSpy.mockRestore();

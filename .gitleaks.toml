@@ -134,4 +134,12 @@ regexes = [
   # test material, never real credentials.
   '''test-webhook-secret-000000000000''',
   '''another-secret-000000000000000000''',
+  # Payment-gateway refund-replay + payment-link unit-test fixtures (PR #878
+  # follow-up commit fd084b66). Working-tree copies were rewritten to
+  # low-entropy values the generic-api-key heuristic cannot match, but PR/push
+  # range scans inspect the commit that introduced the originals (same
+  # history-only class as the webhook HMAC fixtures above). Self-describing
+  # test material, never real credentials.
+  '''pgr_persisted_key_1234''',
+  '''abcdefghijklmnop1234567890''',
 ]
