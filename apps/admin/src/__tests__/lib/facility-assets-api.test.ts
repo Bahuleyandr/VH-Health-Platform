@@ -74,7 +74,13 @@ describe("facility asset API concurrency contract", () => {
   it("includes the drawer snapshot version in lifecycle transitions", async () => {
     (fetchAdminAPI as jest.Mock).mockResolvedValue({ id: 7, version: 4 });
 
-    await transitionFacilityAsset(7, "disposed", 3, "Retired", "No longer safe");
+    await transitionFacilityAsset(
+      7,
+      "disposed",
+      3,
+      "Retired",
+      "No longer safe",
+    );
 
     expect(fetchAdminAPI).toHaveBeenCalledWith("/facility/assets/7/status", {
       method: "POST",
