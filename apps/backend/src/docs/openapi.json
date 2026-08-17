@@ -30566,10 +30566,26 @@
         "additionalProperties": true,
         "properties": {
           "requestId": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "MSG91 request id; the runtime stores the provider reference as text."
           },
           "request_id": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Snake-case alias accepted by operator/replay payloads."
           },
           "status": {
             "oneOf": [
@@ -30603,13 +30619,10 @@
       "Msg91DlrFormRequest": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "data"
-        ],
         "properties": {
           "data": {
             "type": "string",
-            "description": "JSON-encoded MSG91 report object/array. The decoded aggregate may contain at most 50 reports; larger authenticated batches receive 413 before any receipt is written."
+            "description": "Optional JSON-encoded MSG91 report object/array. When present, invalid JSON receives 400; the route ACKs an authenticated body with no usable report without writing evidence. The decoded aggregate may contain at most 50 reports; larger batches receive 413 before any receipt is written."
           }
         }
       },
@@ -42816,6 +42829,49 @@
           }
         }
       },
+      "SmsValidationErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "errors"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "msg",
+                "path",
+                "location"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "msg": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
       "StaffForPayrollItem": {
         "type": "object",
         "additionalProperties": false,
@@ -44695,26 +44751,28 @@
       "TwilioSmsStatusFormRequest": {
         "type": "object",
         "additionalProperties": true,
-        "anyOf": [
-          {
-            "required": [
-              "MessageSid",
-              "MessageStatus"
-            ]
-          },
-          {
-            "required": [
-              "SmsSid",
-              "SmsStatus"
-            ]
-          }
-        ],
         "properties": {
           "MessageSid": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Twilio message SID; runtime coerces the provider reference to text for correlation."
           },
           "SmsSid": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Legacy Twilio SMS SID alias; runtime coerces the provider reference to text."
           },
           "MessageStatus": {
             "type": "string"
@@ -44794,7 +44852,11 @@
         "type": "object",
         "required": [
           "transaction_id",
-          "message_id"
+          "message_id",
+          "action",
+          "bpp_id",
+          "bap_id",
+          "bap_uri"
         ],
         "properties": {
           "domain": {
@@ -44811,7 +44873,14 @@
           },
           "action": {
             "type": "string",
-            "nullable": true
+            "enum": [
+              "search",
+              "init",
+              "confirm",
+              "status",
+              "cancel"
+            ],
+            "description": "Must match the callback route and is covered by the signed context."
           },
           "transaction_id": {
             "type": "string",
@@ -44825,18 +44894,18 @@
           "bpp_id": {
             "type": "string",
             "maxLength": 200,
-            "nullable": true,
             "description": "Provider (HSP) subscriber id — resolves the tenant before any write."
           },
           "bap_id": {
             "type": "string",
             "maxLength": 200,
-            "nullable": true
+            "description": "Consumer (EUA/BAP) subscriber id — binds signatures and evidence to the sender."
           },
           "bap_uri": {
             "type": "string",
+            "format": "uri",
             "maxLength": 500,
-            "nullable": true
+            "description": "Consumer callback base URI used for the signed on_* response."
           },
           "timestamp": {
             "type": "string",
@@ -45047,7 +45116,10 @@
       "UhiTransactionListPayload": {
         "type": "object",
         "required": [
-          "enabled"
+          "enabled",
+          "transactions",
+          "limit",
+          "offset"
         ],
         "properties": {
           "enabled": {
@@ -67006,7 +67078,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SmsValidationErrorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -67208,7 +67287,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SmsValidationErrorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -67315,7 +67401,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SmsDlrErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SmsValidationErrorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -70919,6 +71012,75 @@
           {
             "ApiKeyAuth": [],
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "received",
+                "processed",
+                "failed",
+                "rejected"
+              ]
+            },
+            "description": "Filter evidence rows by processing status."
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "search",
+                "on_search",
+                "init",
+                "on_init",
+                "confirm",
+                "on_confirm",
+                "status",
+                "on_status",
+                "cancel",
+                "on_cancel"
+              ]
+            },
+            "description": "Filter by inbound or outbound UHI protocol action."
+          },
+          {
+            "name": "transaction_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Filter by the UHI journey transaction id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
           }
         ]
       }
@@ -149355,16 +149517,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SmsDlrAckResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The callback form body was malformed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SmsDlrErrorResponse"
                 }
               }
             }

@@ -10,11 +10,11 @@ import { envelope } from './_helpers.mjs';
 
 const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
 
-const errorResponse = description => ({
+const errorResponse = (description, schema = { $ref: '#/components/schemas/SmsDlrErrorResponse' }) => ({
   description,
   content: {
     'application/json': {
-      schema: { $ref: '#/components/schemas/SmsDlrErrorResponse' },
+      schema,
     },
   },
 });
@@ -26,6 +26,15 @@ const authenticatedErrorResponses = {
   409: errorResponse('The requested SMS configuration conflicts with an enabled provider or template.'),
   429: errorResponse('The caller exceeded the API rate limit.'),
   500: errorResponse('The SMS configuration operation failed without exposing credentials.'),
+};
+const validatedErrorResponses = {
+  ...authenticatedErrorResponses,
+  400: errorResponse('The SMS provider or template configuration was invalid.', {
+    oneOf: [
+      { $ref: '#/components/schemas/SmsDlrErrorResponse' },
+      { $ref: '#/components/schemas/SmsValidationErrorResponse' },
+    ],
+  }),
 };
 
 export const schemas = {
@@ -190,8 +199,14 @@ export const schemas = {
     type: 'object',
     additionalProperties: true,
     properties: {
-      requestId: { type: 'string' },
-      request_id: { type: 'string' },
+      requestId: {
+        oneOf: [{ type: 'string' }, { type: 'integer' }],
+        description: 'MSG91 request id; the runtime stores the provider reference as text.',
+      },
+      request_id: {
+        oneOf: [{ type: 'string' }, { type: 'integer' }],
+        description: 'Snake-case alias accepted by operator/replay payloads.',
+      },
       status: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
       code: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
       report: {
@@ -217,11 +232,10 @@ export const schemas = {
   Msg91DlrFormRequest: {
     type: 'object',
     additionalProperties: true,
-    required: ['data'],
     properties: {
       data: {
         type: 'string',
-        description: 'JSON-encoded MSG91 report object/array. The decoded aggregate may contain at most 50 reports; larger authenticated batches receive 413 before any receipt is written.',
+        description: 'Optional JSON-encoded MSG91 report object/array. When present, invalid JSON receives 400; the route ACKs an authenticated body with no usable report without writing evidence. The decoded aggregate may contain at most 50 reports; larger batches receive 413 before any receipt is written.',
       },
     },
   },
@@ -229,13 +243,15 @@ export const schemas = {
   TwilioSmsStatusFormRequest: {
     type: 'object',
     additionalProperties: true,
-    anyOf: [
-      { required: ['MessageSid', 'MessageStatus'] },
-      { required: ['SmsSid', 'SmsStatus'] },
-    ],
     properties: {
-      MessageSid: { type: 'string' },
-      SmsSid: { type: 'string' },
+      MessageSid: {
+        oneOf: [{ type: 'string' }, { type: 'integer' }],
+        description: 'Twilio message SID; runtime coerces the provider reference to text for correlation.',
+      },
+      SmsSid: {
+        oneOf: [{ type: 'string' }, { type: 'integer' }],
+        description: 'Legacy Twilio SMS SID alias; runtime coerces the provider reference to text.',
+      },
       MessageStatus: { type: 'string' },
       SmsStatus: { type: 'string' },
       ErrorCode: { type: 'string', nullable: true },
@@ -251,6 +267,29 @@ export const schemas = {
       message: { type: 'string' },
       error: { type: 'string' },
       code: { type: 'string' },
+    },
+  },
+
+  SmsValidationErrorResponse: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['success', 'errors'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      errors: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['type', 'msg', 'path', 'location'],
+          properties: {
+            type: { type: 'string' },
+            msg: { type: 'string' },
+            path: { type: 'string' },
+            location: { type: 'string' },
+          },
+        },
+      },
     },
   },
 
@@ -275,7 +314,7 @@ export const operations = {
     request: 'SmsProviderConfigUpsertRequest',
     response: 'SmsProviderConfigViewResponse',
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: validatedErrorResponses,
   },
   'GET /api/v1/admin/notifications/sms/templates': {
     description:
@@ -290,7 +329,7 @@ export const operations = {
     request: 'SmsTemplateCreateRequest',
     response: 'SmsTemplateRegistrationResponse',
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: validatedErrorResponses,
   },
   'PUT /api/v1/admin/notifications/sms/templates/{id}': {
     description:
@@ -298,7 +337,7 @@ export const operations = {
     request: 'SmsTemplateUpdateRequest',
     response: 'SmsTemplateRegistrationResponse',
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: validatedErrorResponses,
   },
   'POST /webhooks/sms/dlr/{token}': {
     description:
@@ -339,7 +378,6 @@ export const operations = {
     },
     response: 'SmsDlrAckResponse',
     additionalResponses: {
-      400: errorResponse('The callback form body was malformed.'),
       401: errorResponse('The callback token, account-bound auth token, PUBLIC_BASE_URL, or Twilio signature could not be verified.'),
       429: errorResponse('The callback source exceeded the public webhook rate limit.'),
       500: errorResponse('The authenticated status could not be recorded; Twilio may retry.'),

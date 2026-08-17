@@ -761,6 +761,28 @@ describe('OpenAPI contract overlays (static gate)', () => {
         { $ref: '#/components/schemas/UhiNackResponse' },
       ]));
 
+    const uhiContext = spec.components.schemas.UhiContext;
+    expect(uhiContext.required).toEqual(expect.arrayContaining([
+      'action', 'bpp_id', 'bap_id', 'bap_uri',
+    ]));
+    for (const field of ['action', 'bpp_id', 'bap_id', 'bap_uri']) {
+      expect(uhiContext.properties[field]).not.toHaveProperty('nullable', true);
+    }
+    expect(uhiContext.properties.action.enum).toEqual(
+      expect.arrayContaining(['search', 'init', 'confirm', 'status', 'cancel']),
+    );
+
+    const uhiList = spec.paths['/api/v1/admin/uhi/transactions'].get;
+    expect(uhiList.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'status', in: 'query' }),
+      expect.objectContaining({ name: 'action', in: 'query' }),
+      expect.objectContaining({ name: 'transaction_id', in: 'query' }),
+      expect.objectContaining({ name: 'limit', in: 'query' }),
+      expect.objectContaining({ name: 'offset', in: 'query' }),
+    ]));
+    expect(spec.components.schemas.UhiTransactionListPayload.required)
+      .toEqual(expect.arrayContaining(['enabled', 'transactions', 'limit', 'offset']));
+
     const publicOperationKeys = new Set([
       ...abdmCallbacks.map(path => `POST ${path}`),
       ...uhiCallbacks.map(path => `POST ${path}`),
@@ -796,5 +818,24 @@ describe('OpenAPI contract overlays (static gate)', () => {
         expect(operation.responses[status]).toBeDefined();
       }
     }
+
+    const msg91Form = spec.components.schemas.Msg91DlrFormRequest;
+    expect(msg91Form.required).toBeUndefined();
+    expect(spec.components.schemas.Msg91DlrEntry.properties.requestId.oneOf)
+      .toEqual(expect.arrayContaining([{ type: 'string' }, { type: 'integer' }]));
+    const twilioForm = spec.components.schemas.TwilioSmsStatusFormRequest;
+    expect(twilioForm.anyOf).toBeUndefined();
+    expect(twilioForm.properties.MessageSid.oneOf)
+      .toEqual(expect.arrayContaining([{ type: 'string' }, { type: 'integer' }]));
+    const twilioErrors = spec.paths['/webhooks/sms/twilio-status/{token}'].post.responses;
+    expect(twilioErrors['400']).toBeUndefined();
+    expect(spec.components.schemas.SmsValidationErrorResponse.required)
+      .toEqual(['success', 'errors']);
+    expect(spec.paths['/api/v1/admin/notifications/sms/config'].put.responses['400']
+      .content['application/json'].schema.oneOf)
+      .toEqual(expect.arrayContaining([
+        { $ref: '#/components/schemas/SmsDlrErrorResponse' },
+        { $ref: '#/components/schemas/SmsValidationErrorResponse' },
+      ]));
   });
 });

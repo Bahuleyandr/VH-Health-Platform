@@ -88,12 +88,16 @@ export const schemas = {
   },
   UhiContext: {
     type: 'object',
-    required: ['transaction_id', 'message_id'],
+    required: ['transaction_id', 'message_id', 'action', 'bpp_id', 'bap_id', 'bap_uri'],
     properties: {
       domain: { type: 'string', nullable: true },
       country: { type: 'string', nullable: true },
       city: { type: 'string', nullable: true },
-      action: { type: 'string', nullable: true },
+      action: {
+        type: 'string',
+        enum: ['search', 'init', 'confirm', 'status', 'cancel'],
+        description: 'Must match the callback route and is covered by the signed context.',
+      },
       transaction_id: {
         type: 'string',
         maxLength: 120,
@@ -103,11 +107,19 @@ export const schemas = {
       bpp_id: {
         type: 'string',
         maxLength: 200,
-        nullable: true,
         description: 'Provider (HSP) subscriber id — resolves the tenant before any write.',
       },
-      bap_id: { type: 'string', maxLength: 200, nullable: true },
-      bap_uri: { type: 'string', maxLength: 500, nullable: true },
+      bap_id: {
+        type: 'string',
+        maxLength: 200,
+        description: 'Consumer (EUA/BAP) subscriber id — binds signatures and evidence to the sender.',
+      },
+      bap_uri: {
+        type: 'string',
+        format: 'uri',
+        maxLength: 500,
+        description: 'Consumer callback base URI used for the signed on_* response.',
+      },
       timestamp: { type: 'string', format: 'date-time', nullable: true },
     },
   },
@@ -182,7 +194,7 @@ export const schemas = {
 
   UhiTransactionListPayload: {
     type: 'object',
-    required: ['enabled'],
+    required: ['enabled', 'transactions', 'limit', 'offset'],
     properties: {
       enabled: {
         type: 'boolean',
@@ -240,6 +252,41 @@ export const operations = {
     description:
       'Lists the tenant\'s UHI protocol-leg evidence/dedupe ledger (inbound intents and outbound on_* callbacks) for ops debugging, filterable by status/action/transaction id. ADMIN or SUPER_ADMIN. Returns an enabled:false marker instead of erroring while the adapter is disabled.',
     response: 'UhiTransactionListResponse',
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['received', 'processed', 'failed', 'rejected'] },
+        description: 'Filter evidence rows by processing status.',
+      },
+      {
+        name: 'action',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: UHI_ACTIONS },
+        description: 'Filter by inbound or outbound UHI protocol action.',
+      },
+      {
+        name: 'transaction_id',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', maxLength: 120 },
+        description: 'Filter by the UHI journey transaction id.',
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      },
+      {
+        name: 'offset',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, default: 0 },
+      },
+    ],
     security: AUTHENTICATED_SECURITY,
     additionalResponses: adminErrorResponses,
   },
