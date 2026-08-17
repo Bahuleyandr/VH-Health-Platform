@@ -19,12 +19,10 @@ import { jest } from '@jest/globals';
 const verifyAuditChainMock = jest.fn();
 const sendSecurityWebhookMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
-const loggerMock = {
-  debug: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-};
+// debug included: scheduler.js now reaches billingV2Service through the
+// payment-gateway expiry cron (paymentGatewayService.js), and billingV2Service
+// calls logger.debug at module load — a partial mock fails the whole suite.
+const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 const pgConnectMock = jest.fn();
 const pgEndMock = jest.fn();
 const pgQueryMock = jest.fn();
@@ -77,6 +75,7 @@ beforeEach(() => {
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  loggerMock.debug.mockReset();
   pgConnectMock.mockReset();
   pgEndMock.mockReset();
   pgQueryMock.mockReset();
