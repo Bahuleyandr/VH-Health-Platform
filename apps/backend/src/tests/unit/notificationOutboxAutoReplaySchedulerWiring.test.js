@@ -26,12 +26,10 @@ describe('notification outbox auto-replay scheduler wiring', () => {
     expect(block.length).toBeGreaterThan(200);
   });
 
-  it('is gated by an opt-OUT kill switch: unset env keeps the remediation live', () => {
-    expect(scheduler).toMatch(
-      /process\.env\.NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED \?\? 'true'/,
-    );
-    expect(block).toMatch(/!==\s*'false'/);
-    expect(block).not.toMatch(/===\s*'true'/);
+  it('uses the strict validated kill-switch parser', () => {
+    expect(scheduler).toContain('notificationOutboxAutoReplayEnabled(process.env)');
+    expect(block).not.toMatch(/NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED\s*\?\?/);
+    expect(block).not.toMatch(/!==\s*'false'/);
   });
 
   it('registers a 15-minute per-tenant sweep under the advisory job lock', () => {

@@ -20,6 +20,21 @@ import { DEFAULT_TENANT_ID } from './tenant/tenantService.js';
 /** Canonical SLA rule armed at alert creation, completed on the first
  * responder acknowledgement (or resolve/cancel). Seeded by migration 677. */
 export const SOS_RESPONSE_SLA_RULE = 'sos_response_ack';
+const SOS_DRILL_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requireDrillAuthorization(isTestAlert, authorization) {
+  if (!isTestAlert) return null;
+  const actorUid = String(authorization?.actorUid || '').trim().toLowerCase();
+  const actorRole = String(authorization?.actorRole || '').trim().toUpperCase();
+  if (!UUID_RE.test(actorUid) || !SOS_DRILL_ROLES.has(actorRole)) {
+    throw AppError.forbidden(
+      'SOS drill authorization is required',
+      'SOS_DRILL_AUTHORIZATION_REQUIRED',
+    );
+  }
+  return { actorUid, actorRole };
+}
 
 /**
  * Canonical clinical timeline emit for an SOS lifecycle transition
@@ -80,15 +95,18 @@ export async function emitSosCanonicalEvent({
 export const createAlert = async (alertData) => {
   const {
     phone, latitude, longitude, severity = SOS_SEVERITY.HIGH,
-    message, emergencyType = 'medical', isTestAlert = false,
-    ip_address, userAgent, createdBy,
+    message, emergencyType = 'medical', isTestAlert: requestedTestAlert = false,
+    ip_address, userAgent, createdBy, drillAuthorization,
   } = alertData;
+  const isTestAlert = requestedTestAlert === true;
+  const authorizedDrill = requireDrillAuthorization(isTestAlert, drillAuthorization);
 
   const user = await getUserMedicalInfo(phone);
 
   const alert = await insertAlert({
     phone, user, latitude, longitude, severity, message,
     emergencyType, ip_address, userAgent, isTestAlert, createdBy,
+    drillAuthorization: authorizedDrill,
   });
 
   // Canonical timeline/audit pair + SLA clock (best-effort, post-detail-write —
@@ -101,8 +119,8 @@ export const createAlert = async (alertData) => {
     patientUid: user.uid || null,
     eventType: 'sos.raised',
     status: 'ACTIVE',
-    actorUid: user.uid || null,
-    actorRole: 'PATIENT',
+    actorUid: authorizedDrill?.actorUid ?? user.uid ?? null,
+    actorRole: authorizedDrill?.actorRole ?? 'PATIENT',
     summary: `SOS alert #${alert.id} raised (${severity})`,
     payload: { severity, alert_type: emergencyType, is_test: isTestAlert === true },
   });
@@ -171,6 +189,7 @@ const insertAlert = async (data) => {
     INSERT INTO sos_alerts (
       phone, uid, latitude, longitude, severity, message,
       alert_type, ip_address, is_test_alert,
+      test_alert_authorized_by, test_alert_authorized_role,
       status, raised_at, created_at, updated_at
     ) VALUES (
       ${data.phone}, ${data.user.uid ?? null}::uuid,
@@ -179,6 +198,8 @@ const insertAlert = async (data) => {
       ${data.emergencyType},
       ${data.ip_address ?? null},
       ${data.isTestAlert === true},
+      ${data.drillAuthorization?.actorUid ?? null}::uuid,
+      ${data.drillAuthorization?.actorRole ?? null},
       'ACTIVE', NOW(), NOW(), NOW()
     )
     RETURNING id, created_at, tenant_id

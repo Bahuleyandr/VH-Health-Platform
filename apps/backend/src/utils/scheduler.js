@@ -8,6 +8,7 @@
 import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
 import purgeArchives from '../../admin/purge-archives.js';
+import { notificationOutboxAutoReplayEnabled } from '../config/notificationOutboxConfig.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import {
   isPathwayReconciliationEnabled,
@@ -796,7 +797,7 @@ if (process.env.NODE_ENV !== 'test') {
   // operator can stop duplicate-risk requeues without a revert commit +
   // manual ArgoCD sync. Lazy import keeps the scheduler's eager module graph
   // (and existing partial-module test mocks) unchanged.
-  if (String(process.env.NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED ?? 'true').toLowerCase() !== 'false') {
+  if (notificationOutboxAutoReplayEnabled(process.env)) {
     registerCron('*/15 * * * *', withJobLock('notification-outbox-auto-replay', async () => {
       const { autoReplayReconciliationRequiredRows } = await import(
         '../services/notification/notificationOutboxAdminService.js'

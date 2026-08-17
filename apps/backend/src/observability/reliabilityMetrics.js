@@ -26,6 +26,7 @@ import {
   NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
   OPERATOR_REPLAY_SUPERSEDED_REASON,
 } from '../utils/notifications/terminalRejectionCodes.js';
+import { REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY } from '../utils/notifications/tenantNotificationChannels.js';
 import { Gauge, Counter } from './metricPrimitives.js';
 
 // ---- Gauges (set by the collector) ----------------------------------------
@@ -36,10 +37,10 @@ const eventOutboxProcessing = new Gauge('event_outbox_processing_rows', 'event_o
 const eventOutboxStaleProcessing = new Gauge('event_outbox_stale_processing_rows', 'event_outbox processing rows whose lease has expired');
 const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 'notification_outbox rows in PENDING status');
 const notificationOutboxFailed = new Gauge('notification_outbox_failed_rows', 'notification_outbox rows in FAILED status (retrying until retry_count >= 3)');
-const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'notification_outbox rows in RECONCILIATION_REQUIRED status (the row itself is never re-sent; provider-uncertainty reasons are requeued as new intents by the bounded auto-replay sweep)');
-const notificationOutboxDeadLetter = new Gauge('notification_outbox_dead_letter_rows', 'notification_outbox rows no auto-path will retry: FAILED with retry_count >= 3 plus all RECONCILIATION_REQUIRED');
+const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'unresolved notification_outbox rows in RECONCILIATION_REQUIRED status; replay-superseded originals are excluded');
+const notificationOutboxDeadLetter = new Gauge('notification_outbox_dead_letter_rows', 'unresolved notification_outbox dead letters: FAILED with retry_count >= 3 plus unsuperseded RECONCILIATION_REQUIRED rows');
 const notificationOutboxSuppressed = new Gauge('notification_outbox_suppressed_rows', 'notification_outbox rows in SUPPRESSED status — intentional never-send cancellations (payroll supersede semantics), terminal by design and never counted as dead letters');
-const notificationOutboxTerminalDeadLetter = new Gauge('notification_outbox_terminal_dead_letter_rows', 'notification_outbox rows the auto-replay sweep will never touch and only operator action can resolve: unsuperseded RECONCILIATION_REQUIRED past the generation/age bound or outside the auto-replayable reason allowlist, plus FAILED terminal provider rejections at the retry ceiling');
+const notificationOutboxTerminalDeadLetter = new Gauge('notification_outbox_terminal_dead_letter_rows', 'notification_outbox rows the auto-replay sweep will never touch and only operator action can resolve: unsuperseded RECONCILIATION_REQUIRED past the generation/root-chain-age bound, missing valid root-chain age provenance, or outside the auto-replayable reason allowlist, plus FAILED terminal provider rejections at the retry ceiling');
 const notificationDeliveryPausedCursors = new Gauge('notification_delivery_paused_cursors', 'Notification delivery cursors paused on an unresolved provider outcome', ['state']);
 const reliabilityMetricsLastSuccess = new Gauge('reliability_metrics_last_success_timestamp_seconds', 'Unix timestamp of the last complete successful configured reliability-metric collection');
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
@@ -439,10 +440,12 @@ export async function collectReliabilityMetrics() {
             (SELECT COUNT(*) FROM notification_outbox WHERE status = 'PENDING') AS pending,
             (SELECT COUNT(*) FROM notification_outbox WHERE status = 'FAILED') AS failed,
             (SELECT COUNT(*) FROM notification_outbox
-              WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required,
+              WHERE status = 'RECONCILIATION_REQUIRED'
+                AND COALESCE(failure_reason, '') <> $1::text) AS reconciliation_required,
             (SELECT COUNT(*) FROM notification_outbox
               WHERE (status = 'FAILED' AND retry_count >= 3)
-                 OR status = 'RECONCILIATION_REQUIRED') AS dead_letter,
+                 OR (status = 'RECONCILIATION_REQUIRED'
+                     AND COALESCE(failure_reason, '') <> $1::text)) AS dead_letter,
             (SELECT COUNT(*) FROM notification_outbox
               WHERE status = 'SUPPRESSED') AS suppressed,
             (SELECT COUNT(*) FROM notification_outbox
@@ -451,7 +454,18 @@ export async function collectReliabilityMetrics() {
                  OR (status = 'RECONCILIATION_REQUIRED'
                      AND COALESCE(failure_reason, '') <> $1::text
                      AND (replay_generation >= $2::smallint
-                          OR created_at <= NOW() - INTERVAL '24 hours'
+                          OR NOT COALESCE(
+                            CASE
+                              WHEN replay_generation = 0 THEN created_at
+                              WHEN jsonb_typeof(payload -> $4::text) = 'number'
+                                AND payload ->> $4::text ~ '^[0-9]{13}$'
+                                THEN to_timestamp(
+                                  (payload ->> $4::text)::double precision / 1000.0
+                                )
+                              ELSE NULL
+                            END > NOW() - INTERVAL '24 hours',
+                            FALSE
+                          )
                           OR COALESCE(failure_reason, '') <> ALL($3::text[])))
             ) AS terminal_dead_letter,
             (SELECT COUNT(*) FROM notification_delivery_cursors
@@ -462,6 +476,7 @@ export async function collectReliabilityMetrics() {
         OPERATOR_REPLAY_SUPERSEDED_REASON,
         NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
         AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+        REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
         ),
       );
       totals.pending += Number(row?.pending ?? 0);

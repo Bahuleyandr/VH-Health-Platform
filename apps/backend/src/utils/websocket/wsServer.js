@@ -62,12 +62,9 @@ export function closeWsFanout() {
 // WsFanoutSubscriberDown alert. Failed attempts also count into
 // recordWsFanoutSubscriberError via the adapter.
 //
-// Each attempt passes its OWN subscriber duplicate to fanout.init() and tears
-// it down on failure — init() only cleans up its subscriber through close(),
-// which also unregisters the local delivery loops, so a retry loop that
-// leaned on close() would break single-process delivery between attempts, and
-// one that didn't own the duplicate would leak one reconnecting connection
-// per failed attempt.
+// The adapter owns subscriber creation and failed-initialization cleanup. Its
+// single-flight init also coalesces a reconnect-hook attempt with a timer tick,
+// preventing parallel duplicates and competing PSUBSCRIBEs.
 
 const WS_FANOUT_REWIRE_INITIAL_DELAY_MS = 5_000;
 const WS_FANOUT_REWIRE_MAX_DELAY_MS = 300_000;
@@ -75,6 +72,7 @@ const WS_FANOUT_REWIRE_MAX_ATTEMPTS = 40;
 
 let fanoutRewireTimer = null;
 let fanoutRewireActive = false;
+let fanoutRewireGeneration = 0;
 
 /**
  * Arm the background rewire loop. Called from bin/www.js when the boot-time
@@ -96,6 +94,7 @@ export function scheduleWsFanoutRewire({
   }
   if (fanoutRewireActive || fanout.isEnabled()) return false;
   fanoutRewireActive = true;
+  const rewireGeneration = ++fanoutRewireGeneration;
   let attempts = 0;
 
   logger.warn(
@@ -105,15 +104,16 @@ export function scheduleWsFanoutRewire({
   );
 
   const armNext = (delayMs) => {
+    if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
     fanoutRewireTimer = setTimeout(async () => {
       fanoutRewireTimer = null;
+      if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
       if (fanout.isEnabled()) {
         // Wired by another path (Redis reinit hook) — stand down quietly.
         fanoutRewireActive = false;
         return;
       }
       attempts += 1;
-      let ownedSub = null;
       try {
         const client = getClient();
         if (!client) {
@@ -121,8 +121,8 @@ export function scheduleWsFanoutRewire({
           // treat as a failed attempt and keep patrolling.
           throw new Error('Redis client unavailable');
         }
-        ownedSub = typeof client.duplicate === 'function' ? client.duplicate() : undefined;
-        const initialized = await fanout.init({ pub: client, sub: ownedSub });
+        const initialized = await initWsFanout({ pub: client });
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
         if (!initialized) {
           throw new Error('Redis WebSocket subscriber did not initialize');
         }
@@ -131,16 +131,7 @@ export function scheduleWsFanoutRewire({
           `WS Redis fan-out restored by background rewire (attempt ${attempts}/${maxAttempts})`,
         );
       } catch (err) {
-        // Bound the leak: a failed init leaves its duplicate reconnecting
-        // forever inside ioredis — tear down the one this attempt created.
-        if (ownedSub && !fanout.isEnabled()) {
-          try {
-            if (typeof ownedSub.disconnect === 'function') ownedSub.disconnect(false);
-            else if (typeof ownedSub.quit === 'function') await ownedSub.quit();
-          } catch {
-            // best-effort teardown only
-          }
-        }
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
         if (attempts >= maxAttempts) {
           fanoutRewireActive = false;
           logger.error(
@@ -169,6 +160,7 @@ export function scheduleWsFanoutRewire({
 
 /** Disarm the rewire loop (graceful shutdown / tests). */
 export function cancelWsFanoutRewire() {
+  fanoutRewireGeneration += 1;
   if (fanoutRewireTimer) {
     clearTimeout(fanoutRewireTimer);
     fanoutRewireTimer = null;

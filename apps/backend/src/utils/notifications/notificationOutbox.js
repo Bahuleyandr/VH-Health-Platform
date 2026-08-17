@@ -7,6 +7,11 @@ import {
   OPERATOR_REPLAY_SUPERSEDED_REASON,
   TERMINAL_REJECTION_CODES,
 } from './terminalRejectionCodes.js';
+import {
+  DELIVERY_CHANNELS_PAYLOAD_KEY,
+  normalizeChannelList,
+  REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+} from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
@@ -125,7 +130,28 @@ function buildIntent(notification) {
   const recipientPhone = String(notification.recipientPhone || '').trim() || null;
   const channel = normalizeChannel(notification);
   const version = templateVersion(notification);
-  const data = canonicalize(notification.data || {});
+  const rawData = canonicalize(notification.data || {});
+  const data = rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+    ? Object.fromEntries(
+      Object.entries(rawData).filter(([key]) => ![
+        DELIVERY_CHANNELS_PAYLOAD_KEY,
+        REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+      ].includes(key)),
+    )
+    : rawData;
+  const deliveryChannels = normalizeChannelList(notification.deliveryChannels);
+  const replayChainStartedAtMs = Number(rawData?.[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]);
+  const internalData = {};
+  if (deliveryChannels.length > 0) {
+    internalData[DELIVERY_CHANNELS_PAYLOAD_KEY] = deliveryChannels;
+  }
+  if (Number.isSafeInteger(replayChainStartedAtMs) && replayChainStartedAtMs > 0) {
+    internalData[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY] = replayChainStartedAtMs;
+  }
+  const storedData = Object.keys(internalData).length > 0
+    && data && typeof data === 'object' && !Array.isArray(data)
+    ? { ...data, ...internalData }
+    : data;
   const hashInput = {
     type: String(notification.type || channel),
     channel,
@@ -144,7 +170,7 @@ function buildIntent(notification) {
     recipientPhone,
     title: hashInput.title,
     body: hashInput.body,
-    data,
+    data: storedData,
     channel,
     sourceKey,
     recipientKey: recipientKey(recipientId, recipientPhone, sourceKey),

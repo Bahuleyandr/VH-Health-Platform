@@ -70,6 +70,7 @@ jest.unstable_mockModule('../../observability/reliabilityMetrics.js', () => ({
 const {
   scheduleWsFanoutRewire,
   cancelWsFanoutRewire,
+  initWsFanout,
   isWsFanoutReady,
   closeWsFanout,
 } = await import('../../utils/websocket/wsServer.js');
@@ -78,17 +79,16 @@ let psubscribeShouldFail = true;
 const createdSubs = [];
 
 function makeSub() {
-  const sub = {
-    on: jest.fn(),
-    off: jest.fn(),
-    psubscribe: jest.fn(async () => {
-      if (psubscribeShouldFail) throw new Error('ECONNREFUSED psubscribe');
-      return 1;
-    }),
-    punsubscribe: jest.fn().mockResolvedValue(1),
-    quit: jest.fn().mockResolvedValue(undefined),
-    disconnect: jest.fn(),
-  };
+  const sub = new EventEmitter();
+  jest.spyOn(sub, 'on');
+  jest.spyOn(sub, 'off');
+  sub.psubscribe = jest.fn(async () => {
+    if (psubscribeShouldFail) throw new Error('ECONNREFUSED psubscribe');
+    return 1;
+  });
+  sub.punsubscribe = jest.fn().mockResolvedValue(1);
+  sub.quit = jest.fn().mockResolvedValue(undefined);
+  sub.disconnect = jest.fn();
   createdSubs.push(sub);
   return sub;
 }
@@ -228,7 +228,6 @@ describe('scheduleWsFanoutRewire', () => {
 
     // The Redis-reinit onReconnect hook wins the race: wire directly.
     psubscribeShouldFail = false;
-    const { initWsFanout } = await import('../../utils/websocket/wsServer.js');
     await initWsFanout({ pub, sub: makeSub() });
     expect(isWsFanoutReady()).toBe(true);
     pub.duplicate.mockClear();
@@ -238,5 +237,107 @@ describe('scheduleWsFanoutRewire', () => {
     expect(pub.duplicate).not.toHaveBeenCalled();
     expect(jest.getTimerCount()).toBe(0);
     expect(isWsFanoutReady()).toBe(true);
+  });
+
+  it('shares one in-flight initialization across reconnect and timer paths', async () => {
+    let resolveSubscription;
+    const firstSub = makeSub();
+    firstSub.psubscribe.mockReturnValue(new Promise((resolve) => {
+      resolveSubscription = resolve;
+    }));
+    const secondSub = makeSub();
+    const overlappingPub = {
+      duplicate: jest.fn()
+        .mockReturnValueOnce(firstSub)
+        .mockReturnValueOnce(secondSub),
+      publish: jest.fn().mockResolvedValue(1),
+    };
+
+    const reconnectInit = initWsFanout({ pub: overlappingPub });
+    const timerInit = initWsFanout({ pub: overlappingPub });
+
+    expect(overlappingPub.duplicate).toHaveBeenCalledTimes(1);
+    expect(firstSub.psubscribe).toHaveBeenCalledTimes(1);
+    expect(secondSub.psubscribe).not.toHaveBeenCalled();
+
+    resolveSubscription(1);
+    await expect(Promise.all([reconnectInit, timerInit])).resolves.toEqual([true, true]);
+    expect(isWsFanoutReady()).toBe(true);
+  });
+
+  it('retires the unavailable generation while reconnect and timer rewires overlap', async () => {
+    psubscribeShouldFail = false;
+    await initWsFanout({ pub });
+    const oldSub = createdSubs[0];
+    let resolveOldUnsubscribe;
+    oldSub.punsubscribe.mockReturnValueOnce(new Promise((resolve) => {
+      resolveOldUnsubscribe = resolve;
+    }));
+
+    oldSub.emit('reconnecting');
+    expect(isWsFanoutReady()).toBe(false);
+    const reconnectInit = initWsFanout({ pub });
+    expect(
+      scheduleWsFanoutRewire({
+        getClient: () => pub,
+        initialDelayMs: 1000,
+      }),
+    ).toBe(true);
+    const timerTick = jest.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+
+    resolveOldUnsubscribe(1);
+    await Promise.all([reconnectInit, timerTick]);
+
+    expect(pub.duplicate).toHaveBeenCalledTimes(2);
+    expect(createdSubs).toHaveLength(2);
+    for (const event of ['pmessage', 'ready', 'close', 'reconnecting', 'error']) {
+      expect(oldSub.listenerCount(event)).toBe(0);
+    }
+    expect(oldSub.punsubscribe).toHaveBeenCalledWith('ws:*');
+    expect(oldSub.quit).toHaveBeenCalledTimes(1);
+    expect(createdSubs[1].listenerCount('pmessage')).toBe(1);
+    expect(isWsFanoutReady()).toBe(true);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not re-arm or restore an in-flight background rewire after close', async () => {
+    let resolveSubscription;
+    let markRewireStarted;
+    const rewireStarted = new Promise((resolve) => {
+      markRewireStarted = resolve;
+    });
+    const racingSub = makeSub();
+    racingSub.psubscribe.mockReturnValue(new Promise((resolve) => {
+      resolveSubscription = resolve;
+    }));
+    const racingPub = {
+      duplicate: jest.fn(() => racingSub),
+      publish: jest.fn().mockResolvedValue(1),
+    };
+
+    expect(scheduleWsFanoutRewire({
+      getClient: () => {
+        markRewireStarted();
+        return racingPub;
+      },
+      initialDelayMs: 1000,
+      maxAttempts: 10,
+    })).toBe(true);
+    const timerTick = jest.advanceTimersByTimeAsync(1000);
+    await rewireStarted;
+    expect(racingPub.duplicate).toHaveBeenCalledTimes(1);
+
+    const closing = closeWsFanout();
+    resolveSubscription(1);
+    await Promise.all([timerTick, closing]);
+
+    expect(isWsFanoutReady()).toBe(false);
+    expect(racingPub.duplicate).toHaveBeenCalledTimes(1);
+    expect(racingSub.disconnect).toHaveBeenCalledWith(false);
+    expect(jest.getTimerCount()).toBe(0);
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(racingPub.duplicate).toHaveBeenCalledTimes(1);
+    expect(isWsFanoutReady()).toBe(false);
   });
 });

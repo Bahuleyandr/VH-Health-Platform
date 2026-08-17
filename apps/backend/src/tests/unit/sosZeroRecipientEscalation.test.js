@@ -23,6 +23,7 @@
  */
 
 import { jest } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 
 // ── Shared mocks ───────────────────────────────────────────────────────────
 const queryRawUnsafeMock = jest.fn();
@@ -38,6 +39,7 @@ const sendSecurityWebhookMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
 const notifyEmergencyTeamMock = jest.fn();
 const findNearbyMock = jest.fn(async () => ({ hospitals: [], police_stations: [] }));
+const recordCanonicalClinicalEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -74,7 +76,7 @@ jest.unstable_mockModule('../../services/locationService.js', () => ({
 // mock the canonical platform so its real module (which imports setTenantTx
 // from lib/prisma) stays outside the mocked-prisma import graph.
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
-  recordCanonicalClinicalEvent: jest.fn().mockResolvedValue(null),
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   startWorkflowSla: jest.fn().mockResolvedValue(null),
   completeWorkflowSla: jest.fn().mockResolvedValue(null),
 }));
@@ -104,6 +106,7 @@ beforeEach(() => {
   sendSecurityWebhookMock.mockReset();
   sendStaffNotificationsMock.mockReset();
   notifyEmergencyTeamMock.mockReset();
+  recordCanonicalClinicalEventMock.mockReset().mockResolvedValue(null);
   findNearbyMock.mockClear();
 });
 
@@ -165,7 +168,15 @@ describe('createAlert response honesty (BE-M3)', () => {
   });
 
   it('test alerts skip fan-out entirely, say so, and persist the drill marker', async () => {
-    const res = await createAlert({ ...baseInput, isTestAlert: true });
+    const drillActorUid = '11111111-1111-4111-8111-111111111111';
+    const res = await createAlert({
+      ...baseInput,
+      isTestAlert: true,
+      drillAuthorization: {
+        actorUid: drillActorUid,
+        actorRole: 'ADMIN',
+      },
+    });
 
     expect(notifyEmergencyTeamMock).not.toHaveBeenCalled();
     expect(res.is_test).toBe(true);
@@ -178,7 +189,45 @@ describe('createAlert response honesty (BE-M3)', () => {
     // tagged template — calls[0] is (strings, ...boundValues).
     const [insertStrings, ...insertValues] = queryRawMock.mock.calls[0];
     expect(insertStrings.join('$n')).toContain('is_test_alert');
+    expect(insertStrings.join('$n')).toContain('test_alert_authorized_by');
+    expect(insertStrings.join('$n')).toContain('test_alert_authorized_role');
     expect(insertValues).toContain(true);
+    expect(insertValues).toContain(drillActorUid);
+    expect(insertValues).toContain('ADMIN');
+
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'sos.raised',
+        patientUid: USER.uid,
+        actorUid: drillActorUid,
+        actorRole: 'ADMIN',
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('keeps ordinary SOS canonical attribution on the patient subject', async () => {
+    notifyEmergencyTeamMock.mockResolvedValue({ success: true, notified_count: 1 });
+
+    await createAlert(baseInput);
+
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'sos.raised',
+        patientUid: USER.uid,
+        actorUid: USER.uid,
+        actorRole: 'PATIENT',
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('service callers cannot create a drill without privileged provenance', async () => {
+    await expect(createAlert({ ...baseInput, isTestAlert: true })).rejects.toMatchObject({
+      code: 'SOS_DRILL_AUTHORIZATION_REQUIRED',
+    });
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(notifyEmergencyTeamMock).not.toHaveBeenCalled();
   });
 
   it('a real alert persists is_test_alert=false (fail-real default direction)', async () => {
@@ -190,6 +239,28 @@ describe('createAlert response honesty (BE-M3)', () => {
     expect(insertStrings.join('$n')).toContain('is_test_alert');
     expect(insertValues).toContain(false);
     expect(insertValues).not.toContain(true);
+  });
+
+  it('does not let a truthy non-boolean marker suppress real-alert fan-out', async () => {
+    notifyEmergencyTeamMock.mockResolvedValue({ success: true, notified_count: 1 });
+
+    const result = await createAlert({ ...baseInput, isTestAlert: 'true' });
+
+    const [, ...insertValues] = queryRawMock.mock.calls[0];
+    expect(insertValues).toContain(false);
+    expect(result.is_test).toBe(false);
+    expect(notifyEmergencyTeamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('migration 709 binds the persisted drill marker to privileged actor evidence', () => {
+    const migration = readFileSync(
+      new URL('../../migrations/709_sos_alert_drill_authorization.sql', import.meta.url),
+      'utf8',
+    );
+    expect(migration).toContain('test_alert_authorized_by');
+    expect(migration).toContain('test_alert_authorized_role');
+    expect(migration).toContain("test_alert_authorized_role IN ('ADMIN', 'SUPER_ADMIN')");
+    expect(migration).toContain('chk_sos_alert_test_authority');
   });
 });
 

@@ -31,10 +31,12 @@ import {
   resetChannelCursor,
 } from '../services/notification/notificationDeliveryLedgerService.js';
 import {
+  autoReplayReconciliationRequiredRows,
   listNotificationOutboxRows,
   replayNotificationOutboxRow,
 } from '../services/notification/notificationOutboxAdminService.js';
 import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
+import { REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY } from '../utils/notifications/tenantNotificationChannels.js';
 import { OPERATOR_REPLAY_SUPERSEDED_REASON } from '../utils/notifications/terminalRejectionCodes.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -484,6 +486,103 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
     });
   }, 60_000);
 
+  test('FAILED fanout replay resets actual blocked channels when primary differs', async () => {
+    const row = await notificationOutbox.queue({
+      ...intent(`r3:${SUFFIX}:failed-fanout-replay`, REACHABLE_UID, 'push'),
+      deliveryChannels: ['email', 'whatsapp'],
+    }, { strict: true });
+    expect(row.channel).toBe('push');
+    const { claim } = await claimOne(row.id);
+    expect(claim).toBeDefined();
+    const attempts = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: row.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['email', 'whatsapp'],
+    });
+    for (const attempt of attempts) {
+      const receipt = await recordProviderReceipt({
+        tenantId: TENANT_ID,
+        attemptId: attempt.attempt_id,
+        outboxId: row.id,
+        channel: attempt.channel,
+        outcome: 'rejected',
+        receiptSource: 'provider_response',
+        providerCode: `${attempt.channel}_provider_not_configured`,
+        evidence: { test: SUFFIX },
+      });
+      await applyProviderReceiptToCursor({
+        tenantId: TENANT_ID,
+        receiptId: receipt.receipt_id,
+      });
+    }
+    await notificationOutbox.markFailed(row.id, 'provider_rejected_notification', {
+      tenantId: TENANT_ID,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox SET retry_count = 3
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    expect(await readCursor('email')).toMatchObject({
+      state: 'paused_rejected',
+      blocked_outbox_id: row.id,
+    });
+    expect(await readCursor('whatsapp')).toMatchObject({
+      state: 'paused_rejected',
+      blocked_outbox_id: row.id,
+    });
+
+    await replayNotificationOutboxRow({
+      tenantId: TENANT_ID,
+      id: row.id,
+      reason: 'Fanout providers repaired; retry rejected channels.',
+      actorUid: ACTOR_UID,
+      actorRole: 'SUPER_ADMIN',
+      requestId: `r3-fanout-replay-${SUFFIX}`,
+    });
+
+    expect(await readCursor('email')).toMatchObject({ state: 'ready', blocked_outbox_id: null });
+    expect(await readCursor('whatsapp')).toMatchObject({ state: 'ready', blocked_outbox_id: null });
+    const { claim: replayClaim } = await claimOne(row.id);
+    expect(replayClaim).toBeDefined();
+    const replayAttempts = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: row.id,
+      claimToken: replayClaim.claim_token,
+      claimGeneration: replayClaim.claim_generation,
+      renderedIntentHash: replayClaim.rendered_intent_hash,
+      channels: ['email', 'whatsapp'],
+    });
+    expect(replayAttempts.map(attempt => attempt.state)).toEqual(['ready', 'ready']);
+    for (const attempt of replayAttempts) {
+      const receipt = await recordProviderReceipt({
+        tenantId: TENANT_ID,
+        attemptId: attempt.attempt_id,
+        outboxId: row.id,
+        channel: attempt.channel,
+        outcome: 'acknowledged',
+        receiptSource: 'provider_response',
+        providerReference: `messages/${attempt.channel}/${SUFFIX}`,
+        providerCode: 'accepted',
+        evidence: { test: SUFFIX },
+      });
+      await applyProviderReceiptToCursor({
+        tenantId: TENANT_ID,
+        receiptId: receipt.receipt_id,
+      });
+    }
+    await notificationOutbox.markSent(row.id, {
+      tenantId: TENANT_ID,
+      claimToken: replayClaim.claim_token,
+      claimGeneration: replayClaim.claim_generation,
+    });
+  }, 60_000);
+
   test('(c-admin) operator replay: FAILED dead-letter gets its retry budget back', async () => {
     expect(ambiguousRowId).not.toBeNull();
     await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
@@ -519,8 +618,9 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
   }, 60_000);
 
   test('operator replay: RECONCILIATION_REQUIRED is superseded by a new intent and stops blocking', async () => {
+    const sourceEventKey = 'r'.repeat(255);
     const row = await notificationOutbox.queue(
-      intent(`r3:${SUFFIX}:uncertain`, REACHABLE_UID, 'email'),
+      intent(sourceEventKey, REACHABLE_UID, 'email'),
       { strict: true },
     );
     const { claim } = await claimOne(row.id);
@@ -557,10 +657,15 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
       status: 'RECONCILIATION_REQUIRED',
       failure_reason: OPERATOR_REPLAY_SUPERSEDED_REASON,
     });
-    expect(await readOutbox(replayed.replacement_id)).toMatchObject({
+    const replacement = await readOutbox(replayed.replacement_id);
+    expect(replacement).toMatchObject({
       status: 'PENDING',
-      source_event_key: `r3:${SUFFIX}:uncertain:operator-replay:${row.id}`,
+      source_event_key: expect.stringMatching(
+        new RegExp(`[~:]operator-replay:${row.id}:[0-9a-f]{64}$`),
+      ),
     });
+    expect(replacement.source_event_key).toHaveLength(255);
+    expect(replacement.source_event_key).not.toBe(sourceEventKey);
     // Cursor resumed in the same transaction...
     expect((await readCursor('email')).state).toBe('ready');
     // ...and the superseded row no longer blocks the channel: the replacement
@@ -580,5 +685,105 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
       actorUid: ACTOR_UID,
       actorRole: 'SUPER_ADMIN',
     })).rejects.toMatchObject({ statusCode: 409 });
+  }, 60_000);
+
+  test('auto replay gives an exact 255-character source key a distinct bounded identity', async () => {
+    const sourceEventKey = 'a'.repeat(255);
+    const row = await notificationOutbox.queue(
+      intent(sourceEventKey, REACHABLE_UID, 'push'),
+      { strict: true },
+    );
+    const pending = await notificationOutbox.claimPendingBatch({
+      tenantId: TENANT_ID,
+      limit: 250,
+    });
+    const claim = pending.find(candidate => candidate.id === row.id);
+    expect(claim).toBeDefined();
+    await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: row.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['push'],
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET lease_expires_at = NOW() - INTERVAL '1 second'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    await reconcileExpiredClaims({ tenantId: TENANT_ID });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET last_attempt_at = NOW() - INTERVAL '31 minutes'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    const replayed = await autoReplayReconciliationRequiredRows({
+      tenantId: TENANT_ID,
+      limit: 10,
+    });
+    const replay = replayed.replacements.find(candidate => candidate.id === row.id);
+    expect(replay?.replacement_id).toBeGreaterThan(row.id);
+    expect(await readOutbox(row.id)).toMatchObject({
+      status: 'RECONCILIATION_REQUIRED',
+      failure_reason: OPERATOR_REPLAY_SUPERSEDED_REASON,
+    });
+    const replacement = await readOutbox(replay.replacement_id);
+    expect(replacement).toMatchObject({
+      status: 'PENDING',
+      source_event_key: expect.stringMatching(
+        new RegExp(`[~:]auto-replay:${row.id}:[0-9a-f]{64}$`),
+      ),
+    });
+    expect(replacement.source_event_key).toHaveLength(255);
+    expect(replacement.source_event_key).not.toBe(sourceEventKey);
+    expect((await readCursor('push')).state).toBe('ready');
+  }, 60_000);
+
+  test('auto replay enforces the 24-hour ceiling from the original chain start', async () => {
+    const rootStartedAtMs = Date.now() - (25 * 60 * 60 * 1000);
+    const replayIntent = intent(`old-chain-${SUFFIX}`, REACHABLE_UID, 'whatsapp');
+    replayIntent.data[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY] = rootStartedAtMs;
+    const row = await notificationOutbox.queue(replayIntent, {
+      strict: true,
+      replayGeneration: 1,
+    });
+    const { claim } = await claimOne(row.id);
+    expect(claim).toBeDefined();
+    await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: row.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['whatsapp'],
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET lease_expires_at = NOW() - INTERVAL '1 second'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    await reconcileExpiredClaims({ tenantId: TENANT_ID });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET last_attempt_at = NOW() - INTERVAL '31 minutes'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    const beforeReplay = await readOutbox(row.id);
+
+    const replayed = await autoReplayReconciliationRequiredRows({
+      tenantId: TENANT_ID,
+      limit: 10,
+    });
+
+    expect(replayed.replacements).not.toContainEqual(expect.objectContaining({ id: row.id }));
+    expect(await readOutbox(row.id)).toMatchObject({
+      status: 'RECONCILIATION_REQUIRED',
+      failure_reason: beforeReplay.failure_reason,
+    });
   }, 60_000);
 });

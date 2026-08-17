@@ -66,14 +66,37 @@ function candidateRow(overrides = {}) {
     source_event_key: 'workflow-escalation:77:5:42',
     template_version: 'critical-result.v1',
     retry_count: 1,
+    created_at: new Date('2026-08-17T05:00:00.000Z'),
     failure_reason: 'provider_delivery_outcome_uncertain',
     replay_generation: 0,
     ...overrides,
   };
 }
 
+function mockEligibleReplay(row, {
+  attempts = [{ channel: 'push', outcome: 'uncertain' }],
+  cursors = [{ channel: 'push' }],
+} = {}) {
+  queryRawMock
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([row])
+    .mockResolvedValueOnce(attempts)
+    .mockResolvedValueOnce(cursors)
+    .mockResolvedValueOnce([{
+      id: row.id,
+      status: 'RECONCILIATION_REQUIRED',
+      retry_count: row.retry_count,
+      failure_reason: 'operator_replay_superseded',
+    }])
+    .mockResolvedValueOnce([]);
+  execRawMock.mockResolvedValueOnce(cursors.length);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  queryRawMock.mockReset();
+  execRawMock.mockReset();
+  queueMock.mockReset();
   queueMock.mockResolvedValue({ id: 777, duplicate: false });
 });
 
@@ -82,6 +105,8 @@ describe('notification outbox bounded auto-replay sweep', () => {
     queryRawMock
       .mockResolvedValueOnce([]) // exhausted stamp: none
       .mockResolvedValueOnce([candidateRow()]) // candidates
+      .mockResolvedValueOnce([{ channel: 'push', outcome: 'uncertain' }]) // latest channel outcome
+      .mockResolvedValueOnce([{ channel: 'push' }]) // cursor paused on the original
       .mockResolvedValueOnce([{ // superseded stamp on the original
         id: 41, status: 'RECONCILIATION_REQUIRED', retry_count: 1,
         failure_reason: 'operator_replay_superseded',
@@ -106,15 +131,21 @@ describe('notification outbox bounded auto-replay sweep', () => {
         type: 'push',
         channel: 'push',
         recipientId: '42',
-        sourceEventKey: 'workflow-escalation:77:5:42:auto-replay:41',
+        sourceEventKey: expect.stringMatching(
+          /^workflow-escalation:77:5:42:auto-replay:41:[0-9a-f]{64}$/,
+        ),
         templateVersion: 'critical-result.v1',
-        data: { key: 'value' },
+        data: expect.objectContaining({
+          key: 'value',
+          __replay_chain_started_at_ms: Date.parse('2026-08-17T05:00:00.000Z'),
+        }),
+        deliveryChannels: ['push'],
       }),
       expect.objectContaining({ strict: true, replayGeneration: 1 }),
     );
 
     // Original stamped with the EXACT reason the ordering predicates hardcode.
-    const stampCall = queryRawMock.mock.calls[2];
+    const stampCall = queryRawMock.mock.calls[4];
     expect(stampCall[0]).toMatch(/SET failure_reason = \$3::text/);
     expect(stampCall[0]).toMatch(/AND status = 'RECONCILIATION_REQUIRED'/);
     expect(stampCall.slice(1)).toEqual([TENANT, 41, 'operator_replay_superseded']);
@@ -122,12 +153,12 @@ describe('notification outbox bounded auto-replay sweep', () => {
     // A cursor paused ON the original is resumed in the same transaction.
     expect(execRawMock).toHaveBeenCalledWith(
       expect.stringMatching(/SET state = 'ready'/),
-      TENANT, 'push', 41,
+      TENANT, 41,
     );
 
     // System-actor audit provenance: NULL uid, sweep sentinel, recorded
     // duplicate-delivery risk and replacement id.
-    const auditCall = queryRawMock.mock.calls[3];
+    const auditCall = queryRawMock.mock.calls[5];
     expect(auditCall[0]).toMatch(/NOTIFICATION_OUTBOX_AUTO_REPLAYED/);
     expect(auditCall[0]).toMatch(/VALUES \(\$1::uuid, NULL, 'system'/);
     const metadata = JSON.parse(auditCall[3]);
@@ -137,11 +168,116 @@ describe('notification outbox bounded auto-replay sweep', () => {
       replacement_outbox_id: 777,
       replay_generation: 1,
       duplicate_delivery_risk_accepted: true,
+      replay_channels: ['push'],
     });
 
     expect(recordAutoReplayMock).toHaveBeenCalledWith('requeued', 1);
     expect(recordAutoReplayMock).toHaveBeenCalledWith('exhausted', 0);
     expect(loggerErrorMock).not.toHaveBeenCalled();
+  });
+
+  test('replays only the uncertain channel and resumes the cursor actually blocked on the row', async () => {
+    const sourceEventKey = 'm'.repeat(255);
+    queryRawMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([candidateRow({
+        channel: 'push',
+        source_event_key: sourceEventKey,
+      })])
+      .mockResolvedValueOnce([
+        { channel: 'push', outcome: 'acknowledged' },
+        { channel: 'sms', outcome: 'uncertain' },
+      ])
+      .mockResolvedValueOnce([{ channel: 'sms' }])
+      .mockResolvedValueOnce([{
+        id: 41, status: 'RECONCILIATION_REQUIRED', retry_count: 1,
+        failure_reason: 'operator_replay_superseded',
+      }])
+      .mockResolvedValueOnce([]);
+    execRawMock.mockResolvedValue(1);
+
+    await autoReplayReconciliationRequiredRows({ tenantId: TENANT });
+
+    expect(queueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'sms',
+        deliveryChannels: ['sms'],
+      }),
+      expect.objectContaining({ strict: true, replayGeneration: 1 }),
+    );
+    expect(queueMock.mock.calls[0][0].deliveryChannels).not.toContain('push');
+    expect(queueMock.mock.calls[0][0].sourceEventKey).not.toBe(sourceEventKey);
+    expect(queueMock.mock.calls[0][0].sourceEventKey).toHaveLength(255);
+    expect(execRawMock).toHaveBeenCalledWith(
+      expect.stringMatching(/blocked_outbox_id = \$2::integer/),
+      TENANT,
+      41,
+    );
+    const metadata = JSON.parse(queryRawMock.mock.calls[5][3]);
+    expect(metadata).toMatchObject({
+      replay_channels: ['sms'],
+      resumed_channels: ['sms'],
+    });
+  });
+
+  test('replaces an exact 255-character key that defeated append-then-slice replay keys', async () => {
+    const sourceEventKey = `${'x'.repeat(175)}:${'x'.repeat(64)}:auto-replay:41`;
+    expect(sourceEventKey).toHaveLength(255);
+    expect(`${sourceEventKey}:auto-replay:41`.slice(0, 255)).toBe(sourceEventKey);
+    mockEligibleReplay(candidateRow({ source_event_key: sourceEventKey }));
+
+    await autoReplayReconciliationRequiredRows({ tenantId: TENANT });
+
+    const replacementKey = queueMock.mock.calls[0][0].sourceEventKey;
+    expect(replacementKey).toHaveLength(255);
+    expect(replacementKey).not.toBe(sourceEventKey);
+    expect(replacementKey[175]).toBe('~');
+    expect(replacementKey).toMatch(/~auto-replay:41:[0-9a-f]{64}$/);
+    expect(queryRawMock.mock.calls[4][0]).toMatch(/SET failure_reason = \$3::text/);
+  });
+
+  test('uses the same bounded key when the serializable transaction is retried', async () => {
+    const row = candidateRow({ source_event_key: 'z'.repeat(255) });
+    mockEligibleReplay(row);
+    mockEligibleReplay(row);
+    queueMock
+      .mockResolvedValueOnce({ id: 777, duplicate: false })
+      .mockResolvedValueOnce({ id: 778, duplicate: false });
+
+    const first = await autoReplayReconciliationRequiredRows({ tenantId: TENANT });
+    const retry = await autoReplayReconciliationRequiredRows({ tenantId: TENANT });
+
+    expect(queueMock.mock.calls[0][0].sourceEventKey).toBe(
+      queueMock.mock.calls[1][0].sourceEventKey,
+    );
+    expect(queueMock.mock.calls[0][0].sourceEventKey).toHaveLength(255);
+    expect(first.replacements).toEqual([{ id: 41, replacement_id: 777 }]);
+    expect(retry.replacements).toEqual([{ id: 41, replacement_id: 778 }]);
+  });
+
+  test.each([
+    ['the original row', { id: 41, duplicate: true }],
+    ['a distinct FAILED duplicate', { id: 778, status: 'FAILED', duplicate: true }],
+    ['a distinct SUPPRESSED duplicate', { id: 779, status: 'SUPPRESSED', duplicate: true }],
+    ['no replacement', null],
+  ])('fails closed before superseding or resuming when queue returns %s', async (_label, queued) => {
+    const row = candidateRow({ source_event_key: 'q'.repeat(255) });
+    queryRawMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ channel: 'push', outcome: 'uncertain' }])
+      .mockResolvedValueOnce([{ channel: 'push' }]);
+    queueMock.mockResolvedValueOnce(queued);
+
+    await expect(autoReplayReconciliationRequiredRows({ tenantId: TENANT }))
+      .rejects.toMatchObject({
+        code: 'NOTIFICATION_OUTBOX_REPLAY_REPLACEMENT_COLLISION',
+        statusCode: 409,
+      });
+
+    expect(queryRawMock).toHaveBeenCalledTimes(4);
+    expect(execRawMock).not.toHaveBeenCalled();
+    expect(recordAutoReplayMock).not.toHaveBeenCalled();
   });
 
   test('selection predicate enforces bound, backoff, age ceiling, and the fail-closed reason allowlist', async () => {
@@ -160,7 +296,10 @@ describe('notification outbox bounded auto-replay sweep', () => {
     // per-tenant lock-free batch.
     expect(sql).toMatch(/replay_generation < \$3::smallint/);
     expect(sql).toMatch(/COALESCE\(last_attempt_at, created_at\) < NOW\(\) - INTERVAL '30 minutes'/);
-    expect(sql).toMatch(/created_at > NOW\(\) - INTERVAL '24 hours'/);
+    expect(sql).toMatch(/jsonb_typeof\(payload -> \$5::text\) = 'number'/);
+    expect(sql).toMatch(/to_timestamp/);
+    expect(sql).toMatch(/ELSE NULL/);
+    expect(sql).toMatch(/> NOW\(\) - INTERVAL '24 hours'/);
     expect(sql).toMatch(/FOR UPDATE SKIP LOCKED/);
     // Fail-closed allowlist: the two provider-uncertainty reasons only —
     // superseded/exhausted/operator-stamped reasons never match.
@@ -169,6 +308,35 @@ describe('notification outbox bounded auto-replay sweep', () => {
       'provider_state_requires_owner_reconciliation',
     ]);
     expect(params[2]).toBe(2);
+    expect(params[4]).toBe('__replay_chain_started_at_ms');
+    expect(queueMock).not.toHaveBeenCalled();
+  });
+
+  test('preserves the original chain start across replay generations', async () => {
+    const chainStartedAt = Date.parse('2026-08-15T05:00:00.000Z');
+    mockEligibleReplay(candidateRow({
+      replay_generation: 1,
+      created_at: new Date('2026-08-17T05:00:00.000Z'),
+      payload: {
+        key: 'value',
+        __replay_chain_started_at_ms: chainStartedAt,
+      },
+    }));
+
+    await autoReplayReconciliationRequiredRows({ tenantId: TENANT });
+
+    expect(queueMock.mock.calls[0][0].data).toMatchObject({
+      key: 'value',
+      __replay_chain_started_at_ms: chainStartedAt,
+    });
+  });
+
+  test('fails closed when a replay generation has no durable root-chain start', async () => {
+    mockEligibleReplay(candidateRow({ replay_generation: 1 }));
+
+    await expect(autoReplayReconciliationRequiredRows({ tenantId: TENANT }))
+      .rejects.toThrow('no valid root start time');
+
     expect(queueMock).not.toHaveBeenCalled();
   });
 

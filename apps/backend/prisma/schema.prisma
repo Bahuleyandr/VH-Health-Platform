@@ -9572,30 +9572,32 @@ model smart_authz_codes {
 }
 
 model sos_alerts {
-  id                Int       @id @default(autoincrement())
-  uid               String?   @db.Uuid
-  phone             String    @db.VarChar(15)
-  latitude          Float?
-  longitude         Float?
-  location_name     String?   @db.VarChar(255)
-  alert_type        String?   @default("GENERAL") @db.VarChar(50)
-  severity          String    @default("MEDIUM") @db.VarChar(20)
-  message           String?
-  status            String    @default("ACTIVE") @db.VarChar(50)
-  responded_by      String?   @db.Uuid
-  ip_address        String?   @db.VarChar(45)
-  device_info       String?
-  raised_at         DateTime  @default(now()) @db.Timestamp(6)
-  responded_at      DateTime? @db.Timestamp(6)
-  resolved_at       DateTime? @db.Timestamp(6)
-  created_at        DateTime  @default(now()) @db.Timestamp(6)
-  updated_at        DateTime  @db.Timestamp(6)
-  tenant_id         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  response_message  String?
-  resolution_notes  String?
-  last_escalated_at DateTime? @db.Timestamp(6)
-  is_test_alert     Boolean   @default(false)
-  tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
+  id                         Int       @id @default(autoincrement())
+  uid                        String?   @db.Uuid
+  phone                      String    @db.VarChar(15)
+  latitude                   Float?
+  longitude                  Float?
+  location_name              String?   @db.VarChar(255)
+  alert_type                 String?   @default("GENERAL") @db.VarChar(50)
+  severity                   String    @default("MEDIUM") @db.VarChar(20)
+  message                    String?
+  status                     String    @default("ACTIVE") @db.VarChar(50)
+  responded_by               String?   @db.Uuid
+  ip_address                 String?   @db.VarChar(45)
+  device_info                String?
+  raised_at                  DateTime  @default(now()) @db.Timestamp(6)
+  responded_at               DateTime? @db.Timestamp(6)
+  resolved_at                DateTime? @db.Timestamp(6)
+  created_at                 DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime  @db.Timestamp(6)
+  tenant_id                  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  response_message           String?
+  resolution_notes           String?
+  last_escalated_at          DateTime? @db.Timestamp(6)
+  is_test_alert              Boolean   @default(false)
+  test_alert_authorized_by   String?   @db.Uuid
+  test_alert_authorized_role String?   @db.VarChar(50)
+  tenants                    tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
 
   @@index([alert_type])
   @@index([phone])

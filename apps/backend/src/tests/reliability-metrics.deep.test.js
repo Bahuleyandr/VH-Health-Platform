@@ -23,6 +23,12 @@ import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
   PATHWAY_PROJECTOR_GENERATION,
 } from '../config/pathwayProjectorConfig.js';
+import {
+  AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+  NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+} from '../utils/notifications/terminalRejectionCodes.js';
+import { REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY } from '../utils/notifications/tenantNotificationChannels.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -128,15 +134,35 @@ d('reliability metrics collector (QA DB)', () => {
     );
     // PENDING + the two dead-letter shapes (F7/F11, audit 2026-08-10):
     // FAILED at the retry ceiling (never re-claimed by the drain) and
-    // RECONCILIATION_REQUIRED (never auto-retried at all).
+    // RECONCILIATION_REQUIRED plus a resolved superseded original that must
+    // not remain in any actionable gauge.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO notification_outbox (type, title, body, status, retry_count, created_at)
-       VALUES ($1, 'relmetrics', 'relmetrics', 'PENDING', 0, now()),
-              ($1, 'relmetrics-f1', 'relmetrics', 'FAILED', 1, now()),
-              ($1, 'relmetrics-f3', 'relmetrics', 'FAILED', 3, now()),
-              ($1, 'relmetrics-rr', 'relmetrics', 'RECONCILIATION_REQUIRED', 1, now())`,
-      MARK,
-    ).catch(() => {});
+      `INSERT INTO notification_outbox
+         (type, title, body, status, retry_count, failure_reason,
+          payload, replay_generation, created_at)
+       VALUES ($1, 'relmetrics', 'relmetrics', 'PENDING', 0, NULL, '{}'::jsonb, 0, now()),
+              ($1, 'relmetrics-f1', 'relmetrics', 'FAILED', 1, NULL, '{}'::jsonb, 0, now()),
+              ($1, 'relmetrics-f3', 'relmetrics', 'FAILED', 3, NULL, '{}'::jsonb, 0, now()),
+              ($1, 'relmetrics-rr', 'relmetrics', 'RECONCILIATION_REQUIRED', 1,
+               'provider_delivery_outcome_uncertain', '{}'::jsonb, 0, now()),
+              ($1, 'relmetrics-superseded', 'relmetrics', 'RECONCILIATION_REQUIRED', 1,
+               'operator_replay_superseded', '{}'::jsonb, 0, now()),
+              ($1, 'relmetrics-old-root', 'relmetrics', 'RECONCILIATION_REQUIRED', 1,
+               'provider_delivery_outcome_uncertain',
+               jsonb_build_object(
+                 $2::text,
+                 FLOOR(EXTRACT(EPOCH FROM NOW() - INTERVAL '25 hours') * 1000)::bigint
+               ), 1, now()),
+              ($1, 'relmetrics-young-root', 'relmetrics', 'RECONCILIATION_REQUIRED', 1,
+               'provider_delivery_outcome_uncertain',
+               jsonb_build_object(
+                 $2::text,
+                 FLOOR(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint
+               ), 1, now()),
+              ($1, 'relmetrics-missing-root', 'relmetrics', 'RECONCILIATION_REQUIRED', 1,
+               'provider_delivery_outcome_uncertain', '{}'::jsonb, 1, now())`,
+      MARK, REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+    );
     await prisma.$executeRawUnsafe(
       `INSERT INTO pathway_projector_inbox
          (consumer_key, generation, event_id, status, lease_owner, lease_expires_at, outcome_at, created_at)
@@ -185,12 +211,52 @@ d('reliability metrics collector (QA DB)', () => {
   it('reports notification_outbox pending/failed/reconciliation-required/dead-letter gauges', async () => {
     await collectReliabilityMetrics();
     const out = serializeReliabilityMetrics();
+    const [expected] = await prisma.$queryRawUnsafe(
+      `SELECT
+         COUNT(*) FILTER (
+           WHERE status = 'RECONCILIATION_REQUIRED'
+             AND COALESCE(failure_reason, '') <> 'operator_replay_superseded'
+         )::int AS reconciliation_required,
+         COUNT(*) FILTER (
+           WHERE (status = 'FAILED' AND retry_count >= 3)
+              OR (status = 'RECONCILIATION_REQUIRED'
+                  AND COALESCE(failure_reason, '') <> 'operator_replay_superseded')
+         )::int AS dead_letter,
+         COUNT(*) FILTER (
+           WHERE (status = 'FAILED' AND retry_count >= 3
+                  AND failure_reason = 'provider_terminal_rejection')
+              OR (status = 'RECONCILIATION_REQUIRED'
+                  AND COALESCE(failure_reason, '') <> $1::text
+                  AND (replay_generation >= $2::smallint
+                       OR NOT COALESCE(
+                         CASE
+                           WHEN replay_generation = 0 THEN created_at
+                           WHEN jsonb_typeof(payload -> $4::text) = 'number'
+                             AND payload ->> $4::text ~ '^[0-9]{13}$'
+                             THEN to_timestamp(
+                               (payload ->> $4::text)::double precision / 1000.0
+                             )
+                           ELSE NULL
+                         END > NOW() - INTERVAL '24 hours',
+                         FALSE
+                       )
+                       OR COALESCE(failure_reason, '') <> ALL($3::text[])))
+         )::int AS terminal_dead_letter
+       FROM notification_outbox`,
+      OPERATOR_REPLAY_SUPERSEDED_REASON,
+      NOTIFICATION_AUTO_REPLAY_MAX_GENERATIONS,
+      AUTO_REPLAYABLE_RECONCILIATION_REASONS,
+      REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+    );
     expect(gaugeValue(out, 'notification_outbox_pending_rows')).toBeGreaterThanOrEqual(1);
     expect(gaugeValue(out, 'notification_outbox_failed_rows')).toBeGreaterThanOrEqual(2);
-    expect(gaugeValue(out, 'notification_outbox_reconciliation_required_rows')).toBeGreaterThanOrEqual(1);
+    expect(gaugeValue(out, 'notification_outbox_reconciliation_required_rows'))
+      .toBe(expected.reconciliation_required);
     // dead letters = FAILED at the retry ceiling (1 seeded) + RECONCILIATION_REQUIRED (1 seeded);
     // the retrying FAILED row (retry_count 1) must NOT count.
-    expect(gaugeValue(out, 'notification_outbox_dead_letter_rows')).toBeGreaterThanOrEqual(2);
+    expect(gaugeValue(out, 'notification_outbox_dead_letter_rows')).toBe(expected.dead_letter);
+    expect(gaugeValue(out, 'notification_outbox_terminal_dead_letter_rows'))
+      .toBe(expected.terminal_dead_letter);
   }, 30_000);
 
   it('reports webhook + circuit-breaker gauges', async () => {
