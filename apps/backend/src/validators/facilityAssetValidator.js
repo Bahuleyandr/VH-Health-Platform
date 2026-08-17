@@ -56,7 +56,8 @@ export const updateFacilityAssetValidators = [
   body('expectedVersion')
     .exists().withMessage('expectedVersion is required')
     .bail()
-    .isInt({ min: 1 }).withMessage('expectedVersion must be a positive integer')
+    .isInt({ min: 1, max: POSTGRES_INTEGER_MAX })
+    .withMessage(`expectedVersion must be an integer between 1 and ${POSTGRES_INTEGER_MAX}`)
     .toInt(),
   optionalString('assetTag', 64),
   optionalString('name', 200),
@@ -69,6 +70,12 @@ export const updateFacilityAssetValidators = [
 ];
 
 export const transitionFacilityAssetValidators = [
+  body('expectedVersion')
+    .exists().withMessage('expectedVersion is required')
+    .bail()
+    .isInt({ min: 1, max: POSTGRES_INTEGER_MAX })
+    .withMessage(`expectedVersion must be an integer between 1 and ${POSTGRES_INTEGER_MAX}`)
+    .toInt(),
   body('toStatus')
     .exists({ checkFalsy: true }).withMessage('toStatus is required')
     .isIn(FACILITY_ASSET_STATUSES)

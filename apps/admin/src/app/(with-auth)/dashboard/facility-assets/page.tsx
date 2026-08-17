@@ -413,6 +413,7 @@ function AssetDrawer({
       transitionFacilityAsset(
         assetId,
         toStatus as FacilityAssetStatus,
+        detailQuery.data?.version ?? 0,
         reason.trim() || undefined,
       ),
     onSuccess: (asset) => {

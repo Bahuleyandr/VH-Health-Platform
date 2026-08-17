@@ -670,9 +670,10 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
  * the evidence columns; disposed is terminal.
  */
 export async function transitionFacilityAssetStatus(tenantId, id, {
-  toStatus, reason = null, notes = null,
+  toStatus, reason = null, notes = null, expectedVersion,
 } = {}, { actorUid = null, actorRole = null } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  const expected = normalizeExpectedVersion(expectedVersion);
   const target = String(toStatus ?? '').trim().toLowerCase();
   if (!FACILITY_ASSET_STATUSES.includes(target)) {
     throw badRequest(`toStatus must be one of: ${FACILITY_ASSET_STATUSES.join(', ')}`);
@@ -698,6 +699,10 @@ export async function transitionFacilityAssetStatus(tenantId, id, {
 
   return setTenantTx(scopedTenantId, async (tx) => {
     const currentRow = await lockAssetTx(tx, scopedTenantId, id);
+    const currentVersion = Number(currentRow.version);
+    if (currentVersion !== expected) {
+      throw staleWrite(expected, currentVersion);
+    }
     const fromStatus = currentRow.status;
     const allowed = FACILITY_ASSET_TRANSITIONS[fromStatus] ?? [];
     if (!allowed.includes(target)) {
@@ -713,7 +718,7 @@ export async function transitionFacilityAssetStatus(tenantId, id, {
               updated_by = $6::uuid,
               version = version + 1,
               updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND id = $2::int
+        WHERE tenant_id = $1::uuid AND id = $2::int AND version = $7::int
         RETURNING ${ASSET_COLUMNS}`,
       scopedTenantId,
       Number(currentRow.id),
@@ -721,8 +726,12 @@ export async function transitionFacilityAssetStatus(tenantId, id, {
       target === 'disposed' ? cleanReason : null,
       target === 'disposed' ? actorUid : null,
       actorUid,
+      expected,
     );
     const updated = rows[0];
+    if (!updated) {
+      throw staleWrite(expected, currentVersion);
+    }
 
     const eventType = fromStatus === 'under_repair' && target === 'active'
       ? 'repair_closed'

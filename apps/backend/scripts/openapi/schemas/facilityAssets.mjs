@@ -23,6 +23,10 @@ const authenticatedErrorResponses = {
   429: errorResponse('The caller exceeded the API rate limit.'),
   500: errorResponse('The facility asset operation could not be completed.'),
 };
+const facilityMutationErrorResponses = {
+  ...authenticatedErrorResponses,
+  422: errorResponse('The facility asset request failed a domain validation.'),
+};
 
 const CATEGORIES = [
   'furniture', 'hvac', 'electrical', 'plumbing', 'it_equipment',
@@ -208,7 +212,7 @@ export const schemas = {
     required: ['expectedVersion'],
     description: 'Master-field update; omitted fields keep their current values. expectedVersion must match the latest asset version or the server returns 409. Status is deliberately excluded — use the status transition endpoint.',
     properties: {
-      expectedVersion: { type: 'integer', minimum: 1 },
+      expectedVersion: { type: 'integer', minimum: 1, maximum: POSTGRES_INTEGER_MAX },
       assetTag: { type: 'string', maxLength: 64 },
       name: { type: 'string', maxLength: 200 },
       category: { type: 'string', enum: CATEGORIES },
@@ -230,8 +234,10 @@ export const schemas = {
 
   FacilityAssetTransitionRequest: {
     type: 'object',
-    required: ['toStatus'],
+    required: ['expectedVersion', 'toStatus'],
+    description: 'expectedVersion must match the latest asset version. Stale lifecycle transitions return 409 without changing the asset or appending an event.',
     properties: {
+      expectedVersion: { type: 'integer', minimum: 1, maximum: POSTGRES_INTEGER_MAX },
       toStatus: { type: 'string', enum: STATUSES },
       reason: {
         type: 'string',
@@ -306,7 +312,7 @@ export const operations = {
     response: 'FacilityAssetResponse',
     responseStatus: 201,
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: facilityMutationErrorResponses,
   },
   'GET /api/v1/facility/assets/{id}': {
     description: 'Fetches one facility asset with its most recent history events.',
@@ -320,7 +326,7 @@ export const operations = {
     request: 'FacilityAssetUpdateRequest',
     response: 'FacilityAssetResponse',
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: facilityMutationErrorResponses,
   },
   'POST /api/v1/facility/assets/{id}/status': {
     description:
@@ -328,7 +334,7 @@ export const operations = {
     request: 'FacilityAssetTransitionRequest',
     response: 'FacilityAssetResponse',
     security: AUTHENTICATED_SECURITY,
-    additionalResponses: authenticatedErrorResponses,
+    additionalResponses: facilityMutationErrorResponses,
   },
   'POST /api/v1/facility/assets/{id}/maintenance': {
     description:

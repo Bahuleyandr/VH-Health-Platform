@@ -9,6 +9,12 @@ const createFacilityAssetMock = jest.fn(async () => ({
   version: 1,
 }));
 const updateFacilityAssetMock = jest.fn();
+const transitionFacilityAssetStatusMock = jest.fn(async () => ({
+  id: 7,
+  assetTag: 'GEN-02',
+  status: 'under_repair',
+  version: 2,
+}));
 const listFacilityAssetCustodiansMock = jest.fn(async () => ({
   custodians: [],
   limit: 50,
@@ -28,7 +34,7 @@ jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () =
   listFacilityAssetEvents: listFacilityAssetEventsMock,
   listFacilityAssets: jest.fn(),
   recordFacilityAssetMaintenance: jest.fn(),
-  transitionFacilityAssetStatus: jest.fn(),
+  transitionFacilityAssetStatus: transitionFacilityAssetStatusMock,
   updateFacilityAsset: updateFacilityAssetMock,
   FACILITY_ASSET_CATEGORIES: ['generator'],
   FACILITY_ASSET_CONDITIONS: ['good', 'fair', 'poor'],
@@ -139,6 +145,52 @@ describe('facility asset route actor provenance', () => {
       expect.objectContaining({ path: 'expectedVersion' }),
     ]));
     expect(updateFacilityAssetMock).not.toHaveBeenCalled();
+  });
+
+  it('requires and forwards the optimistic-concurrency version on lifecycle transitions', async () => {
+    const response = await request(app())
+      .post('/api/v1/facility/assets/7/status')
+      .send({ expectedVersion: 1, toStatus: 'under_repair', notes: 'Repair needed' });
+
+    expect(response.status).toBe(200);
+    expect(transitionFacilityAssetStatusMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      '7',
+      {
+        expectedVersion: 1,
+        toStatus: 'under_repair',
+        reason: undefined,
+        notes: 'Repair needed',
+      },
+      {
+        actorUid: '22222222-2222-4222-8222-222222222222',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+  });
+
+  it('rejects an unversioned lifecycle transition before calling the service', async () => {
+    const response = await request(app())
+      .post('/api/v1/facility/assets/7/status')
+      .send({ toStatus: 'disposed', reason: 'Retired' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'expectedVersion' }),
+    ]));
+    expect(transitionFacilityAssetStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an out-of-range lifecycle version before calling the service', async () => {
+    const response = await request(app())
+      .post('/api/v1/facility/assets/7/status')
+      .send({ expectedVersion: 2147483648, toStatus: 'under_repair' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'expectedVersion' }),
+    ]));
+    expect(transitionFacilityAssetStatusMock).not.toHaveBeenCalled();
   });
 
   it('validates and bounds event pagination before calling the service', async () => {

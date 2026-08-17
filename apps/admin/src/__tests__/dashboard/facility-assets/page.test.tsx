@@ -5,6 +5,7 @@ import {
   listFacilityAssetCustodians,
   listFacilityAssets,
   recordFacilityAssetMaintenance,
+  transitionFacilityAsset,
   updateFacilityAsset,
   type FacilityAsset,
 } from "@/lib/api/facilityAssets";
@@ -322,6 +323,64 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
     );
   });
 
+  it("passes the current drawer version for a lifecycle transition", async () => {
+    (getFacilityAsset as jest.Mock).mockResolvedValue({ ...ASSET, events: [] });
+    (transitionFacilityAsset as jest.Mock).mockResolvedValue({
+      ...ASSET,
+      status: "under_repair",
+      version: 4,
+    });
+    renderPage();
+
+    fireEvent.click((await screen.findByText("GEN-02")).closest("tr")!);
+    fireEvent.change(await screen.findByLabelText("New status"), {
+      target: { value: "under_repair" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update status" }));
+
+    await waitFor(() =>
+      expect(transitionFacilityAsset).toHaveBeenCalledWith(
+        7,
+        "under_repair",
+        3,
+        undefined,
+      ),
+    );
+  });
+
+  it("surfaces a stale lifecycle transition without treating disposal as successful", async () => {
+    (getFacilityAsset as jest.Mock).mockResolvedValue({ ...ASSET, events: [] });
+    (transitionFacilityAsset as jest.Mock).mockRejectedValue(
+      new APIError("Facility asset changed since it was loaded", 409, {
+        code: "FACILITY_ASSET_STALE_WRITE",
+        details: { expectedVersion: 3, currentVersion: 4 },
+      }),
+    );
+    renderPage();
+
+    fireEvent.click((await screen.findByText("GEN-02")).closest("tr")!);
+    fireEvent.change(await screen.findByLabelText("New status"), {
+      target: { value: "disposed" },
+    });
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "Retired" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update status" }));
+
+    await waitFor(() =>
+      expect(transitionFacilityAsset).toHaveBeenCalledWith(
+        7,
+        "disposed",
+        3,
+        "Retired",
+      ),
+    );
+    expect(toast.error).toHaveBeenCalledWith(
+      "Facility asset changed since it was loaded",
+    );
+    expect(toast.success).not.toHaveBeenCalledWith("Asset marked Disposed");
+  });
+
   it("clears action drafts when the drawer switches to another asset", async () => {
     (listFacilityAssets as jest.Mock).mockResolvedValue({
       assets: [ASSET, ASSET_B],
@@ -340,6 +399,12 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
     renderPage();
 
     fireEvent.click((await screen.findByText("GEN-02")).closest("tr")!);
+    fireEvent.change(await screen.findByLabelText("New status"), {
+      target: { value: "under_repair" },
+    });
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "Repair draft for GEN-02" },
+    });
     fireEvent.change(await screen.findByLabelText("Maintenance notes"), {
       target: { value: "Draft intended for GEN-02" },
     });
@@ -349,6 +414,8 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
       await screen.findByText("GEN-03 — Standby generator"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Maintenance notes")).toHaveValue("");
+    expect(screen.getByLabelText("New status")).toHaveValue("");
+    expect(screen.getByLabelText("Reason")).toHaveValue("");
     expect(
       screen.getByRole("button", { name: "Record maintenance" }),
     ).toBeDisabled();

@@ -214,6 +214,7 @@ router.patch('/:id', requireManage, paramId('id'), updateFacilityAssetValidators
 router.post('/:id/status', requireManage, paramId('id'), transitionFacilityAssetValidators, validate, async (req, res, next) => {
   try {
     const asset = await transitionFacilityAssetStatus(tenantOf(req), req.params.id, {
+      expectedVersion: req.body.expectedVersion,
       toStatus: req.body.toStatus,
       reason: req.body.reason,
       notes: req.body.notes,

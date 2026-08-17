@@ -142,7 +142,7 @@ describe('facilityAssetService — status machine', () => {
       .mockResolvedValueOnce([assetRow({ status: 'under_repair' })]) // UPDATE
       .mockResolvedValueOnce([]); // event insert
     const updated = await service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'under_repair', notes: 'Coolant leak',
+      expectedVersion: 1, toStatus: 'under_repair', notes: 'Coolant leak',
     }, { actorUid: ACTOR_UID, actorRole: 'MAINTENANCE' });
     expect(updated.status).toBe('under_repair');
     const [eventSql, ...eventParams] = mockTx.$queryRawUnsafe.mock.calls[2];
@@ -155,7 +155,7 @@ describe('facilityAssetService — status machine', () => {
   it('rejects condemned → active (only disposal leaves condemned)', async () => {
     mockTx.$queryRawUnsafe.mockResolvedValueOnce([assetRow({ status: 'condemned' })]);
     await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'active',
+      expectedVersion: 1, toStatus: 'active',
     }, { actorUid: ACTOR_UID })).rejects.toMatchObject({
       code: 'INVALID_STATE_TRANSITION',
       details: { from: 'condemned', to: 'active', allowed: ['disposed'] },
@@ -170,7 +170,7 @@ describe('facilityAssetService — status machine', () => {
       disposed_by: ACTOR_UID,
     })]);
     await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'active',
+      expectedVersion: 1, toStatus: 'active',
     }, { actorUid: ACTOR_UID })).rejects.toMatchObject({
       code: 'INVALID_STATE_TRANSITION',
       details: { from: 'disposed', to: 'active', allowed: [] },
@@ -179,13 +179,13 @@ describe('facilityAssetService — status machine', () => {
 
   it('surfaces disposal-without-reason as a clean 422 before opening the transaction', async () => {
     await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'disposed',
+      expectedVersion: 1, toStatus: 'disposed',
     }, { actorUid: ACTOR_UID })).rejects.toMatchObject({
       statusCode: 422,
       code: 'FACILITY_ASSET_DISPOSAL_REASON_REQUIRED',
     });
     await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'disposed', reason: 'Written off',
+      expectedVersion: 1, toStatus: 'disposed', reason: 'Written off',
     }, { actorUid: null })).rejects.toMatchObject({
       statusCode: 422,
       code: 'FACILITY_ASSET_DISPOSAL_ACTOR_REQUIRED',
@@ -205,7 +205,7 @@ describe('facilityAssetService — status machine', () => {
       .mockResolvedValueOnce([disposedRow])
       .mockResolvedValueOnce([]);
     const updated = await service.transitionFacilityAssetStatus(TENANT_ID, 7, {
-      toStatus: 'disposed', reason: 'Condemned by safety audit',
+      expectedVersion: 1, toStatus: 'disposed', reason: 'Condemned by safety audit',
     }, { actorUid: ACTOR_UID, actorRole: 'ADMIN' });
     expect(updated).toMatchObject({
       status: 'disposed',
@@ -218,6 +218,22 @@ describe('facilityAssetService — status machine', () => {
     expect(updateParams[5]).toBe(ACTOR_UID); // disposed_by
     const eventParams = mockTx.$queryRawUnsafe.mock.calls[2];
     expect(eventParams[5]).toBe('disposed'); // event_type ($5 after sql)
+  });
+
+  it('rejects a stale lifecycle transition before updating or appending an event', async () => {
+    mockTx.$queryRawUnsafe.mockResolvedValueOnce([assetRow({ version: 2 })]);
+
+    await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
+      expectedVersion: 1,
+      toStatus: 'disposed',
+      reason: 'Stale drawer disposal',
+    }, { actorUid: ACTOR_UID })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FACILITY_ASSET_STALE_WRITE',
+      details: { expectedVersion: 1, currentVersion: 2 },
+    });
+    expect(mockTx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(mockTx.$queryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
   });
 });
 

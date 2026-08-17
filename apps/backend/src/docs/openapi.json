@@ -24291,9 +24291,16 @@
       "FacilityAssetTransitionRequest": {
         "type": "object",
         "required": [
+          "expectedVersion",
           "toStatus"
         ],
+        "description": "expectedVersion must match the latest asset version. Stale lifecycle transitions return 409 without changing the asset or appending an event.",
         "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
           "toStatus": {
             "type": "string",
             "enum": [
@@ -24325,7 +24332,8 @@
         "properties": {
           "expectedVersion": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 2147483647
           },
           "assetTag": {
             "type": "string",
@@ -107926,6 +107934,16 @@
               }
             }
           },
+          "422": {
+            "description": "The facility asset request failed a domain validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "The caller exceeded the API rate limit.",
             "content": {
@@ -108248,6 +108266,16 @@
           },
           "409": {
             "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The facility asset request failed a domain validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -108609,6 +108637,16 @@
           },
           "409": {
             "description": "The request conflicted with the asset version, tag, custodian, or lifecycle state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The facility asset request failed a domain validation.",
             "content": {
               "application/json": {
                 "schema": {

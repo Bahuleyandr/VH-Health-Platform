@@ -136,6 +136,7 @@ d('Facility asset register (migration 704)', () => {
     await expect(updateFacilityAsset(OTHER_TENANT_ID, assetId, { name: 'Hijack', expectedVersion: 1 }))
       .rejects.toMatchObject({ statusCode: 404, code: 'FACILITY_ASSET_NOT_FOUND' });
     await expect(transitionFacilityAssetStatus(OTHER_TENANT_ID, assetId, {
+      expectedVersion: 1,
       toStatus: 'condemned',
     }, { actorUid: ADMIN_UID })).rejects.toMatchObject({ statusCode: 404 });
 
@@ -283,7 +284,9 @@ d('Facility asset register (migration 704)', () => {
   });
 
   it('walks the repair lifecycle: repair_opened → maintenance → repair_closed', async () => {
+    const beforeRepair = await getFacilityAsset(TENANT_ID, assetId);
     const repairing = await transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: beforeRepair.version,
       toStatus: 'under_repair', notes: 'Coolant leak',
     }, { actorUid: ADMIN_UID, actorRole: 'MAINTENANCE' });
     expect(repairing.status).toBe('under_repair');
@@ -295,6 +298,7 @@ d('Facility asset register (migration 704)', () => {
     expect(maintenance.event.details).toMatchObject({ cost: 4500, vendor: 'Kirloskar Service' });
 
     const active = await transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: repairing.version,
       toStatus: 'active',
     }, { actorUid: ADMIN_UID, actorRole: 'MAINTENANCE' });
     expect(active.status).toBe('active');
@@ -304,8 +308,51 @@ d('Facility asset register (migration 704)', () => {
     ]);
   });
 
+  it('rejects a stale drawer disposal after an intervening repair transition', async () => {
+    const stale = await createFacilityAsset(TENANT_ID, {
+      assetTag: 'STALE-LIFECYCLE-01',
+      name: 'Lifecycle stale-session asset',
+      category: 'other',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
+    const drawerSnapshot = await getFacilityAsset(TENANT_ID, stale.id);
+    const repair = await transitionFacilityAssetStatus(TENANT_ID, stale.id, {
+      expectedVersion: drawerSnapshot.version,
+      toStatus: 'under_repair',
+      notes: 'Repair started by another operator',
+    }, { actorUid: ADMIN_UID, actorRole: 'MAINTENANCE' });
+
+    await expect(transitionFacilityAssetStatus(TENANT_ID, stale.id, {
+      expectedVersion: drawerSnapshot.version,
+      toStatus: 'disposed',
+      reason: 'Stale drawer disposal attempt',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FACILITY_ASSET_STALE_WRITE',
+      details: {
+        expectedVersion: drawerSnapshot.version,
+        currentVersion: repair.version,
+      },
+    });
+
+    const after = await getFacilityAsset(TENANT_ID, stale.id);
+    expect(after).toMatchObject({
+      status: 'under_repair',
+      version: repair.version,
+    });
+    expect((await listFacilityAssetEvents(TENANT_ID, stale.id, { limit: 10 })).events)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ eventType: 'repair_opened' }),
+      ]));
+    expect((await listFacilityAssetEvents(TENANT_ID, stale.id, { limit: 10 })).events)
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ eventType: 'disposed' }),
+      ]));
+  });
+
   it('requires reason + actor for disposal, stamps the evidence, and makes disposed terminal', async () => {
+    const beforeCondemnation = await getFacilityAsset(TENANT_ID, assetId);
     await expect(transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: beforeCondemnation.version,
       toStatus: 'disposed',
     }, { actorUid: ADMIN_UID })).rejects.toMatchObject({
       statusCode: 422,
@@ -313,17 +360,20 @@ d('Facility asset register (migration 704)', () => {
     });
 
     const condemned = await transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: beforeCondemnation.version,
       toStatus: 'condemned', reason: 'Failed safety audit',
     }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
     expect(condemned.status).toBe('condemned');
     // condemned only moves forward to disposed.
     await expect(transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: condemned.version,
       toStatus: 'active',
     }, { actorUid: ADMIN_UID })).rejects.toMatchObject({
       code: 'INVALID_STATE_TRANSITION',
     });
 
     const disposed = await transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: condemned.version,
       toStatus: 'disposed', reason: 'Condemned and scrapped',
     }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
     expect(disposed).toMatchObject({
@@ -335,6 +385,7 @@ d('Facility asset register (migration 704)', () => {
 
     // Terminal: nothing leaves disposed, and edits/maintenance are refused.
     await expect(transitionFacilityAssetStatus(TENANT_ID, assetId, {
+      expectedVersion: disposed.version,
       toStatus: 'active',
     }, { actorUid: ADMIN_UID })).rejects.toMatchObject({
       code: 'INVALID_STATE_TRANSITION',

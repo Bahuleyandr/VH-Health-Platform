@@ -1,5 +1,19 @@
 import { fetchAdminAPI } from "./core";
 
+const MAX_EXPECTED_VERSION = 2_147_483_647;
+
+function assertExpectedVersion(expectedVersion: number) {
+  if (
+    !Number.isSafeInteger(expectedVersion) ||
+    expectedVersion < 1 ||
+    expectedVersion > MAX_EXPECTED_VERSION
+  ) {
+    throw new TypeError(
+      `expectedVersion must be an integer between 1 and ${MAX_EXPECTED_VERSION}`,
+    );
+  }
+}
+
 export type FacilityAssetCategory =
   | "furniture"
   | "hvac"
@@ -173,6 +187,7 @@ export async function updateFacilityAsset(
   payload: FacilityAssetWrite,
   expectedVersion: number,
 ) {
+  assertExpectedVersion(expectedVersion);
   return fetchAdminAPI<FacilityAsset>(`/facility/assets/${id}`, {
     method: "PATCH",
     body: { ...payload, expectedVersion },
@@ -182,12 +197,19 @@ export async function updateFacilityAsset(
 export async function transitionFacilityAsset(
   id: number,
   toStatus: FacilityAssetStatus,
+  expectedVersion: number,
   reason?: string,
   notes?: string,
 ) {
+  assertExpectedVersion(expectedVersion);
   return fetchAdminAPI<FacilityAsset>(`/facility/assets/${id}/status`, {
     method: "POST",
-    body: { toStatus, reason: reason || null, notes: notes || null },
+    body: {
+      toStatus,
+      expectedVersion,
+      reason: reason || null,
+      notes: notes || null,
+    },
   });
 }
 
