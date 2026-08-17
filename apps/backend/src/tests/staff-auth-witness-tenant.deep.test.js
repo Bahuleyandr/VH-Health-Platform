@@ -39,6 +39,16 @@ async function cleanup() {
   ).catch(() => {});
 }
 
+async function clearWitnessAuthLogs() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM auth_logs
+      WHERE tenant_id = ANY($1::uuid[])
+        AND phone = $2
+        AND action = 'CONTROLLED_DISPENSE_WITNESS'`,
+    TENANT_IDS, EMPLOYEE_ID,
+  );
+}
+
 async function authenticateWithPermissiveRls(tenantId, password) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SELECT set_config('app.current_tenant_id', '', true)");
@@ -91,7 +101,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await cleanup();
   await prisma.$disconnect();
-});
+}, 15000);
+
+beforeEach(clearWitnessAuthLogs);
 
 describe('controlled-dispense witness tenant-bound authentication', () => {
   test('selects the expected tenant when duplicate employee IDs are visible with permissive RLS', async () => {
@@ -137,15 +149,24 @@ describe('controlled-dispense witness tenant-bound authentication', () => {
     expect(rows).toEqual([expect.objectContaining({ tenant_id: TENANT_A, success: true })]);
   });
 
-  test('persists failed attempts and locks only the targeted tenant identity', async () => {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await expect(StaffAuthService.authenticateControlledDispenseWitness({
-        employeeId: EMPLOYEE_ID,
-        password: PASSWORD_B,
-        tenantId: TENANT_A,
-        req: REQUEST,
-      })).rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
-    }
+  test('atomically caps concurrent failures and locks only the targeted tenant identity', async () => {
+    const attempts = await Promise.all(Array.from({ length: 10 }, async () => {
+      try {
+        await StaffAuthService.authenticateControlledDispenseWitness({
+          employeeId: EMPLOYEE_ID,
+          password: PASSWORD_B,
+          tenantId: TENANT_A,
+          req: REQUEST,
+        });
+        return 'unexpected_success';
+      } catch (error) {
+        return error.code;
+      }
+    }));
+
+    expect(attempts.filter(code => code === 'INVALID_CREDENTIALS')).toHaveLength(5);
+    expect(attempts.filter(code => code === 'STAFF_LOGIN_RATE_LIMITED')).toHaveLength(5);
+    expect(attempts).not.toContain('unexpected_success');
 
     const counts = await prisma.$queryRawUnsafe(
       `SELECT tenant_id, COUNT(*)::int AS failures
@@ -158,6 +179,11 @@ describe('controlled-dispense witness tenant-bound authentication', () => {
       TENANT_IDS, EMPLOYEE_ID,
     );
     expect(counts).toEqual([{ tenant_id: TENANT_A, failures: 5 }]);
+
+    await expect(StaffAuthService._checkStaffLockout(
+      EMPLOYEE_ID,
+      REQUEST,
+    )).resolves.toBeUndefined();
 
     await expect(StaffAuthService.authenticateControlledDispenseWitness({
       employeeId: EMPLOYEE_ID,

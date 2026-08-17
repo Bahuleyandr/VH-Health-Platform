@@ -42,6 +42,35 @@ const idempotencyKeyParameter = {
     pattern: '^[A-Za-z0-9_\\-:.]+$',
   },
 };
+const approvalIdPathParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'BIGSERIAL witness approval id serialized as decimal text.',
+  schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+};
+
+const counterSaleIntentProperties = {
+  lines: {
+    type: 'array',
+    minItems: 1,
+    items: { $ref: '#/components/schemas/PharmacyCounterSaleLineInput' },
+  },
+  patient_uid: {
+    type: 'string', format: 'uuid', nullable: true,
+    description: 'Registered patient. Omit for an anonymous walk-in (customer_name then required).',
+  },
+  customer_name: { type: 'string', nullable: true },
+  customer_phone: { type: 'string', nullable: true },
+  rx: { allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleRxInput' }], nullable: true },
+  payment_mode: {
+    type: 'string',
+    enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET'],
+  },
+  payment_reference: { type: 'string', nullable: true },
+  notes: { type: 'string', nullable: true },
+  sold_by_name: { type: 'string', nullable: true },
+};
 
 export const schemas = {
   PharmacyCounterSaleLineInput: {
@@ -71,39 +100,24 @@ export const schemas = {
     additionalProperties: false,
     required: ['lines', 'payment_mode'],
     properties: {
-      lines: {
-        type: 'array',
-        minItems: 1,
-        items: { $ref: '#/components/schemas/PharmacyCounterSaleLineInput' },
-      },
-      patient_uid: {
-        type: 'string', format: 'uuid', nullable: true,
-        description: 'Registered patient. Omit for an anonymous walk-in (customer_name then required).',
-      },
-      customer_name: { type: 'string', nullable: true },
-      customer_phone: { type: 'string', nullable: true },
-      rx: { allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleRxInput' }], nullable: true },
+      ...counterSaleIntentProperties,
       witness_approval_id: {
-        type: 'integer',
-        minimum: 1,
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
         nullable: true,
         description:
           'Approved, unexpired one-time witness approval returned by the two-person approval flow. Required for Schedule X / narcotic lines; caller-selected witness identity is never accepted.',
       },
-      payment_mode: {
-        type: 'string',
-        enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET'],
-      },
-      payment_reference: { type: 'string', nullable: true },
-      notes: { type: 'string', nullable: true },
-      sold_by_name: { type: 'string', nullable: true },
     },
   },
 
   PharmacyCounterSaleWitnessApprovalRequest: {
-    allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleCreateRequest' }],
+    type: 'object',
+    additionalProperties: false,
+    required: ['lines', 'payment_mode'],
+    properties: { ...counterSaleIntentProperties },
     description:
-      'The exact prospective sale payload to bind to a short-lived pending witness approval. Omit witness_approval_id until final submission.',
+      'The exact prospective sale payload to bind to a short-lived pending witness approval. witness_approval_id is not accepted on this pre-approval request.',
   },
 
   PharmacyCounterSaleWitnessApprovalDecisionRequest: {
@@ -171,10 +185,10 @@ export const schemas = {
   PharmacyInventoryWitnessApprovalRequest: {
     type: 'object',
     additionalProperties: false,
-    required: ['inventory_item_id', 'quantity'],
+    required: ['inventory_item_id', 'inventory_batch_id', 'quantity'],
     properties: {
       inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1, nullable: true },
+      inventory_batch_id: { type: 'integer', minimum: 1 },
       quantity: { type: 'number', minimum: 0.0001 },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
       patient_name: { type: 'string', nullable: true },
@@ -227,10 +241,10 @@ export const schemas = {
   PharmacyInventoryControlledDispenseRequest: {
     type: 'object',
     additionalProperties: false,
-    required: ['inventory_item_id', 'quantity'],
+    required: ['inventory_item_id', 'inventory_batch_id', 'quantity'],
     properties: {
       inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1, nullable: true },
+      inventory_batch_id: { type: 'integer', minimum: 1 },
       quantity: { type: 'number', minimum: 0.0001 },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
       patient_name: { type: 'string', nullable: true },
@@ -243,8 +257,8 @@ export const schemas = {
       patient_id_proof_type: { type: 'string', nullable: true },
       patient_id_proof_last4: { type: 'string', nullable: true },
       witness_approval_id: {
-        type: 'integer',
-        minimum: 1,
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
         nullable: true,
         description:
           'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.',
@@ -256,7 +270,6 @@ export const schemas = {
       },
       notes: { type: 'string', nullable: true },
       reference_id: { type: 'string', nullable: true },
-      require_usable_batch: { type: 'boolean', default: false },
     },
   },
 
@@ -485,12 +498,12 @@ function ops(prefix) {
       request: 'PharmacyCounterSaleWitnessApprovalDecisionRequest',
       response: 'PharmacyCounterSaleWitnessApprovalResponse',
       security: bearerSecurity,
-      parameters: [idempotencyKeyParameter],
+      parameters: [approvalIdPathParameter, idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
       description:
-        'Atomically decrements controlled inventory and writes the statutory register entry. Schedule X / narcotic items require a matching approved one-time witness_approval_id; performed_by is always the authenticated bearer.',
+        'Atomically decrements one concrete in-stock, non-expired batch with sufficient stock and writes the statutory register entry. Batch safety is always server-enforced and cannot be disabled by the caller. Schedule X / narcotic items require a matching approved one-time witness_approval_id; performed_by is always the authenticated bearer.',
       request: 'PharmacyInventoryControlledDispenseRequest',
       response: 'PharmacyInventoryControlledDispenseResponse',
       security: bearerSecurity,
@@ -511,7 +524,7 @@ function ops(prefix) {
       request: 'PharmacyInventoryWitnessApprovalDecisionRequest',
       response: 'PharmacyInventoryWitnessApprovalResponse',
       security: bearerSecurity,
-      parameters: [idempotencyKeyParameter],
+      parameters: [approvalIdPathParameter, idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`GET ${prefix}/counter-sales`]: {

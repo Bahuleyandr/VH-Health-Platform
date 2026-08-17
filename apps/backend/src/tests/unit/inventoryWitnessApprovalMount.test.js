@@ -19,7 +19,7 @@ describe('inventory controlled-dispense witness app mount', () => {
       dispense: { inventory_item_id: 17, quantity: 1 },
     });
     expect(response.statusCode).toBe(400);
-    expect(response.body.code).toBe('CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID');
+    expect(response.body.code).toBe('INVENTORY_BATCH_REQUIRED');
   });
 
   it('requires an idempotency key after the clinical witness reaches the approval route', async () => {

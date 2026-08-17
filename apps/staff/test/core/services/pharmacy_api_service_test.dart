@@ -90,7 +90,7 @@ void main() {
             );
           }
           expect(request.url.path, endsWith('/pharmacy-orders/counter-sales'));
-          expect(body['witness_approval_id'], 71);
+          expect(body['witness_approval_id'], '71');
           expect(body.containsKey('witness'), isFalse);
           return http.Response(
             jsonEncode({
@@ -110,7 +110,7 @@ void main() {
         idempotencyKey: 'counter-witness-request:test-1',
       );
       await PharmacyApiService.approveCounterSaleWitnessApproval(
-        approvalId: 71,
+        approvalId: '71',
         sale: sale,
         employeeId: 'nurse-002',
         password: 'witness-secret',
@@ -121,7 +121,7 @@ void main() {
         customerName: 'Walk-in Customer',
         customerPhone: '9876543210',
         rx: Map<String, dynamic>.from(sale['rx'] as Map),
-        witnessApprovalId: 71,
+        witnessApprovalId: '71',
         paymentMode: 'CASH',
       );
 
@@ -175,7 +175,7 @@ void main() {
         idempotencyKey: 'counter-witness-request:lost-response',
       );
       await PharmacyApiService.approveCounterSaleWitnessApproval(
-        approvalId: 71,
+        approvalId: '71',
         sale: sale,
         employeeId: 'NURSE-002',
         password: 'witness-secret',

@@ -168,6 +168,20 @@ describe('_checkStaffLockout', () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '2' }]);
     await expect(StaffAuthService._checkStaffLockout('EMP1', REQ)).resolves.toBeUndefined();
     expect(mockLogSecurityEvent).not.toHaveBeenCalled();
+    const [sql] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).not.toContain('CONTROLLED_DISPENSE_WITNESS');
+  });
+
+  it('counts witness failures only when the tenant identity is explicit', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    await StaffAuthService._checkStaffLockout('EMP1', REQ, '/approve', {
+      tenantId: STAFF_TENANT_ID,
+      client: mockPrisma,
+    });
+    const [sql, employeeId, tenantId] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('CONTROLLED_DISPENSE_WITNESS');
+    expect(sql).toContain('tenant_id = $2::uuid');
+    expect([employeeId, tenantId]).toEqual(['EMP1', STAFF_TENANT_ID]);
   });
 
   it('throws + logs ACCOUNT_LOCKED when count is at/above the limit', async () => {
@@ -348,6 +362,18 @@ describe('authenticateControlledDispenseWitness', () => {
     });
 
     expect(result).toMatchObject({ uid: STAFF_ROW.uid, tenantId: STAFF_TENANT_ID });
+    const witnessLock = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /pg_advisory_xact_lock/.test(sql),
+    );
+    expect(witnessLock).toBeDefined();
+    expect(witnessLock.slice(1)).toEqual([
+      `controlled-dispense-witness-auth:${STAFF_TENANT_ID}:EMP1`,
+    ]);
+    const witnessLockIndex = mockPrisma.$queryRawUnsafe.mock.calls.indexOf(witnessLock);
+    const lockoutIndex = mockPrisma.$queryRawUnsafe.mock.calls.findIndex(
+      ([sql]) => /COUNT\(\*\) as cnt FROM auth_logs/.test(sql),
+    );
+    expect(witnessLockIndex).toBeLessThan(lockoutIndex);
     const staffLookup = mockPrisma.$queryRawUnsafe.mock.calls.find(
       ([sql]) => /FROM staff s\s+JOIN users u/.test(sql),
     );

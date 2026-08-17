@@ -17,7 +17,7 @@ typedef CounterSaleCreator =
       String? customerName,
       String? customerPhone,
       Map<String, dynamic>? rx,
-      int? witnessApprovalId,
+      String? witnessApprovalId,
       required String paymentMode,
       String? paymentReference,
       String? notes,
@@ -29,7 +29,7 @@ typedef CounterSaleWitnessApprovalRequester =
     });
 typedef CounterSaleWitnessApprovalApprover =
     Future<Map<String, dynamic>> Function({
-      required int approvalId,
+      required String approvalId,
       required Map<String, dynamic> sale,
       required String employeeId,
       required String password,
@@ -72,6 +72,8 @@ class _WitnessCredentials {
   final String employeeId;
   final String password;
 }
+
+enum _WitnessAttemptStage { request, approval }
 
 class _CartLine {
   _CartLine(this.item, this.quantity);
@@ -137,10 +139,16 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   bool _witnessBusy = false;
   bool _walkIn = true;
   String _paymentMode = 'CASH';
-  int? _witnessApprovalId;
+  String? _witnessApprovalId;
   String? _witnessApprovalFingerprint;
   String? _approvedWitnessName;
   bool _witnessApproved = false;
+  final _witnessRequestAttempt = IdempotencyAttempt(
+    'counter-sale-witness-request',
+  );
+  final _witnessApprovalAttempt = IdempotencyAttempt(
+    'counter-sale-witness-approval',
+  );
 
   List<Map<String, dynamic>> _recent = const [];
   bool _recentLoading = false;
@@ -198,6 +206,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     _witnessApprovalFingerprint = null;
     _approvedWitnessName = null;
     _witnessApproved = false;
+    _witnessRequestAttempt.reset();
+    _witnessApprovalAttempt.reset();
   }
 
   void _invalidateWitnessApproval() {
@@ -423,11 +433,38 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return s.lookup('s4.lib.counter_sale.witness_auth_failed');
   }
 
+  bool _isDefinitiveWitnessError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('invalid employee') ||
+        message.contains('invalid credential') ||
+        message.contains('password') ||
+        message.contains('deactivated') ||
+        message.contains('inactive') ||
+        message.contains('unauthorized') ||
+        message.contains('forbidden') ||
+        message.contains('locked') ||
+        message.contains('too many') ||
+        message.contains('required') ||
+        message.contains('expired') ||
+        message.contains('consumed') ||
+        message.contains('already') ||
+        message.contains('match') ||
+        message.contains('different') ||
+        message.contains('own controlled dispense') ||
+        message.contains('self') ||
+        message.contains('role') ||
+        message.contains('eligible') ||
+        message.contains('not found') ||
+        message.contains('missing') ||
+        message.contains('idempotency');
+  }
+
   Future<void> _requestOrApproveWitness() async {
     final s = AppStrings.of(context);
     if (_witnessBusy || !_needsWitness || _cart.isEmpty) return;
     final sale = _currentSalePayload();
     final fingerprint = _saleFingerprint(sale);
+    var attemptStage = _WitnessAttemptStage.request;
     setState(() => _witnessBusy = true);
     try {
       var approvalId = _witnessApprovalFingerprint == fingerprint
@@ -439,17 +476,18 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             PharmacyApiService.requestCounterSaleWitnessApproval;
         final pending = await requester(
           sale: sale,
-          idempotencyKey:
-              'counter-sale-witness-request:${IdempotencyKey.generate()}',
+          idempotencyKey: _witnessRequestAttempt.keyFor(sale),
         );
-        approvalId = int.tryParse(pending['id']?.toString() ?? '');
-        if (approvalId == null || approvalId <= 0) {
+        final returnedApprovalId = pending['id']?.toString().trim() ?? '';
+        if (!RegExp(r'^[1-9][0-9]*$').hasMatch(returnedApprovalId)) {
           throw StateError('Witness approval id missing');
         }
+        approvalId = returnedApprovalId;
         if (!mounted) return;
         if (_saleFingerprint(_currentSalePayload()) != fingerprint) {
           throw StateError('Sale changed while requesting witness approval');
         }
+        _witnessRequestAttempt.reset();
         setState(() {
           _witnessApprovalId = approvalId;
           _witnessApprovalFingerprint = fingerprint;
@@ -463,18 +501,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       final approver =
           widget.approveWitnessApproval ??
           PharmacyApiService.approveCounterSaleWitnessApproval;
+      attemptStage = _WitnessAttemptStage.approval;
       final approved = await approver(
         approvalId: approvalId,
         sale: sale,
         employeeId: credentials.employeeId,
         password: credentials.password,
-        idempotencyKey:
-            'counter-sale-witness-approval:${IdempotencyKey.generate()}',
+        idempotencyKey: _witnessApprovalAttempt.keyFor({
+          'approvalId': approvalId,
+          'sale': sale,
+          'employeeId': credentials.employeeId,
+        }),
       );
       if (!mounted) return;
       if (_saleFingerprint(_currentSalePayload()) != fingerprint) {
         throw StateError('Sale changed while witness approval was pending');
       }
+      _witnessApprovalAttempt.reset();
       final witness = approved['witness'];
       final witnessName = witness is Map ? witness['name']?.toString() : null;
       setState(() {
@@ -487,6 +530,13 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     } catch (error) {
       if (mounted) {
         final message = error.toString().toLowerCase();
+        if (_isDefinitiveWitnessError(error)) {
+          if (attemptStage == _WitnessAttemptStage.request) {
+            _witnessRequestAttempt.reset();
+          } else {
+            _witnessApprovalAttempt.reset();
+          }
+        }
         final invalidApproval =
             message.contains('expired') ||
             message.contains('consumed') ||

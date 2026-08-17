@@ -138,6 +138,18 @@ async function resolveWitnessActor(req, tenantId) {
   }
 }
 
+function witnessApprovalIdempotencyBody(req) {
+  const body = req.body || {};
+  const usesStaffPassword = Object.hasOwn(body, 'employeeId') || Object.hasOwn(body, 'password');
+  return {
+    credentialMode: usesStaffPassword ? 'staff_password' : 'bearer',
+    employeeId: usesStaffPassword
+      ? String(body.employeeId || '').trim().toUpperCase() || null
+      : null,
+    dispense: body.dispense || {},
+  };
+}
+
 // ── Drug master / items ───────────────────────────────────────────────
 router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   tenantId: inv.tenantOf(req),
@@ -187,6 +199,7 @@ pharmacyInventoryWitnessApprovalRoutes.post('/',
     required: true,
     scope: 'pharmacy_inventory_witness_approval',
     retainOnServerError: true,
+    requestBodyForIdempotency: witnessApprovalIdempotencyBody,
   }),
   wrap(async (req) => {
     const tenantId = inv.tenantOf(req);

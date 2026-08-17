@@ -63,14 +63,19 @@ function requireUuid(value, label) {
 }
 
 function requireApprovalId(value) {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  const parsed = String(value ?? '').trim();
+  if (!/^[1-9][0-9]{0,18}$/.test(parsed) || BigInt(parsed) > 9223372036854775807n) {
     throw AppError.badRequest(
       'witness_approval_id must be a positive integer',
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
     );
   }
   return parsed;
+}
+
+function serializeApprovalId(row) {
+  if (!row || row.id == null) return row;
+  return { ...row, id: String(row.id) };
 }
 
 function requireScope(value) {
@@ -254,7 +259,7 @@ export async function createControlledDispenseWitnessApproval({
   });
   const ttlMinutes = SECURITY_CONFIG.controlledDispenseWitness.approvalTtlMinutes;
   const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
-  return setTenantTx(tenantId, (tx) => createApproval({
+  const approval = await setTenantTx(tenantId, (tx) => createApproval({
     tenantId,
     approvalKind: APPROVAL_KIND,
     subjectResourceType: normalizedScope,
@@ -270,6 +275,7 @@ export async function createControlledDispenseWitnessApproval({
     },
     tx,
   }));
+  return serializeApprovalId(approval);
 }
 
 export async function approveControlledDispenseWitnessApproval({
@@ -306,7 +312,7 @@ export async function approveControlledDispenseWitnessApproval({
       decision: 'approve',
       tx,
     });
-    return { ...approved, witness };
+    return { ...serializeApprovalId(approved), witness };
   });
 }
 

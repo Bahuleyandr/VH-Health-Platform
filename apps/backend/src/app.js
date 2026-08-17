@@ -175,6 +175,10 @@ import engagementRoutes from './routes/engagement/engagementRoutes.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
+import {
+  COUNTER_SALE_APPROVAL_HOST_ROLES,
+  pharmacyCounterSaleWitnessApprovalRoutes,
+} from './routes/pharmacy/counterSaleRoutes.js';
 import pharmacyInventoryV2Routes, {
   pharmacyInventoryWitnessApprovalRoutes,
   PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
@@ -1017,6 +1021,18 @@ app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(.
 // Pharmacy inventory and stores/purchase routes are operational supply-chain
 // surfaces. Mount them before the broader pharmacy-order router so stores and
 // purchase users do not need patient pharmacy-order permissions.
+app.use(
+  '/api/v1/pharmacy/counter-sales/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...COUNTER_SALE_APPROVAL_HOST_ROLES),
+  pharmacyCounterSaleWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/counter-sales/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...COUNTER_SALE_APPROVAL_HOST_ROLES),
+  pharmacyCounterSaleWitnessApprovalRoutes,
+);
 app.use(
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/:id/approve',
   patientRateLimiter,

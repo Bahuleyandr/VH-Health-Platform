@@ -348,7 +348,7 @@ class PharmacyApiService {
   /// Authenticates the second staff member without replacing the seller's
   /// session, then approves the same sale payload that was requested.
   static Future<Map<String, dynamic>> approveCounterSaleWitnessApproval({
-    required int approvalId,
+    required String approvalId,
     required Map<String, dynamic> sale,
     required String employeeId,
     required String password,
@@ -371,7 +371,7 @@ class PharmacyApiService {
     String? customerName,
     String? customerPhone,
     Map<String, dynamic>? rx,
-    int? witnessApprovalId,
+    String? witnessApprovalId,
     required String paymentMode,
     String? paymentReference,
     String? notes,

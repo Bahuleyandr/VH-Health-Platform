@@ -154,13 +154,13 @@ export class StaffAuthService {
     path = '/api/v1/auth/staff/login',
     { tenantId = null, client = prisma } = {},
   ) {
+    const lockoutActions = tenantId
+      ? "'STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN', 'CONTROLLED_DISPENSE_WITNESS'"
+      : "'STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN'";
     const lockCheck = await query(`
       SELECT COUNT(*) as cnt FROM auth_logs
       WHERE phone = $1 AND success = false
-        AND action IN (
-          'STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN',
-          'CONTROLLED_DISPENSE_WITNESS'
-        )
+        AND action IN (${lockoutActions})
         ${tenantId ? 'AND tenant_id = $2::uuid' : ''}
         AND created_at > NOW() - INTERVAL '15 minutes'
     `, tenantId ? [employeeId, tenantId] : [employeeId], client);
@@ -172,7 +172,7 @@ export class StaffAuthService {
         ip: req?.ip,
         userAgent: req?.headers?.['user-agent'],
         path,
-        reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across all auth methods in 15 minutes`,
+        reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across applicable auth methods in 15 minutes`,
       });
       trackFailedLogin(req?.ip, tenantId ? `${tenantId}:${employeeId}` : employeeId);
       throw AppError.tooMany(
@@ -448,6 +448,11 @@ export class StaffAuthService {
 
     const outcome = await setTenant(expectedTenantId, async (client) => {
       try {
+        await query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired',
+          [`controlled-dispense-witness-auth:${expectedTenantId}:${normalizedEmployeeId}`],
+          client,
+        );
         const staff = await this._authenticateStaffPassword(
           normalizedEmployeeId,
           suppliedPassword,

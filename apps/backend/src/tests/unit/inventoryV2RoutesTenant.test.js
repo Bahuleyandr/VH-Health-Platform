@@ -119,6 +119,23 @@ describe('pharmacy inventory route tenant boundary', () => {
         retainOnServerError: true,
       }),
     ]));
+    const approvalIdempotency = idempotencyScopes.find(
+      ({ scope }) => scope === 'pharmacy_inventory_witness_approval',
+    );
+    const projectedApproval = approvalIdempotency.requestBodyForIdempotency({
+      body: {
+        actorUid: 'caller-selected',
+        employeeId: ' nurse-002 ',
+        password: 'witness-secret',
+        dispense: { inventory_item_id: 17, quantity: 1 },
+      },
+    });
+    expect(projectedApproval).toEqual({
+      credentialMode: 'staff_password',
+      employeeId: 'NURSE-002',
+      dispense: { inventory_item_id: 17, quantity: 1 },
+    });
+    expect(JSON.stringify(projectedApproval)).not.toContain('witness-secret');
     const requestResponse = await request(app)
       .post('/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals')
       .send({ tenantId: OTHER_TENANT, requested_by: 'caller-selected', inventory_item_id: 17 });

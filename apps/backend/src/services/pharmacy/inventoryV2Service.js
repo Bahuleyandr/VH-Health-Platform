@@ -372,6 +372,61 @@ export async function recordMovementTx(tx, {
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
 
+const CONTROLLED_BATCH_SAFETY_CONTRACT =
+  'usable_in_stock_nonexpired_sufficient_stock_v1';
+
+function requireControlledBatchId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest(
+      'inventory_batch_id is required for controlled dispensing',
+      'INVENTORY_BATCH_REQUIRED',
+    );
+  }
+  return id;
+}
+
+async function requireUsableControlledBatch(db, {
+  tenantId, inventoryItemId, inventoryBatchId, quantity,
+}) {
+  const batchId = requireControlledBatchId(inventoryBatchId);
+  const requestedQuantity = Number(quantity);
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+    throw AppError.badRequest('quantity must be > 0');
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, status, remaining_quantity,
+            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id = $1::uuid
+        AND inventory_item_id = $2::int
+        AND id = $3::int`,
+    tenantId,
+    Number(inventoryItemId),
+    batchId,
+  );
+  if (!rows[0]) throw AppError.notFound('Batch not found');
+  if (rows[0].status !== 'in_stock') {
+    throw AppError.badRequest(
+      `Inventory batch is not available for issue (status: ${rows[0].status})`,
+      'INVENTORY_BATCH_UNAVAILABLE',
+    );
+  }
+  if (rows[0].is_expired) {
+    throw AppError.badRequest(
+      'Inventory batch is expired and cannot be issued',
+      'INVENTORY_BATCH_EXPIRED',
+    );
+  }
+  if (Number(rows[0].remaining_quantity) < requestedQuantity) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${rows[0].remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  return rows[0];
+}
+
 /**
  * Transaction-scoped core of dispenseControlled. Runs the controlled-substance
  * pre-conditions, the stock decrement (recordMovementTx) and the statutory
@@ -385,15 +440,14 @@ export async function recordMovementTx(tx, {
  *
  * `reference_id` optionally overrides the movement's reference (defaults to
  * the prescription number) so composers can point the movement at their own
- * evidence row; `require_usable_batch` adds recordMovementTx's expired/
- * non-in-stock batch rejection.
+ * evidence row. Controlled dispensing always requires and revalidates one
+ * concrete usable batch under the stock lock.
  */
 export function controlledDispenseWitnessPayload(params = {}) {
   return {
     inventory_item_id: Number(params.inventory_item_id),
-    inventory_batch_id: params.inventory_batch_id == null
-      ? null
-      : Number(params.inventory_batch_id),
+    inventory_batch_id: requireControlledBatchId(params.inventory_batch_id),
+    batch_safety_contract: CONTROLLED_BATCH_SAFETY_CONTRACT,
     quantity: Number(params.quantity),
     patient_uid: params.patient_uid ? String(params.patient_uid) : null,
     patient_name: params.patient_name ? String(params.patient_name).trim() : null,
@@ -433,6 +487,12 @@ export async function requestControlledDispenseWitnessApproval(params) {
     tenantId: params.tenantId,
     inventoryItemId: params.inventory_item_id,
   });
+  await requireUsableControlledBatch(prisma, {
+    tenantId: params.tenantId,
+    inventoryItemId: params.inventory_item_id,
+    inventoryBatchId: params.inventory_batch_id,
+    quantity: params.quantity,
+  });
   return createControlledDispenseWitnessApproval({
     tenantId: params.tenantId,
     scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
@@ -461,8 +521,8 @@ export async function dispenseControlledTx(tx, {
   performed_by, performed_by_name,
   witness_approval_id, witness_evidence = null, notes,
   reference_id = null,
-  require_usable_batch = false,
 }) {
+  const controlledBatchId = requireControlledBatchId(inventory_batch_id);
   // Pre-conditions: item must be Schedule H/H1/X (or marked narcotic).
   const items = await tx.$queryRawUnsafe(
     `SELECT id, schedule_class, is_narcotic, unit_label
@@ -514,14 +574,14 @@ export async function dispenseControlledTx(tx, {
     const { movement } = await recordMovementTx(tx, {
       tenantId,
       inventory_item_id,
-      inventory_batch_id,
+      inventory_batch_id: controlledBatchId,
       movement_kind: 'issue',
       quantity,
       reference_type: 'controlled_dispense',
       reference_id: reference_id || prescription_number || `pres-${prescription_id || ''}`,
       performed_by,
       notes: `Schedule ${item.schedule_class} dispense; witness ${witness?.name || 'n/a'}`,
-      require_usable_batch,
+      require_usable_batch: true,
     });
 
     // Compute running balance across batches, read inside the same tx so it
@@ -549,7 +609,7 @@ export async function dispenseControlledTx(tx, {
        RETURNING *`,
       tenantId,
       Number(inventory_item_id),
-      inventory_batch_id ? Number(inventory_batch_id) : null,
+      controlledBatchId,
       item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
       Number(quantity),
       item.unit_label,

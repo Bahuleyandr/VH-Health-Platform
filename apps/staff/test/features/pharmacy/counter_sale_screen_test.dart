@@ -43,7 +43,7 @@ Widget _screen({
             String? customerName,
             String? customerPhone,
             Map<String, dynamic>? rx,
-            int? witnessApprovalId,
+            String? witnessApprovalId,
             required String paymentMode,
             String? paymentReference,
             String? notes,
@@ -119,7 +119,7 @@ void main() {
               String? customerName,
               String? customerPhone,
               Map<String, dynamic>? rx,
-              int? witnessApprovalId,
+              String? witnessApprovalId,
               required String paymentMode,
               String? paymentReference,
               String? notes,
@@ -194,7 +194,7 @@ void main() {
       String? witnessPassword;
       String? witnessRequestIdempotencyKey;
       String? witnessApprovalIdempotencyKey;
-      int? submittedApprovalId;
+      String? submittedApprovalId;
       _useTallViewport(tester);
       await tester.pumpWidget(
         _screen(
@@ -215,7 +215,7 @@ void main() {
                 required password,
                 required idempotencyKey,
               }) async {
-                expect(approvalId, 71);
+                expect(approvalId, '71');
                 approvedSale = Map<String, dynamic>.from(sale);
                 witnessEmployeeId = employeeId;
                 witnessPassword = password;
@@ -304,7 +304,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
       await tester.pumpAndSettle();
-      expect(submittedApprovalId, 71);
+      expect(submittedApprovalId, '71');
     },
   );
 
@@ -368,6 +368,123 @@ void main() {
     );
     expect(sellButton.onPressed, isNull);
   });
+
+  testWidgets(
+    'manual retry reuses the witness request key after an indeterminate lost response',
+    (tester) async {
+      final requestKeys = <String>[];
+      _useTallViewport(tester);
+      await tester.pumpWidget(
+        _screen(
+          searchItems: ({String? search}) async => [
+            _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
+          ],
+          requestWitnessApproval:
+              ({required sale, required idempotencyKey}) async {
+                requestKeys.add(idempotencyKey);
+                if (requestKeys.length == 1) {
+                  throw Exception('response lost after durable write');
+                }
+                return {'id': '81', 'status': 'pending'};
+              },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _addFirstResult(tester);
+
+      final witnessButton = find.byKey(
+        const ValueKey('counter-sale-witness-request'),
+      );
+      await tester.ensureVisible(witnessButton);
+      await tester.tap(witnessButton);
+      await tester.pumpAndSettle();
+      await tester.tap(witnessButton);
+      await tester.pumpAndSettle();
+
+      expect(requestKeys, hasLength(2));
+      expect(requestKeys[1], requestKeys[0]);
+      expect(
+        find.byKey(const ValueKey('counter-sale-witness-employee-id')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'manual retry reuses an indeterminate approval key but rotates after a credential rejection',
+    (tester) async {
+      final approvalKeys = <String>[];
+      var approvalAttempt = 0;
+      _useTallViewport(tester);
+      await tester.pumpWidget(
+        _screen(
+          searchItems: ({String? search}) async => [
+            _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
+          ],
+          requestWitnessApproval:
+              ({required sale, required idempotencyKey}) async => {
+                'id': '82',
+                'status': 'pending',
+              },
+          approveWitnessApproval:
+              ({
+                required approvalId,
+                required sale,
+                required employeeId,
+                required password,
+                required idempotencyKey,
+              }) async {
+                approvalAttempt += 1;
+                approvalKeys.add(idempotencyKey);
+                if (approvalAttempt == 1) {
+                  throw Exception('response lost after durable write');
+                }
+                if (approvalAttempt == 2) {
+                  throw Exception('Invalid employee ID or password');
+                }
+                return {
+                  'id': '82',
+                  'status': 'approved',
+                  'witness': {'name': 'Canonical Nurse'},
+                };
+              },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _addFirstResult(tester);
+
+      Future<void> submitWitnessCredentials() async {
+        await tester.tap(
+          find.byKey(const ValueKey('counter-sale-witness-request')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('counter-sale-witness-employee-id')),
+          'NURSE-002',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('counter-sale-witness-password')),
+          'witness-secret',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('counter-sale-witness-approve-submit')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('counter-sale-witness-request')),
+      );
+      await submitWitnessCredentials();
+      await submitWitnessCredentials();
+      await submitWitnessCredentials();
+
+      expect(approvalKeys, hasLength(3));
+      expect(approvalKeys[1], approvalKeys[0]);
+      expect(approvalKeys[2], isNot(approvalKeys[1]));
+      expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
+    },
+  );
 
   testWidgets('recent tab lists sales and voids with a reason', (tester) async {
     String? voidedId;

@@ -24,11 +24,15 @@ import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { AppError } from '../../utils/AppError.js';
 
 const router = Router();
+export const pharmacyCounterSaleWitnessApprovalRoutes = Router({ mergeParams: true });
 
 export const COUNTER_SALE_SELL_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const COUNTER_SALE_VOID_ROLES = [ADMIN, PHARMACY_INCHARGE];
 export const COUNTER_SALE_READ_ROLES = [
   ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE,
+];
+export const COUNTER_SALE_APPROVAL_HOST_ROLES = [
+  ...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
 ];
 
 function wrap(handler) {
@@ -62,9 +66,21 @@ const requireRead = requireCounterSaleRole(
   COUNTER_SALE_READ_ROLES, 'Pharmacy role required',
 );
 const requireApprovalHost = requireCounterSaleRole(
-  [...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES])],
+  COUNTER_SALE_APPROVAL_HOST_ROLES,
   'Pharmacy seller or clinical witness role required',
 );
+
+function witnessApprovalIdempotencyBody(req) {
+  const body = req.body || {};
+  const usesStaffPassword = Object.hasOwn(body, 'employeeId') || Object.hasOwn(body, 'password');
+  return {
+    credentialMode: usesStaffPassword ? 'staff_password' : 'bearer',
+    employeeId: usesStaffPassword
+      ? String(body.employeeId || '').trim().toUpperCase() || null
+      : null,
+    sale: body.sale || {},
+  };
+}
 
 async function resolveWitnessActor(req, tenantId) {
   const employeeId = req.body?.employeeId;
@@ -118,10 +134,11 @@ router.post('/witness-approvals', requireSell, requireIdempotencyKey({
   })
 )));
 
-router.post('/witness-approvals/:id/approve', requireApprovalHost, requireIdempotencyKey({
+pharmacyCounterSaleWitnessApprovalRoutes.post('/', requireApprovalHost, requireIdempotencyKey({
   required: true,
   scope: 'pharmacy_counter_sale_witness_approval',
   retainOnServerError: true,
+  requestBodyForIdempotency: witnessApprovalIdempotencyBody,
 }), wrap(async (req) => {
   const tenantId = tenantOf(req);
   const actor = await resolveWitnessActor(req, tenantId);

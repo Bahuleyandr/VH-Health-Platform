@@ -387,6 +387,12 @@ function counterSaleWitnessPayload({
 }
 
 async function prepareCounterSaleWitnessPayload(params) {
+  if (Object.hasOwn(params || {}, 'witness_approval_id')) {
+    throw AppError.badRequest(
+      'witness_approval_id is not accepted before witness approval',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_PRESELECTED',
+    );
+  }
   validateSaleInput({
     ...params,
     sold_by: params.requested_by || 'authenticated-seller',

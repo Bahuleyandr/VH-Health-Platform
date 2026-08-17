@@ -32,7 +32,10 @@ jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   },
 }));
 
-const { default: counterSaleRoutes } = await import(
+const {
+  default: counterSaleRoutes,
+  pharmacyCounterSaleWitnessApprovalRoutes,
+} = await import(
   '../../routes/pharmacy/counterSaleRoutes.js'
 );
 
@@ -43,6 +46,10 @@ app.use((req, _res, next) => {
   req.user = { uid: ACTOR, role: actorRole };
   next();
 });
+app.use(
+  '/counter-sales/witness-approvals/:id/approve',
+  pharmacyCounterSaleWitnessApprovalRoutes,
+);
 app.use('/counter-sales', counterSaleRoutes);
 
 beforeEach(() => {
@@ -65,6 +72,23 @@ test('counter-sale witness endpoints bind seller and approver to authenticated a
       retainOnServerError: true,
     }),
   ]));
+  const approvalIdempotency = idempotencyScopes.find(
+    ({ scope }) => scope === 'pharmacy_counter_sale_witness_approval',
+  );
+  const projectedApproval = approvalIdempotency.requestBodyForIdempotency({
+    body: {
+      actorUid: 'caller-selected',
+      employeeId: ' nurse-002 ',
+      password: 'witness-secret',
+      sale: { lines: [] },
+    },
+  });
+  expect(projectedApproval).toEqual({
+    credentialMode: 'staff_password',
+    employeeId: 'NURSE-002',
+    sale: { lines: [] },
+  });
+  expect(JSON.stringify(projectedApproval)).not.toContain('witness-secret');
   const requestResponse = await request(app)
     .post('/counter-sales/witness-approvals')
     .send({ tenantId: 'caller-tenant', requested_by: 'caller-actor', lines: [] });

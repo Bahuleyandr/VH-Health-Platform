@@ -20,6 +20,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const { requireIdempotencyKey } = await import('../../middleware/idempotencyMiddleware.js');
+const { hashRequestBody } = await import('../../services/idempotency/idempotencyService.js');
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
@@ -132,6 +133,54 @@ describe('requireIdempotencyKey', () => {
     await new Promise((r) => setImmediate(r));
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE idempotency_keys/);
+  });
+
+  it('hashes only the route-selected non-secret witness approval fields', async () => {
+    async function claimedHash(body) {
+      queryUnsafeMock.mockResolvedValueOnce([{ id: 99, status: 'in_flight' }]);
+      const mw = requireIdempotencyKey({
+        required: true,
+        scope: 'pharmacy_counter_sale_witness_approval',
+        requestBodyForIdempotency: (req) => ({
+          employeeId: req.body.employeeId,
+          sale: req.body.sale,
+        }),
+      });
+      const { req, res } = makeReqRes({
+        headers: { 'idempotency-key': 'witness-approval-key' },
+        body,
+      });
+      await mw(req, res, jest.fn());
+      const hash = queryUnsafeMock.mock.calls.at(-1)[6];
+      expect(req.body.password).toBe(body.password);
+      return hash;
+    }
+
+    const sale = { lines: [{ inventory_item_id: 17, quantity: 1 }] };
+    const firstHash = await claimedHash({
+      employeeId: 'NURSE-002',
+      password: 'first-witness-secret',
+      sale,
+    });
+    const changedPasswordHash = await claimedHash({
+      employeeId: 'NURSE-002',
+      password: 'different-witness-secret',
+      sale,
+    });
+    const changedEmployeeHash = await claimedHash({
+      employeeId: 'NURSE-003',
+      password: 'first-witness-secret',
+      sale,
+    });
+
+    expect(firstHash).toBe(hashRequestBody({ employeeId: 'NURSE-002', sale }));
+    expect(firstHash).not.toBe(hashRequestBody({
+      employeeId: 'NURSE-002',
+      password: 'first-witness-secret',
+      sale,
+    }));
+    expect(changedPasswordHash).toBe(firstHash);
+    expect(changedEmployeeHash).not.toBe(firstHash);
   });
 
   it('falls through on schema-missing', async () => {

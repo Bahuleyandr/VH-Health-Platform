@@ -130,9 +130,11 @@ describe('OpenAPI contract overlays (static gate)', () => {
       spec.components.schemas.PharmacyInventoryControlledDispenseRequest;
     expect(createSchema.properties.witness).toBeUndefined();
     expect(createSchema.properties.witness_approval_id).toEqual(expect.objectContaining({
-      type: 'integer',
-      minimum: 1,
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
     }));
+    const counterRequest = spec.components.schemas.PharmacyCounterSaleWitnessApprovalRequest;
+    expect(counterRequest.properties.witness_approval_id).toBeUndefined();
     expect(counterDecision.additionalProperties).toBe(false);
     expect(counterDecision.oneOf).toEqual([
       { required: ['employeeId', 'password'] },
@@ -145,12 +147,19 @@ describe('OpenAPI contract overlays (static gate)', () => {
         },
       },
     ]);
-    expect(inventoryDispense.required).toEqual(['inventory_item_id', 'quantity']);
+    expect(inventoryDispense.required).toEqual([
+      'inventory_item_id', 'inventory_batch_id', 'quantity',
+    ]);
     expect(inventoryDispense.properties.witness).toBeUndefined();
     expect(inventoryDispense.properties.witness_approval_id).toEqual(expect.objectContaining({
-      type: 'integer',
-      minimum: 1,
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
     }));
+    expect(inventoryDispense.properties.require_usable_batch).toBeUndefined();
+    const inventoryRequest = spec.components.schemas.PharmacyInventoryWitnessApprovalRequest;
+    expect(inventoryRequest.required).toEqual([
+      'inventory_item_id', 'inventory_batch_id', 'quantity',
+    ]);
 
     for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
       const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
@@ -165,6 +174,14 @@ describe('OpenAPI contract overlays (static gate)', () => {
       expect(approve?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
       });
+      expect(approve?.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+        }),
+      ]));
       expect(finalDispense?.security).toEqual(bearerSecurity);
       expect(finalDispense?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyInventoryControlledDispenseRequest',
@@ -184,6 +201,14 @@ describe('OpenAPI contract overlays (static gate)', () => {
       expect(inventoryApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest',
       });
+      expect(inventoryApprove?.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+        }),
+      ]));
       for (const operation of [
         finalSale,
         requestApproval,

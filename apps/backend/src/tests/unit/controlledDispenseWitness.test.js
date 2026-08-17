@@ -42,6 +42,7 @@ const WITNESS = '22222222-2222-4222-8222-222222222222';
 const PAYLOAD = {
   inventory_item_id: 5,
   inventory_batch_id: 9,
+  batch_safety_contract: 'usable_in_stock_nonexpired_sufficient_stock_v1',
   quantity: 1,
   patient_uid: null,
   patient_name: null,
@@ -142,13 +143,14 @@ describe('controlled-dispense witness roster', () => {
 
 describe('independent witness approval', () => {
   test('creates a short-lived approval bound to the seller and exact payload hash', async () => {
-    createApprovalMock.mockResolvedValueOnce({ id: 71, status: 'pending' });
-    await createControlledDispenseWitnessApproval({
+    createApprovalMock.mockResolvedValueOnce({ id: 71n, status: 'pending' });
+    const created = await createControlledDispenseWitnessApproval({
       tenantId: TENANT,
       scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
       payload: PAYLOAD,
       requestedBy: DISPENSER,
     });
+    expect(created.id).toBe('71');
     expect(createApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT,
       approvalKind: 'controlled_dispense_witness',
@@ -169,13 +171,14 @@ describe('independent witness approval', () => {
       .mockResolvedValueOnce([{
         uid: WITNESS, name: 'Canonical Witness', role: 'PHARMACY_STAFF',
       }]);
-    recordApprovalDecisionMock.mockResolvedValueOnce({ ...pending, status: 'approved' });
-    await approveControlledDispenseWitnessApproval({
+    recordApprovalDecisionMock.mockResolvedValueOnce({ ...pending, id: 71n, status: 'approved' });
+    const approved = await approveControlledDispenseWitnessApproval({
       tenantId: TENANT,
       approvalId: 71,
       actorUid: WITNESS,
       payload: PAYLOAD,
     });
+    expect(approved.id).toBe('71');
     expect(recordApprovalDecisionMock).toHaveBeenCalledWith(expect.objectContaining({
       actorUid: WITNESS,
       actorRoles: ['PHARMACY_STAFF'],
@@ -242,6 +245,43 @@ describe('independent witness approval', () => {
 });
 
 describe('dispenseControlledTx wiring', () => {
+  test('requires a concrete batch before reading inventory or moving stock', async () => {
+    await expect(dispenseControlled({
+      tenantId: TENANT,
+      inventory_item_id: 5,
+      quantity: 1,
+      performed_by: DISPENSER,
+      performed_by_name: 'Pharmacist',
+    })).rejects.toMatchObject({ code: 'INVENTORY_BATCH_REQUIRED' });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  test('caller flags cannot bypass locked batch status validation', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 5, schedule_class: 'H1', is_narcotic: false, unit_label: 'tab',
+      }])
+      .mockResolvedValueOnce([{
+        id: 9,
+        inventory_item_id: 5,
+        remaining_quantity: '10',
+        status: 'quarantined',
+        is_expired: false,
+      }]);
+
+    await expect(dispenseControlled({
+      tenantId: TENANT,
+      inventory_item_id: 5,
+      inventory_batch_id: 9,
+      quantity: 1,
+      performed_by: DISPENSER,
+      performed_by_name: 'Pharmacist',
+      require_usable_batch: false,
+    })).rejects.toMatchObject({ code: 'INVENTORY_BATCH_UNAVAILABLE' });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
   test('an unapproved Schedule X dispense rejects before any stock movement', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ id: 5, schedule_class: 'X', is_narcotic: true, unit_label: 'tab' }])

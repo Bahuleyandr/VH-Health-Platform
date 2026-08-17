@@ -10,6 +10,11 @@ import {
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
   requestCounterSaleWitnessApproval, searchSellableItems, ensureWalkInAnchorUid,
 } from '../services/pharmacy/counterSaleService.js';
+import {
+  approveInventoryDispenseWitnessApproval,
+  dispenseControlled,
+  requestControlledDispenseWitnessApproval,
+} from '../services/pharmacy/inventoryV2Service.js';
 import { authClient } from './testClient.js';
 
 const TENANT = '00000000-0000-4000-8000-0000c05a1e01';
@@ -29,7 +34,8 @@ const RX = { doctor_name: 'Dr. Test Prescriber', reference: 'RX-POS-001' };
 
 let otcItem; let otcNear; let otcFar;
 let h1Item; let h1Batch;
-let xItem; let xBatch;
+let h1ExpiredBatch; let h1QuarantinedBatch;
+let xItem; let xBatch; let xOtherBatch;
 let expiredItem;
 let foreignItem;
 
@@ -216,9 +222,14 @@ beforeAll(async () => {
 
   h1Item = await insertItem(TENANT, 'POS-H1-1', { schedule: 'H1' });
   h1Batch = await insertBatch(TENANT, h1Item, 'POS-H1-B1', { expiryDays: 120, qty: 60, mrpMinor: 2500 });
+  h1ExpiredBatch = await insertBatch(TENANT, h1Item, 'POS-H1-EXPIRED', { expiryDays: -1, qty: 20 });
+  h1QuarantinedBatch = await insertBatch(TENANT, h1Item, 'POS-H1-QUAR', {
+    expiryDays: 120, qty: 20, status: 'quarantined',
+  });
 
   xItem = await insertItem(TENANT, 'POS-X-1', { schedule: 'X', narcotic: true });
   xBatch = await insertBatch(TENANT, xItem, 'POS-X-B1', { expiryDays: 90, qty: 30, mrpMinor: 5000 });
+  xOtherBatch = await insertBatch(TENANT, xItem, 'POS-X-B2', { expiryDays: 180, qty: 30, mrpMinor: 5000 });
 
   expiredItem = await insertItem(TENANT, 'POS-EXP-1');
   await insertBatch(TENANT, expiredItem, 'POS-EXP-B1', { expiryDays: -1, qty: 100 });
@@ -245,6 +256,68 @@ afterAll(async () => {
   await cleanup();
   if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
 }, 30_000);
+
+describe('direct controlled-dispense batch safety', () => {
+  const h1Dispense = (overrides = {}) => ({
+    tenantId: TENANT,
+    inventory_item_id: h1Item,
+    inventory_batch_id: h1Batch,
+    quantity: 1,
+    performed_by: CASHIER,
+    performed_by_name: 'Counter Pharmacist',
+    ...overrides,
+  });
+
+  test('requires a concrete batch and ignores caller attempts to disable safety', async () => {
+    await expect(dispenseControlled(h1Dispense({
+      inventory_batch_id: null,
+      require_usable_batch: false,
+    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_REQUIRED' });
+    await expect(dispenseControlled(h1Dispense({
+      inventory_batch_id: h1QuarantinedBatch,
+      require_usable_batch: false,
+    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_UNAVAILABLE' });
+    await expect(dispenseControlled(h1Dispense({
+      inventory_batch_id: h1ExpiredBatch,
+      require_usable_batch: false,
+    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_EXPIRED' });
+    await expect(dispenseControlled(h1Dispense({
+      quantity: 10_000,
+      require_usable_batch: false,
+    }))).rejects.toMatchObject({ code: 'INVENTORY_INSUFFICIENT_STOCK' });
+  });
+
+  test('binds an inventory witness approval to the canonical concrete batch', async () => {
+    const dispense = {
+      inventory_item_id: xItem,
+      inventory_batch_id: xBatch,
+      quantity: 1,
+    };
+    const approval = await requestControlledDispenseWitnessApproval({
+      tenantId: TENANT,
+      requested_by: CASHIER,
+      ...dispense,
+    });
+    expect(approval.id).toMatch(/^[1-9][0-9]*$/);
+    await approveInventoryDispenseWitnessApproval({
+      tenantId: TENANT,
+      approvalId: approval.id,
+      actorUid: WITNESS,
+      dispense,
+    });
+
+    await expect(dispenseControlled({
+      tenantId: TENANT,
+      ...dispense,
+      inventory_batch_id: xOtherBatch,
+      performed_by: CASHIER,
+      performed_by_name: 'Counter Pharmacist',
+      witness_approval_id: approval.id,
+    })).rejects.toMatchObject({
+      code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    });
+  });
+});
 
 describe('walk-in counter sale — FEFO + billing + drawer', () => {
   let saleId;
@@ -379,6 +452,21 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
 });
 
 describe('schedule-class enforcement', () => {
+  test('witness approval request rejects a caller-preselected approval id', async () => {
+    await expect(requestCounterSaleWitnessApproval({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: xItem, quantity: 1 }],
+      customer_name: 'Preselected approval',
+      customer_phone: '9800000042',
+      rx: RX,
+      payment_mode: 'CARD',
+      requested_by: CASHIER,
+      witness_approval_id: '71',
+    })).rejects.toMatchObject({
+      code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_PRESELECTED',
+    });
+  });
+
   test('Schedule H1 requires a prescription reference', async () => {
     await expect(createCounterSale({
       tenantId: TENANT,
@@ -723,14 +811,14 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     const firstRequest = await staff().post(`${BASE}/witness-approvals`)
       .set('Idempotency-Key', requestKey).send(sale);
     expect(firstRequest.status).toBe(200);
-    const approvalId = Number(firstRequest.body.data.id);
-    expect(approvalId).toBeGreaterThan(0);
+    const approvalId = firstRequest.body.data.id;
+    expect(approvalId).toMatch(/^[1-9][0-9]*$/);
     await waitForIdemComplete(requestKey);
 
     const replayedRequest = await staff().post(`${BASE}/witness-approvals`)
       .set('Idempotency-Key', requestKey).send(sale);
     expect(replayedRequest.status).toBe(200);
-    expect(Number(replayedRequest.body.data.id)).toBe(approvalId);
+    expect(replayedRequest.body.data.id).toBe(approvalId);
 
     const approvalBody = { sale };
     const approvalKey = `pos-idem-${process.pid}-witness-approval`;
