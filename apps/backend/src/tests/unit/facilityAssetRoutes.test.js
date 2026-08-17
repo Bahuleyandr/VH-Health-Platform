@@ -9,10 +9,16 @@ const createFacilityAssetMock = jest.fn(async () => ({
   version: 1,
 }));
 const updateFacilityAssetMock = jest.fn();
+const listFacilityAssetCustodiansMock = jest.fn(async () => ({
+  custodians: [],
+  limit: 50,
+}));
+const logAuditMock = jest.fn();
 
 jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
   createFacilityAsset: createFacilityAssetMock,
   getFacilityAsset: jest.fn(),
+  listFacilityAssetCustodians: listFacilityAssetCustodiansMock,
   listFacilityAssetEvents: jest.fn(),
   listFacilityAssets: jest.fn(),
   recordFacilityAssetMaintenance: jest.fn(),
@@ -24,7 +30,7 @@ jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () =
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
-  logAudit: jest.fn(),
+  logAudit: logAuditMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -33,7 +39,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const { default: router } = await import('../../routes/facility/facilityAssetRoutes.js');
 
-function app() {
+function app({ acting = null } = {}) {
   const instance = express();
   instance.use(express.json());
   instance.use((req, _res, next) => {
@@ -43,6 +49,7 @@ function app() {
       role: 'ADMIN',
       rawRole: 'SUPER_ADMIN',
     };
+    req.acting = acting;
     next();
   });
   instance.use('/api/v1/facility/assets', router);
@@ -65,6 +72,54 @@ describe('facility asset route actor provenance', () => {
         actorUid: '22222222-2222-4222-8222-222222222222',
         actorRole: 'SUPER_ADMIN',
       },
+    );
+    const auditRequest = logAuditMock.mock.calls[0][0];
+    expect(auditRequest.user).toMatchObject({
+      uid: '22222222-2222-4222-8222-222222222222',
+      role: 'SUPER_ADMIN',
+    });
+    expect(logAuditMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      'facility-asset-create',
+      { asset_tag: 'GEN-02' },
+      { resource: 'facility_asset', resourceId: 7 },
+    );
+  });
+
+  it('uses the original acting-as identity and raw role in both audit trails', async () => {
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const response = await request(app({
+      acting: {
+        actorUid,
+        actorRole: 'ADMIN',
+        actorRawRole: 'SUPER_ADMIN',
+      },
+    }))
+      .post('/api/v1/facility/assets')
+      .send({ assetTag: 'GEN-02', name: 'Generator', category: 'generator' });
+
+    expect(response.status).toBe(201);
+    expect(createFacilityAssetMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      expect.objectContaining({ assetTag: 'GEN-02' }),
+      { actorUid, actorRole: 'SUPER_ADMIN' },
+    );
+    const auditRequest = logAuditMock.mock.calls[0][0];
+    expect(auditRequest.acting).toMatchObject({
+      actorUid,
+      actorRole: 'SUPER_ADMIN',
+    });
+    expect(auditRequest.user.uid).toBe('22222222-2222-4222-8222-222222222222');
+  });
+
+  it('lists tenant-scoped custodian choices before the /:id route', async () => {
+    const response = await request(app())
+      .get('/api/v1/facility/assets/custodians?q=maya&limit=50');
+
+    expect(response.status).toBe(200);
+    expect(listFacilityAssetCustodiansMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { q: 'maya', limit: '50' },
     );
   });
 

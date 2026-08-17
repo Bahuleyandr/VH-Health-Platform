@@ -17,10 +17,14 @@ const mockTx = {
   $queryRawUnsafe: jest.fn(),
   $executeRawUnsafe: jest.fn(),
 };
+const mockPrisma = {
+  $queryRawUnsafe: jest.fn(),
+  $executeRawUnsafe: jest.fn(),
+};
 const setTenantTx = jest.fn(async (_tenantId, fn) => fn(mockTx));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() },
+  default: mockPrisma,
   setTenant: jest.fn(),
   setTenantTx,
 }));
@@ -66,6 +70,8 @@ function assetRow(overrides = {}) {
 beforeEach(() => {
   mockTx.$queryRawUnsafe.mockReset();
   mockTx.$executeRawUnsafe.mockReset();
+  mockPrisma.$queryRawUnsafe.mockReset();
+  mockPrisma.$executeRawUnsafe.mockReset();
   setTenantTx.mockClear();
 });
 
@@ -299,5 +305,92 @@ describe('facilityAssetService — update + maintenance guards', () => {
       details: { expectedVersion: 3, currentVersion: 4 },
     });
     expect(mockTx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears explicitly-null nullable master fields instead of restoring old values', async () => {
+    const custodian = '33333333-3333-4333-8333-333333333333';
+    const current = assetRow({
+      description: 'Backup generator',
+      location_department: 'Plant room',
+      location_room: 'B-04',
+      custodian_uid: custodian,
+      vendor: 'Old vendor',
+      purchase_date: '2025-01-02',
+      purchase_cost: '1234.50',
+      warranty_until: '2027-01-02',
+    });
+    const updated = assetRow({
+      version: 2,
+      description: null,
+      location_department: null,
+      location_room: null,
+      custodian_uid: null,
+      vendor: null,
+      purchase_date: null,
+      purchase_cost: null,
+      warranty_until: null,
+    });
+    mockTx.$queryRawUnsafe
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([updated])
+      .mockResolvedValue([]);
+
+    const result = await service.updateFacilityAsset(TENANT_ID, 7, {
+      expectedVersion: 1,
+      description: null,
+      locationDepartment: null,
+      locationRoom: null,
+      custodianUid: null,
+      vendor: null,
+      purchaseDate: null,
+      purchaseCost: null,
+      warrantyUntil: null,
+    }, { actorUid: ACTOR_UID, actorRole: 'ADMIN' });
+
+    expect(result).toMatchObject({
+      version: 2,
+      description: null,
+      locationDepartment: null,
+      locationRoom: null,
+      custodianUid: null,
+      vendor: null,
+      purchaseDate: null,
+      purchaseCost: null,
+      warrantyUntil: null,
+    });
+    const updateParams = mockTx.$queryRawUnsafe.mock.calls[1];
+    expect(updateParams.slice(6, 14)).toEqual([
+      null, null, null, null, null, null, null, null,
+    ]);
+    const eventTypes = mockTx.$queryRawUnsafe.mock.calls
+      .slice(2)
+      .map((call) => call[5]);
+    expect(eventTypes).toEqual(['moved', 'custodian_assigned', 'updated']);
+  });
+});
+
+describe('facilityAssetService — custodian picker', () => {
+  it('lists only active non-patient users from the request tenant', async () => {
+    const custodian = '33333333-3333-4333-8333-333333333333';
+    mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([{
+      uid: custodian,
+      name: 'Maya Rao',
+      role: 'MAINTENANCE',
+    }]);
+
+    const result = await service.listFacilityAssetCustodians(TENANT_ID, {
+      q: 'maya',
+      limit: 50,
+    });
+
+    expect(result).toEqual({
+      custodians: [{ uid: custodian, name: 'Maya Rao', role: 'MAINTENANCE' }],
+      limit: 50,
+    });
+    const [sql, ...params] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('tenant_id = $1::uuid');
+    expect(sql).toContain("role <> 'PATIENT'");
+    expect(sql).toContain('is_active IS TRUE');
+    expect(params).toEqual([TENANT_ID, 'maya', 50]);
   });
 });

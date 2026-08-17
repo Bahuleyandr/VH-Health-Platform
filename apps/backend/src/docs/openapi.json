@@ -23678,7 +23678,7 @@
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "Current custodian user UID; when set, the user must belong to the asset tenant."
+            "description": "Current custodian user UID; new assignments must identify active non-patient staff in the asset tenant."
           },
           "vendor": {
             "type": "string",
@@ -23812,7 +23812,7 @@
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "Must identify a user in the asset tenant."
+            "description": "Must identify active non-patient staff in the asset tenant."
           },
           "vendor": {
             "type": "string",
@@ -23846,6 +23846,65 @@
             "type": "string",
             "maxLength": 1000,
             "nullable": true
+          }
+        }
+      },
+      "FacilityAssetCustodian": {
+        "type": "object",
+        "required": [
+          "uid",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "FacilityAssetCustodianListPayload": {
+        "type": "object",
+        "required": [
+          "custodians",
+          "limit"
+        ],
+        "properties": {
+          "custodians": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacilityAssetCustodian"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        }
+      },
+      "FacilityAssetCustodianListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FacilityAssetCustodianListPayload"
           }
         }
       },
@@ -24222,7 +24281,7 @@
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "Must identify a user in the asset tenant."
+            "description": "Must identify active non-patient staff in the asset tenant. Null clears the assignment."
           },
           "vendor": {
             "type": "string",
@@ -104310,7 +104369,82 @@
             }
           }
         },
-        "description": "Lists the tenant's general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here."
+        "description": "Lists the tenant's general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "under_repair",
+                "condemned",
+                "disposed"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "furniture",
+                "hvac",
+                "electrical",
+                "plumbing",
+                "it_equipment",
+                "generator",
+                "vehicle",
+                "kitchen",
+                "laundry",
+                "safety",
+                "infrastructure",
+                "other"
+              ]
+            }
+          },
+          {
+            "name": "custodian_uid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_facility_assets",
@@ -104340,6 +104474,48 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/facility/assets/custodians": {
+      "get": {
+        "operationId": "get_api_v1_facility_assets_custodians",
+        "tags": [
+          "facility-asset"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetCustodianListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists active non-patient staff in the request tenant for facility asset assignment. Results are bounded to 500 and may be narrowed by name.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ]
       }
     },
     "/api/v1/facility/assets/{id}": {
@@ -104389,7 +104565,7 @@
             }
           }
         },
-        "description": "Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. Custodians must be users in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.",
+        "description": "Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Explicit null clears nullable fields. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. New custodians must be active non-patient staff in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.",
         "parameters": [
           {
             "name": "id",

@@ -17,6 +17,12 @@ const EVENT_TYPES = [
   'status_changed', 'repair_opened', 'repair_closed', 'maintenance',
   'condemned', 'disposed',
 ];
+const queryParameter = (name, schema) => ({
+  name,
+  in: 'query',
+  required: false,
+  schema,
+});
 
 export const schemas = {
   FacilityAsset: {
@@ -32,7 +38,7 @@ export const schemas = {
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
       custodianUid: {
         type: 'string', format: 'uuid', nullable: true,
-        description: 'Current custodian user UID; when set, the user must belong to the asset tenant.',
+        description: 'Current custodian user UID; new assignments must identify active non-patient staff in the asset tenant.',
       },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
@@ -120,6 +126,28 @@ export const schemas = {
     },
   },
 
+  FacilityAssetCustodian: {
+    type: 'object',
+    required: ['uid', 'name', 'role'],
+    properties: {
+      uid: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      role: { type: 'string' },
+    },
+  },
+
+  FacilityAssetCustodianListPayload: {
+    type: 'object',
+    required: ['custodians', 'limit'],
+    properties: {
+      custodians: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/FacilityAssetCustodian' },
+      },
+      limit: { type: 'integer', minimum: 1, maximum: 500 },
+    },
+  },
+
   FacilityAssetCreateRequest: {
     type: 'object',
     required: ['assetTag', 'name', 'category'],
@@ -132,7 +160,7 @@ export const schemas = {
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
       custodianUid: {
         type: 'string', format: 'uuid', nullable: true,
-        description: 'Must identify a user in the asset tenant.',
+        description: 'Must identify active non-patient staff in the asset tenant.',
       },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
@@ -157,7 +185,7 @@ export const schemas = {
       locationRoom: { type: 'string', maxLength: 120, nullable: true },
       custodianUid: {
         type: 'string', format: 'uuid', nullable: true,
-        description: 'Must identify a user in the asset tenant.',
+        description: 'Must identify active non-patient staff in the asset tenant. Null clears the assignment.',
       },
       vendor: { type: 'string', maxLength: 160, nullable: true },
       purchaseDate: { type: 'string', format: 'date', nullable: true },
@@ -206,6 +234,7 @@ export const schemas = {
   FacilityAssetResponse: envelope('FacilityAsset'),
   FacilityAssetDetailResponse: envelope('FacilityAssetDetail'),
   FacilityAssetEventListResponse: envelope('FacilityAssetEventListPayload'),
+  FacilityAssetCustodianListResponse: envelope('FacilityAssetCustodianListPayload'),
   FacilityAssetMaintenanceResponse: envelope('FacilityAssetMaintenancePayload'),
 };
 
@@ -213,7 +242,24 @@ export const operations = {
   'GET /api/v1/facility/assets': {
     description:
       'Lists the tenant\'s general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here.',
+    parameters: [
+      queryParameter('status', { type: 'string', enum: STATUSES }),
+      queryParameter('category', { type: 'string', enum: CATEGORIES }),
+      queryParameter('custodian_uid', { type: 'string', format: 'uuid' }),
+      queryParameter('q', { type: 'string', maxLength: 200 }),
+      queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 }),
+      queryParameter('offset', { type: 'integer', minimum: 0 }),
+    ],
     response: 'FacilityAssetListResponse',
+  },
+  'GET /api/v1/facility/assets/custodians': {
+    description:
+      'Lists active non-patient staff in the request tenant for facility asset assignment. Results are bounded to 500 and may be narrowed by name.',
+    parameters: [
+      queryParameter('q', { type: 'string', maxLength: 200 }),
+      queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 }),
+    ],
+    response: 'FacilityAssetCustodianListResponse',
   },
   'POST /api/v1/facility/assets': {
     description:
@@ -227,7 +273,7 @@ export const operations = {
   },
   'PATCH /api/v1/facility/assets/{id}': {
     description:
-      'Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. Custodians must be users in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.',
+      'Updates master fields when expectedVersion matches; stale writes return 409 without mutation. Explicit null clears nullable fields. Location moves, custodian reassignments and condition changes each append a typed history event in the same transaction. New custodians must be active non-patient staff in the asset tenant. Disposed assets are immutable. Status changes are rejected here — use the status transition endpoint.',
     request: 'FacilityAssetUpdateRequest',
     response: 'FacilityAssetResponse',
   },

@@ -97,10 +97,18 @@ export const listFacilityAssetValidators = [
   query('offset').optional().isInt({ min: 0 }).withMessage('offset must be >= 0').toInt(),
 ];
 
+export const listFacilityAssetCustodianValidators = [
+  query('q').optional({ nullable: true })
+    .isString().withMessage('q must be a string')
+    .isLength({ max: 200 }).withMessage('q must be at most 200 characters'),
+  query('limit').optional().isInt({ min: 1, max: 500 }).withMessage('limit must be 1-500').toInt(),
+];
+
 export default {
   createFacilityAssetValidators,
   updateFacilityAssetValidators,
   transitionFacilityAssetValidators,
   maintenanceFacilityAssetValidators,
   listFacilityAssetValidators,
+  listFacilityAssetCustodianValidators,
 };

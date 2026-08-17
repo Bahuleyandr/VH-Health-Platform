@@ -8,6 +8,7 @@ import {
   FACILITY_ASSET_CONDITIONS,
   FACILITY_ASSET_STATUSES,
   getFacilityAsset,
+  listFacilityAssetCustodians,
   listFacilityAssets,
   recordFacilityAssetMaintenance,
   transitionFacilityAsset,
@@ -15,15 +16,17 @@ import {
   type FacilityAsset,
   type FacilityAssetCategory,
   type FacilityAssetCondition,
+  type FacilityAssetCustodian,
   type FacilityAssetStatus,
   type FacilityAssetWrite,
 } from "@/lib/api/facilityAssets";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Boxes, Pencil, Plus, Wrench, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { toast } from "react-hot-toast";
 
 const QUERY_KEY = ["facility-assets"];
+const PAGE_SIZE = 50;
 
 const CATEGORY_LABELS: Record<FacilityAssetCategory, string> = {
   furniture: "Furniture",
@@ -71,6 +74,7 @@ interface FormState {
   description: string;
   locationDepartment: string;
   locationRoom: string;
+  custodianUid: string;
   vendor: string;
   purchaseDate: string;
   purchaseCost: string;
@@ -85,12 +89,14 @@ const EMPTY_FORM: FormState = {
   description: "",
   locationDepartment: "",
   locationRoom: "",
+  custodianUid: "",
   vendor: "",
   purchaseDate: "",
   purchaseCost: "",
   warrantyUntil: "",
   condition: "good",
 };
+const FORM_FIELDS = Object.keys(EMPTY_FORM) as Array<keyof FormState>;
 
 function toForm(asset: FacilityAsset): FormState {
   return {
@@ -100,6 +106,7 @@ function toForm(asset: FacilityAsset): FormState {
     description: asset.description ?? "",
     locationDepartment: asset.locationDepartment ?? "",
     locationRoom: asset.locationRoom ?? "",
+    custodianUid: asset.custodianUid ?? "",
     vendor: asset.vendor ?? "",
     purchaseDate: asset.purchaseDate ?? "",
     purchaseCost: asset.purchaseCost == null ? "" : String(asset.purchaseCost),
@@ -116,12 +123,18 @@ function toPayload(form: FormState): FacilityAssetWrite {
     description: form.description.trim() || null,
     locationDepartment: form.locationDepartment.trim() || null,
     locationRoom: form.locationRoom.trim() || null,
+    custodianUid: form.custodianUid || null,
     vendor: form.vendor.trim() || null,
     purchaseDate: form.purchaseDate || null,
     purchaseCost: form.purchaseCost.trim() ? Number(form.purchaseCost) : null,
     warrantyUntil: form.warrantyUntil || null,
     condition: form.condition,
   };
+}
+
+function changedFormFields(form: FormState, asset: FacilityAsset) {
+  const baseline = toForm(asset);
+  return FORM_FIELDS.filter((field) => form[field] !== baseline[field]);
 }
 
 function TextField({
@@ -195,6 +208,7 @@ function AssetForm({
   onSubmit,
   onCancel,
   title,
+  custodians,
 }: {
   form: FormState;
   setForm: (updater: (prev: FormState) => FormState) => void;
@@ -202,9 +216,28 @@ function AssetForm({
   onSubmit: () => void;
   onCancel: () => void;
   title: string;
+  custodians: FacilityAssetCustodian[];
 }) {
   const set = (key: keyof FormState) => (value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+  const purchaseCost = form.purchaseCost.trim()
+    ? Number(form.purchaseCost)
+    : null;
+  const purchaseCostInvalid =
+    purchaseCost != null &&
+    (!Number.isFinite(purchaseCost) || purchaseCost < 0);
+  const availableCustodians =
+    form.custodianUid &&
+    !custodians.some((custodian) => custodian.uid === form.custodianUid)
+      ? [
+          {
+            uid: form.custodianUid,
+            name: "Current custodian",
+            role: "inactive or unavailable",
+          },
+          ...custodians,
+        ]
+      : custodians;
 
   return (
     <div className="rounded border bg-white p-4">
@@ -238,17 +271,33 @@ function AssetForm({
             value={form.category}
             options={FACILITY_ASSET_CATEGORIES}
             labels={CATEGORY_LABELS}
-            onChange={(category) => setForm((prev) => ({ ...prev, category }))}
+            onChange={(category) => set("category")(category)}
           />
           <SelectField
             label="Condition"
             value={form.condition}
             options={FACILITY_ASSET_CONDITIONS}
             labels={{ good: "Good", fair: "Fair", poor: "Poor" }}
-            onChange={(condition) =>
-              setForm((prev) => ({ ...prev, condition }))
-            }
+            onChange={(condition) => set("condition")(condition)}
           />
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Custodian
+            </span>
+            <select
+              value={form.custodianUid}
+              onChange={(event) => set("custodianUid")(event.target.value)}
+              aria-label="Custodian"
+              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Unassigned</option>
+              {availableCustodians.map((custodian) => (
+                <option key={custodian.uid} value={custodian.uid}>
+                  {custodian.name} ({custodian.role.replaceAll("_", " ")})
+                </option>
+              ))}
+            </select>
+          </label>
           <TextField
             label="Vendor"
             value={form.vendor}
@@ -296,17 +345,17 @@ function AssetForm({
             </span>
             <textarea
               value={form.description}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  description: event.target.value,
-                }))
-              }
+              onChange={(event) => set("description")(event.target.value)}
               aria-label="Description"
               rows={3}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          {purchaseCostInvalid && (
+            <p className="text-xs text-red-600">
+              Cost must be a non-negative number.
+            </p>
+          )}
         </div>
       </div>
       <div className="mt-4 flex justify-end gap-2">
@@ -320,7 +369,12 @@ function AssetForm({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={saving || !form.assetTag.trim() || !form.name.trim()}
+          disabled={
+            saving ||
+            !form.assetTag.trim() ||
+            !form.name.trim() ||
+            purchaseCostInvalid
+          }
           className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save asset"}
@@ -341,6 +395,8 @@ function AssetDrawer({
   const [toStatus, setToStatus] = useState<FacilityAssetStatus | "">("");
   const [reason, setReason] = useState("");
   const [maintenanceNotes, setMaintenanceNotes] = useState("");
+  const [maintenanceVendor, setMaintenanceVendor] = useState("");
+  const [maintenanceCost, setMaintenanceCost] = useState("");
 
   const detailQuery = useQuery({
     queryKey: ["facility-asset", assetId],
@@ -373,10 +429,17 @@ function AssetDrawer({
 
   const maintenanceMutation = useMutation({
     mutationFn: () =>
-      recordFacilityAssetMaintenance(assetId, maintenanceNotes.trim()),
+      recordFacilityAssetMaintenance(
+        assetId,
+        maintenanceNotes.trim(),
+        maintenanceCost.trim() ? Number(maintenanceCost) : null,
+        maintenanceVendor.trim() || null,
+      ),
     onSuccess: () => {
       toast.success("Maintenance recorded");
       setMaintenanceNotes("");
+      setMaintenanceVendor("");
+      setMaintenanceCost("");
       invalidate();
     },
     onError: (err: unknown) =>
@@ -387,6 +450,12 @@ function AssetDrawer({
 
   const asset = detailQuery.data;
   const disposalReasonMissing = toStatus === "disposed" && !reason.trim();
+  const parsedMaintenanceCost = maintenanceCost.trim()
+    ? Number(maintenanceCost)
+    : null;
+  const maintenanceCostInvalid =
+    parsedMaintenanceCost != null &&
+    (!Number.isFinite(parsedMaintenanceCost) || parsedMaintenanceCost < 0);
 
   return (
     <div className="rounded border bg-white p-4">
@@ -482,11 +551,39 @@ function AssetDrawer({
                   placeholder="What was serviced / repaired?"
                   className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                 />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={maintenanceVendor}
+                    onChange={(event) =>
+                      setMaintenanceVendor(event.target.value)
+                    }
+                    aria-label="Maintenance vendor"
+                    placeholder="Vendor (optional)"
+                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={maintenanceCost}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    onChange={(event) => setMaintenanceCost(event.target.value)}
+                    aria-label="Maintenance cost"
+                    placeholder="Cost (optional)"
+                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                {maintenanceCostInvalid && (
+                  <p className="text-xs text-red-600">
+                    Maintenance cost must be a non-negative number.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => maintenanceMutation.mutate()}
                   disabled={
-                    !maintenanceNotes.trim() || maintenanceMutation.isPending
+                    !maintenanceNotes.trim() ||
+                    maintenanceCostInvalid ||
+                    maintenanceMutation.isPending
                   }
                   className="inline-flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
                 >
@@ -553,12 +650,37 @@ export default function FacilityAssetsPage() {
   const [categoryFilter, setCategoryFilter] = useState<
     FacilityAssetCategory | ""
   >("");
+  const [custodianFilter, setCustodianFilter] = useState("");
+  const [offset, setOffset] = useState(0);
   const [openAssetId, setOpenAssetId] = useState<number | null>(null);
 
+  const custodiansQuery = useQuery({
+    queryKey: ["facility-asset-custodians"],
+    queryFn: () => listFacilityAssetCustodians(),
+  });
+  const custodians = custodiansQuery.data?.custodians ?? [];
+
   const assetsQuery = useQuery({
-    queryKey: [...QUERY_KEY, statusFilter, categoryFilter],
+    queryKey: [
+      ...QUERY_KEY,
+      {
+        status: statusFilter,
+        category: categoryFilter,
+        custodianUid: custodianFilter,
+        q: search.trim(),
+        limit: PAGE_SIZE,
+        offset,
+      },
+    ],
     queryFn: () =>
-      listFacilityAssets({ status: statusFilter, category: categoryFilter }),
+      listFacilityAssets({
+        status: statusFilter,
+        category: categoryFilter,
+        custodianUid: custodianFilter,
+        q: search.trim() || undefined,
+        limit: PAGE_SIZE,
+        offset,
+      }),
   });
 
   const invalidate = () =>
@@ -579,15 +701,18 @@ export default function FacilityAssetsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-      expectedVersion,
-    }: {
+    mutationFn: (variables: {
       id: number;
       payload: FacilityAssetWrite;
       expectedVersion: number;
-    }) => updateFacilityAsset(id, payload, expectedVersion),
+      draft: FormState;
+      dirty: Array<keyof FormState>;
+    }) =>
+      updateFacilityAsset(
+        variables.id,
+        variables.payload,
+        variables.expectedVersion,
+      ),
     onSuccess: () => {
       toast.success("Asset updated");
       setEditing(null);
@@ -599,7 +724,7 @@ export default function FacilityAssetsPage() {
         });
       }
     },
-    onError: (err: unknown) => {
+    onError: async (err: unknown, variables) => {
       const payload =
         err instanceof APIError && typeof err.data === "object"
           ? (err.data as { code?: unknown })
@@ -609,10 +734,24 @@ export default function FacilityAssetsPage() {
         err.status === 409 &&
         payload?.code === "FACILITY_ASSET_STALE_WRITE"
       ) {
-        toast.error(
-          "This asset changed after you opened it. Review the latest values before saving again.",
-        );
         invalidate();
+        try {
+          const latest = await getFacilityAsset(variables.id);
+          const latestForm = toForm(latest);
+          const preserved = {} as Partial<Record<keyof FormState, string>>;
+          for (const field of variables.dirty) {
+            preserved[field] = variables.draft[field];
+          }
+          setEditing(latest);
+          setForm({ ...latestForm, ...preserved } as FormState);
+          toast.error(
+            "This asset changed after you opened it. Latest values were loaded and your edited fields were preserved; review and save again.",
+          );
+        } catch {
+          toast.error(
+            "This asset changed and the latest values could not be loaded. Close and reopen the editor before retrying.",
+          );
+        }
         return;
       }
       toast.error(
@@ -621,17 +760,8 @@ export default function FacilityAssetsPage() {
     },
   });
 
-  const assets = useMemo(() => {
-    const rows = assetsQuery.data?.assets ?? [];
-    const query = search.trim().toLowerCase();
-    if (!query) return rows;
-    return rows.filter((asset) =>
-      [asset.assetTag, asset.name, asset.locationDepartment ?? ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [assetsQuery.data, search]);
+  const assets = assetsQuery.data?.assets ?? [];
+  const total = assetsQuery.data?.total ?? 0;
 
   const saving = createMutation.isPending || updateMutation.isPending;
 
@@ -670,6 +800,7 @@ export default function FacilityAssetsPage() {
           setForm={setForm}
           saving={saving}
           title="Register facility asset"
+          custodians={custodians}
           onCancel={() => setShowCreate(false)}
           onSubmit={() => createMutation.mutate(toPayload(form))}
         />
@@ -680,6 +811,7 @@ export default function FacilityAssetsPage() {
           setForm={setForm}
           saving={saving}
           title={`Edit ${editing.assetTag}`}
+          custodians={custodians}
           onCancel={() => {
             setEditing(null);
             setForm(EMPTY_FORM);
@@ -689,6 +821,8 @@ export default function FacilityAssetsPage() {
               id: editing.id,
               payload: toPayload(form),
               expectedVersion: editing.version,
+              draft: form,
+              dirty: changedFormFields(form, editing),
             })
           }
         />
@@ -697,16 +831,20 @@ export default function FacilityAssetsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <input
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setOffset(0);
+          }}
           aria-label="Search assets"
           placeholder="Search by tag, name, or location…"
           className="w-full max-w-md rounded border border-slate-300 px-3 py-2 text-sm"
         />
         <select
           value={statusFilter}
-          onChange={(event) =>
-            setStatusFilter(event.target.value as FacilityAssetStatus | "")
-          }
+          onChange={(event) => {
+            setStatusFilter(event.target.value as FacilityAssetStatus | "");
+            setOffset(0);
+          }}
           aria-label="Filter by status"
           className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
         >
@@ -719,9 +857,10 @@ export default function FacilityAssetsPage() {
         </select>
         <select
           value={categoryFilter}
-          onChange={(event) =>
-            setCategoryFilter(event.target.value as FacilityAssetCategory | "")
-          }
+          onChange={(event) => {
+            setCategoryFilter(event.target.value as FacilityAssetCategory | "");
+            setOffset(0);
+          }}
           aria-label="Filter by category"
           className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
         >
@@ -729,6 +868,22 @@ export default function FacilityAssetsPage() {
           {FACILITY_ASSET_CATEGORIES.map((category) => (
             <option key={category} value={category}>
               {CATEGORY_LABELS[category]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={custodianFilter}
+          onChange={(event) => {
+            setCustodianFilter(event.target.value);
+            setOffset(0);
+          }}
+          aria-label="Filter by custodian"
+          className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+        >
+          <option value="">All custodians</option>
+          {custodians.map((custodian) => (
+            <option key={custodian.uid} value={custodian.uid}>
+              {custodian.name}
             </option>
           ))}
         </select>
@@ -838,6 +993,32 @@ export default function FacilityAssetsPage() {
               ))}
             </tbody>
           </table>
+          <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Showing {offset + 1}–{Math.min(offset + assets.length, total)} of{" "}
+              {total}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setOffset((current) => Math.max(0, current - PAGE_SIZE))
+                }
+                disabled={offset === 0}
+                className="rounded border border-slate-300 px-3 py-1.5 font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setOffset((current) => current + PAGE_SIZE)}
+                disabled={offset + assets.length >= total}
+                className="rounded border border-slate-300 px-3 py-1.5 font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

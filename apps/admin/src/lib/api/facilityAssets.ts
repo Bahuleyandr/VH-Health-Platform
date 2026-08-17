@@ -115,7 +115,21 @@ export interface FacilityAssetWrite {
 export interface FacilityAssetListFilters {
   status?: FacilityAssetStatus | "";
   category?: FacilityAssetCategory | "";
+  custodianUid?: string | "";
   q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FacilityAssetCustodian {
+  uid: string;
+  name: string;
+  role: string;
+}
+
+export interface FacilityAssetCustodianList {
+  custodians: FacilityAssetCustodian[];
+  limit: number;
 }
 
 export async function listFacilityAssets(
@@ -124,10 +138,22 @@ export async function listFacilityAssets(
   const params = new URLSearchParams();
   if (filters.status) params.set("status", filters.status);
   if (filters.category) params.set("category", filters.category);
+  if (filters.custodianUid) params.set("custodian_uid", filters.custodianUid);
   if (filters.q) params.set("q", filters.q);
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.offset !== undefined)
+    params.set("offset", String(filters.offset));
   const query = params.toString();
   return fetchAdminAPI<FacilityAssetList>(
     `/facility/assets${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function listFacilityAssetCustodians(q?: string) {
+  const params = new URLSearchParams({ limit: "500" });
+  if (q) params.set("q", q);
+  return fetchAdminAPI<FacilityAssetCustodianList>(
+    `/facility/assets/custodians?${params.toString()}`,
   );
 }
 

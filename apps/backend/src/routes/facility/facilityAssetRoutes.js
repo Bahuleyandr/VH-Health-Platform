@@ -13,6 +13,7 @@ import logger from '../../logging/logger.js';
 import {
   createFacilityAsset,
   getFacilityAsset,
+  listFacilityAssetCustodians,
   listFacilityAssetEvents,
   listFacilityAssets,
   recordFacilityAssetMaintenance,
@@ -34,6 +35,7 @@ import {
 } from '../../utils/roles.js';
 import {
   createFacilityAssetValidators,
+  listFacilityAssetCustodianValidators,
   listFacilityAssetValidators,
   maintenanceFacilityAssetValidators,
   transitionFacilityAssetValidators,
@@ -79,8 +81,28 @@ function tenantOf(req) {
 
 function actorOf(req) {
   return {
-    actorUid: req.user?.uid ?? null,
-    actorRole: req.user?.rawRole ?? req.user?.role ?? null,
+    actorUid: req.acting?.actorUid ?? req.user?.uid ?? null,
+    actorRole: req.acting?.actorRawRole
+      ?? req.acting?.actorRole
+      ?? req.user?.rawRole
+      ?? req.user?.role
+      ?? null,
+  };
+}
+
+// logAudit owns the shared actor/subject shape. Facility mutations supply a
+// request-shaped view whose role matches the authoritative event actor while
+// preserving delegated actor/subject identity when acting-as is present.
+function auditRequestOf(req) {
+  const { actorRole } = actorOf(req);
+  return {
+    id: req.id,
+    headers: req.headers,
+    connection: req.connection,
+    tenantId: req.tenantId,
+    tenant: req.tenant,
+    acting: req.acting ? { ...req.acting, actorRole } : null,
+    user: req.user ? { ...req.user, role: actorRole } : req.user,
   };
 }
 
@@ -106,11 +128,26 @@ router.get('/', requireRead, listFacilityAssetValidators, validate, async (req, 
   }
 });
 
+/** GET /api/v1/facility/assets/custodians — active tenant staff picker. */
+router.get('/custodians', requireRead, listFacilityAssetCustodianValidators, validate, async (req, res, next) => {
+  try {
+    const result = await listFacilityAssetCustodians(tenantOf(req), {
+      q: req.query.q,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Facility asset custodians retrieved');
+  } catch (err) {
+    if (err.isOperational) return relayAppError(res, err, 'Failed to list facility asset custodians');
+    logger.error('Failed to list facility asset custodians:', { error: err.message });
+    return next(err);
+  }
+});
+
 /** POST /api/v1/facility/assets — register a new asset. */
 router.post('/', requireManage, createFacilityAssetValidators, validate, async (req, res, next) => {
   try {
     const asset = await createFacilityAsset(tenantOf(req), req.body, actorOf(req));
-    await logAudit(req, 'facility-asset-create', { asset_tag: asset.assetTag }, {
+    await logAudit(auditRequestOf(req), 'facility-asset-create', { asset_tag: asset.assetTag }, {
       resource: 'facility_asset',
       resourceId: asset.id,
     });
@@ -153,7 +190,7 @@ router.get('/:id/events', requireRead, paramId('id'), validate, async (req, res,
 router.patch('/:id', requireManage, paramId('id'), updateFacilityAssetValidators, validate, async (req, res, next) => {
   try {
     const asset = await updateFacilityAsset(tenantOf(req), req.params.id, req.body, actorOf(req));
-    await logAudit(req, 'facility-asset-update', { asset_tag: asset.assetTag }, {
+    await logAudit(auditRequestOf(req), 'facility-asset-update', { asset_tag: asset.assetTag }, {
       resource: 'facility_asset',
       resourceId: asset.id,
     });
@@ -173,7 +210,7 @@ router.post('/:id/status', requireManage, paramId('id'), transitionFacilityAsset
       reason: req.body.reason,
       notes: req.body.notes,
     }, actorOf(req));
-    await logAudit(req, 'facility-asset-status', {
+    await logAudit(auditRequestOf(req), 'facility-asset-status', {
       asset_tag: asset.assetTag,
       to_status: asset.status,
       reason: req.body.reason ?? null,
@@ -197,7 +234,7 @@ router.post('/:id/maintenance', requireManage, paramId('id'), maintenanceFacilit
       cost: req.body.cost,
       vendor: req.body.vendor,
     }, actorOf(req));
-    await logAudit(req, 'facility-asset-maintenance', {
+    await logAudit(auditRequestOf(req), 'facility-asset-maintenance', {
       asset_tag: result.asset.assetTag,
     }, {
       resource: 'facility_asset',

@@ -110,11 +110,11 @@ function normalizeDate(value, field) {
   return date;
 }
 
-function normalizeCost(value) {
+function normalizeCost(value, field = 'purchaseCost') {
   if (value == null || value === '') return null;
   const cost = Number(value);
   if (!Number.isFinite(cost) || cost < 0 || cost > 9_999_999_999.99) {
-    throw badRequest('purchaseCost must be a non-negative number');
+    throw badRequest(`${field} must be a non-negative number`);
   }
   return Math.round(cost * 100) / 100;
 }
@@ -134,18 +134,21 @@ function normalizeExpectedVersion(value) {
 }
 
 function normalizePayload(payload = {}, existing = null) {
+  const nullableValue = (key) => (
+    Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : existing?.[key]
+  );
   return {
     assetTag: normalizeAssetTag(payload.assetTag ?? existing?.assetTag),
     name: normalizeName(payload.name ?? existing?.name),
     category: normalizeCategory(payload.category ?? existing?.category),
-    description: cleanText(payload.description ?? existing?.description, 4000),
-    locationDepartment: cleanText(payload.locationDepartment ?? existing?.locationDepartment, 120),
-    locationRoom: cleanText(payload.locationRoom ?? existing?.locationRoom, 120),
-    custodianUid: normalizeUuid(payload.custodianUid ?? existing?.custodianUid, 'custodianUid'),
-    vendor: cleanText(payload.vendor ?? existing?.vendor, 160),
-    purchaseDate: normalizeDate(payload.purchaseDate ?? existing?.purchaseDate, 'purchaseDate'),
-    purchaseCost: normalizeCost(payload.purchaseCost ?? existing?.purchaseCost),
-    warrantyUntil: normalizeDate(payload.warrantyUntil ?? existing?.warrantyUntil, 'warrantyUntil'),
+    description: cleanText(nullableValue('description'), 4000),
+    locationDepartment: cleanText(nullableValue('locationDepartment'), 120),
+    locationRoom: cleanText(nullableValue('locationRoom'), 120),
+    custodianUid: normalizeUuid(nullableValue('custodianUid'), 'custodianUid'),
+    vendor: cleanText(nullableValue('vendor'), 160),
+    purchaseDate: normalizeDate(nullableValue('purchaseDate'), 'purchaseDate'),
+    purchaseCost: normalizeCost(nullableValue('purchaseCost')),
+    warrantyUntil: normalizeDate(nullableValue('warrantyUntil'), 'warrantyUntil'),
     condition: normalizeCondition(payload.condition ?? existing?.condition),
   };
 }
@@ -227,7 +230,7 @@ function rethrowWriteConstraint(err) {
   if (constraint === 'fk_facility_assets_custodian'
       || /fk_facility_assets_custodian/.test(String(err?.message))) {
     throw AppError.unprocessable(
-      'custodianUid must identify a user in the asset tenant',
+      'custodianUid must identify an active staff user in the asset tenant',
       'FACILITY_ASSET_CUSTODIAN_INVALID',
     );
   }
@@ -247,17 +250,47 @@ async function assertCustodianInTenantTx(tx, tenantId, custodianUid) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT uid
        FROM users
-      WHERE tenant_id = $1::uuid AND uid = $2::uuid
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active IS TRUE
+        AND role <> 'PATIENT'
       LIMIT 1`,
     tenantId,
     custodianUid,
   );
   if (!rows[0]) {
     throw AppError.unprocessable(
-      'custodianUid must identify a user in the asset tenant',
+      'custodianUid must identify an active staff user in the asset tenant',
       'FACILITY_ASSET_CUSTODIAN_INVALID',
     );
   }
+}
+
+export async function listFacilityAssetCustodians(tenantId, { q = '', limit = 500 } = {}) {
+  const scopedTenantId = requireTenantId(tenantId);
+  const query = String(q ?? '').trim().toLowerCase();
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 500, 500));
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, name, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND is_active IS TRUE
+        AND role <> 'PATIENT'
+        AND ($2::text = '' OR LOWER(name) LIKE '%' || $2::text || '%')
+      ORDER BY name ASC, uid ASC
+      LIMIT $3::int`,
+    scopedTenantId,
+    query,
+    safeLimit,
+  );
+  return {
+    custodians: rows.map((row) => ({
+      uid: row.uid,
+      name: row.name,
+      role: row.role,
+    })),
+    limit: safeLimit,
+  };
 }
 
 async function insertEventTx(tx, tenantId, asset, {
@@ -335,6 +368,8 @@ export async function listFacilityAssets(tenantId, {
           $5::text = ''
           OR LOWER(asset_tag) LIKE '%' || $5::text || '%'
           OR LOWER(name) LIKE '%' || $5::text || '%'
+          OR LOWER(COALESCE(location_department, '')) LIKE '%' || $5::text || '%'
+          OR LOWER(COALESCE(location_room, '')) LIKE '%' || $5::text || '%'
         )
       ORDER BY status ASC, name ASC, id ASC
       LIMIT $6::int OFFSET $7::int`,
@@ -513,6 +548,14 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
         || next.locationRoom !== current.locationRoom;
       const custodianChanged = next.custodianUid !== current.custodianUid;
       const conditionChanged = next.condition !== current.condition;
+      const otherChanged = next.assetTag !== current.assetTag
+        || next.name !== current.name
+        || next.category !== current.category
+        || next.description !== current.description
+        || next.vendor !== current.vendor
+        || next.purchaseDate !== current.purchaseDate
+        || next.purchaseCost !== current.purchaseCost
+        || next.warrantyUntil !== current.warrantyUntil;
       const notes = cleanText(payload.notes, 1000);
 
       if (moved) {
@@ -557,7 +600,7 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
           actorRole,
         });
       }
-      if (!moved && !custodianChanged && !conditionChanged) {
+      if (otherChanged || (!moved && !custodianChanged && !conditionChanged)) {
         await insertEventTx(tx, scopedTenantId, updated, {
           eventType: 'updated',
           details: {},
@@ -661,7 +704,7 @@ export async function recordFacilityAssetMaintenance(tenantId, id, {
   const cleanNotes = cleanText(notes, 1000);
   if (!cleanNotes) throw badRequest('notes describing the maintenance action are required');
   const cleanVendor = cleanText(vendor, 160);
-  const cleanCost = normalizeCost(cost);
+  const cleanCost = normalizeCost(cost, 'cost');
 
   return setTenantTx(scopedTenantId, async (tx) => {
     const currentRow = await lockAssetTx(tx, scopedTenantId, id);
@@ -706,6 +749,7 @@ export default {
   FACILITY_ASSET_STATUSES,
   FACILITY_ASSET_TRANSITIONS,
   listFacilityAssets,
+  listFacilityAssetCustodians,
   getFacilityAsset,
   listFacilityAssetEvents,
   createFacilityAsset,

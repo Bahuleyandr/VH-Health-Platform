@@ -17,6 +17,7 @@ const prisma = (await import('../lib/prisma.js')).default;
 const {
   createFacilityAsset,
   getFacilityAsset,
+  listFacilityAssetCustodians,
   listFacilityAssets,
   listFacilityAssetEvents,
   recordFacilityAssetMaintenance,
@@ -29,6 +30,8 @@ const OTHER_TENANT_ID = randomUUID();
 const ADMIN_UID = randomUUID();
 const CUSTODIAN_UID = randomUUID();
 const OTHER_CUSTODIAN_UID = randomUUID();
+const PATIENT_UID = randomUUID();
+const INACTIVE_STAFF_UID = randomUUID();
 
 async function cleanupTenant(tenantId) {
   await prisma.$executeRawUnsafe(`DELETE FROM facility_asset_events WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
@@ -67,18 +70,22 @@ d('Facility asset register (migration 704)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, 'Tenant custodian', 'MAINTENANCE', TRUE, NOW()),
-              ($3::uuid, $4::uuid, 'Other tenant custodian', 'MAINTENANCE', TRUE, NOW())`,
+              ($3::uuid, $4::uuid, 'Other tenant custodian', 'MAINTENANCE', TRUE, NOW()),
+              ($5::uuid, $2::uuid, 'Patient account', 'PATIENT', TRUE, NOW()),
+              ($6::uuid, $2::uuid, 'Inactive staff', 'MAINTENANCE', FALSE, NOW())`,
       CUSTODIAN_UID,
       TENANT_ID,
       OTHER_CUSTODIAN_UID,
       OTHER_TENANT_ID,
+      PATIENT_UID,
+      INACTIVE_STAFF_UID,
     );
   }, 60_000);
 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   let assetId;
 
@@ -179,6 +186,25 @@ d('Facility asset register (migration 704)', () => {
     )).rejects.toThrow(/fk_facility_assets_custodian|foreign key constraint/i);
   });
 
+  it('lists and accepts only active non-patient tenant custodians', async () => {
+    const picker = await listFacilityAssetCustodians(TENANT_ID, {});
+    expect(picker.custodians).toEqual(expect.arrayContaining([
+      expect.objectContaining({ uid: CUSTODIAN_UID, role: 'MAINTENANCE' }),
+    ]));
+    expect(picker.custodians.map((row) => row.uid)).not.toContain(PATIENT_UID);
+    expect(picker.custodians.map((row) => row.uid)).not.toContain(INACTIVE_STAFF_UID);
+    expect(picker.custodians.map((row) => row.uid)).not.toContain(OTHER_CUSTODIAN_UID);
+
+    const before = await getFacilityAsset(TENANT_ID, assetId);
+    await expect(updateFacilityAsset(TENANT_ID, assetId, {
+      expectedVersion: before.version,
+      custodianUid: PATIENT_UID,
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' })).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'FACILITY_ASSET_CUSTODIAN_INVALID',
+    });
+  });
+
   it('rejects a stale full-form edit without overwriting the winning update', async () => {
     const staleAsset = await createFacilityAsset(TENANT_ID, {
       assetTag: 'STALE-01', name: 'Stale-session asset', category: 'other',
@@ -209,6 +235,49 @@ d('Facility asset register (migration 704)', () => {
       vendor: 'Winning vendor',
       version: winner.version,
     });
+  });
+
+  it('clears every nullable master field when PATCH explicitly sends null', async () => {
+    const nullableAsset = await createFacilityAsset(TENANT_ID, {
+      assetTag: 'CLEAR-01',
+      name: 'Clearable asset',
+      category: 'other',
+      description: 'Temporary description',
+      locationDepartment: 'Stores',
+      locationRoom: 'S-01',
+      custodianUid: CUSTODIAN_UID,
+      vendor: 'Temporary vendor',
+      purchaseDate: '2025-01-02',
+      purchaseCost: 1234.5,
+      warrantyUntil: '2027-01-02',
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
+
+    const cleared = await updateFacilityAsset(TENANT_ID, nullableAsset.id, {
+      expectedVersion: nullableAsset.version,
+      description: null,
+      locationDepartment: null,
+      locationRoom: null,
+      custodianUid: null,
+      vendor: null,
+      purchaseDate: null,
+      purchaseCost: null,
+      warrantyUntil: null,
+    }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' });
+
+    expect(cleared).toMatchObject({
+      description: null,
+      locationDepartment: null,
+      locationRoom: null,
+      custodianUid: null,
+      vendor: null,
+      purchaseDate: null,
+      purchaseCost: null,
+      warrantyUntil: null,
+      version: nullableAsset.version + 1,
+    });
+    expect(await eventTypes(TENANT_ID, nullableAsset.id)).toEqual([
+      'created', 'moved', 'custodian_assigned', 'updated',
+    ]);
   });
 
   it('walks the repair lifecycle: repair_opened → maintenance → repair_closed', async () => {
@@ -347,6 +416,8 @@ d('Facility asset register (migration 704)', () => {
     expect(byCategory.assets).toHaveLength(0); // CHAIR-99 was hard-deleted
     const bySearch = await listFacilityAssets(TENANT_ID, { q: 'gen-02' });
     expect(bySearch.assets.map((a) => a.id)).toEqual([assetId]);
+    const byLocation = await listFacilityAssets(TENANT_ID, { q: 'basement plant' });
+    expect(byLocation.assets.map((a) => a.id)).toEqual([assetId]);
     await expect(listFacilityAssets(TENANT_ID, { status: 'melted' })).rejects.toMatchObject({
       statusCode: 400,
       code: 'FACILITY_ASSET_INVALID',
