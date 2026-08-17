@@ -61,6 +61,11 @@ const INSTALLATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TENANT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CONTROLLED_DISPENSE_AUTH_ERROR_CODES = new Set([
+  'INVALID_CREDENTIALS',
+  'ACCOUNT_DEACTIVATED',
+  'STAFF_LOGIN_RATE_LIMITED',
+]);
 
 function installationId(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -441,34 +446,42 @@ export class StaffAuthService {
       throw AppError.invalidCredentials('Invalid employee ID or password');
     }
 
-    return setTenant(expectedTenantId, async (client) => {
-      const staff = await this._authenticateStaffPassword(
-        normalizedEmployeeId,
-        suppliedPassword,
-        req,
-        req?.originalUrl || '/api/v1/pharmacy/counter-sales/witness-approvals/approve',
-        {
-          tenantId: expectedTenantId,
-          client,
-          authAction: 'CONTROLLED_DISPENSE_WITNESS',
-        },
-      );
-      await this.logAuthAttempt(
-        normalizedEmployeeId,
-        'CONTROLLED_DISPENSE_WITNESS',
-        true,
-        null,
-        'password',
-        req,
-        null,
-        { tenantId: expectedTenantId, client },
-      );
-      return {
-        uid: staff.uid,
-        tenantId: staff.tenant_id,
-        role: staff.role,
-      };
+    const outcome = await setTenant(expectedTenantId, async (client) => {
+      try {
+        const staff = await this._authenticateStaffPassword(
+          normalizedEmployeeId,
+          suppliedPassword,
+          req,
+          req?.originalUrl || '/api/v1/pharmacy/counter-sales/witness-approvals/approve',
+          {
+            tenantId: expectedTenantId,
+            client,
+            authAction: 'CONTROLLED_DISPENSE_WITNESS',
+          },
+        );
+        await this.logAuthAttempt(
+          normalizedEmployeeId,
+          'CONTROLLED_DISPENSE_WITNESS',
+          true,
+          null,
+          'password',
+          req,
+          null,
+          { tenantId: expectedTenantId, client },
+        );
+        return { staff };
+      } catch (error) {
+        if (!CONTROLLED_DISPENSE_AUTH_ERROR_CODES.has(error?.code)) throw error;
+        return { error };
+      }
     });
+
+    if (outcome.error) throw outcome.error;
+    return {
+      uid: outcome.staff.uid,
+      tenantId: outcome.staff.tenant_id,
+      role: outcome.staff.role,
+    };
   }
 
   static async updateOwnProfile(staffUid, updates, req) {

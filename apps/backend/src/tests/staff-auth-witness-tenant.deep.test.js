@@ -136,4 +136,41 @@ describe('controlled-dispense witness tenant-bound authentication', () => {
     );
     expect(rows).toEqual([expect.objectContaining({ tenant_id: TENANT_A, success: true })]);
   });
+
+  test('persists failed attempts and locks only the targeted tenant identity', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(StaffAuthService.authenticateControlledDispenseWitness({
+        employeeId: EMPLOYEE_ID,
+        password: PASSWORD_B,
+        tenantId: TENANT_A,
+        req: REQUEST,
+      })).rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
+    }
+
+    const counts = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id, COUNT(*)::int AS failures
+         FROM auth_logs
+        WHERE tenant_id = ANY($1::uuid[])
+          AND phone = $2
+          AND action = 'CONTROLLED_DISPENSE_WITNESS'
+          AND success = false
+        GROUP BY tenant_id`,
+      TENANT_IDS, EMPLOYEE_ID,
+    );
+    expect(counts).toEqual([{ tenant_id: TENANT_A, failures: 5 }]);
+
+    await expect(StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId: EMPLOYEE_ID,
+      password: PASSWORD_A,
+      tenantId: TENANT_A,
+      req: REQUEST,
+    })).rejects.toMatchObject({ statusCode: 429, code: 'STAFF_LOGIN_RATE_LIMITED' });
+
+    await expect(StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId: EMPLOYEE_ID,
+      password: PASSWORD_B,
+      tenantId: TENANT_B,
+      req: REQUEST,
+    })).resolves.toMatchObject({ uid: STAFF_B, tenantId: TENANT_B });
+  });
 });
