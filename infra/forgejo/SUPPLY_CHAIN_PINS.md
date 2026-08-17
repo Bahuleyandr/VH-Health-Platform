@@ -13,15 +13,15 @@ silently selects Buildx's movable default image.
 action tag, branch, workflow service image, or runner base image. The canonical
 security stage runs this check on every provider. Credential-bearing workflow
 tools must also use exact versions; `@latest` package execution and movable
-`version` channels are rejected. The checker also rejects implicit, movable, or
-expression-driven Docker-container BuildKit images. It decodes direct inline,
-literal, and folded `run` scalars, tokenizes their shell commands, and accepts
-Buildx only as an unquoted literal `docker buildx <subcommand>` invocation.
-Quoted or concatenated command words, continuations between those command
-words, dynamic subcommands, command substitutions, repeated `--driver`
-options, and indirect or unsupported `run` forms fail closed rather than
-bypassing the pin check. Arguments unrelated to driver selection may remain
-dynamic.
+`version` channels are rejected. BuildKit creation, bootstrap, selection, and
+cleanup are not authored in workflow shell. The checker rejects direct or
+dynamically assembled lifecycle commands and accepts only the exact reviewed
+prepare/cleanup calls to `scripts/ci/forgejo-buildkit-builder.mjs`; ordinary
+`docker buildx build` use remains allowed without an alternate `--builder`.
+The helper invokes Docker without a shell and supplies the driver, config, and
+digest-pinned BuildKit image as fixed arguments. Its exact output selects the
+one-shot builder through the job-local `BUILDX_BUILDER` environment variable;
+the helper never changes Buildx's shared default selection.
 
 To update a pin:
 
@@ -30,24 +30,25 @@ To update a pin:
 2. Review the upstream delta and record the release tag beside the immutable
    commit or digest.
 3. Update every occurrence in one change.
-4. For a BuildKit image or config update, increment `builder_generation` and
-   update the expected image digest, config SHA-256, and literal create options
-   together. A reused current builder is checked without `--bootstrap` for its
-   image digest, bounded log driver, and creation-time config marker before it
-   may start; the live worker garbage-collection policy is checked after start.
-   The immediately preceding generation is retained only when its expected
-   image and config values are explicitly recorded and that pre-bootstrap proof
-   passes. Otherwise it is retired. The current v3 rollout deliberately leaves
-   the v2 expectations empty because v2 predates the marker, so v2 is not
-   claimed as rollback state.
-5. Cleanup enumerates and removes only the exact unsuffixed and obsolete
-   generation names after the current builder is healthy. Absence is accepted,
-   but enumeration failure, corrupt/unreachable state, or an exact builder or
-   backing-container name that remains after removal fails the workflow. Never
-   replace this allowlist with a broad Docker prune.
-6. Run the pin unit tests, the security stage, and the affected Forgejo workflow
+4. For a BuildKit image update, change the single `BUILDKIT_IMAGE` literal in
+   the helper and update its exact-argv test. For a config update, change the
+   checked-in config and the live worker-policy assertion together.
+5. Builders are one-shot job resources, never rollback generations. Before
+   creation, the helper enumerates and retires exact legacy names, every numeric
+   legacy generation (including higher generations), and stale one-shot names
+   for the same workflow/matrix key. It also removes matching orphan containers
+   when no Buildx record exists. Release matrix keys are isolated so concurrent
+   entries cannot remove one another, while the workflow-level concurrency
+   group serializes separate release runs that reuse those keys.
+6. The workflow arms an `EXIT` cleanup before preparation. Cleanup removes only
+   that job's exact builder and backing-container names and fails if either
+   remains. Enumeration errors also fail closed. Never replace these allowlists
+   with a broad Docker prune.
+7. Run the pin unit tests, the security stage, and the affected Forgejo workflow
    syntax checks before publication.
 
 The pins prove immutable fetch identity. They do not make third-party code
 trusted; changes still require review, and production deployment remains an
-operator-authorized action outside CI.
+operator-authorized action outside CI. The checker is a change-review guard,
+not a sandbox against an author who can modify the workflow, helper, and guard
+in the same change.

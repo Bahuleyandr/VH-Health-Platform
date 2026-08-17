@@ -28,7 +28,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-images-${{ github.ref }}
+  group: release-images
   cancel-in-progress: false
 
 jobs:
@@ -59,6 +59,7 @@ jobs:
             context: .
             dockerfile: apps/staff/Dockerfile.web
     env:
+      VH_BUILDKIT_JOB_KEY: ${{ matrix.app }}
       BUILD_BACKEND_INPUT: ${{ inputs.build_backend }}
       BUILD_ADMIN_INPUT: ${{ inputs.build_admin }}
       BUILD_STAFF_WEB_INPUT: ${{ inputs.build_staff_web }}
@@ -242,95 +243,11 @@ jobs:
               ;;
           esac
 
-          # buildx-stable-1 multi-arch index, resolved from Docker Hub on
-          # 2026-08-17. An older generation is retained only after it passes
-          # the same pre-bootstrap identity and configuration proof.
-          source scripts/ci/forgejo-buildkit-lifecycle.sh
-          builder_prefix="vh-release-builder"
-          builder_generation=3
-          builder_name="${builder_prefix}-v${builder_generation}"
-          builder_container="buildx_buildkit_${builder_name}0"
-          rollback_builder="${builder_prefix}-v$((builder_generation - 1))"
-          rollback_container="buildx_buildkit_${rollback_builder}0"
-          expected_builder_image="moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
-          expected_builder_config_sha256="9afae8ba39dc9b85585081146e29a5ee0ad6ae56c63dd6df99686c06a7258365"
-          # v2 predates the verifiable configuration marker, so it is not a
-          # rollback candidate. A later generation bump must set both values.
-          rollback_builder_image=""
-          rollback_builder_config_sha256=""
-
-          builder_status=0
-          vh_builder_known "$builder_name" || builder_status=$?
-          case "$builder_status" in
-            0)
-              if ! vh_builder_prebootstrap_matches \
-                "$builder_name" \
-                "$builder_container" \
-                "$expected_builder_image" \
-                "$expected_builder_config_sha256"; then
-                echo "::error::Refusing to bootstrap an unverified existing BuildKit builder"
-                exit 1
-              fi
-              docker buildx use "$builder_name"
-              ;;
-            1)
-              docker buildx create \
-                --name "$builder_name" \
-                --driver docker-container \
-                --driver-opt "image=moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8" \
-                --driver-opt "env.VH_BUILDKIT_CONFIG_SHA256=9afae8ba39dc9b85585081146e29a5ee0ad6ae56c63dd6df99686c06a7258365" \
-                --buildkitd-config .forgejo/buildkitd-dalekdefender.toml \
-                --use
-              ;;
-            *)
-              echo "::error::Unable to determine the current BuildKit builder state"
-              exit 1
-              ;;
-          esac
-          docker buildx inspect "$builder_name" --bootstrap
-
-          if ! vh_builder_prebootstrap_matches \
-            "$builder_name" \
-            "$builder_container" \
-            "$expected_builder_image" \
-            "$expected_builder_config_sha256"; then
-            echo "::error::Bootstrapped BuildKit builder no longer matches its trusted identity"
-            exit 1
-          fi
-          worker_json="$(docker exec "$builder_container" buildctl debug workers --format '{{json .}}')"
-          WORKER_JSON="$worker_json" node -e '
-            const workers = JSON.parse(process.env.WORKER_JSON);
-            const valid = Array.isArray(workers) && workers.length > 0 && workers.every(
-              worker => Array.isArray(worker.gcPolicy) && worker.gcPolicy.some(
-                policy => policy.all === true &&
-                  policy.reservedSpace === 8000000000 &&
-                  policy.maxUsedSpace === 30000000000 &&
-                  policy.minFreeSpace === 300000000000,
-              ),
-            );
-            if (!valid) {
-              console.error("Pinned BuildKit GC policy does not match the Dalekdefender cap");
-              process.exit(1);
-            }
-          '
-          if [ "$(docker inspect -f '{{.HostConfig.LogConfig.Type}}' "$builder_container")" != "local" ]; then
-            echo "::error::Pinned BuildKit builder is not using the bounded local log driver"
-            exit 1
-          fi
-          # Keep the healthy current generation plus at most one rollback that
-          # independently passes the pre-bootstrap proof. Cleanup is exact-name
-          # only and begins after the current builder is fully verified.
-          vh_retain_or_retire_rollback \
-            "$rollback_builder" \
-            "$rollback_container" \
-            "$rollback_builder_image" \
-            "$rollback_builder_config_sha256"
-          vh_retire_builder "$builder_prefix"
-          stale_generation=1
-          while [ "$stale_generation" -lt "$((builder_generation - 1))" ]; do
-            vh_retire_builder "${builder_prefix}-v${stale_generation}"
-            stale_generation=$((stale_generation + 1))
-          done
+          # The helper owns one exact builder for this matrix entry and removes
+          # it on every exit. A later run retires exact stale names before create.
+          trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup release || exit 1' EXIT
+          BUILDX_BUILDER="$(node scripts/ci/forgejo-buildkit-builder.mjs prepare release)"
+          export BUILDX_BUILDER
 
           # staff-web is amd64-only regardless of RELEASE_PLATFORMS:
           # Dockerfile.web installs the official Flutter linux tarball, which
@@ -356,7 +273,7 @@ jobs:
 
           digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/release-images/${{ matrix.app }}/build-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
           if [ -z "$digest" ]; then
-            echo "::error::Docker buildx did not report a pushed image digest"
+            echo "::error::Image build did not report a pushed digest"
             exit 1
           fi
           echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
