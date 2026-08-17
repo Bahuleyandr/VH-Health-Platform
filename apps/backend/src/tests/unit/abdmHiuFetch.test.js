@@ -105,9 +105,33 @@ let routes;
 function route(needle, impl) {
   routes.unshift([needle, impl]);
 }
+// The service selects an epoch-millisecond twin next to each timestamptz it has
+// to compare against the clock, because a driver-materialised Date is shifted by
+// the database session timezone. Postgres computes those columns, so this double
+// derives them centrally rather than per fixture — otherwise a fixture could omit
+// one and make a timezone-sensitive check look correct while returning undefined.
+// An explicitly supplied twin always wins, so a test can still pin an odd value.
+const EPOCH_TWIN_COLUMNS = [
+  ['key_material_expires_at', 'key_material_expires_epoch_ms'],
+  ['claimed_at', 'claimed_at_epoch_ms'],
+];
+function withDerivedEpochs(row) {
+  if (!row || typeof row !== 'object') return row;
+  let out = row;
+  for (const [source, twin] of EPOCH_TWIN_COLUMNS) {
+    if (source in out && !(twin in out)) {
+      const ms = out[source] == null ? NaN : new Date(out[source]).getTime();
+      out = { ...out, [twin]: Number.isFinite(ms) ? BigInt(ms) : null };
+    }
+  }
+  return out;
+}
 function dispatch(sql, args) {
   for (const [needle, impl] of routes) {
-    if (sql.includes(needle)) return impl(sql, args);
+    if (sql.includes(needle)) {
+      const rows = impl(sql, args);
+      return Array.isArray(rows) ? rows.map(withDerivedEpochs) : rows;
+    }
   }
   return [];
 }

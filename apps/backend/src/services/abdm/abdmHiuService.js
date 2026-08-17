@@ -35,6 +35,7 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
 import { uploadFileToR2, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
 import {
@@ -1113,6 +1114,8 @@ export async function handleHiuDataPush({
       const sessions = await tx.$queryRawUnsafe(
         `SELECT ${SESSION_RETURNING}, key_material_private_ciphertext, key_material_nonce,
                 key_material_expires_at,
+                (EXTRACT(EPOCH FROM key_material_expires_at) * 1000)::bigint
+                  AS key_material_expires_epoch_ms,
                 (SELECT a.artifact_id FROM abdm_consent_artifacts a
                   WHERE a.id = s.consent_artifact_id AND a.tenant_id = $1::uuid) AS artifact_id,
                 (SELECT NULLIF(BTRIM(a.metadata->>'hip_id'), '')
@@ -1152,7 +1155,8 @@ export async function handleHiuDataPush({
 
       const pageRows = await tx.$queryRawUnsafe(
         `SELECT id, page_number, page_count, payload_sha256, status, claim_id,
-                claimed_at, parts_count
+                claimed_at, parts_count,
+                (EXTRACT(EPOCH FROM claimed_at) * 1000)::bigint AS claimed_at_epoch_ms
            FROM abdm_hiu_fetch_pages
           WHERE tenant_id = $1::uuid AND fetch_session_id = $2::integer
             AND page_number = $3::integer
@@ -1214,17 +1218,18 @@ export async function handleHiuDataPush({
       if (!session.key_material_private_ciphertext) {
         throw AppError.conflict('Fetch session key material is gone', 'ABDM_HIU_KEY_UNAVAILABLE');
       }
-      if (session.key_material_expires_at
-          && new Date(session.key_material_expires_at).getTime() < Date.now()) {
+      const keyMaterialExpiry = epochMsOrNull(session.key_material_expires_epoch_ms);
+      if (keyMaterialExpiry != null && keyMaterialExpiry < Date.now()) {
         throw AppError.conflict('Fetch session key material has expired', 'ABDM_HIU_KEY_EXPIRED');
       }
 
       let page;
       let cleanupPriorClaims = false;
       if (existingPage) {
+        const claimedAt = epochMsOrNull(existingPage.claimed_at_epoch_ms);
         const freshClaim = existingPage.status === 'claimed'
-          && new Date(existingPage.claimed_at).getTime()
-            > Date.now() - PAGE_CLAIM_TTL_MINUTES * 60 * 1000;
+          && claimedAt != null
+          && claimedAt > Date.now() - PAGE_CLAIM_TTL_MINUTES * 60 * 1000;
         if (freshClaim) {
           throw AppError.conflict('Data push page is already being processed', 'ABDM_HIU_PAGE_IN_PROGRESS');
         }
@@ -1394,19 +1399,21 @@ export async function handleHiuDataPush({
       }
       const lockedSessions = await tx.$queryRawUnsafe(
         `SELECT status, next_page_number, pages_expected, parts_received, metadata,
-                key_material_expires_at
+                key_material_expires_at,
+                (EXTRACT(EPOCH FROM key_material_expires_at) * 1000)::bigint
+                  AS key_material_expires_epoch_ms
            FROM abdm_hiu_fetch_sessions
           WHERE id = $1::integer AND tenant_id = $2::uuid
           FOR UPDATE`,
         session.id, tid,
       );
       const lockedSession = lockedSessions[0];
+      const lockedKeyExpiry = epochMsOrNull(lockedSession?.key_material_expires_epoch_ms);
       if (!lockedSession || !LIVE_SESSION_STATUSES.includes(lockedSession.status)
           || Number(lockedSession.next_page_number) !== pageNumber
           || (lockedSession.pages_expected != null
             && Number(lockedSession.pages_expected) !== pageCount)
-          || (lockedSession.key_material_expires_at
-            && new Date(lockedSession.key_material_expires_at).getTime() < Date.now())) {
+          || (lockedKeyExpiry != null && lockedKeyExpiry < Date.now())) {
         throw AppError.conflict('Data push page lost its ordering claim', 'ABDM_HIU_PAGE_OUT_OF_ORDER');
       }
       const lockedSessionBytes = sessionBundleBytes(lockedSession);
