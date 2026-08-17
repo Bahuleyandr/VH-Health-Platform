@@ -18,12 +18,17 @@ import { deliverNotificationOutboxRow } from '../utils/notifications/notificatio
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
 
+// Valid Indian mobile: normalizeIndianSmsPhone (the strict SMS-provider
+// normalizer) requires the subscriber to start 6-9, so pin the leading digit
+// to 9 and randomize only the remaining nine. A uniformly random leading
+// digit made the SMS leg classify as terminal phone_missing ~60% of the time
+// instead of reaching the dry-run rejected('sms_gateway_not_configured').
 function uniquePhone() {
   const digits = BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 12)}`)
     .toString()
-    .slice(-10)
-    .padStart(10, '0');
-  return `+91${digits}`;
+    .slice(-9)
+    .padStart(9, '0');
+  return `+919${digits}`;
 }
 
 async function createRecipientFixture(label, { deviceToken = null } = {}) {
