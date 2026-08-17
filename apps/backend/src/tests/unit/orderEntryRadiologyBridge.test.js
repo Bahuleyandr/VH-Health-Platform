@@ -114,6 +114,24 @@ describe('deriveCpoeContrastIntent (parseContrastIntent parity)', () => {
     }
   });
 
+  it.each([
+    ['CEUS liver lesion', 'ultrasound'],
+    ['CEM diagnostic study', 'mammography'],
+  ])('recognises the standalone contrast-study acronym in %s', (testName, modality) => {
+    expect(deriveCpoeContrastIntent({ test_name: testName }, modality)).toEqual({
+      contrastPlanned: true, contrastAgent: null, intentSource: 'study_text',
+    });
+  });
+
+  it.each([
+    'Ultrasound assessment near cement spacer',
+    'Mammography placement check',
+  ])('does not match a contrast acronym inside an unrelated word: %s', (testName) => {
+    expect(deriveCpoeContrastIntent({ test_name: testName }, 'ultrasound')).toEqual({
+      contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed',
+    });
+  });
+
   it('allows explicit negation for a genuinely non-contrast CT study', () => {
     expect(deriveCpoeContrastIntent({ contrast_planned: false }, 'ct')).toEqual({
       contrastPlanned: false, contrastAgent: null, intentSource: 'explicitly_negated',
@@ -186,6 +204,54 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
     })).rejects.toMatchObject({ statusCode: 409, code: 'RADIOLOGY_CONTRAST_ALLERGY_BLOCKED' });
   });
 
+  it('screens every Staff indication field when a generic reason precedes a later contrast signal', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        reason: 'Characterise focal lesion',
+        clinical_indication: 'Contrast-enhanced study requested by radiology',
+      },
+      ordered_by: DOCTOR,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'RADIOLOGY_CONTRAST_ALLERGY_BLOCKED' });
+  });
+
+  it('rejects explicit false when generic reason masks a later Staff contrast signal', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        reason: 'Characterise focal lesion',
+        indication: 'CEUS requested for indeterminate lesion',
+        contrast_planned: false,
+      },
+      notes: 'Review prior study before acquisition',
+      ordered_by: DOCTOR,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
+  });
+
+  it('rejects explicit false when a generic reason precedes contrast in top-level notes', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'mammography',
+        test_name: 'Diagnostic mammogram',
+        reason: 'Clarify asymmetry',
+        contrast_planned: false,
+      },
+      notes: 'CEM requested after multidisciplinary review',
+      ordered_by: DOCTOR,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    });
+  });
+
   it('does not treat an unrelated use of the word contrast as a contrast study', async () => {
     await expect(createOrder({
       order_type: 'radiology', patient_uid: PATIENT,
@@ -194,6 +260,21 @@ describe('createOrder — radiology gate (Phase 0, fail-closed)', () => {
         test_name: 'Ultrasound liver',
         reason: 'Compare and contrast with prior ultrasound findings',
       },
+      ordered_by: DOCTOR,
+    })).rejects.toThrow(/prisma must not be reached/);
+  });
+
+  it('allows explicit noncontrast when generic reason and later fields contain no study signal', async () => {
+    await expect(createOrder({
+      order_type: 'radiology', patient_uid: PATIENT,
+      details: {
+        modality: 'ultrasound',
+        test_name: 'Ultrasound liver',
+        reason: 'Characterise focal lesion',
+        clinical_indication: 'Compare and contrast with prior ultrasound findings',
+        contrast_planned: false,
+      },
+      notes: 'Routine follow-up imaging',
       ordered_by: DOCTOR,
     })).rejects.toThrow(/prisma must not be reached/);
   });

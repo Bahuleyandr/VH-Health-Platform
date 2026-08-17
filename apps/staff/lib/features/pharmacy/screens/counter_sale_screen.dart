@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -22,13 +23,17 @@ typedef CounterSaleCreator =
       String? notes,
     });
 typedef CounterSaleWitnessApprovalRequester =
-    Future<Map<String, dynamic>> Function({required Map<String, dynamic> sale});
+    Future<Map<String, dynamic>> Function({
+      required Map<String, dynamic> sale,
+      required String idempotencyKey,
+    });
 typedef CounterSaleWitnessApprovalApprover =
     Future<Map<String, dynamic>> Function({
       required int approvalId,
       required Map<String, dynamic> sale,
       required String employeeId,
       required String password,
+      required String idempotencyKey,
     });
 typedef CounterSaleLister =
     Future<List<Map<String, dynamic>>> Function({String? status, String? date});
@@ -432,7 +437,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         final requester =
             widget.requestWitnessApproval ??
             PharmacyApiService.requestCounterSaleWitnessApproval;
-        final pending = await requester(sale: sale);
+        final pending = await requester(
+          sale: sale,
+          idempotencyKey:
+              'counter-sale-witness-request:${IdempotencyKey.generate()}',
+        );
         approvalId = int.tryParse(pending['id']?.toString() ?? '');
         if (approvalId == null || approvalId <= 0) {
           throw StateError('Witness approval id missing');
@@ -459,6 +468,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         sale: sale,
         employeeId: credentials.employeeId,
         password: credentials.password,
+        idempotencyKey:
+            'counter-sale-witness-approval:${IdempotencyKey.generate()}',
       );
       if (!mounted) return;
       if (_saleFingerprint(_currentSalePayload()) != fingerprint) {
@@ -474,7 +485,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       });
       _snack(s.lookup('s4.lib.counter_sale.witness_approved'));
     } catch (error) {
-      if (mounted) setState(_clearWitnessApprovalState);
+      if (mounted) {
+        final message = error.toString().toLowerCase();
+        final invalidApproval =
+            message.contains('expired') ||
+            message.contains('consumed') ||
+            message.contains('already') ||
+            message.contains('match') ||
+            message.contains('different');
+        setState(() {
+          if (invalidApproval) {
+            _clearWitnessApprovalState();
+          } else {
+            _witnessApproved = false;
+            _approvedWitnessName = null;
+          }
+        });
+      }
       _snack(_safeWitnessError(error, s), error: true);
     } finally {
       if (mounted) setState(() => _witnessBusy = false);

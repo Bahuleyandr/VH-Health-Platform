@@ -231,6 +231,20 @@ export function resolveRadiologyOrderFields(details = {}, { notes = null } = {})
   };
 }
 
+function radiologyContrastStudyTextInputs(details = {}, { notes = null } = {}) {
+  const values = [
+    details.test_name, details.testName, details.study, details.name,
+    details.test, details.investigation, details.procedure,
+    details.body_part, details.bodyPart,
+    details.reason, details.clinical_indication, details.clinicalIndication,
+    details.indication, details.notes, notes,
+  ];
+  return [...new Set(values
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean))];
+}
+
 // Contrast intent for a CPOE radiology order — DERIVED SERVER-SIDE, the exact
 // semantics of radiologyService.parseContrastIntent (PR #875 R9: a gate that
 // waits for a client opt-in field is inert): explicit true / named agent →
@@ -339,7 +353,10 @@ async function runRadiologyContrastGate(n, data = {}) {
     ...n.details,
     clinical_indication: fields.clinicalIndication,
   };
-  const intent = deriveCpoeContrastIntent(intentDetails, fields.modality);
+  const intent = deriveCpoeContrastIntent({
+    ...intentDetails,
+    contrastStudyTextInputs: radiologyContrastStudyTextInputs(n.details, { notes: n.notes }),
+  }, fields.modality);
   let screen = null;
   let override = null;
   if (intent.contrastPlanned) {

@@ -14,7 +14,7 @@ const witnessErrorResponse = (description) => ({
   },
 });
 
-const witnessErrorResponses = () => ({
+const witnessErrorResponses = ({ idempotent = false } = {}) => ({
   400: witnessErrorResponse('The dispense payload, witness identity, or credential pair was invalid.'),
   401: witnessErrorResponse('The independently supplied witness credentials were invalid.'),
   403: witnessErrorResponse('The authenticated caller or witness tenant/role was not permitted.'),
@@ -22,7 +22,26 @@ const witnessErrorResponses = () => ({
   409: witnessErrorResponse('The approval expired, was consumed, or did not match the unchanged dispense.'),
   429: witnessErrorResponse('The witness credential attempt was rate limited or locked.'),
   500: witnessErrorResponse('The controlled-dispense approval could not be completed.'),
+  ...(idempotent ? {
+    422: witnessErrorResponse('The Idempotency-Key was reused with a different request body.'),
+    503: witnessErrorResponse('The idempotency store was unavailable, so the mutation failed closed.'),
+  } : {}),
 });
+
+const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const idempotencyKeyParameter = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  description:
+    'Stable key for this logical mutation. Retries with the unchanged body replay the durable original result.',
+  schema: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 200,
+    pattern: '^[A-Za-z0-9_\\-:.]+$',
+  },
+};
 
 export const schemas = {
   PharmacyCounterSaleLineInput: {
@@ -49,6 +68,7 @@ export const schemas = {
 
   PharmacyCounterSaleCreateRequest: {
     type: 'object',
+    additionalProperties: false,
     required: ['lines', 'payment_mode'],
     properties: {
       lines: {
@@ -88,6 +108,7 @@ export const schemas = {
 
   PharmacyCounterSaleWitnessApprovalDecisionRequest: {
     type: 'object',
+    additionalProperties: false,
     required: ['sale'],
     properties: {
       sale: {
@@ -109,6 +130,17 @@ export const schemas = {
           'Witness password for the one-request step-up. It is neither returned nor persisted and does not replace the seller session.',
       },
     },
+    oneOf: [
+      { required: ['employeeId', 'password'] },
+      {
+        not: {
+          anyOf: [
+            { required: ['employeeId'] },
+            { required: ['password'] },
+          ],
+        },
+      },
+    ],
   },
 
   PharmacyCounterSaleWitnessApproval: {
@@ -190,6 +222,52 @@ export const schemas = {
         },
       },
     ],
+  },
+
+  PharmacyInventoryControlledDispenseRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inventory_item_id', 'quantity'],
+    properties: {
+      inventory_item_id: { type: 'integer', minimum: 1 },
+      inventory_batch_id: { type: 'integer', minimum: 1, nullable: true },
+      quantity: { type: 'number', minimum: 0.0001 },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      patient_phone: { type: 'string', nullable: true },
+      prescription_id: { type: 'integer', minimum: 1, nullable: true },
+      prescription_number: { type: 'string', nullable: true },
+      prescriber_uid: { type: 'string', format: 'uuid', nullable: true },
+      prescriber_name: { type: 'string', nullable: true },
+      prescriber_registration: { type: 'string', nullable: true },
+      patient_id_proof_type: { type: 'string', nullable: true },
+      patient_id_proof_last4: { type: 'string', nullable: true },
+      witness_approval_id: {
+        type: 'integer',
+        minimum: 1,
+        nullable: true,
+        description:
+          'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.',
+      },
+      performed_by_name: {
+        type: 'string',
+        nullable: true,
+        description: 'Optional display-name fallback; performed_by is always the authenticated bearer UID.',
+      },
+      notes: { type: 'string', nullable: true },
+      reference_id: { type: 'string', nullable: true },
+      require_usable_batch: { type: 'boolean', default: false },
+    },
+  },
+
+  PharmacyInventoryControlledDispenseResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['register_entry', 'movement'],
+    properties: {
+      register_entry: { type: 'object', additionalProperties: true },
+      movement: { type: 'object', additionalProperties: true },
+    },
   },
 
   PharmacyControlledDispenseWitnessErrorResponse: {
@@ -360,6 +438,7 @@ export const schemas = {
   PharmacyCounterSaleSellableItemsResponse: envelope('PharmacyCounterSaleSellableItemList'),
   PharmacyCounterSaleWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
+  PharmacyInventoryControlledDispenseResponse: envelope('PharmacyInventoryControlledDispenseResult'),
 };
 
 const DESCRIPTIONS = {
@@ -389,30 +468,51 @@ function ops(prefix) {
       description: DESCRIPTIONS.create,
       request: 'PharmacyCounterSaleCreateRequest',
       response: 'PharmacyCounterSaleCreateResponse',
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/counter-sales/witness-approvals`]: {
       description: DESCRIPTIONS.requestWitnessApproval,
       request: 'PharmacyCounterSaleWitnessApprovalRequest',
       response: 'PharmacyCounterSaleWitnessApprovalResponse',
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/counter-sales/witness-approvals/{id}/approve`]: {
       description: DESCRIPTIONS.approveWitnessApproval,
       request: 'PharmacyCounterSaleWitnessApprovalDecisionRequest',
       response: 'PharmacyCounterSaleWitnessApprovalResponse',
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
+    },
+    [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
+      description:
+        'Atomically decrements controlled inventory and writes the statutory register entry. Schedule X / narcotic items require a matching approved one-time witness_approval_id; performed_by is always the authenticated bearer.',
+      request: 'PharmacyInventoryControlledDispenseRequest',
+      response: 'PharmacyInventoryControlledDispenseResponse',
+      security: bearerSecurity,
+      additionalResponses: witnessErrorResponses(),
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals`]: {
       description:
         'Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload.',
       request: 'PharmacyInventoryWitnessApprovalRequest',
       response: 'PharmacyInventoryWitnessApprovalResponse',
-      additionalResponses: witnessErrorResponses(),
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`]: {
       description:
         'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged inventory dispense payload; self-witness, tenant mismatch, expiry, replay, and payload changes fail closed.',
       request: 'PharmacyInventoryWitnessApprovalDecisionRequest',
       response: 'PharmacyInventoryWitnessApprovalResponse',
-      additionalResponses: witnessErrorResponses(),
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,
@@ -426,6 +526,7 @@ function ops(prefix) {
       description: DESCRIPTIONS.void,
       request: 'PharmacyCounterSaleVoidRequest',
       response: 'PharmacyCounterSaleVoidResponse',
+      parameters: [idempotencyKeyParameter],
     },
   };
 }

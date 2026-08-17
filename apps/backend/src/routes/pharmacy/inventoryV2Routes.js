@@ -16,8 +16,10 @@ import {
 } from '../../utils/roles.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
 const router = Router();
+export const pharmacyInventoryWitnessApprovalRoutes = Router({ mergeParams: true });
 
 export const PHARMACY_INVENTORY_READ_ROLES = [
   ADMIN,
@@ -43,6 +45,10 @@ export const PHARMACY_CONTROLLED_DISPENSE_ROLES = [
   ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+];
+
+export const PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES = [
+  ...inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
 ];
 
 function wrap(handler) {
@@ -96,11 +102,8 @@ function requireControlledDispense(req, res, next) {
 
 function requireControlledDispenseApprovalHost(req, res, next) {
   return requireInventoryRole(
-    [...new Set([
-      ...PHARMACY_CONTROLLED_DISPENSE_ROLES,
-      ...inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
-    ])],
-    'Pharmacy dispenser or clinical witness role required',
+    PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
+    'Clinical witness role required',
   )(req, res, next);
 }
 
@@ -167,14 +170,24 @@ router.post('/movements', requireInventoryMaintain, wrap(async (req) => inv.reco
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
 router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_witness_request',
+    retainOnServerError: true,
+  }),
   wrap(async (req) => inv.requestControlledDispenseWitnessApproval({
     ...req.body,
     tenantId: inv.tenantOf(req),
     requested_by: req.user?.uid,
   })));
 
-router.post('/controlled-dispense/witness-approvals/:id/approve',
+pharmacyInventoryWitnessApprovalRoutes.post('/',
   requireControlledDispenseApprovalHost,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_witness_approval',
+    retainOnServerError: true,
+  }),
   wrap(async (req) => {
     const tenantId = inv.tenantOf(req);
     const actor = await resolveWitnessActor(req, tenantId);

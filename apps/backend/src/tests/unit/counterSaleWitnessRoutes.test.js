@@ -11,6 +11,7 @@ const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
   uid: WITNESS,
   tenantId,
 }));
+const idempotencyScopes = [];
 
 jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => ({
   approveCounterSaleWitnessApproval: approveApprovalMock,
@@ -25,7 +26,10 @@ jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
   },
 }));
 jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
-  requireIdempotencyKey: () => (_req, _res, next) => next(),
+  requireIdempotencyKey: (options) => {
+    idempotencyScopes.push(options);
+    return (_req, _res, next) => next();
+  },
 }));
 
 const { default: counterSaleRoutes } = await import(
@@ -49,6 +53,18 @@ beforeEach(() => {
 });
 
 test('counter-sale witness endpoints bind seller and approver to authenticated actors', async () => {
+  expect(idempotencyScopes).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      required: true,
+      scope: 'pharmacy_counter_sale_witness_request',
+      retainOnServerError: true,
+    }),
+    expect.objectContaining({
+      required: true,
+      scope: 'pharmacy_counter_sale_witness_approval',
+      retainOnServerError: true,
+    }),
+  ]));
   const requestResponse = await request(app)
     .post('/counter-sales/witness-approvals')
     .send({ tenantId: 'caller-tenant', requested_by: 'caller-actor', lines: [] });

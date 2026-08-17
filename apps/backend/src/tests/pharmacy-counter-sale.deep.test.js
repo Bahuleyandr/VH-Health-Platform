@@ -681,6 +681,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
   const BASE = '/api/v1/pharmacy-orders/counter-sales';
   const staff = () => authClient('PHARMACY_STAFF', { uid: CASHIER, tenant_id: TENANT });
   const incharge = () => authClient('PHARMACY_INCHARGE', { uid: CASHIER, tenant_id: TENANT });
+  const witness = () => authClient('PHARMACY_STAFF', { uid: WITNESS, tenant_id: TENANT });
 
   const saleBody = (name, ref) => ({
     lines: [{ inventory_item_id: otcItem, quantity: 1 }],
@@ -708,6 +709,52 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     const res = await staff().post(BASE).send(saleBody('No Key Customer', 'upi-idem-0'));
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/Idempotency-Key/);
+  });
+
+  test('lost-response retries reuse one durable witness request and approval decision', async () => {
+    const sale = {
+      lines: [{ inventory_item_id: xItem, quantity: 1 }],
+      customer_name: 'Witness Retry Customer',
+      customer_phone: '9800000088',
+      rx: RX,
+      payment_mode: 'CARD',
+    };
+    const requestKey = `pos-idem-${process.pid}-witness-request`;
+    const firstRequest = await staff().post(`${BASE}/witness-approvals`)
+      .set('Idempotency-Key', requestKey).send(sale);
+    expect(firstRequest.status).toBe(200);
+    const approvalId = Number(firstRequest.body.data.id);
+    expect(approvalId).toBeGreaterThan(0);
+    await waitForIdemComplete(requestKey);
+
+    const replayedRequest = await staff().post(`${BASE}/witness-approvals`)
+      .set('Idempotency-Key', requestKey).send(sale);
+    expect(replayedRequest.status).toBe(200);
+    expect(Number(replayedRequest.body.data.id)).toBe(approvalId);
+
+    const approvalBody = { sale };
+    const approvalKey = `pos-idem-${process.pid}-witness-approval`;
+    const firstApproval = await witness()
+      .post(`${BASE}/witness-approvals/${approvalId}/approve`)
+      .set('Idempotency-Key', approvalKey).send(approvalBody);
+    expect(firstApproval.status).toBe(200);
+    expect(firstApproval.body.data.status).toBe('approved');
+    await waitForIdemComplete(approvalKey);
+
+    const replayedApproval = await witness()
+      .post(`${BASE}/witness-approvals/${approvalId}/approve`)
+      .set('Idempotency-Key', approvalKey).send(approvalBody);
+    expect(replayedApproval.status).toBe(200);
+    expect(replayedApproval.body.data).toEqual(firstApproval.body.data);
+
+    const approvals = await prisma.$queryRawUnsafe(
+      `SELECT id, status, decided_by FROM approvals
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, approvalId,
+    );
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].status).toBe('approved');
+    expect(String(approvals[0].decided_by)).toBe(WITNESS);
   });
 
   test('replayed create returns the original sale — single decrement, invoice, payment', async () => {

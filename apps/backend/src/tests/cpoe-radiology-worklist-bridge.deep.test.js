@@ -158,16 +158,21 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
 
   test('the shipped Staff payload keeps indication-derived contrast true through materialization', async () => {
     const testName = 'Ultrasound liver';
-    const indication = 'Contrast-enhanced study to characterise lesion';
+    const reason = 'Characterise focal lesion';
     const { order } = await createOrder({
       patient_uid: CLEAN_PATIENT_UID,
       order_type: 'radiology',
-      details: { modality: 'ultrasound', test_name: testName, reason: indication },
+      details: {
+        modality: 'ultrasound',
+        test_name: testName,
+        reason,
+        clinical_indication: 'Contrast-enhanced study requested by radiology',
+      },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
     });
 
-    expect(order.details.clinical_indication).toBe(indication);
+    expect(order.details.clinical_indication).toBe(reason);
     expect(order.details.contrast_planned).toBe(true);
     expect(order.details.contrast_intent).toMatchObject({
       contract: 'cpoe_radiology_contrast_v1',
@@ -192,7 +197,8 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
       details: {
         modality: 'ultrasound',
         test_name: testName,
-        reason: 'Contrast-enhanced study for focal lesion',
+        reason: 'Characterise focal lesion',
+        indication: 'CEUS requested for focal lesion',
         contrast_planned: false,
       },
       ordered_by: DOCTOR_UID,
@@ -213,6 +219,39 @@ describe('CPOE radiology order → worklist + contrast gate bridge', () => {
     expect((await radiologyRowsFor(CLEAN_PATIENT_UID)).some(
       (row) => row.body_part === testName,
     )).toBe(false);
+  });
+
+  test('a Staff-shaped noncontrast ultrasound remains noncontrast through materialization', async () => {
+    const testName = 'Ultrasound renal tract';
+    const { order } = await createOrder({
+      patient_uid: CLEAN_PATIENT_UID,
+      order_type: 'radiology',
+      details: {
+        modality: 'ultrasound',
+        test_name: testName,
+        reason: 'Assess hydronephrosis',
+        clinical_indication: 'Compare and contrast with prior ultrasound findings',
+        contrast_planned: false,
+      },
+      notes: 'Routine follow-up imaging',
+      ordered_by: DOCTOR_UID,
+      tenantId: TENANT_ID,
+    });
+
+    expect(order.details.contrast_planned).toBe(false);
+    expect(order.details.contrast_intent).toMatchObject({
+      contract: 'cpoe_radiology_contrast_v1',
+      planned: false,
+      source: 'explicitly_negated',
+    });
+    const rows = await radiologyRowsFor(CLEAN_PATIENT_UID);
+    const materialized = rows.find((row) => row.body_part === testName);
+    expect(materialized).toBeTruthy();
+    expect(materialized.contrast_planned).toBe(false);
+    expect(materialized.contrast_allergy_screen).toMatchObject({
+      contrast_planned: false,
+      intent_source: 'explicitly_negated',
+    });
   });
 
   test('a contrast CT for a documented contrast allergy is blocked 409 with NO rows written', async () => {

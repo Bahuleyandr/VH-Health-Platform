@@ -14,6 +14,7 @@ const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
   uid: WITNESS,
   tenantId,
 }));
+const idempotencyScopes = [];
 let actorRole = 'PHARMACY_STAFF';
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
@@ -35,8 +36,17 @@ jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
     authenticateControlledDispenseWitness: authenticateWitnessMock,
   },
 }));
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: (options) => {
+    idempotencyScopes.push(options);
+    return (_req, _res, next) => next();
+  },
+}));
 
-const { default: inventoryRoutes } = await import(
+const {
+  default: inventoryRoutes,
+  pharmacyInventoryWitnessApprovalRoutes,
+} = await import(
   '../../routes/pharmacy/inventoryV2Routes.js'
 );
 
@@ -46,6 +56,10 @@ app.use((req, _res, next) => {
   req.user = { uid: ACTOR, name: 'Pharmacist', role: actorRole };
   next();
 });
+app.use(
+  '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/:id/approve',
+  pharmacyInventoryWitnessApprovalRoutes,
+);
 app.use('/api/v1/pharmacy/inventory/v2', inventoryRoutes);
 
 beforeEach(() => {
@@ -93,6 +107,18 @@ describe('pharmacy inventory route tenant boundary', () => {
   });
 
   test('binds witness approval creation and decision to authenticated identities', async () => {
+    expect(idempotencyScopes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_witness_request',
+        retainOnServerError: true,
+      }),
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_witness_approval',
+        retainOnServerError: true,
+      }),
+    ]));
     const requestResponse = await request(app)
       .post('/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals')
       .send({ tenantId: OTHER_TENANT, requested_by: 'caller-selected', inventory_item_id: 17 });

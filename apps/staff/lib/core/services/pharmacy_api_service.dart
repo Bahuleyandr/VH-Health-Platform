@@ -16,9 +16,14 @@ class PharmacyApiService {
 
   static Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.post(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.post(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -331,8 +336,13 @@ class PharmacyApiService {
   /// enforcement + billingV2 PHARMACY invoice + pay-at-counter payment.
   static Future<Map<String, dynamic>> requestCounterSaleWitnessApproval({
     required Map<String, dynamic> sale,
+    required String idempotencyKey,
   }) async {
-    return _post('/pharmacy-orders/counter-sales/witness-approvals', sale);
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals',
+      sale,
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   /// Authenticates the second staff member without replacing the seller's
@@ -342,6 +352,7 @@ class PharmacyApiService {
     required Map<String, dynamic> sale,
     required String employeeId,
     required String password,
+    required String idempotencyKey,
   }) async {
     return _post(
       '/pharmacy-orders/counter-sales/witness-approvals/$approvalId/approve',
@@ -350,6 +361,7 @@ class PharmacyApiService {
         'employeeId': employeeId.trim().toUpperCase(),
         'password': password,
       },
+      idempotencyKey: idempotencyKey,
     );
   }
 

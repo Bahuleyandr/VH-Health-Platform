@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,10 @@ void main() {
               endsWith('/pharmacy-orders/counter-sales/witness-approvals'),
             );
             expect(body, sale);
+            expect(
+              request.headers['Idempotency-Key'],
+              'counter-witness-request:test-1',
+            );
             return http.Response(
               jsonEncode({
                 'success': true,
@@ -67,6 +72,10 @@ void main() {
               'employeeId': 'NURSE-002',
               'password': 'witness-secret',
             });
+            expect(
+              request.headers['Idempotency-Key'],
+              'counter-witness-approval:test-1',
+            );
             return http.Response(
               jsonEncode({
                 'success': true,
@@ -96,12 +105,16 @@ void main() {
         }),
       );
 
-      await PharmacyApiService.requestCounterSaleWitnessApproval(sale: sale);
+      await PharmacyApiService.requestCounterSaleWitnessApproval(
+        sale: sale,
+        idempotencyKey: 'counter-witness-request:test-1',
+      );
       await PharmacyApiService.approveCounterSaleWitnessApproval(
         approvalId: 71,
         sale: sale,
         employeeId: 'nurse-002',
         password: 'witness-secret',
+        idempotencyKey: 'counter-witness-approval:test-1',
       );
       await PharmacyApiService.createCounterSale(
         lines: List<Map<String, dynamic>>.from(sale['lines'] as List),
@@ -113,6 +126,76 @@ void main() {
       );
 
       expect(call, 3);
+    },
+  );
+
+  test(
+    'witness request and approval reuse caller intent keys after a lost response',
+    () async {
+      final sale = <String, dynamic>{
+        'lines': [
+          {'inventory_item_id': 17, 'quantity': 1.0},
+        ],
+        'customer_name': 'Walk-in Customer',
+        'payment_mode': 'CASH',
+      };
+      final keysByPath = <String, List<String?>>{};
+      final attemptsByPath = <String, int>{};
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          final path = request.url.path;
+          keysByPath
+              .putIfAbsent(path, () => [])
+              .add(request.headers['Idempotency-Key']);
+          final attempt = (attemptsByPath[path] ?? 0) + 1;
+          attemptsByPath[path] = attempt;
+          if (attempt == 1) {
+            throw const SocketException('response lost after durable write');
+          }
+          final isApproval = path.endsWith('/approve');
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': isApproval
+                  ? {
+                      'id': '71',
+                      'status': 'approved',
+                      'witness': {'name': 'Canonical Nurse'},
+                    }
+                  : {'id': '71', 'status': 'pending'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await PharmacyApiService.requestCounterSaleWitnessApproval(
+        sale: sale,
+        idempotencyKey: 'counter-witness-request:lost-response',
+      );
+      await PharmacyApiService.approveCounterSaleWitnessApproval(
+        approvalId: 71,
+        sale: sale,
+        employeeId: 'NURSE-002',
+        password: 'witness-secret',
+        idempotencyKey: 'counter-witness-approval:lost-response',
+      );
+
+      final requestPath = keysByPath.keys.singleWhere(
+        (path) => path.endsWith('/counter-sales/witness-approvals'),
+      );
+      final approvalPath = keysByPath.keys.singleWhere(
+        (path) => path.endsWith('/witness-approvals/71/approve'),
+      );
+      expect(keysByPath[requestPath], [
+        'counter-witness-request:lost-response',
+        'counter-witness-request:lost-response',
+      ]);
+      expect(keysByPath[approvalPath], [
+        'counter-witness-approval:lost-response',
+        'counter-witness-approval:lost-response',
+      ]);
     },
   );
 }

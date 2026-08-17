@@ -124,20 +124,53 @@ describe('OpenAPI contract overlays (static gate)', () => {
 
   it('documents the counter-sale witness approval handshake and final approval id', () => {
     const createSchema = spec.components.schemas.PharmacyCounterSaleCreateRequest;
+    const counterDecision =
+      spec.components.schemas.PharmacyCounterSaleWitnessApprovalDecisionRequest;
+    const inventoryDispense =
+      spec.components.schemas.PharmacyInventoryControlledDispenseRequest;
     expect(createSchema.properties.witness).toBeUndefined();
     expect(createSchema.properties.witness_approval_id).toEqual(expect.objectContaining({
       type: 'integer',
       minimum: 1,
     }));
+    expect(counterDecision.additionalProperties).toBe(false);
+    expect(counterDecision.oneOf).toEqual([
+      { required: ['employeeId', 'password'] },
+      {
+        not: {
+          anyOf: [
+            { required: ['employeeId'] },
+            { required: ['password'] },
+          ],
+        },
+      },
+    ]);
+    expect(inventoryDispense.required).toEqual(['inventory_item_id', 'quantity']);
+    expect(inventoryDispense.properties.witness).toBeUndefined();
+    expect(inventoryDispense.properties.witness_approval_id).toEqual(expect.objectContaining({
+      type: 'integer',
+      minimum: 1,
+    }));
 
     for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+      const finalSale = spec.paths[`${prefix}/counter-sales`]?.post;
       const requestApproval = spec.paths[`${prefix}/counter-sales/witness-approvals`]?.post;
       const approve = spec.paths[`${prefix}/counter-sales/witness-approvals/{id}/approve`]?.post;
+      const finalDispense = spec.paths[`${prefix}/inventory/v2/controlled-dispense`]?.post;
+      expect(finalSale?.security).toEqual(bearerSecurity);
       expect(requestApproval?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
       });
       expect(approve?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
+      });
+      expect(finalDispense?.security).toEqual(bearerSecurity);
+      expect(finalDispense?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryControlledDispenseRequest',
+      });
+      expect(finalDispense?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryControlledDispenseResponse',
       });
       const inventoryRequest = spec.paths[
         `${prefix}/inventory/v2/controlled-dispense/witness-approvals`
@@ -151,17 +184,71 @@ describe('OpenAPI contract overlays (static gate)', () => {
       expect(inventoryApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest',
       });
-      for (const operation of [inventoryRequest, inventoryApprove]) {
-        expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
-          $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalResponse',
-        });
+      for (const operation of [
+        finalSale,
+        requestApproval,
+        approve,
+        finalDispense,
+        inventoryRequest,
+        inventoryApprove,
+      ]) {
+        expect(operation?.security).toEqual(bearerSecurity);
         for (const status of ['400', '401', '403', '404', '409', '429', '500']) {
           expect(operation?.responses?.[status]?.content?.['application/json']?.schema).toEqual({
             $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse',
           });
         }
       }
+      for (const operation of [
+        finalSale,
+        requestApproval,
+        approve,
+        inventoryRequest,
+        inventoryApprove,
+      ]) {
+        expect(operation?.parameters).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            name: 'Idempotency-Key',
+            in: 'header',
+            required: true,
+          }),
+        ]));
+        for (const status of ['422', '503']) {
+          expect(operation?.responses?.[status]?.content?.['application/json']?.schema).toEqual({
+            $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse',
+          });
+        }
+      }
+      for (const operation of [inventoryRequest, inventoryApprove]) {
+        expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
+          $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalResponse',
+        });
+      }
     }
+  });
+
+  it('enforces the exact counter-sale witness credential pair', () => {
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema(ajvReadySpec(spec), 'openapi.json');
+    const validate = ajv.getSchema(
+      'openapi.json#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
+    );
+    const sale = {
+      lines: [{ inventory_item_id: 17, quantity: 1 }],
+      payment_mode: 'CASH',
+    };
+
+    expect(validate({ sale })).toBe(true);
+    expect(validate({
+      sale,
+      employeeId: 'NURSE-002',
+      password: 'witness-secret',
+    })).toBe(true);
+    expect(validate({ sale, employeeId: 'NURSE-002' })).toBe(false);
+    expect(validate({ sale, password: 'witness-secret' })).toBe(false);
+    expect(validate({ sale, employeeId: 'NURSE-002', password: 'witness-secret', uid: 'spoof' }))
+      .toBe(false);
   });
 
   it('documents notification-authority validation as a bearer-authenticated fail-closed request', () => {

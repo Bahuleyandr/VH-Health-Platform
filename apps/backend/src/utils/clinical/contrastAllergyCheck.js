@@ -81,12 +81,14 @@ const MODALITY_CONTRAST_CLASS = {
 const CONTRAST_STUDY_TEXT_FIELDS = [
   'test_name', 'testName', 'study', 'name', 'test', 'investigation',
   'procedure', 'body_part', 'bodyPart', 'clinical_indication', 'clinicalIndication',
+  'reason', 'indication', 'notes', 'contrastStudyTextInputs',
 ];
-const CONTRAST_STUDY_TEXT_PATTERN = /\bcect\b|\bce[-\s]?(?:ct|mri)\b|\bcontrast[-\s]+enhanced\b|\bwith(?:\s+and\s+without)?\s+(?:(?:iv|oral)\s+)?contrast\b|\b(?:iv|oral|post|delayed)[-\s]?contrast\b|\bcontrast[-\s]+(?:ct|mri|study|phase)\b/i;
+const CONTRAST_STUDY_TEXT_PATTERN = /\b(?:cect|ceus|cem)\b|\bce[-\s]?(?:ct|mri)\b|\bcontrast[-\s]+enhanced\b|\bwith(?:\s+and\s+without)?\s+(?:(?:iv|oral)\s+)?contrast\b|\b(?:iv|oral|post|delayed)[-\s]?contrast\b|\bcontrast[-\s]+(?:ct|mri|study|phase)\b/i;
 
 export function hasExplicitContrastStudySignal(data = {}) {
   return CONTRAST_STUDY_TEXT_FIELDS
     .map((field) => data?.[field])
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
     .filter((value) => typeof value === 'string' && value.trim())
     .some((value) => CONTRAST_STUDY_TEXT_PATTERN.test(value));
 }

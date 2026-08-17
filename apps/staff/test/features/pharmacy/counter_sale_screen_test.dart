@@ -192,6 +192,8 @@ void main() {
       Map<String, dynamic>? approvedSale;
       String? witnessEmployeeId;
       String? witnessPassword;
+      String? witnessRequestIdempotencyKey;
+      String? witnessApprovalIdempotencyKey;
       int? submittedApprovalId;
       _useTallViewport(tester);
       await tester.pumpWidget(
@@ -199,21 +201,25 @@ void main() {
           searchItems: ({String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
-          requestWitnessApproval: ({required sale}) async {
-            requestedSale = Map<String, dynamic>.from(sale);
-            return {'id': '71', 'status': 'pending'};
-          },
+          requestWitnessApproval:
+              ({required sale, required idempotencyKey}) async {
+                requestedSale = Map<String, dynamic>.from(sale);
+                witnessRequestIdempotencyKey = idempotencyKey;
+                return {'id': '71', 'status': 'pending'};
+              },
           approveWitnessApproval:
               ({
                 required approvalId,
                 required sale,
                 required employeeId,
                 required password,
+                required idempotencyKey,
               }) async {
                 expect(approvalId, 71);
                 approvedSale = Map<String, dynamic>.from(sale);
                 witnessEmployeeId = employeeId;
                 witnessPassword = password;
+                witnessApprovalIdempotencyKey = idempotencyKey;
                 return {
                   'id': '71',
                   'status': 'approved',
@@ -277,6 +283,18 @@ void main() {
 
       expect(witnessEmployeeId, 'NURSE-002');
       expect(witnessPassword, 'witness-secret');
+      expect(
+        witnessRequestIdempotencyKey,
+        startsWith('counter-sale-witness-request:'),
+      );
+      expect(
+        witnessApprovalIdempotencyKey,
+        startsWith('counter-sale-witness-approval:'),
+      );
+      expect(
+        witnessApprovalIdempotencyKey,
+        isNot(witnessRequestIdempotencyKey),
+      );
       expect(approvedSale, requestedSale);
       expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
       expect(find.text('witness-secret'), findsNothing);
@@ -299,13 +317,15 @@ void main() {
         searchItems: ({String? search}) async => [
           _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
         ],
-        requestWitnessApproval: ({required sale}) async => {'id': '72'},
+        requestWitnessApproval:
+            ({required sale, required idempotencyKey}) async => {'id': '72'},
         approveWitnessApproval:
             ({
               required approvalId,
               required sale,
               required employeeId,
               required password,
+              required idempotencyKey,
             }) async => {
               'id': '72',
               'status': 'approved',

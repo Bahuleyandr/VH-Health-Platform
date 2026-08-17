@@ -106,7 +106,11 @@ router.get('/items', requireRead, wrap(async (req) => ({
   }),
 })));
 
-router.post('/witness-approvals', requireSell, wrap(async (req) => (
+router.post('/witness-approvals', requireSell, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_counter_sale_witness_request',
+  retainOnServerError: true,
+}), wrap(async (req) => (
   counterSales.requestCounterSaleWitnessApproval({
     ...req.body,
     tenantId: tenantOf(req),
@@ -114,7 +118,11 @@ router.post('/witness-approvals', requireSell, wrap(async (req) => (
   })
 )));
 
-router.post('/witness-approvals/:id/approve', requireApprovalHost, wrap(async (req) => {
+router.post('/witness-approvals/:id/approve', requireApprovalHost, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_counter_sale_witness_approval',
+  retainOnServerError: true,
+}), wrap(async (req) => {
   const tenantId = tenantOf(req);
   const actor = await resolveWitnessActor(req, tenantId);
   return counterSales.approveCounterSaleWitnessApproval({
