@@ -76,9 +76,11 @@ describe('ABDM/UHI security migration contract', () => {
     expect(sql).toContain("event.payload->>'authenticatedHipId'");
     expect(sql).toContain("parsed_payload #>> '{hip,id}'");
     expect(sql).toMatch(/UPDATE abdm_consent_artifacts artifact[\s\S]*?\{hip_id\}/);
-    expect(sql).toMatch(
-      /COUNT\(\*\) = 1[\s\S]*?FROM tenant_interop_secrets[\s\S]*?kind = 'abdm_callback'/,
-    );
+    expect(sql).toMatch(/event\.signature_verified IS TRUE/);
+    expect(sql).toMatch(/authenticated_hip_id <> e\.expected_hip_id/);
+    expect(sql).toMatch(/NOT e\.authenticated_hip_recorded/);
+    expect(sql).not.toMatch(/tenant_interop_secrets/);
+    expect(sql).not.toMatch(/kind = 'abdm_callback'/);
     expect(sql).toMatch(
       /evidence_page_number > 2147483647[\s\S]*?evidence_page_count > 2147483647/,
     );
