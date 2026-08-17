@@ -79,6 +79,12 @@ async function cleanup() {
 }
 
 async function seedBundle({ expiryAt = new Date(Date.now() + 60_000) } = {}) {
+  // Bind an explicit-UTC instant, never a JS Date. The pg driver serialises a
+  // Date as a zoneless wall clock, so `::timestamptz` re-reads those digits in
+  // the session timezone: on the Asia/Calcutta QA session the value lands 5h30m
+  // early and expires the consent before the test can exercise it. This mirrors
+  // normalizeTimestamp() in the production consent writer (abdmHipHiuService).
+  const expiryAtIso = new Date(expiryAt).toISOString();
   await prisma.$executeRawUnsafe(
     `INSERT INTO tenants (id, slug, name)
      VALUES ($1::uuid, 'pr878-hiu-retention', 'PR878 HIU Retention')`,
@@ -108,7 +114,7 @@ async function seedBundle({ expiryAt = new Date(Date.now() + 60_000) } = {}) {
           'cm_consent_request_id', $6::text
         ))
      RETURNING id`,
-    TENANT_ID, REQUEST_ID, PATIENT_UID, expiryAt, ABHA_ADDRESS, CM_REQUEST_ID,
+    TENANT_ID, REQUEST_ID, PATIENT_UID, expiryAtIso, ABHA_ADDRESS, CM_REQUEST_ID,
   );
   const artifacts = await prisma.$queryRawUnsafe(
     `INSERT INTO abdm_consent_artifacts
@@ -122,7 +128,7 @@ async function seedBundle({ expiryAt = new Date(Date.now() + 60_000) } = {}) {
         jsonb_build_object('patient', jsonb_build_object('id', $5::text)),
         'sandbox', jsonb_build_object('hip_id', 'PR878-HIP'))
      RETURNING id`,
-    TENANT_ID, requests[0].id, PATIENT_UID, expiryAt, ABHA_ADDRESS,
+    TENANT_ID, requests[0].id, PATIENT_UID, expiryAtIso, ABHA_ADDRESS,
   );
   const sessions = await prisma.$queryRawUnsafe(
     `INSERT INTO abdm_hiu_fetch_sessions
