@@ -11,6 +11,7 @@
 //     ACCEPTANCE evidence, not delivery — the DLR refines it later);
 //   * the Twilio adapter does the same through the SDK.
 
+import crypto from 'node:crypto';
 import { jest } from '@jest/globals';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000021';
@@ -20,6 +21,7 @@ const getSmsSettingsMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
 const decryptFieldMock = jest.fn();
 const twilioCreateMock = jest.fn();
+const twilioClientMock = jest.fn(() => ({ messages: { create: twilioCreateMock } }));
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -33,7 +35,7 @@ jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
   decryptField: decryptFieldMock,
 }));
 jest.unstable_mockModule('twilio', () => ({
-  default: () => ({ messages: { create: twilioCreateMock } }),
+  default: twilioClientMock,
   validateRequest: jest.fn(),
 }));
 
@@ -75,6 +77,13 @@ function registrationRow(overrides = {}) {
     provider_template_id: null,
     ...overrides,
   };
+}
+
+function expectedEnvTwilioCallbackToken(tenantId, accountSid, authToken) {
+  const mac = crypto.createHmac('sha256', authToken)
+    .update(`vhhealth:twilio-status:v1:${tenantId}:${accountSid}`)
+    .digest('base64url');
+  return `env.${tenantId}.${mac}`;
 }
 
 function stubDb({ configs = [], templates = [] } = {}) {
@@ -151,16 +160,14 @@ describe('provider resolution (config-gated DEFAULT OFF)', () => {
     expect(resolved).toMatchObject({ provider: 'msg91', source: 'env' });
   });
 
-  it('binds env Twilio credentials to the tenant callback-token config', async () => {
+  it('keeps env Twilio credentials independent of a stale disabled database config', async () => {
     process.env.SMS_PROVIDER = 'twilio';
     process.env.TWILIO_ACCOUNT_SID = 'AC-env';
     process.env.TWILIO_AUTH_TOKEN = 'env-auth';
     process.env.TWILIO_SMS_FROM = 'VHHLTH';
     stubDb({ configs: [configRow({ provider: 'twilio', enabled: false, account_sid: null })] });
     const resolved = await resolveSmsProviderContext(TENANT_ID);
-    expect(resolved).toMatchObject({
-      provider: 'twilio', source: 'env', config: { id: 7, provider: 'twilio' },
-    });
+    expect(resolved).toMatchObject({ provider: 'twilio', source: 'env', config: null });
   });
 
   it('an env provider with incomplete credentials stays dry_run', async () => {
@@ -378,6 +385,38 @@ describe('Twilio adapter classification', () => {
       to: '+919876543210',
       statusCallback: 'https://api.vhhealth.app/webhooks/sms/twilio-status/tok_abcdefghijklmnopqrstuvwxyz01',
     }));
+  });
+
+  it('mints the env callback from the exact env account/auth source, never a disabled DB token', async () => {
+    process.env.SMS_PROVIDER = 'twilio';
+    process.env.TWILIO_ACCOUNT_SID = 'AC-current-env';
+    process.env.TWILIO_AUTH_TOKEN = 'current-env-auth';
+    process.env.TWILIO_SMS_FROM = '+15005550006';
+    stubDb({
+      configs: [configRow({
+        provider: 'twilio', enabled: false, account_sid: 'AC-stale-db',
+        auth_key_ciphertext: 'enc:stale-db-auth',
+        callback_token_ciphertext: 'enc:callback-token',
+      })],
+      templates: [registrationRow({ provider_template_id: 'HX-content-sid' })],
+    });
+    twilioCreateMock.mockResolvedValue({ sid: 'SM-env', status: 'queued' });
+
+    const result = await sendThroughResolvedProvider({
+      phone: '919876543210', message: 'Hi', tenantId: TENANT_ID,
+      templateVersion: TEMPLATE_KEY, outboxId: 24,
+    });
+
+    expect(result.outcome).toBe('acknowledged');
+    const token = expectedEnvTwilioCallbackToken(
+      TENANT_ID, process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN,
+    );
+    expect(twilioCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      statusCallback: `https://api.vhhealth.app/webhooks/sms/twilio-status/${token}`,
+    }));
+    expect(twilioClientMock).toHaveBeenCalledWith('AC-current-env', 'current-env-auth');
+    expect(decryptFieldMock).not.toHaveBeenCalledWith('enc:callback-token');
+    expect(decryptFieldMock).not.toHaveBeenCalledWith('enc:stale-db-auth');
   });
 
   it('fails closed before sending when a verifiable status callback cannot be constructed', async () => {

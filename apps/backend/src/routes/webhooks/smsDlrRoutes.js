@@ -8,10 +8,11 @@
 //     token IS the authentication — SHA-256(token) must match a tenant
 //     config's callback_token_hash (699). Unknown/malformed → 401, nothing
 //     written, never a default tenant (fail-closed on a pre-RLS mount).
-//   * /twilio-status/:token (Twilio): the same token gate PLUS
-//     X-Twilio-Signature verification (HMAC of exact public URL + sorted
-//     form params via the SDK). Twilio signs params, not the body, so no
-//     app.js raw-body capture is needed.
+//   * /twilio-status/:token (Twilio): DB sends use that config's random token;
+//     env sends use a tenant-routing token authenticated by the exact env
+//     account/auth pair. Both additionally require X-Twilio-Signature
+//     verification with the same credential source used for the send.
+//     Twilio signs params, not the body, so no raw-body capture is needed.
 //
 // Replay + outbox law live in smsDeliveryStatusService: terminal statuses
 // only, one receipt per (attempt, source) via the 609 unique, receipts

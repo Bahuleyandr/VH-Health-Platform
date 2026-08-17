@@ -228,6 +228,97 @@ d('payment gateway refund execution leg (deep)', () => {
     expect(rows[0].provider_refund_id).toBe(`rfnd_dry_pgr-${refund.id}`);
   });
 
+  it('refund.failed recovers an initiated crash-window intent and is inert on redelivery', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 250);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 75, reason: 'failed provider refund', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    const leg = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+
+    // Simulate a process crash after the provider accepted the request but
+    // before phase 3 persisted its refund id/status evidence.
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'initiated', provider_refund_id = NULL
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(leg.id), TENANT,
+    );
+    const providerRefundId = `rfnd_failed_${randomUUID().slice(0, 8)}`;
+    const input = {
+      tenantId: TENANT, config, event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: {
+        id: providerRefundId, payment_id: providerPaymentId, amount: toPaise(75),
+        currency: 'INR', status: 'failed', notes: { billing_refund_id: String(refund.id) },
+        error_code: 'BAD_REQUEST_ERROR', error_description: 'provider rejected refund',
+      } } } },
+    };
+
+    const first = await gateway.processWebhookEvent(input);
+    const redelivery = await gateway.processWebhookEvent(input);
+    expect(first).toMatchObject({ outcome: 'refund_failed_recorded', gatewayRefundId: Number(leg.id) });
+    expect(redelivery).toMatchObject({ outcome: 'replay', gatewayRefundId: Number(leg.id) });
+
+    const [updatedLeg] = await prisma.$queryRawUnsafe(
+      `SELECT status, provider_refund_id FROM payment_gateway_refunds WHERE id = $1::int`,
+      Number(leg.id),
+    );
+    expect(updatedLeg).toMatchObject({ status: 'failed', provider_refund_id: providerRefundId });
+    const [billingRefund] = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, reference FROM billing_refunds WHERE id = $1::int`,
+      Number(refund.id),
+    );
+    expect(billingRefund).toMatchObject({ approval_status: 'APPROVED', reference: null });
+  });
+
+  it('refund.failed evidence mismatch durably reconciles and an exact redelivery self-heals to failed', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 180);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 60, reason: 'mismatched failure evidence', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    const leg = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+    const entity = {
+      id: leg.provider_refund_id, payment_id: providerPaymentId, amount: toPaise(60),
+      currency: 'INR', status: 'failed', notes: { billing_refund_id: String(refund.id) },
+      error_code: 'BAD_REQUEST_ERROR', error_description: 'provider rejected refund',
+    };
+
+    const mismatch = await gateway.processWebhookEvent({
+      tenantId: TENANT, config, event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: { ...entity, currency: 'USD' } } } },
+    });
+    expect(mismatch).toMatchObject({ outcome: 'requires_reconciliation', gatewayRefundId: Number(leg.id) });
+    let [updatedLeg] = await prisma.$queryRawUnsafe(
+      `SELECT status, failure_code, failure_reason
+         FROM payment_gateway_refunds WHERE id = $1::int`,
+      Number(leg.id),
+    );
+    expect(updatedLeg).toMatchObject({
+      status: 'requires_reconciliation', failure_code: 'provider_evidence_mismatch',
+    });
+    expect(updatedLeg.failure_reason).toContain('currency');
+
+    const exact = await gateway.processWebhookEvent({
+      tenantId: TENANT, config, event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity } } },
+    });
+    expect(exact).toMatchObject({ outcome: 'refund_failed_recorded', gatewayRefundId: Number(leg.id) });
+    [updatedLeg] = await prisma.$queryRawUnsafe(
+      `SELECT status, provider_refund_id FROM payment_gateway_refunds WHERE id = $1::int`,
+      Number(leg.id),
+    );
+    expect(updatedLeg).toMatchObject({ status: 'failed', provider_refund_id: leg.provider_refund_id });
+  });
+
   it('refuses execution for a refund that is not APPROVED or not gateway-collected', async () => {
     const patient = await makePatient();
     const { invoiceId, orderId } = await makeCapturedGatewayPayment(patient, 200);

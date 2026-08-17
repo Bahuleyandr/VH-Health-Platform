@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS payment_gateway_refunds (
   amount               DECIMAL(12, 2) NOT NULL
     CONSTRAINT chk_pg_refund_amount_positive CHECK (amount > 0),
   currency             VARCHAR(3) NOT NULL DEFAULT 'INR',
-  status               VARCHAR(20) NOT NULL DEFAULT 'initiated'
+  status               VARCHAR(30) NOT NULL DEFAULT 'initiated'
     CONSTRAINT chk_pg_refund_status
       CHECK (status IN ('initiated', 'pending', 'processed', 'failed', 'requires_reconciliation')),
   reason               VARCHAR(500),

@@ -526,7 +526,7 @@ describe('refund.processed webhook', () => {
       .mockResolvedValueOnce([{ // gateway refund row by provider_refund_id
         id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
         billing_refund_id: 9, provider_payment_id: 'pay_dry_9',
-        amount: '150.00', currency: 'INR',
+        provider_refund_id: 'rfnd_dry_pgr-9', amount: '150.00', currency: 'INR',
       }])
       .mockResolvedValueOnce([{ id: 6 }]); // processed UPDATE returning
     const result = await gateway.handleRefundProcessedEvent({
@@ -543,6 +543,7 @@ describe('refund.processed webhook', () => {
   });
 
   it.each([
+    ['refund id', { id: 'rfnd_wrong' }],
     ['payment id', { payment_id: 'pay_wrong' }],
     ['amount', { amount: 14999 }],
     ['currency', { currency: 'USD' }],
@@ -551,7 +552,7 @@ describe('refund.processed webhook', () => {
       .mockResolvedValueOnce([{
         id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
         billing_refund_id: 9, provider_payment_id: 'pay_dry_9',
-        amount: '150.00', currency: 'INR',
+        provider_refund_id: 'rfnd_dry_pgr-9', amount: '150.00', currency: 'INR',
       }])
       .mockResolvedValueOnce([{ id: 6 }]);
     const entity = {
@@ -579,6 +580,72 @@ describe('refund.processed webhook', () => {
       payload: { payload: { refund: { entity: { id: 'rfnd_dry_pgr-9' } } } },
     });
     expect(result.outcome).toBe('replay');
+    expect(markRefundPaid).not.toHaveBeenCalled();
+  });
+});
+
+describe('refund.failed webhook', () => {
+  const failedEntity = (overrides = {}) => ({
+    id: 'rfnd_failed_9', payment_id: 'pay_dry_9', amount: 15000,
+    currency: 'INR', status: 'failed', notes: { billing_refund_id: '9' },
+    error_code: 'BAD_REQUEST_ERROR', error_description: 'provider rejected refund',
+    ...overrides,
+  });
+
+  it('recovers the post-provider/pre-phase3 crash window by payment id plus billing refund note, then replays', async () => {
+    const intent = {
+      id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'initiated',
+      billing_refund_id: 9, provider_payment_id: 'pay_dry_9',
+      provider_refund_id: null, amount: '150.00', currency: 'INR',
+    };
+    queryRawUnsafe
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([intent])
+      .mockResolvedValueOnce([{ id: 6 }])
+      .mockResolvedValueOnce([{ ...intent, status: 'failed', provider_refund_id: 'rfnd_failed_9' }]);
+    const input = {
+      tenantId: TENANT, config: enabledConfig,
+      event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: failedEntity() } } },
+    };
+
+    const first = await gateway.processWebhookEvent(input);
+    const redelivery = await gateway.processWebhookEvent(input);
+
+    expect(first).toMatchObject({ outcome: 'refund_failed_recorded', gatewayRefundId: 6 });
+    expect(redelivery).toMatchObject({ outcome: 'replay', gatewayRefundId: 6 });
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain('billing_refund_id = $4::int');
+    expect(queryRawUnsafe.mock.calls[1].slice(1)).toEqual([
+      TENANT, 'dry_run', 'pay_dry_9', 9,
+    ]);
+    expect(queryRawUnsafe.mock.calls[2][0]).toContain("status = 'failed'");
+    expect(markRefundPaid).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['refund id', { id: 'rfnd_wrong' }],
+    ['payment id', { payment_id: 'pay_wrong' }],
+    ['amount', { amount: 14999 }],
+    ['currency', { currency: 'USD' }],
+    ['billing refund id', { notes: { billing_refund_id: '10' } }],
+    ['status', { status: 'processed' }],
+  ])('parks signed failure evidence with mismatched %s for reconciliation', async (_field, override) => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
+        billing_refund_id: 9, provider_payment_id: 'pay_dry_9',
+        provider_refund_id: 'rfnd_failed_9', amount: '150.00', currency: 'INR',
+      }])
+      .mockResolvedValueOnce([{ id: 6 }]);
+
+    const result = await gateway.processWebhookEvent({
+      tenantId: TENANT, config: enabledConfig,
+      event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: failedEntity(override) } } },
+    });
+
+    expect(result).toMatchObject({ outcome: 'requires_reconciliation', gatewayRefundId: 6 });
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain("status = 'requires_reconciliation'");
     expect(markRefundPaid).not.toHaveBeenCalled();
   });
 });

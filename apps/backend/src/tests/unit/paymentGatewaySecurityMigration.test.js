@@ -17,6 +17,7 @@ describe('payment gateway security migration contracts', () => {
 
   it('keeps evidence-mismatched refunds live and blocked for reconciliation', () => {
     const sql = migration('697_payment_gateway_refunds.sql');
+    expect(sql).toMatch(/status\s+VARCHAR\(30\)\s+NOT NULL/i);
     expect(sql).toMatch(/CHECK \(status IN \([^)]+requires_reconciliation[^)]+\)\)/i);
     expect(sql).toMatch(/ux_pg_refund_billing_refund_live[\s\S]*requires_reconciliation/i);
   });

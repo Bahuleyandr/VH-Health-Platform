@@ -15,6 +15,7 @@
 //   * an unknown provider reference is 200-acked with no write;
 //   * outbox status and delivery cursors are NEVER touched from a DLR.
 
+import crypto from 'node:crypto';
 import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
@@ -29,6 +30,13 @@ const txQueryRawUnsafeMock = jest.fn();
 const decryptFieldMock = jest.fn();
 const validateRequestMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+
+function envTwilioCallbackToken(tenantId, accountSid, authToken) {
+  const mac = crypto.createHmac('sha256', authToken)
+    .update(`vhhealth:twilio-status:v1:${tenantId}:${accountSid}`)
+    .digest('base64url');
+  return `env.${tenantId}.${mac}`;
+}
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: setTenantTxMock,
@@ -68,6 +76,7 @@ function app() {
 beforeEach(() => {
   jest.clearAllMocks();
   delete process.env.PUBLIC_BASE_URL;
+  delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback({
     $queryRawUnsafe: txQueryRawUnsafeMock,
@@ -251,7 +260,7 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
 
   function postTwilio(overrides = {}) {
     const req = request(app())
-      .post(`/webhooks/sms/twilio-status/${TOKEN}`)
+      .post(`/webhooks/sms/twilio-status/${overrides.token ?? TOKEN}`)
       .type('form');
     if (overrides.signature !== null) {
       req.set('X-Twilio-Signature', overrides.signature ?? 'sig-ok');
@@ -368,7 +377,7 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to the env TWILIO_AUTH_TOKEN when the config has no ciphertext', async () => {
+  it('rejects a database callback token whose config has no bound auth ciphertext', async () => {
     resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
       id: 8, tenant_id: TENANT_ID, provider: 'twilio', auth_key_ciphertext: null,
     });
@@ -376,10 +385,50 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     process.env.TWILIO_AUTH_TOKEN = 'env-twilio-token';
     validateRequestMock.mockReturnValue(true);
     const res = await postTwilio();
-    expect(res.status).toBe(200);
-    expect(validateRequestMock).toHaveBeenCalledWith(
-      'env-twilio-token', expect.any(String), expect.any(String), expect.any(Object),
+    expect(res.status).toBe(401);
+    expect(validateRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('verifies an env-minted callback with the env send secret despite a stale disabled DB config', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    process.env.TWILIO_ACCOUNT_SID = 'AC-current-env';
+    process.env.TWILIO_AUTH_TOKEN = 'current-env-auth';
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue({
+      id: 8, tenant_id: TENANT_ID, provider: 'twilio', enabled: false,
+      auth_key_ciphertext: 'enc:stale-db-auth',
+    });
+    decryptFieldMock.mockReturnValue('stale-db-auth');
+    validateRequestMock.mockReturnValue(true);
+    const token = envTwilioCallbackToken(
+      TENANT_ID, process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN,
     );
+
+    const res = await postTwilio({ token });
+
+    expect(res.status).toBe(200);
+    expect(resolveSmsConfigByCallbackTokenMock).not.toHaveBeenCalled();
+    expect(decryptFieldMock).not.toHaveBeenCalled();
+    expect(validateRequestMock).toHaveBeenCalledWith(
+      'current-env-auth', 'sig-ok',
+      `https://api.vhhealth.app/webhooks/sms/twilio-status/${token}`,
+      expect.objectContaining({ MessageSid: 'SM900' }),
+    );
+  });
+
+  it('rejects an env callback token minted under a different auth source without consulting DB config', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://api.vhhealth.app';
+    process.env.TWILIO_ACCOUNT_SID = 'AC-current-env';
+    process.env.TWILIO_AUTH_TOKEN = 'current-env-auth';
+    const staleToken = envTwilioCallbackToken(
+      TENANT_ID, process.env.TWILIO_ACCOUNT_SID, 'stale-env-auth',
+    );
+
+    const res = await postTwilio({ token: staleToken });
+
+    expect(res.status).toBe(401);
+    expect(resolveSmsConfigByCallbackTokenMock).not.toHaveBeenCalled();
+    expect(validateRequestMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
   });
 });
 

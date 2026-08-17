@@ -32,9 +32,10 @@ import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 import { getSmsSettings } from '../../../services/tenant/tenantSettingsService.js';
 import { sendViaMsg91 } from './msg91Provider.js';
 import { sendViaTwilioSms } from './twilioSmsProvider.js';
+import { mintEnvTwilioCallbackToken } from './twilioCallbackAuth.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CALLBACK_TOKEN_RE = /^[A-Za-z0-9_-]{20,64}$/;
+const CALLBACK_TOKEN_RE = /^[A-Za-z0-9_.-]{20,160}$/;
 
 function rejected(providerCode, evidence = {}) {
   return { outcome: 'rejected', providerReference: null, providerCode, evidence };
@@ -75,18 +76,6 @@ async function getEnabledSmsConfigRow(tenantId) {
       WHERE tenant_id = $1::uuid AND enabled = true
       LIMIT 1`,
     tenantId,
-  );
-  return rows[0] || null;
-}
-
-async function getSmsConfigRowForProvider(tenantId, provider) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, tenant_id::text, provider, enabled, sender_id, dlt_entity_id,
-            auth_key_ciphertext, account_sid, callback_token_ciphertext
-       FROM sms_provider_configs
-      WHERE tenant_id = $1::uuid AND provider = $2::text
-      LIMIT 1`,
-    tenantId, provider,
   );
   return rows[0] || null;
 }
@@ -138,18 +127,7 @@ export async function resolveSmsProviderContext(tenantId) {
     return { provider: 'msg91', source: 'env', reason: null, config: null };
   }
   if (envProvider === 'twilio' && envTwilioSmsComplete()) {
-    try {
-      const callbackConfig = await getSmsConfigRowForProvider(tid, 'twilio');
-      if (callbackConfig?.callback_token_ciphertext) {
-        return { provider: 'twilio', source: 'env', reason: null, config: callbackConfig };
-      }
-    } catch (err) {
-      logger.error('sms provider resolution: callback config lookup failed', { error: err?.message });
-      return { provider: 'dry_run', source: 'default', reason: 'config_unavailable', config: null };
-    }
-    return {
-      provider: 'dry_run', source: 'default', reason: 'env_callback_config_missing', config: null,
-    };
+    return { provider: 'twilio', source: 'env', reason: null, config: null };
   }
   if (envProvider === 'msg91' || envProvider === 'twilio') {
     return { provider: 'dry_run', source: 'default', reason: 'env_credentials_incomplete', config: null };
@@ -195,7 +173,7 @@ function tenantCredentials(config, provider) {
   };
 }
 
-function envCredentials(provider) {
+function envCredentials(provider, tenantId) {
   if (provider === 'msg91') {
     return {
       authKey: process.env.MSG91_AUTH_KEY || null,
@@ -210,7 +188,11 @@ function envCredentials(provider) {
     senderId: process.env.TWILIO_SMS_FROM || null,
     dltEntityId: null,
     accountSid: process.env.TWILIO_ACCOUNT_SID || null,
-    callbackToken: null,
+    callbackToken: mintEnvTwilioCallbackToken({
+      tenantId,
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+    }),
   };
 }
 
@@ -270,11 +252,7 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
   try {
     credentials = resolution.source === 'tenant_config'
       ? tenantCredentials(resolution.config, resolution.provider)
-      : envCredentials(resolution.provider);
-    if (resolution.provider === 'twilio' && !credentials.callbackToken
-        && resolution.config?.callback_token_ciphertext) {
-      credentials.callbackToken = decryptField(resolution.config.callback_token_ciphertext);
-    }
+      : envCredentials(resolution.provider, tenantId);
   } catch (err) {
     // decryptField failure — configuration exists but is unreadable. This is
     // a channel-level configuration fault (pause is honest), not transport.

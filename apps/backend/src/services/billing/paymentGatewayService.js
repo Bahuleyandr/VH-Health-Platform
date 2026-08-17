@@ -890,7 +890,7 @@ function toGatewayRefundResult(row, replay) {
 
 const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
 
-function refundEvidenceMismatches(intent, evidence, { requireProcessed = false } = {}) {
+function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = {}) {
   const mismatches = [];
   const providerRefundId = String(evidence?.providerRefundId || '').trim();
   if (!providerRefundId || providerRefundId.length > 120
@@ -909,8 +909,8 @@ function refundEvidenceMismatches(intent, evidence, { requireProcessed = false }
     mismatches.push('currency');
   }
   const status = String(evidence?.status || '').trim().toLowerCase();
-  if ((requireProcessed && status !== 'processed')
-      || (!requireProcessed && !PROVIDER_REFUND_STATUSES.has(status))) {
+  if ((expectedStatus && status !== expectedStatus)
+      || (!expectedStatus && !PROVIDER_REFUND_STATUSES.has(status))) {
     mismatches.push('status');
   }
   if (evidence?.billingRefundId !== undefined
@@ -918,6 +918,69 @@ function refundEvidenceMismatches(intent, evidence, { requireProcessed = false }
     mismatches.push('billing_refund_id');
   }
   return mismatches;
+}
+
+async function findGatewayRefundForWebhook({ tenant, provider, entity }) {
+  const providerRefundId = entity.id || null;
+  const providerPaymentId = entity.payment_id || null;
+  const billingRefundId = Number(entity.notes?.billing_refund_id);
+  let rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM payment_gateway_refunds
+      WHERE tenant_id = $1::uuid AND provider = $2 AND provider_refund_id = $3
+      LIMIT 1`,
+    tenant, provider, String(providerRefundId),
+  );
+  if (!rows.length && providerPaymentId
+      && Number.isInteger(billingRefundId) && billingRefundId > 0) {
+    // The callback can beat phase 3 after the irreversible provider call.
+    // Payment id plus our billing-refund note is the exact committed intent;
+    // payment id alone is ambiguous when one capture has partial refunds.
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND provider = $2
+          AND provider_payment_id = $3 AND billing_refund_id = $4::int
+          AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        ORDER BY id DESC
+        LIMIT 1`,
+      tenant, provider, String(providerPaymentId), billingRefundId,
+    );
+  }
+  return {
+    gatewayRefund: rows[0] || null,
+    evidence: {
+      providerRefundId,
+      providerPaymentId,
+      amountPaise: entity.amount,
+      currency: entity.currency,
+      status: entity.status,
+      billingRefundId,
+    },
+  };
+}
+
+async function parkRefundEvidenceMismatch({ tenant, gatewayRefund, evidence, mismatches }) {
+  const providerRefundId = String(evidence.providerRefundId || '').trim();
+  const safeProviderRefundId = providerRefundId && providerRefundId.length <= 120
+    ? providerRefundId
+    : null;
+  await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_refunds
+        SET status = 'requires_reconciliation',
+            provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+            failure_code = 'provider_evidence_mismatch',
+            failure_reason = $2::text,
+            updated_at = NOW()
+      WHERE id = $3::int AND tenant_id = $4::uuid
+        AND status IN ('initiated', 'pending', 'requires_reconciliation')
+      RETURNING id`,
+    safeProviderRefundId, refundEvidenceMismatchReason(mismatches),
+    Number(gatewayRefund.id), tenant,
+  );
+  return {
+    outcome: 'requires_reconciliation',
+    gatewayRefundId: Number(gatewayRefund.id),
+    reason: refundEvidenceMismatchReason(mismatches),
+  };
 }
 
 function refundEvidenceMismatchReason(mismatches) {
@@ -1182,66 +1245,24 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   const tenant = requireTenantId(tenantId);
   const entity = payload?.payload?.refund?.entity || {};
   const providerRefundId = entity.id || null;
-  const providerPaymentId = entity.payment_id || null;
-  const notedBillingRefundId = Number(entity.notes?.billing_refund_id);
   if (!providerRefundId) return { outcome: 'ignored', reason: 'missing refund entity id' };
-
-  let rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM payment_gateway_refunds
-      WHERE tenant_id = $1::uuid AND provider = $2 AND provider_refund_id = $3
-      LIMIT 1`,
-    tenant, config.provider, String(providerRefundId),
-  );
-  if (!rows.length && providerPaymentId
-      && Number.isInteger(notedBillingRefundId) && notedBillingRefundId > 0) {
-    // A webhook can beat the phase-3 evidence update after the provider call.
-    // Correlate that crash window by BOTH payment id and our billing-refund
-    // note; payment id alone is ambiguous when one capture has partial refunds.
-    rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM payment_gateway_refunds
-        WHERE tenant_id = $1::uuid AND provider = $2
-          AND provider_payment_id = $3 AND billing_refund_id = $4::int
-          AND status IN ('initiated', 'pending')
-        ORDER BY id DESC
-        LIMIT 1`,
-      tenant, config.provider, String(providerPaymentId), notedBillingRefundId,
-    );
-  }
-  if (!rows.length) {
+  const { gatewayRefund, evidence } = await findGatewayRefundForWebhook({
+    tenant, provider: config.provider, entity,
+  });
+  if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
   }
-  const gatewayRefund = rows[0];
   if (gatewayRefund.status === 'processed') {
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
 
-  const evidenceMismatches = refundEvidenceMismatches(gatewayRefund, {
-    providerRefundId,
-    providerPaymentId,
-    amountPaise: entity.amount,
-    currency: entity.currency,
-    status: entity.status,
-    billingRefundId: notedBillingRefundId,
-  }, { requireProcessed: true });
+  const evidenceMismatches = refundEvidenceMismatches(
+    gatewayRefund, evidence, { expectedStatus: 'processed' },
+  );
   if (evidenceMismatches.length) {
-    await prisma.$queryRawUnsafe(
-      `UPDATE payment_gateway_refunds
-          SET status = 'requires_reconciliation',
-              provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
-              failure_code = 'provider_evidence_mismatch',
-              failure_reason = $2::text,
-              updated_at = NOW()
-        WHERE id = $3::int AND tenant_id = $4::uuid
-          AND status IN ('initiated', 'pending', 'requires_reconciliation')
-        RETURNING id`,
-      String(providerRefundId), refundEvidenceMismatchReason(evidenceMismatches),
-      Number(gatewayRefund.id), tenant,
-    );
-    return {
-      outcome: 'requires_reconciliation',
-      gatewayRefundId: Number(gatewayRefund.id),
-      reason: refundEvidenceMismatchReason(evidenceMismatches),
-    };
+    return parkRefundEvidenceMismatch({
+      tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
+    });
   }
 
   // Authority first: flip the billing refund APPROVED → PAID (its own
@@ -1287,20 +1308,38 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
   const tenant = requireTenantId(tenantId);
   const entity = payload?.payload?.refund?.entity || {};
   if (!entity.id) return { outcome: 'ignored', reason: 'missing refund entity id' };
+  const { gatewayRefund, evidence } = await findGatewayRefundForWebhook({
+    tenant, provider: config.provider, entity,
+  });
+  if (!gatewayRefund) {
+    return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
+  }
+  if (gatewayRefund.status === 'failed') {
+    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+  }
+  const evidenceMismatches = refundEvidenceMismatches(
+    gatewayRefund, evidence, { expectedStatus: 'failed' },
+  );
+  if (evidenceMismatches.length) {
+    return parkRefundEvidenceMismatch({
+      tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
+    });
+  }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE payment_gateway_refunds
-        SET status = 'failed', failed_at = NOW(),
-            failure_code = $1, failure_reason = $2, updated_at = NOW()
-      WHERE tenant_id = $3::uuid AND provider = $4 AND provider_refund_id = $5
-        AND status IN ('initiated', 'pending')
+        SET status = 'failed', provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+            failed_at = NOW(), failure_code = $2, failure_reason = $3, updated_at = NOW()
+      WHERE id = $4::int AND tenant_id = $5::uuid
+        AND status IN ('initiated', 'pending', 'requires_reconciliation')
       RETURNING id`,
+    String(entity.id),
     entity.error_code ? String(entity.error_code).slice(0, 80) : null,
     entity.error_description ? String(entity.error_description).slice(0, 500) : 'provider reported refund failure',
-    tenant, config.provider, String(entity.id),
+    Number(gatewayRefund.id), tenant,
   );
   return rows.length
     ? { outcome: 'refund_failed_recorded', gatewayRefundId: Number(rows[0].id) }
-    : { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
+    : { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
 }
 
 // ───────────────────────────────────────────────────────────────────────

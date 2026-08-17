@@ -32,6 +32,7 @@ import logger from '../../logging/logger.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { recordProviderReceiptTx } from './notificationDeliveryLedgerService.js';
 import { resolveSmsConfigByCallbackToken } from './smsProviderConfigService.js';
+import { resolveEnvTwilioCallbackToken } from '../../utils/notifications/smsProviders/twilioCallbackAuth.js';
 
 // MSG91 DLR status vocabulary. Textual statuses pass through lowercased;
 // the numeric map covers the documented report codes we are confident about
@@ -188,21 +189,26 @@ export async function processMsg91Dlr({ token, payload }) {
 /**
  * Twilio status-callback intake (form-encoded MessageSid / MessageStatus /
  * ErrorCode). Twilio signs URL + sorted params with the account auth token —
- * verified via the SDK's validateRequest against the tenant config's
- * decrypted auth token (env TWILIO_AUTH_TOKEN fallback) and the exact public
- * URL (PUBLIC_BASE_URL + mount path). Any missing verification input fails
- * CLOSED (401): an unverifiable delivery status must not become evidence.
+ * verified via the SDK's validateRequest against the exact credential source
+ * encoded by the callback token: a database token uses only that config's
+ * decrypted secret, while an env-minted token uses only TWILIO_AUTH_TOKEN.
+ * Any missing verification input fails CLOSED (401): an unverifiable delivery
+ * status must not become evidence.
  */
 export async function processTwilioStatusCallback({ token, params, signature, requestPath }) {
-  const config = await resolveSmsConfigByCallbackToken(token, 'twilio');
-  if (!config || config.provider !== 'twilio') return { authorized: false };
-  const tenantId = String(config.tenant_id);
-
+  const envCallback = resolveEnvTwilioCallbackToken(token, {
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+  });
+  if (String(token || '').startsWith('env.') && !envCallback) return { authorized: false };
+  const config = envCallback ? null : await resolveSmsConfigByCallbackToken(token, 'twilio');
+  if (!envCallback && (!config || config.provider !== 'twilio')) return { authorized: false };
+  const tenantId = envCallback?.tenantId || String(config.tenant_id);
   let authToken = null;
   try {
-    authToken = config.auth_key_ciphertext
-      ? decryptField(config.auth_key_ciphertext)
-      : (process.env.TWILIO_AUTH_TOKEN || null);
+    authToken = envCallback
+      ? (process.env.TWILIO_AUTH_TOKEN || null)
+      : (config.auth_key_ciphertext ? decryptField(config.auth_key_ciphertext) : null);
   } catch (err) {
     logger.error('sms-dlr: twilio auth token unreadable', { error: err?.message });
     return { authorized: false };
