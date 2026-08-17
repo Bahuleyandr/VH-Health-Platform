@@ -75,12 +75,41 @@ function generateReceipt() {
   return `pg-${randomBytes(12).toString('hex')}`;
 }
 
-function orderReceiptForRequest(tenantId, idempotencyKey) {
+function orderReceiptForRequest({
+  tenantId, actorUid, patientUid, subjectKind, subjectId, scope,
+  requestedAmountIdentity, idempotencyKey,
+}) {
   const key = String(idempotencyKey || '').trim();
   if (!key) return generateReceipt();
   // The caller's key is not disclosed to the provider. The deterministic
-  // digest is the durable recovery handle for a local-intent-first saga.
-  return `pg-${sha256Hex(`${tenantId}:${key}`).slice(0, 32)}`;
+  // digest is the durable recovery handle for a local-intent-first saga. Its
+  // identity includes every authority boundary that the HTTP idempotency
+  // envelope includes; a reused client key cannot collide across patients,
+  // request scopes, or invoice/payment-link paths inside one tenant.
+  const identity = JSON.stringify([
+    String(tenantId),
+    String(actorUid).toLowerCase(),
+    String(patientUid).toLowerCase(),
+    String(scope),
+    String(subjectKind),
+    String(subjectId),
+    String(requestedAmountIdentity),
+    key,
+  ]);
+  return `pg-${sha256Hex(identity).slice(0, 32)}`;
+}
+
+const RAZORPAY_IDENTIFIER_PATTERNS = {
+  order: /^order_[A-Za-z0-9]+$/,
+  payment: /^pay_[A-Za-z0-9]+$/,
+  refund: /^rfnd_[A-Za-z0-9]+$/,
+};
+
+function isExactProviderIdentifier(provider, kind, value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized || normalized.length > 120) return false;
+  if (String(provider) !== 'razorpay') return !/(?:\*{2,}|masked|redacted)/i.test(normalized);
+  return RAZORPAY_IDENTIFIER_PATTERNS[kind]?.test(normalized) === true;
 }
 
 function isUniqueViolation(err) {
@@ -235,14 +264,15 @@ export async function upsertGatewayConfig({
   }
 
   const keySecretCipher = key_secret ? encryptField(String(key_secret), { tenantId: tenant }) : null;
-  const webhookSecretCipher = webhook_secret ? encryptField(String(webhook_secret), { tenantId: tenant }) : null;
+  let webhookSecretCipher = webhook_secret ? encryptField(String(webhook_secret), { tenantId: tenant }) : null;
   const webhookToken = generateWebhookToken();
 
   let rows;
   try {
     rows = await setTenantTx(tenant, async (tx) => {
       const existingRows = await tx.$queryRawUnsafe(
-        `SELECT webhook_secret_ciphertext, metadata
+        `SELECT webhook_secret_ciphertext, webhook_credential_version, metadata,
+                clock_timestamp() AS rotation_cutoff
            FROM payment_gateway_provider_configs
           WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
           FOR UPDATE`,
@@ -252,27 +282,49 @@ export async function upsertGatewayConfig({
       const existingMetadata = existing?.metadata && typeof existing.metadata === 'object'
         ? existing.metadata
         : {};
-      const priorSecrets = Array.isArray(existingMetadata.webhook_secret_history)
-        ? existingMetadata.webhook_secret_history.filter((value) => typeof value === 'string')
+      const priorVersions = Array.isArray(existingMetadata.webhook_secret_versions)
+        ? existingMetadata.webhook_secret_versions.filter((entry) => (
+          entry && Number.isInteger(Number(entry.version)) && Number(entry.version) > 0
+          && typeof entry.ciphertext === 'string' && entry.ciphertext.length > 0
+          && typeof entry.retired_at === 'string'
+        ))
         : [];
+      const currentVersion = Number(existing?.webhook_credential_version || 1);
+      let nextVersion = currentVersion;
+      let rotatingWebhookSecret = false;
       if (webhookSecretCipher && existing?.webhook_secret_ciphertext) {
-        priorSecrets.unshift(existing.webhook_secret_ciphertext);
+        const existingPlaintext = decryptField(existing.webhook_secret_ciphertext);
+        rotatingWebhookSecret = existingPlaintext !== String(webhook_secret);
+        if (rotatingWebhookSecret) {
+          priorVersions.unshift({
+            version: currentVersion,
+            ciphertext: existing.webhook_secret_ciphertext,
+            retired_at: new Date(existing.rotation_cutoff).toISOString(),
+          });
+          nextVersion = currentVersion + 1;
+        } else {
+          // Encryption is nonce-randomized. Keeping the existing ciphertext
+          // avoids manufacturing a credential rotation when the plaintext is
+          // unchanged.
+          webhookSecretCipher = null;
+        }
       }
       const metadata = {
         ...existingMetadata,
         webhook_token: existingMetadata.webhook_token || webhookToken,
-        ...(priorSecrets.length
-          ? { webhook_secret_history: [...new Set(priorSecrets)].slice(0, 5) }
+        ...(priorVersions.length
+          ? { webhook_secret_versions: priorVersions.slice(0, 10) }
           : {}),
       };
+      delete metadata.webhook_secret_history;
       return tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_provider_configs
          (tenant_id, provider, environment, enabled, display_name, key_id,
           key_secret_ciphertext, webhook_secret_ciphertext, accepted_methods,
-          metadata, created_by)
+          metadata, created_by, webhook_credential_version)
        VALUES ($1::uuid, $2, $3, $4::boolean, $5, $6, $7, $8,
                COALESCE($9::text[], ARRAY['upi','card']::text[]),
-               $10::jsonb, $11::uuid)
+               $10::jsonb, $11::uuid, $12::int)
        ON CONFLICT (tenant_id, provider, environment) DO UPDATE SET
          enabled = EXCLUDED.enabled,
          display_name = COALESCE(EXCLUDED.display_name, payment_gateway_provider_configs.display_name),
@@ -281,6 +333,7 @@ export async function upsertGatewayConfig({
          webhook_secret_ciphertext = COALESCE(EXCLUDED.webhook_secret_ciphertext, payment_gateway_provider_configs.webhook_secret_ciphertext),
          accepted_methods = COALESCE($9::text[], payment_gateway_provider_configs.accepted_methods),
          metadata = $10::jsonb,
+         webhook_credential_version = $12::int,
          updated_at = NOW()
        RETURNING ${CONFIG_VIEW_COLUMNS}`,
       tenant, providerValue, environmentValue, enabled === true,
@@ -289,6 +342,7 @@ export async function upsertGatewayConfig({
       keySecretCipher, webhookSecretCipher,
       methods, JSON.stringify(metadata),
       created_by ? String(created_by) : null,
+      rotatingWebhookSecret ? nextVersion : currentVersion,
       );
     });
   } catch (err) {
@@ -410,7 +464,19 @@ export async function createGatewayOrder({
     );
   }
 
-  const receipt = orderReceiptForRequest(tenant, idempotency_key);
+  const subjectKind = subject.paymentLinkId != null ? 'payment_link' : 'invoice';
+  const subjectId = subject.paymentLinkId ?? subject.invoiceId;
+  const requestActorUid = String(actor?.uid || created_by || '').toLowerCase();
+  const receipt = orderReceiptForRequest({
+    tenantId: tenant,
+    actorUid: requestActorUid,
+    patientUid: subject.patientUid,
+    subjectKind,
+    subjectId,
+    scope: 'payment_gateway_order',
+    requestedAmountIdentity: amount == null ? 'default_due' : toPaise(orderAmount),
+    idempotencyKey: idempotency_key,
+  });
   const defaultExpiry = new Date(Date.now() + DEFAULT_ORDER_EXPIRY_HOURS * 3600 * 1000);
   const expiresAt = subject.linkExpiresAt && subject.linkExpiresAt < defaultExpiry
     ? subject.linkExpiresAt
@@ -419,17 +485,19 @@ export async function createGatewayOrder({
     `INSERT INTO payment_gateway_orders
        (tenant_id, provider, environment, provider_config_id, patient_uid,
         invoice_id, payment_link_id, amount, currency, receipt,
-        provider_order_id, status, expires_at, created_by, metadata)
+        provider_order_id, status, expires_at, created_by, metadata,
+        webhook_credential_version)
      VALUES ($1::uuid, $2, $3, $4::int, $5::uuid, $6, $7, $8::numeric, 'INR',
              $9, NULL, 'created', $10::timestamptz, $11::uuid,
-             jsonb_build_object('order_create_state', 'intent_persisted'))
+             jsonb_build_object('order_create_state', 'intent_persisted'), $12::int)
      ON CONFLICT (tenant_id, receipt) WHERE receipt IS NOT NULL DO UPDATE
        SET updated_at = payment_gateway_orders.updated_at
      RETURNING *, (xmax = 0) AS inserted`,
     tenant, config.provider, config.environment, Number(config.id),
     subject.patientUid, subject.invoiceId, subject.paymentLinkId,
     orderAmount, receipt, expiresAt.toISOString(),
-    created_by ? String(created_by) : null,
+    requestActorUid || null,
+    Number(config.webhook_credential_version || 1),
   );
   const intent = intentRows[0];
   if (!intent) throw new AppError('Payment gateway order intent could not be persisted', 503, 'PAYMENT_GATEWAY_ORDER_INTENT_UNAVAILABLE');
@@ -438,7 +506,10 @@ export async function createGatewayOrder({
     && Number(intent.invoice_id || 0) === Number(subject.invoiceId || 0)
     && Number(intent.payment_link_id || 0) === Number(subject.paymentLinkId || 0)
     && toPaise(intent.amount) === toPaise(orderAmount)
-    && String(intent.currency).toUpperCase() === 'INR';
+    && String(intent.currency).toUpperCase() === 'INR'
+    && String(intent.created_by || '').toLowerCase() === requestActorUid
+    && Number(intent.webhook_credential_version || 1)
+      === Number(config.webhook_credential_version || 1);
   if (!sameIntent) {
     throw AppError.conflict(
       'Idempotency key is already bound to a different payment order intent',
@@ -529,7 +600,9 @@ export async function createGatewayOrder({
 function providerOrderEvidenceMismatches(intent, evidence) {
   const mismatches = [];
   const providerOrderId = String(evidence?.providerOrderId || '').trim();
-  if (!providerOrderId || providerOrderId.length > 120) mismatches.push('order_id');
+  if (!isExactProviderIdentifier(intent.provider, 'order', providerOrderId)) {
+    mismatches.push('order_id');
+  }
   if (!Number.isInteger(Number(evidence?.amountPaise))
       || Number(evidence.amountPaise) !== toPaise(intent.amount)) mismatches.push('amount');
   if (String(evidence?.currency || '').trim().toUpperCase()
@@ -717,16 +790,35 @@ export function decryptedWebhookSecret(config) {
 }
 
 export function decryptedWebhookSecrets(config) {
-  const ciphertexts = [
-    config?.webhook_secret_ciphertext,
-    ...(Array.isArray(config?.metadata?.webhook_secret_history)
-      ? config.metadata.webhook_secret_history
-      : []),
-  ].filter((value) => typeof value === 'string' && value.length > 0);
-  return ciphertexts.map((ciphertext, index) => ({
-    secret: decryptField(ciphertext),
-    current: index === 0,
-  }));
+  const currentVersion = Number(config?.webhook_credential_version || 1);
+  const credentials = [];
+  if (typeof config?.webhook_secret_ciphertext === 'string'
+      && config.webhook_secret_ciphertext.length > 0) {
+    credentials.push({
+      secret: decryptField(config.webhook_secret_ciphertext),
+      current: true,
+      version: currentVersion,
+      retiredAt: null,
+    });
+  }
+  const retired = Array.isArray(config?.metadata?.webhook_secret_versions)
+    ? config.metadata.webhook_secret_versions
+    : [];
+  for (const entry of retired) {
+    const version = Number(entry?.version);
+    if (!Number.isInteger(version) || version <= 0 || version >= currentVersion
+        || typeof entry?.ciphertext !== 'string' || !entry.ciphertext
+        || typeof entry?.retired_at !== 'string') continue;
+    const retiredAt = new Date(entry.retired_at);
+    if (Number.isNaN(retiredAt.getTime())) continue;
+    credentials.push({
+      secret: decryptField(entry.ciphertext),
+      current: false,
+      version,
+      retiredAt,
+    });
+  }
+  return credentials;
 }
 
 /**
@@ -734,8 +826,13 @@ export function decryptedWebhookSecrets(config) {
  * settlement-only. It must name an exact nonterminal intent owned by the same
  * config row; token+signature alone never grants an unbounded callback path.
  */
-export async function hasBoundNonterminalWebhookIntent({ config, payload }) {
+export async function hasBoundNonterminalWebhookIntent({ config, payload, credential }) {
   const tenant = requireTenantId(config?.tenant_id);
+  const retiredVersion = credential?.current === false
+    ? Number(credential.version)
+    : null;
+  if (credential?.current === false
+      && (!Number.isInteger(retiredVersion) || retiredVersion <= 0)) return false;
   const refund = payload?.payload?.refund?.entity || null;
   if (refund) {
     const providerRefundId = String(refund.id || '').trim();
@@ -754,6 +851,8 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload }) {
           AND r.provider = $2 AND r.environment = $3
           AND o.provider_config_id = $4::int
           AND r.status IN ('initiated', 'pending', 'requires_reconciliation')
+          AND ($8::int IS NULL OR r.webhook_credential_version = $8::int)
+          AND ($9::timestamptz IS NULL OR r.created_at <= $9::timestamptz)
           AND (
             ($5::text <> '' AND r.provider_refund_id = $5)
             OR (
@@ -766,6 +865,8 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload }) {
       tenant, config.provider, config.environment, Number(config.id),
       providerRefundId, providerPaymentId,
       Number.isInteger(billingRefundId) && billingRefundId > 0 ? billingRefundId : 0,
+      retiredVersion,
+      credential?.retiredAt instanceof Date ? credential.retiredAt.toISOString() : null,
     );
     return rows.length > 0;
   }
@@ -782,8 +883,12 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload }) {
         AND provider_config_id = $4::int
         AND provider_order_id = $5
         AND status IN ('created', 'attempted')
+        AND ($6::int IS NULL OR webhook_credential_version = $6::int)
+        AND ($7::timestamptz IS NULL OR created_at <= $7::timestamptz)
       LIMIT 1`,
     tenant, config.provider, config.environment, Number(config.id), providerOrderId,
+    retiredVersion,
+    credential?.retiredAt instanceof Date ? credential.retiredAt.toISOString() : null,
   );
   return rows.length > 0;
 }
@@ -831,7 +936,7 @@ export async function recordWebhookEvent({
 }
 
 async function markWebhookEvent({ tenantId, eventId, status, failureReason = null, gatewayOrderId = null, note = null }) {
-  await prisma.$executeRawUnsafe(
+  const updated = await prisma.$executeRawUnsafe(
     `UPDATE payment_gateway_webhook_events
         SET status = $1, processed_at = NOW(),
             failure_reason = $2,
@@ -844,6 +949,13 @@ async function markWebhookEvent({ tenantId, eventId, status, failureReason = nul
     note ? String(note).slice(0, 500) : null,
     Number(eventId), requireTenantId(tenantId),
   );
+  if (Number(updated) !== 1) {
+    throw new AppError(
+      'Payment gateway webhook status could not be persisted',
+      503,
+      'PAYMENT_GATEWAY_WEBHOOK_STATUS_UNAVAILABLE',
+    );
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -893,9 +1005,10 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
     result = await setTenantTx(tenant, async (tx) => {
       const orderRows = await tx.$queryRawUnsafe(
         `SELECT * FROM payment_gateway_orders
-          WHERE tenant_id = $1::uuid AND provider = $2 AND provider_order_id = $3
+          WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
+            AND provider_config_id = $4::int AND provider_order_id = $5
           FOR UPDATE`,
-        tenant, config.provider, String(providerOrderId),
+        tenant, config.provider, config.environment, Number(config.id), String(providerOrderId),
       );
       if (!orderRows.length) {
         throw AppError.notFound(
@@ -905,8 +1018,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
       }
       const order = orderRows[0];
       const evidenceMismatches = [];
-      if (typeof providerPaymentId !== 'string'
-          || !providerPaymentId.trim() || providerPaymentId.length > 120) {
+      if (!isExactProviderIdentifier(config.provider, 'payment', providerPaymentId)) {
         evidenceMismatches.push('payment_id');
       }
       if (!Number.isInteger(providerAmountPaise)
@@ -1018,9 +1130,10 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
       // capture is real and must not be dropped.
       const orderRows = await prisma.$queryRawUnsafe(
         `SELECT id, status FROM payment_gateway_orders
-          WHERE tenant_id = $1::uuid AND provider = $2 AND provider_order_id = $3
+          WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
+            AND provider_config_id = $4::int AND provider_order_id = $5
           LIMIT 1`,
-        tenant, config.provider, String(providerOrderId),
+        tenant, config.provider, config.environment, Number(config.id), String(providerOrderId),
       );
       if (orderRows.length) {
         if (orderRows[0].status === 'paid') throw err;
@@ -1061,12 +1174,13 @@ async function handlePaymentFailedEvent({ tenantId, config, payload }) {
     `UPDATE payment_gateway_orders
         SET status = 'failed',
             failure_code = $1, failure_reason = $2, updated_at = NOW()
-      WHERE tenant_id = $3::uuid AND provider = $4 AND provider_order_id = $5
+      WHERE tenant_id = $3::uuid AND provider = $4 AND environment = $5
+        AND provider_config_id = $6::int AND provider_order_id = $7
         AND status IN ('created', 'attempted')
       RETURNING id`,
     entity.error_code ? String(entity.error_code).slice(0, 80) : null,
     entity.error_description ? String(entity.error_description).slice(0, 500) : null,
-    tenant, config.provider, String(entity.order_id),
+    tenant, config.provider, config.environment, Number(config.id), String(entity.order_id),
   );
   return rows.length
     ? { outcome: 'failed_recorded', orderId: Number(rows[0].id) }
@@ -1080,10 +1194,11 @@ async function handlePaymentAuthorizedEvent({ tenantId, config, payload }) {
   await prisma.$executeRawUnsafe(
     `UPDATE payment_gateway_orders
         SET status = 'attempted', method = COALESCE($1, method), updated_at = NOW()
-      WHERE tenant_id = $2::uuid AND provider = $3 AND provider_order_id = $4
+      WHERE tenant_id = $2::uuid AND provider = $3 AND environment = $4
+        AND provider_config_id = $5::int AND provider_order_id = $6
         AND status = 'created'`,
     normalizeOrderMethod(entity.method),
-    tenant, config.provider, String(entity.order_id),
+    tenant, config.provider, config.environment, Number(config.id), String(entity.order_id),
   );
   return { outcome: 'attempt_recorded' };
 }
@@ -1142,6 +1257,12 @@ export async function resolveGatewayRefundReconciliation({
       'PAYMENT_GATEWAY_REFUND_RECONCILIATION_NOTE_REQUIRED',
     );
   }
+  if (typeof resolved_by !== 'string' || !resolved_by.trim()) {
+    throw AppError.forbidden(
+      'An authenticated operator is required to resolve gateway refund reconciliation',
+      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_ACTOR_REQUIRED',
+    );
+  }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE payment_gateway_refunds
         SET reconciled_at = NOW(), reconciliation_note = $1,
@@ -1149,7 +1270,7 @@ export async function resolveGatewayRefundReconciliation({
       WHERE id = $3::int AND tenant_id = $4::uuid
         AND status = 'requires_reconciliation' AND reconciled_at IS NULL
       RETURNING ${REFUND_VIEW_COLUMNS}`,
-    trimmedNote, resolved_by ? String(resolved_by) : null, Number(id), tenant,
+    trimmedNote, String(resolved_by), Number(id), tenant,
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
@@ -1177,11 +1298,12 @@ const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
 function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = {}) {
   const mismatches = [];
   const providerRefundId = String(evidence?.providerRefundId || '').trim();
-  if (!providerRefundId || providerRefundId.length > 120
+  if (!isExactProviderIdentifier(intent.provider, 'refund', providerRefundId)
       || (intent.provider_refund_id && String(intent.provider_refund_id) !== providerRefundId)) {
     mismatches.push('refund_id');
   }
-  if (String(evidence?.providerPaymentId || '') !== String(intent.provider_payment_id)) {
+  if (!isExactProviderIdentifier(intent.provider, 'payment', evidence?.providerPaymentId)
+      || String(evidence?.providerPaymentId || '') !== String(intent.provider_payment_id)) {
     mismatches.push('payment_id');
   }
   if (!Number.isInteger(Number(evidence?.amountPaise))
@@ -1204,15 +1326,22 @@ function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = 
   return mismatches;
 }
 
-async function findGatewayRefundForWebhook({ tenant, provider, entity }) {
+async function findGatewayRefundForWebhook({ tenant, config, entity }) {
   const providerRefundId = entity.id || null;
   const providerPaymentId = entity.payment_id || null;
   const billingRefundId = Number(entity.notes?.billing_refund_id);
   let rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM payment_gateway_refunds
-      WHERE tenant_id = $1::uuid AND provider = $2 AND provider_refund_id = $3
+    `SELECT refunds.*
+       FROM payment_gateway_refunds AS refunds
+       JOIN payment_gateway_orders AS orders
+         ON orders.id = refunds.gateway_order_id
+        AND orders.tenant_id = refunds.tenant_id
+      WHERE refunds.tenant_id = $1::uuid
+        AND refunds.provider = $2 AND refunds.environment = $3
+        AND orders.provider_config_id = $4::int
+        AND refunds.provider_refund_id = $5
       LIMIT 1`,
-    tenant, provider, String(providerRefundId),
+    tenant, config.provider, config.environment, Number(config.id), String(providerRefundId),
   );
   if (!rows.length && providerPaymentId
       && Number.isInteger(billingRefundId) && billingRefundId > 0) {
@@ -1220,13 +1349,21 @@ async function findGatewayRefundForWebhook({ tenant, provider, entity }) {
     // Payment id plus our billing-refund note is the exact committed intent;
     // payment id alone is ambiguous when one capture has partial refunds.
     rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM payment_gateway_refunds
-        WHERE tenant_id = $1::uuid AND provider = $2
-          AND provider_payment_id = $3 AND billing_refund_id = $4::int
-          AND status IN ('initiated', 'pending', 'requires_reconciliation')
-        ORDER BY id DESC
+      `SELECT refunds.*
+         FROM payment_gateway_refunds AS refunds
+         JOIN payment_gateway_orders AS orders
+           ON orders.id = refunds.gateway_order_id
+          AND orders.tenant_id = refunds.tenant_id
+        WHERE refunds.tenant_id = $1::uuid
+          AND refunds.provider = $2 AND refunds.environment = $3
+          AND orders.provider_config_id = $4::int
+          AND refunds.provider_payment_id = $5
+          AND refunds.billing_refund_id = $6::int
+          AND refunds.status IN ('initiated', 'pending', 'requires_reconciliation')
+        ORDER BY refunds.id DESC
         LIMIT 1`,
-      tenant, provider, String(providerPaymentId), billingRefundId,
+      tenant, config.provider, config.environment, Number(config.id),
+      String(providerPaymentId), billingRefundId,
     );
   }
   return {
@@ -1271,6 +1408,45 @@ function refundEvidenceMismatchReason(mismatches) {
   return `Provider refund evidence mismatch: ${mismatches.join(', ')}`.slice(0, 500);
 }
 
+async function claimGatewayPayoutRailTx(tx, {
+  tenant, billingRefundId, gatewayRefundId,
+}) {
+  const claimed = await tx.$executeRawUnsafe(
+    `UPDATE billing_refunds AS refund
+        SET payout_rail = 'gateway',
+            payout_rail_claimed_at = COALESCE(payout_rail_claimed_at, NOW()),
+            gateway_refund_id = $1::int,
+            updated_at = NOW()
+      WHERE refund.id = $2::int AND refund.tenant_id = $3::uuid
+        AND refund.approval_status = 'APPROVED'
+        AND (
+          refund.payout_rail IS NULL
+          OR (
+            refund.payout_rail = 'gateway'
+            AND (
+              refund.gateway_refund_id IS NULL
+              OR refund.gateway_refund_id = $1::int
+              OR EXISTS (
+                SELECT 1
+                  FROM payment_gateway_refunds AS prior
+                 WHERE prior.id = refund.gateway_refund_id
+                   AND prior.tenant_id = refund.tenant_id
+                   AND prior.status = 'failed'
+              )
+            )
+          )
+        )
+      `,
+    Number(gatewayRefundId), Number(billingRefundId), tenant,
+  );
+  if (Number(claimed) !== 1) {
+    throw AppError.conflict(
+      'The approved refund payout is already owned by another execution rail',
+      'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
+    );
+  }
+}
+
 /**
  * Initiate the provider refund for an APPROVED billing_refunds row whose
  * invoice was gateway-collected. Execution/evidence only — the approval
@@ -1296,7 +1472,7 @@ export async function initiateGatewayRefund({
   const intent = await setTenantTx(tenant, async (tx) => {
     const refundRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, advance_id, patient_uid::text, amount, reason,
-              mode, approval_status
+              mode, approval_status, payout_rail, gateway_refund_id
          FROM billing_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid
         FOR UPDATE`,
@@ -1308,6 +1484,12 @@ export async function initiateGatewayRefund({
       throw AppError.badRequest(
         `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
         'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+      );
+    }
+    if (refund.payout_rail === 'manual') {
+      throw AppError.conflict(
+        'This approved refund is already claimed for manual payout',
+        'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
       );
     }
     if (refund.invoice_id == null) {
@@ -1333,6 +1515,11 @@ export async function initiateGatewayRefund({
       );
     }
     if (existing && existing.status !== 'initiated') {
+      await claimGatewayPayoutRailTx(tx, {
+        tenant,
+        billingRefundId: refund.id,
+        gatewayRefundId: existing.id,
+      });
       return { row: existing, replay: true, callProvider: false };
     }
 
@@ -1342,7 +1529,8 @@ export async function initiateGatewayRefund({
               bp.invoice_id AS payment_invoice_id,
               bp.patient_uid::text AS payment_patient_uid, bp.mode AS payment_mode,
               pc.provider AS config_provider, pc.environment AS config_environment,
-              pc.key_id, pc.key_secret_ciphertext
+              pc.key_id, pc.key_secret_ciphertext,
+              pc.webhook_credential_version
          FROM payment_gateway_orders o
          JOIN billing_payments bp
            ON bp.id = o.billing_payment_id AND bp.tenant_id = o.tenant_id
@@ -1376,6 +1564,11 @@ export async function initiateGatewayRefund({
     }
 
     if (existing) {
+      await claimGatewayPayoutRailTx(tx, {
+        tenant,
+        billingRefundId: refund.id,
+        gatewayRefundId: existing.id,
+      });
       return {
         row: existing,
         replay: true,
@@ -1407,15 +1600,21 @@ export async function initiateGatewayRefund({
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
           provider_payment_id, provider_idempotency_key, amount, currency, status,
-          reason, initiated_by)
+          reason, initiated_by, webhook_credential_version)
        VALUES ($1::uuid, $2, $3, $4::int, $5::int, $6, $7, $8::numeric, 'INR',
-               'initiated', $9, $10::uuid)
+               'initiated', $9, $10::uuid, $11::int)
        RETURNING *`,
       tenant, order.provider, order.environment, Number(order.id), Number(refund.id),
       String(order.provider_payment_id), newProviderIdempotencyKey, refundAmount,
       refund.reason ? String(refund.reason).slice(0, 500) : null,
       initiated_by ? String(initiated_by) : null,
+      Number(order.webhook_credential_version || 1),
     );
+    await claimGatewayPayoutRailTx(tx, {
+      tenant,
+      billingRefundId: refund.id,
+      gatewayRefundId: rows[0].id,
+    });
     return { row: rows[0], replay: false, callProvider: true, order, refund };
   }).catch((err) => {
     if (isUniqueViolation(err)) {
@@ -1446,7 +1645,7 @@ export async function initiateGatewayRefund({
       // same provider idempotency key.
       providerPaymentId: intent.row.provider_payment_id,
       amountPaise: toPaise(intent.row.amount),
-      receipt: gatewayRefundReceipt(intent.row),
+      receipt: gatewayRefundReceipt(intent.row, intent.order),
       notes: { billing_refund_id: String(intent.row.billing_refund_id) },
       idempotencyKey: intent.row.provider_idempotency_key,
     });
@@ -1564,8 +1763,16 @@ export async function initiateGatewayRefund({
   return toGatewayRefundResult(completed, intent.replay);
 }
 
-function gatewayRefundReceipt(row) {
-  return `pgr-${Number(row.id)}-${String(row.provider_idempotency_key).slice(-16)}`;
+function gatewayRefundReceipt(row, order = {}) {
+  const identity = JSON.stringify([
+    String(row.tenant_id),
+    String(order.patient_uid || ''),
+    'payment_gateway_refund',
+    `billing_refund:${Number(row.billing_refund_id)}`,
+    `gateway_order:${Number(row.gateway_order_id)}`,
+    String(row.provider_idempotency_key),
+  ]);
+  return `pgr-${sha256Hex(identity).slice(0, 32)}`;
 }
 
 /**
@@ -1581,7 +1788,7 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   const providerRefundId = entity.id || null;
   if (!providerRefundId) return { outcome: 'ignored', reason: 'missing refund entity id' };
   const { gatewayRefund, evidence } = await findGatewayRefundForWebhook({
-    tenant, provider: config.provider, entity,
+    tenant, config, entity,
   });
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
@@ -1612,15 +1819,45 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
         tenantId: tenant,
         reference: String(providerRefundId),
         paid_by: null,
+        payout_rail: 'gateway',
+        gateway_refund_id: Number(gatewayRefund.id),
       });
     } catch (err) {
-      const alreadyPaid = err instanceof AppError && err.statusCode === 404
-        && (await prisma.$queryRawUnsafe(
-          `SELECT approval_status FROM billing_refunds
+      const billingRows = await prisma.$queryRawUnsafe(
+          `SELECT approval_status, payout_rail, gateway_refund_id, reference
+             FROM billing_refunds
             WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
           Number(gatewayRefund.billing_refund_id), tenant,
-        ))[0]?.approval_status === 'PAID';
-      if (!alreadyPaid) throw err;
+        );
+      const billingRefund = billingRows[0] || null;
+      const exactAlreadyPaid = err instanceof AppError && err.statusCode === 404
+        && billingRefund?.approval_status === 'PAID'
+        && billingRefund?.payout_rail === 'gateway'
+        && Number(billingRefund?.gateway_refund_id) === Number(gatewayRefund.id)
+        && String(billingRefund?.reference || '') === String(providerRefundId);
+      if (!exactAlreadyPaid) {
+        if (billingRefund?.approval_status === 'PAID'
+            || err?.code === 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT'
+            || err?.code === 'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT') {
+          await prisma.$executeRawUnsafe(
+            `UPDATE payment_gateway_refunds
+                SET status = 'requires_reconciliation',
+                    failure_code = 'payout_rail_conflict',
+                    failure_reason = $1, updated_at = NOW()
+              WHERE id = $2::int AND tenant_id = $3::uuid
+                AND status IN ('initiated', 'pending', 'requires_reconciliation')`,
+            'Provider processed this refund but a different payout execution owns the billing refund',
+            Number(gatewayRefund.id), tenant,
+          );
+          return {
+            outcome: 'requires_reconciliation',
+            gatewayRefundId: Number(gatewayRefund.id),
+            billingRefundId: Number(gatewayRefund.billing_refund_id),
+            reason: 'payout_rail_conflict',
+          };
+        }
+        throw err;
+      }
     }
   }
 
@@ -1631,6 +1868,17 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
             processed_at = NOW(), updated_at = NOW()
       WHERE id = $2::int AND tenant_id = $3::uuid
         AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        AND (
+          billing_refund_id IS NULL
+          OR EXISTS (
+            SELECT 1 FROM billing_refunds AS authority
+             WHERE authority.id = payment_gateway_refunds.billing_refund_id
+               AND authority.tenant_id = payment_gateway_refunds.tenant_id
+               AND authority.payout_rail = 'gateway'
+               AND authority.gateway_refund_id = payment_gateway_refunds.id
+               AND authority.approval_status = 'PAID'
+          )
+        )
       RETURNING id`,
     String(providerRefundId), Number(gatewayRefund.id), tenant,
   );
@@ -1646,7 +1894,7 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
   const entity = payload?.payload?.refund?.entity || {};
   if (!entity.id) return { outcome: 'ignored', reason: 'missing refund entity id' };
   const { gatewayRefund, evidence } = await findGatewayRefundForWebhook({
-    tenant, provider: config.provider, entity,
+    tenant, config, entity,
   });
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };

@@ -79,6 +79,7 @@ router.post('/:webhookToken', async (req, res) => {
     if (lateCredential && !(await gateway.hasBoundNonterminalWebhookIntent({
       config,
       payload: req.body || {},
+      credential: matchedCredential,
     }))) {
       logger.warn('payment gateway late webhook rejected: no exact nonterminal intent binding', {
         provider: config.provider,
@@ -178,9 +179,7 @@ router.post('/:webhookToken', async (req, res) => {
         eventId: eventRow.id,
         status: 'failed',
         failureReason: processingError?.message,
-      }).catch((markErr) => logger.error('Failed to mark payment gateway webhook event failed', {
-        event_id: eventRow.id, error: markErr.message,
-      }));
+      });
       logger.error('payment gateway webhook processing failed — recorded for reconciliation', {
         event_id: eventRow.id, code: processingError?.code, error: processingError?.message,
       });

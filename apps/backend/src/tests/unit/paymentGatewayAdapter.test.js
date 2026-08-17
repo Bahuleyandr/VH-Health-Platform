@@ -151,6 +151,21 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
     expect(sent.receipt).toBe('pg-r1');
   });
 
+  it('never substitutes caller values for missing provider order evidence', async () => {
+    mockFetchOnce(200, { id: 'order_Rmissing' });
+    const order = await razorpayAdapter.createOrder({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret',
+      amountPaise: 50000, currency: 'INR', receipt: 'pg-r1',
+    });
+    expect(order).toMatchObject({
+      providerOrderId: 'order_Rmissing',
+      amountPaise: null,
+    });
+    expect(order.currency).toBeUndefined();
+    expect(order.receipt).toBeUndefined();
+    expect(order.status).toBeUndefined();
+  });
+
   it('recovers exactly one provider order by its durable receipt', async () => {
     const fetchMock = mockFetchOnce(200, {
       items: [{
@@ -206,6 +221,18 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
       providerPaymentId: 'pay_R9', amountPaise: 20000, receipt: 'pgr-7',
       idempotencyKey: 'pgr_test_0000000001',
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_UPSTREAM_UNRESOLVED', statusCode: 502 });
+  });
+
+  it('does not invent a pending status when refund evidence omits status', async () => {
+    mockFetchOnce(200, {
+      id: 'rfnd_Rnostatus', payment_id: 'pay_R9', amount: 20000, currency: 'INR',
+    });
+    const refund = await razorpayAdapter.createRefund({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret',
+      providerPaymentId: 'pay_R9', amountPaise: 20000, receipt: 'pgr-7',
+      idempotencyKey: 'pgr_test_0000000001',
+    });
+    expect(refund.status).toBeUndefined();
   });
 
   it('maps a provider 4xx to a clean AppError without leaking internals', async () => {

@@ -34,12 +34,25 @@ describe('payment gateway security migration contracts', () => {
     expect(sql).toContain("status = 'requires_reconciliation'");
   });
 
-  it('adds an accountable unresolved-refund work queue without changing published migrations', () => {
+  it('keeps the published migration 712 immutable', () => {
+    expect(normalizedSha256(migration('712_payment_gateway_operational_safety.sql')))
+      .toBe('f7d5eff70c0b0eb50e7db385f325baccf91ee723f6fa3e5bb985b49e1009413e');
     const sql = migration('712_payment_gateway_operational_safety.sql');
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ/i);
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciliation_note VARCHAR\(500\)/i);
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS reconciled_by UUID/i);
     expect(sql).toMatch(/status = 'requires_reconciliation'[\s\S]*reconciled_at IS NULL/i);
     expect(sql).toMatch(/length\(btrim\(reconciliation_note\)\) BETWEEN 10 AND 500/i);
+  });
+
+  it('applies payment credential, payout-rail, actor, and execution integrity forward in 713', () => {
+    const sql = migration('713_payment_gateway_settlement_integrity.sql');
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS webhook_credential_version INTEGER/i);
+    expect(sql).toMatch(/chk_pg_provider_config_live_credentials[\s\S]*webhook_secret_ciphertext IS NOT NULL/i);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS payout_rail VARCHAR\(20\)/i);
+    expect(sql).toMatch(/reconciled_by IS NOT NULL/i);
+    expect(sql).toMatch(/FOREIGN KEY \(tenant_id, reconciled_by\)[\s\S]*REFERENCES users \(tenant_id, uid\)/i);
+    expect(sql).toMatch(/FOREIGN KEY \(tenant_id, id, gateway_refund_id\)[\s\S]*REFERENCES payment_gateway_refunds \(tenant_id, billing_refund_id, id\)/i);
+    expect(sql).toMatch(/retained_manual_payout_conflict/i);
   });
 });

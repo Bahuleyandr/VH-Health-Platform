@@ -7,7 +7,39 @@
 // and an enabled provider config row all hold.
 import { envelope } from './_helpers.mjs';
 
+const errorResponse = description => ({
+  description,
+  content: {
+    'application/json': { schema: { $ref: '#/components/schemas/PaymentGatewayErrorResponse' } },
+  },
+});
+
+const idempotencyHeader = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  schema: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 200,
+    pattern: '^[A-Za-z0-9_\\-:.]+$',
+  },
+  description: 'Required durable request identity. Reuse is valid only for the exact same actor, scope, path, and body.',
+};
+
 export const schemas = {
+  PaymentGatewayErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
+
   PaymentGatewayOrderCreateRequest: {
     type: 'object',
     properties: {
@@ -252,9 +284,18 @@ export const schemas = {
 export const operations = {
   'POST /api/v1/billing/gateway/orders': {
     description:
-      'Creates a provider payment order (Razorpay order or deterministic dry_run order) tied to an invoice or an existing payment link, returning the checkout bootstrap (provider order id + publishable key id — never a secret). Requires Idempotency-Key (scope payment_gateway_order, retained on 5xx). 403 PAYMENT_GATEWAY_DISABLED until the tenant gateway is effectively enabled; a PATIENT caller may only pay their own bills.',
+      'Creates a provider payment order (Razorpay order or deterministic dry_run order) tied to an invoice or an existing payment link, returning the checkout bootstrap (provider order id + publishable key id — never a secret). Requires Idempotency-Key (scope payment_gateway_order). The local intent survives a 5xx while the transport envelope is released, so an exact retry recovers by its provider receipt. 403 PAYMENT_GATEWAY_DISABLED until the tenant gateway is effectively enabled; a PATIENT caller may only pay their own bills.',
+    parameters: [idempotencyHeader],
     request: 'PaymentGatewayOrderCreateRequest',
     response: 'PaymentGatewayOrderCheckoutResponse',
+    additionalResponses: {
+      400: errorResponse('Malformed request or missing/invalid Idempotency-Key.'),
+      403: errorResponse('The payment gateway is disabled or the caller does not own the payable subject.'),
+      409: errorResponse('The idempotency key or provider order evidence conflicts with an existing intent.'),
+      422: errorResponse('The Idempotency-Key was reused with a different request body.'),
+      502: errorResponse('The provider response was unavailable or lacked exact order evidence.'),
+      503: errorResponse('The durable payment order intent could not be stored or recovered.'),
+    },
   },
   'GET /api/v1/billing/gateway/orders/{id}': {
     description:
@@ -279,9 +320,18 @@ export const operations = {
   },
   'POST /api/v1/billing/gateway/refunds': {
     description:
-      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key is committed before the external refund request. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund → markRefundPaid lifecycle, and markRefundPaid is driven by the refund.processed webhook with reference = provider refund id. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
+      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key and exclusive gateway payout claim are committed before the external refund request. The HTTP idempotency envelope is released on 5xx so an exact retry reaches that same durable provider intent and key. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund → markRefundPaid lifecycle, and markRefundPaid is driven by the refund.processed webhook with reference = provider refund id. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
+    parameters: [idempotencyHeader],
     request: 'PaymentGatewayRefundCreateRequest',
     response: 'PaymentGatewayRefundResponse',
+    additionalResponses: {
+      400: errorResponse('Malformed request, missing/invalid Idempotency-Key, or refund/payment evidence mismatch.'),
+      403: errorResponse('The payment gateway is disabled or the caller lacks refund execution authority.'),
+      409: errorResponse('Another payout rail or gateway execution already owns this billing refund.'),
+      422: errorResponse('The Idempotency-Key was reused with a different request body.'),
+      502: errorResponse('The provider response was unavailable or lacked exact refund evidence.'),
+      503: errorResponse('The durable gateway refund intent could not be stored or recovered.'),
+    },
   },
   'GET /api/v1/billing/gateway/refund-reconciliation': {
     description:
@@ -307,7 +357,30 @@ export const operations = {
   },
   'POST /webhooks/payments/{webhookToken}': {
     description:
-      'Public provider webhook intake (pre-auth mount). The opaque URL token resolves the tenant fail-closed (unknown → 404, nothing written); authenticity is HMAC-SHA256 over the raw body vs x-razorpay-signature. A disabled config or rotated signing secret is inbound-only and accepted only when the payload exactly binds a nonterminal order/refund owned by that config. Deliveries are recorded durably before processing; the UNIQUE (tenant, provider, provider_event_id) key plus a cross-replica replay claim collapse redeliveries. Captures require exact provider payment id, integer amount, and currency before collectPayment can run; unbookable captures park as requires_reconciliation.',
+      'Public provider webhook intake (pre-auth mount). The opaque URL token resolves the tenant fail-closed (unknown → 404, nothing written); authenticity is HMAC-SHA256 over the raw body vs x-razorpay-signature. A disabled config or retired signing secret is inbound-only; retired credentials settle only nonterminal intents bound to their exact credential version, config, provider, and environment before rotation. Deliveries are recorded durably before processing; the UNIQUE (tenant, provider, provider_event_id) key plus a cross-replica replay claim collapse redeliveries. Captures require exact unmasked provider payment id, integer amount, and currency before collectPayment can run. A 2xx means the event status was durably written; intake, processing, or final-status persistence failures return 5xx so the provider retries.',
+    security: [],
+    pathParameters: {
+      webhookToken: { type: 'string', pattern: '^[A-Za-z0-9_-]{16,64}$' },
+    },
+    parameters: [
+      {
+        name: 'x-razorpay-signature', in: 'header', required: true,
+        schema: { type: 'string' },
+        description: 'HMAC-SHA256 signature over the exact raw request body.',
+      },
+      {
+        name: 'x-razorpay-event-id', in: 'header', required: true,
+        schema: { type: 'string', minLength: 1, maxLength: 160 },
+        description: 'Provider-assigned durable delivery identity.',
+      },
+    ],
     response: 'PaymentGatewayWebhookAckResponse',
+    additionalResponses: {
+      400: errorResponse('The signed raw body or required provider event identity was missing.'),
+      401: errorResponse('The webhook signature could not be verified.'),
+      404: errorResponse('The routing token or retired-credential intent binding was not found.'),
+      500: errorResponse('Webhook processing or its durable final-status write failed; the provider must retry.'),
+      503: errorResponse('Replay protection or durable webhook intake was unavailable; the provider must retry.'),
+    },
   },
 };

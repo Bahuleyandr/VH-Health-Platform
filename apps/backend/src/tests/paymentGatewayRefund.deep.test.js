@@ -99,6 +99,14 @@ afterAll(async () => {
       }
     });
     await prisma.$executeRawUnsafe(`DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid`, TENANT);
+    if (cleanup.refundIds.length) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE billing_refunds
+            SET payout_rail = NULL, payout_rail_claimed_at = NULL, gateway_refund_id = NULL
+          WHERE id = ANY($1::int[])`,
+        cleanup.refundIds,
+      );
+    }
     await prisma.$executeRawUnsafe(`DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid`, TENANT);
     if (cleanup.orderIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM payment_gateway_orders WHERE id = ANY($1::int[])`, cleanup.orderIds);
@@ -141,7 +149,7 @@ d('payment gateway refund execution leg (deep)', () => {
       tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
     });
     expect(leg.status).toBe('pending');
-    expect(leg.provider_refund_id).toMatch(new RegExp(`^rfnd_dry_pgr-${leg.id}-[A-Za-z0-9_-]{16}$`));
+    expect(leg.provider_refund_id).toMatch(/^rfnd_dry_pgr-[a-f0-9]{32}$/);
     expect(Number(leg.gateway_order_id)).toBe(orderId);
     expect(leg.provider_payment_id).toBe(providerPaymentId);
     expect(Number(leg.amount)).toBe(150);
@@ -228,7 +236,92 @@ d('payment gateway refund execution leg (deep)', () => {
       TENANT, Number(refund.id),
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].provider_refund_id).toMatch(new RegExp(`^rfnd_dry_pgr-${rows[0].id}-[A-Za-z0-9_-]{16}$`));
+    expect(rows[0].provider_refund_id).toMatch(/^rfnd_dry_pgr-[a-f0-9]{32}$/);
+  });
+
+  it('serializes manual and gateway payout claims so exactly one rail can win', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId } = await makeCapturedGatewayPayment(patient, 275);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 80, reason: 'rail race refund', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+
+    const outcomes = await Promise.allSettled([
+      gateway.initiateGatewayRefund({
+        tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+      }),
+      billing.markRefundPaid(refund.id, {
+        tenantId: TENANT, reference: `manual-${randomUUID()}`,
+      }),
+    ]);
+    expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1);
+
+    const [authority] = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, payout_rail, gateway_refund_id
+         FROM billing_refunds WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(refund.id), TENANT,
+    );
+    expect(['manual', 'gateway']).toContain(authority.payout_rail);
+    if (authority.payout_rail === 'manual') {
+      expect(authority.approval_status).toBe('PAID');
+      expect(authority.gateway_refund_id).toBeNull();
+    } else {
+      expect(authority.approval_status).toBe('APPROVED');
+      expect(Number(authority.gateway_refund_id)).toBeGreaterThan(0);
+      await expect(billing.markRefundPaid(refund.id, {
+        tenantId: TENANT, reference: `late-manual-${randomUUID()}`,
+      })).rejects.toMatchObject({ code: 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT' });
+    }
+  });
+
+  it('keeps the manual rail blocked across the provider-call crash window', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 260);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 70, reason: 'crash-window rail guard', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    const leg = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'initiated', provider_refund_id = NULL
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(leg.id), TENANT,
+    );
+    await expect(billing.markRefundPaid(refund.id, {
+      tenantId: TENANT, reference: `manual-crash-${randomUUID()}`,
+    })).rejects.toMatchObject({ code: 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT' });
+
+    const processedProviderRefundId = `rfnd_crash_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const processed = await gateway.handleRefundProcessedEvent({
+      tenantId: TENANT,
+      config,
+      payload: { payload: { refund: { entity: {
+        id: processedProviderRefundId,
+        payment_id: providerPaymentId,
+        amount: toPaise(70),
+        currency: 'INR',
+        status: 'processed',
+        notes: { billing_refund_id: String(refund.id) },
+      } } } },
+    });
+    expect(processed.outcome).toBe('refund_processed');
+    const [authority] = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, payout_rail, gateway_refund_id, reference
+         FROM billing_refunds WHERE id = $1::int`, Number(refund.id),
+    );
+    expect(authority).toMatchObject({
+      approval_status: 'PAID',
+      payout_rail: 'gateway',
+      gateway_refund_id: Number(leg.id),
+      reference: processedProviderRefundId,
+    });
   });
 
   it('refund.failed recovers an initiated crash-window intent and is inert on redelivery', async () => {

@@ -11892,6 +11892,7 @@ model users {
   overtime_requests_overtime_requests_staff_uidTousers                                                                             overtime_requests[]                                    @relation("overtime_requests_staff_uidTousers")
   patient_flow_checkins                                                                                                            patient_flow_checkins[]
   patient_records                                                                                                                  patient_records[]
+  payment_gateway_refunds                                                                                                          payment_gateway_refunds[]
   payroll_run_staff_results                                                                                                        payroll_run_staff_results[]
   payroll_runs_payroll_runs_generated_byTousers                                                                                    payroll_runs[]                                         @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                                                                       payroll_runs[]                                         @relation("payroll_runs_locked_byTousers")
@@ -13056,32 +13057,37 @@ model billing_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model billing_refunds {
-  id                      Int                       @id @default(autoincrement())
-  patient_uid             String                    @db.Uuid
-  invoice_id              Int?
-  advance_id              Int?
-  amount                  Decimal                   @db.Decimal(12, 2)
-  reason                  String                    @db.VarChar(500)
-  mode                    String                    @db.VarChar(20)
-  reference               String?                   @db.VarChar(255)
-  approval_status         String                    @default("PENDING") @db.VarChar(20)
-  raised_by               String?                   @db.Uuid
-  raised_at               DateTime?                 @default(now()) @db.Timestamptz(6)
-  approved_by             String?                   @db.Uuid
-  approved_at             DateTime?                 @db.Timestamptz(6)
-  rejected_by             String?                   @db.Uuid
-  rejected_at             DateTime?                 @db.Timestamptz(6)
-  rejection_reason        String?                   @db.VarChar(255)
-  paid_at                 DateTime?                 @db.Timestamptz(6)
-  paid_by                 String?                   @db.Uuid
-  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at              DateTime?                 @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime?                 @default(now()) @db.Timestamptz(6)
-  billing_advances        billing_advances?         @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
-  billing_invoices        billing_invoices?         @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
-  payment_gateway_refunds payment_gateway_refunds[]
-  pharmacy_counter_sales  pharmacy_counter_sales[]
+  id                                                                                              Int                       @id @default(autoincrement())
+  patient_uid                                                                                     String                    @db.Uuid
+  invoice_id                                                                                      Int?
+  advance_id                                                                                      Int?
+  amount                                                                                          Decimal                   @db.Decimal(12, 2)
+  reason                                                                                          String                    @db.VarChar(500)
+  mode                                                                                            String                    @db.VarChar(20)
+  reference                                                                                       String?                   @db.VarChar(255)
+  approval_status                                                                                 String                    @default("PENDING") @db.VarChar(20)
+  raised_by                                                                                       String?                   @db.Uuid
+  raised_at                                                                                       DateTime?                 @default(now()) @db.Timestamptz(6)
+  approved_by                                                                                     String?                   @db.Uuid
+  approved_at                                                                                     DateTime?                 @db.Timestamptz(6)
+  rejected_by                                                                                     String?                   @db.Uuid
+  rejected_at                                                                                     DateTime?                 @db.Timestamptz(6)
+  rejection_reason                                                                                String?                   @db.VarChar(255)
+  paid_at                                                                                         DateTime?                 @db.Timestamptz(6)
+  paid_by                                                                                         String?                   @db.Uuid
+  tenant_id                                                                                       String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                                                                                      DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                      DateTime?                 @default(now()) @db.Timestamptz(6)
+  payout_rail                                                                                     String?                   @db.VarChar(20)
+  payout_rail_claimed_at                                                                          DateTime?                 @db.Timestamptz(6)
+  gateway_refund_id                                                                               Int?                      @unique(map: "ux_billing_refund_gateway_execution", where: raw("(gateway_refund_id IS NOT NULL)"))
+  billing_advances                                                                                billing_advances?         @relation(fields: [advance_id], references: [id], onUpdate: NoAction)
+  billing_invoices                                                                                billing_invoices?         @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  payment_gateway_refunds_billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds payment_gateway_refunds?  @relation("billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds", fields: [tenant_id, id, gateway_refund_id], references: [tenant_id, billing_refund_id, id], onUpdate: Restrict, map: "fk_billing_refund_gateway_execution")
+  payment_gateway_refunds                                                                         payment_gateway_refunds[]
+  pharmacy_counter_sales                                                                          pharmacy_counter_sales[]
 
+  @@unique([tenant_id, id, gateway_refund_id], map: "ux_billing_refund_tenant_authority")
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
   @@index([approval_status], map: "idx_refunds_status")
@@ -28248,6 +28254,7 @@ model payment_gateway_orders {
   metadata                         Json                              @default("{}")
   created_at                       DateTime                          @default(now()) @db.Timestamptz(6)
   updated_at                       DateTime                          @default(now()) @db.Timestamptz(6)
+  webhook_credential_version       Int
   billing_payments                 billing_payments?                 @relation(fields: [billing_payment_id], references: [id], onUpdate: NoAction)
   billing_invoices                 billing_invoices?                 @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
   billing_payment_links            billing_payment_links?            @relation(fields: [payment_link_id], references: [id], onUpdate: NoAction)
@@ -28269,22 +28276,23 @@ model payment_gateway_orders {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model payment_gateway_provider_configs {
-  id                        Int                      @id @default(autoincrement())
-  tenant_id                 String                   @unique(map: "ux_pg_provider_config_tenant_live", where: raw("enabled")) @db.Uuid
-  provider                  String                   @db.VarChar(30)
-  environment               String                   @default("sandbox") @db.VarChar(20)
-  enabled                   Boolean                  @default(false)
-  display_name              String?                  @db.VarChar(120)
-  key_id                    String?                  @db.VarChar(120)
-  key_secret_ciphertext     String?
-  webhook_secret_ciphertext String?
-  accepted_methods          String[]                 @default(["upi", "card"])
-  metadata                  Json                     @default("{}")
-  created_by                String?                  @db.Uuid
-  created_at                DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime                 @default(now()) @db.Timestamptz(6)
-  payment_gateway_orders    payment_gateway_orders[]
-  tenants                   tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                         Int                      @id @default(autoincrement())
+  tenant_id                  String                   @unique(map: "ux_pg_provider_config_tenant_live", where: raw("enabled")) @db.Uuid
+  provider                   String                   @db.VarChar(30)
+  environment                String                   @default("sandbox") @db.VarChar(20)
+  enabled                    Boolean                  @default(false)
+  display_name               String?                  @db.VarChar(120)
+  key_id                     String?                  @db.VarChar(120)
+  key_secret_ciphertext      String?
+  webhook_secret_ciphertext  String?
+  accepted_methods           String[]                 @default(["upi", "card"])
+  metadata                   Json                     @default("{}")
+  created_by                 String?                  @db.Uuid
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  webhook_credential_version Int                      @default(1)
+  payment_gateway_orders     payment_gateway_orders[]
+  tenants                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, provider, environment], map: "uq_pg_provider_config_tenant_provider_env")
   @@index([tenant_id, provider, environment], map: "idx_pg_provider_config_tenant")
@@ -28294,38 +28302,42 @@ model payment_gateway_provider_configs {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model payment_gateway_refunds {
-  id                       Int                    @id @default(autoincrement())
-  tenant_id                String                 @db.Uuid
-  provider                 String                 @db.VarChar(30)
-  environment              String                 @default("sandbox") @db.VarChar(20)
-  gateway_order_id         Int
-  billing_refund_id        Int?
-  provider_payment_id      String                 @db.VarChar(120)
-  provider_refund_id       String?                @db.VarChar(120)
-  amount                   Decimal                @db.Decimal(12, 2)
-  currency                 String                 @default("INR") @db.VarChar(3)
-  status                   String                 @default("initiated") @db.VarChar(30)
-  reason                   String?                @db.VarChar(500)
-  initiated_by             String?                @db.Uuid
-  initiated_at             DateTime               @default(now()) @db.Timestamptz(6)
-  processed_at             DateTime?              @db.Timestamptz(6)
-  failed_at                DateTime?              @db.Timestamptz(6)
-  failure_code             String?                @db.VarChar(80)
-  failure_reason           String?                @db.VarChar(500)
-  metadata                 Json                   @default("{}")
-  created_at               DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime               @default(now()) @db.Timestamptz(6)
-  provider_idempotency_key String                 @db.VarChar(120)
-  reconciled_at            DateTime?              @db.Timestamptz(6)
-  reconciliation_note      String?                @db.VarChar(500)
-  reconciled_by            String?                @db.Uuid
-  billing_refunds          billing_refunds?       @relation(fields: [billing_refund_id], references: [id], onUpdate: NoAction)
-  payment_gateway_orders   payment_gateway_orders @relation(fields: [gateway_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants                  tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                                                      Int                    @id @default(autoincrement())
+  tenant_id                                                                               String                 @db.Uuid
+  provider                                                                                String                 @db.VarChar(30)
+  environment                                                                             String                 @default("sandbox") @db.VarChar(20)
+  gateway_order_id                                                                        Int
+  billing_refund_id                                                                       Int?
+  provider_payment_id                                                                     String                 @db.VarChar(120)
+  provider_refund_id                                                                      String?                @db.VarChar(120)
+  amount                                                                                  Decimal                @db.Decimal(12, 2)
+  currency                                                                                String                 @default("INR") @db.VarChar(3)
+  status                                                                                  String                 @default("initiated") @db.VarChar(30)
+  reason                                                                                  String?                @db.VarChar(500)
+  initiated_by                                                                            String?                @db.Uuid
+  initiated_at                                                                            DateTime               @default(now()) @db.Timestamptz(6)
+  processed_at                                                                            DateTime?              @db.Timestamptz(6)
+  failed_at                                                                               DateTime?              @db.Timestamptz(6)
+  failure_code                                                                            String?                @db.VarChar(80)
+  failure_reason                                                                          String?                @db.VarChar(500)
+  metadata                                                                                Json                   @default("{}")
+  created_at                                                                              DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                                                              DateTime               @default(now()) @db.Timestamptz(6)
+  provider_idempotency_key                                                                String                 @db.VarChar(120)
+  reconciled_at                                                                           DateTime?              @db.Timestamptz(6)
+  reconciliation_note                                                                     String?                @db.VarChar(500)
+  reconciled_by                                                                           String?                @db.Uuid
+  webhook_credential_version                                                              Int
+  billing_refunds_billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds billing_refunds?       @relation("billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds")
+  users                                                                                   users?                 @relation(fields: [tenant_id, reconciled_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_pg_refund_reconciled_actor")
+  billing_refunds                                                                         billing_refunds?       @relation(fields: [billing_refund_id], references: [id], onUpdate: NoAction)
+  payment_gateway_orders                                                                  payment_gateway_orders @relation(fields: [gateway_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                 tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, billing_refund_id], map: "ux_pg_refund_billing_refund_live", where: raw("((billing_refund_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['initiated'::character varying, 'pending'::character varying, 'processed'::character varying, 'requires_reconciliation'::character varying])::text[])))"))
   @@unique([tenant_id, provider, provider_refund_id], map: "ux_pg_refund_tenant_provider_refund", where: raw("(provider_refund_id IS NOT NULL)"))
   @@unique([tenant_id, provider, provider_idempotency_key], map: "ux_pg_refund_provider_idempotency")
+  @@unique([tenant_id, billing_refund_id, id], map: "ux_pg_refund_tenant_billing_execution")
   @@index([gateway_order_id], map: "idx_pg_refund_order")
   @@index([tenant_id, initiated_at, id], map: "idx_pg_refund_reconciliation_queue", where: raw("(((status)::text = 'requires_reconciliation'::text) AND (reconciled_at IS NULL))"))
   @@index([tenant_id, status, initiated_at(sort: Desc)], map: "idx_pg_refund_tenant_status")

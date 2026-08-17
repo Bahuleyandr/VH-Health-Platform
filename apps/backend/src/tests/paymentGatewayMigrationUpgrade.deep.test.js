@@ -1,5 +1,6 @@
 // Retained-database proof for published migration 697 followed by additive
-// migrations 708 and 712. Runs in an isolated schema inside the configured test DB.
+// migrations 708, published 712, and forward-only 713. Runs in an isolated
+// schema inside the configured test DB.
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -17,8 +18,11 @@ const upgrade708 = readFileSync(
 const upgrade712 = readFileSync(
   new URL('../migrations/712_payment_gateway_operational_safety.sql', import.meta.url), 'utf8',
 );
+const upgrade713 = readFileSync(
+  new URL('../migrations/713_payment_gateway_settlement_integrity.sql', import.meta.url), 'utf8',
+);
 
-d('payment gateway retained migration 697 → 708 → 712', () => {
+d('payment gateway retained migration 697 → 708 → published 712 → 713', () => {
   let client;
   let schema;
 
@@ -30,8 +34,34 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
     await client.query(`SET search_path TO ${schema}, public`);
     await client.query(`
       CREATE TABLE tenants (id UUID PRIMARY KEY);
-      CREATE TABLE billing_refunds (id SERIAL PRIMARY KEY);
-      CREATE TABLE payment_gateway_orders (id SERIAL PRIMARY KEY);
+      CREATE TABLE users (
+        tenant_id UUID NOT NULL,
+        uid UUID NOT NULL,
+        UNIQUE (tenant_id, uid)
+      );
+      CREATE TABLE billing_refunds (
+        id SERIAL PRIMARY KEY,
+        tenant_id UUID NOT NULL,
+        approval_status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
+        paid_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE payment_gateway_provider_configs (
+        id SERIAL PRIMARY KEY,
+        tenant_id UUID NOT NULL,
+        provider VARCHAR(30) NOT NULL DEFAULT 'dry_run',
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        key_id VARCHAR(120),
+        key_secret_ciphertext TEXT,
+        webhook_secret_ciphertext TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE payment_gateway_orders (
+        id SERIAL PRIMARY KEY,
+        tenant_id UUID NOT NULL,
+        provider_config_id INTEGER
+      );
       CREATE FUNCTION app_current_tenant_id_uuid() RETURNS UUID
       LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
     `);
@@ -47,18 +77,47 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
   it('upgrades retained rows safely, converges on rerun, and enables reconciliation writes', async () => {
     await client.query(published697);
     const tenantId = randomUUID();
+    const actorUid = randomUUID();
     await client.query('INSERT INTO tenants (id) VALUES ($1)', [tenantId]);
-    const order = await client.query('INSERT INTO payment_gateway_orders DEFAULT VALUES RETURNING id');
-    const refundA = await client.query('INSERT INTO billing_refunds DEFAULT VALUES RETURNING id');
-    const refundB = await client.query('INSERT INTO billing_refunds DEFAULT VALUES RETURNING id');
+    await client.query(
+      'INSERT INTO users (tenant_id, uid) VALUES ($1, $2)', [tenantId, actorUid],
+    );
+    const config = await client.query(
+      'INSERT INTO payment_gateway_provider_configs (tenant_id) VALUES ($1) RETURNING id',
+      [tenantId],
+    );
+    const incompleteLiveConfig = await client.query(
+      `INSERT INTO payment_gateway_provider_configs
+         (tenant_id, provider, enabled, key_id, key_secret_ciphertext)
+       VALUES ($1, 'razorpay', TRUE, 'rzp_retained', 'encrypted-key')
+       RETURNING id`,
+      [tenantId],
+    );
+    const order = await client.query(
+      `INSERT INTO payment_gateway_orders (tenant_id, provider_config_id)
+       VALUES ($1, $2) RETURNING id`,
+      [tenantId, config.rows[0].id],
+    );
+    const refundA = await client.query(
+      'INSERT INTO billing_refunds (tenant_id) VALUES ($1) RETURNING id', [tenantId],
+    );
+    const refundB = await client.query(
+      'INSERT INTO billing_refunds (tenant_id) VALUES ($1) RETURNING id', [tenantId],
+    );
+    const refundC = await client.query(
+      `INSERT INTO billing_refunds (tenant_id, approval_status, paid_at)
+       VALUES ($1, 'PAID', NOW()) RETURNING id`,
+      [tenantId],
+    );
     const retained = await client.query(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
           provider_payment_id, amount, currency, status)
        VALUES ($1, 'razorpay', 'production', $2, $3, 'pay_retained_a', 25, 'INR', 'initiated'),
-              ($1, 'razorpay', 'production', $2, $4, 'pay_retained_b', 15, 'INR', 'pending')
+              ($1, 'razorpay', 'production', $2, $4, 'pay_retained_b', 15, 'INR', 'pending'),
+              ($1, 'razorpay', 'production', $2, $5, 'pay_retained_c', 10, 'INR', 'pending')
        RETURNING id, status`,
-      [tenantId, order.rows[0].id, refundA.rows[0].id, refundB.rows[0].id],
+      [tenantId, order.rows[0].id, refundA.rows[0].id, refundB.rows[0].id, refundC.rows[0].id],
     );
 
     await client.query(upgrade708);
@@ -66,8 +125,23 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
     await client.query(upgrade712);
     await client.query(upgrade712);
 
+    // Migration 712 allowed actorless resolution. 713 must preserve its
+    // material as legacy evidence but reopen the unresolved refund.
+    await client.query(
+      `UPDATE payment_gateway_refunds
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Legacy actorless retained resolution'
+        WHERE id = $1`,
+      [retained.rows[0].id],
+    );
+
+    await client.query(upgrade713);
+    await client.query(upgrade713);
+
     const rows = await client.query(
-      `SELECT id, status, provider_idempotency_key, failure_code
+      `SELECT id, status, provider_idempotency_key, failure_code,
+              webhook_credential_version, reconciled_at, reconciliation_note,
+              reconciled_by, metadata
          FROM payment_gateway_refunds ORDER BY id`,
     );
     expect(rows.rows).toEqual([
@@ -76,13 +150,38 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
         status: 'requires_reconciliation',
         provider_idempotency_key: `pgr_legacy_${retained.rows[0].id}`,
         failure_code: 'legacy_intent_hold',
+        webhook_credential_version: 1,
+        reconciled_at: null,
+        reconciliation_note: null,
+        reconciled_by: null,
+        metadata: expect.objectContaining({
+          legacy_actorless_reconciliation: expect.objectContaining({
+            reconciliation_note: 'Legacy actorless retained resolution',
+          }),
+        }),
       }),
       expect.objectContaining({
         id: retained.rows[1].id,
         status: 'pending',
         provider_idempotency_key: `pgr_legacy_${retained.rows[1].id}`,
+        webhook_credential_version: 1,
+      }),
+      expect.objectContaining({
+        id: retained.rows[2].id,
+        status: 'requires_reconciliation',
+        provider_idempotency_key: `pgr_legacy_${retained.rows[2].id}`,
+        failure_code: 'retained_manual_payout_conflict',
+        webhook_credential_version: 1,
       }),
     ]);
+    const retainedConfig = await client.query(
+      `SELECT enabled, metadata FROM payment_gateway_provider_configs WHERE id = $1`,
+      [incompleteLiveConfig.rows[0].id],
+    );
+    expect(retainedConfig.rows[0]).toEqual({
+      enabled: false,
+      metadata: { disabled_by_713: { reason: 'incomplete_live_credentials' } },
+    });
     const statusColumn = await client.query(
       `SELECT character_maximum_length, is_nullable
          FROM information_schema.columns
@@ -109,6 +208,52 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
     expect(indexSql).toContain('requires_reconciliation');
     expect(indexSql).toContain('idx_pg_refund_reconciliation_queue');
 
+    const authority = await client.query(
+      `SELECT payout_rail, gateway_refund_id, payout_rail_claimed_at
+         FROM billing_refunds WHERE id = $1`,
+      [retained.rows[1].billing_refund_id || refundB.rows[0].id],
+    );
+    expect(authority.rows[0]).toEqual(expect.objectContaining({
+      payout_rail: 'gateway',
+      gateway_refund_id: retained.rows[1].id,
+    }));
+    expect(authority.rows[0].payout_rail_claimed_at).not.toBeNull();
+    await expect(client.query(
+      `UPDATE billing_refunds SET gateway_refund_id = $1 WHERE id = $2`,
+      [retained.rows[0].id + 1_000_000, refundB.rows[0].id],
+    )).rejects.toMatchObject({ code: '23503' });
+    await expect(client.query(
+      `DELETE FROM payment_gateway_refunds WHERE id = $1`,
+      [retained.rows[1].id],
+    )).rejects.toMatchObject({ code: '23503' });
+
+    const retainedManualAuthority = await client.query(
+      `SELECT payout_rail, gateway_refund_id, payout_rail_claimed_at
+         FROM billing_refunds WHERE id = $1`,
+      [refundC.rows[0].id],
+    );
+    expect(retainedManualAuthority.rows[0]).toEqual(expect.objectContaining({
+      payout_rail: 'manual',
+      gateway_refund_id: null,
+    }));
+    expect(retainedManualAuthority.rows[0].payout_rail_claimed_at).not.toBeNull();
+
+    await expect(client.query(
+      `UPDATE payment_gateway_refunds
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Missing authenticated actor evidence'
+        WHERE id = $1`,
+      [retained.rows[0].id],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(client.query(
+      `UPDATE payment_gateway_refunds
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Unknown cross-tenant actor evidence',
+              reconciled_by = $1::uuid
+        WHERE id = $2`,
+      [randomUUID(), retained.rows[0].id],
+    )).rejects.toMatchObject({ code: '23503' });
+
     const resolved = await client.query(
       `UPDATE payment_gateway_refunds
           SET reconciled_at = NOW(),
@@ -116,7 +261,7 @@ d('payment gateway retained migration 697 → 708 → 712', () => {
               reconciled_by = $1::uuid
         WHERE id = $2
         RETURNING reconciled_at, reconciliation_note, reconciled_by`,
-      [randomUUID(), retained.rows[0].id],
+      [actorUid, retained.rows[0].id],
     );
     expect(resolved.rows[0].reconciled_at).not.toBeNull();
     expect(resolved.rows[0].reconciliation_note).toContain('retained provider refund');

@@ -179,6 +179,116 @@ d('payment gateway capture (deep)', () => {
     expect(rows[0].n).toBe(1);
   });
 
+  it('derives collision-proof receipts from tenant, actor, patient, scope, payable path, and body amount', async () => {
+    const patientA = await makePatient();
+    const patientB = await makePatient();
+    const invoiceA = await makeIssuedInvoice(patientA, 90);
+    const invoiceB = await makeIssuedInvoice(patientB, 90);
+    const reusedClientKey = `shared-client-key-${randomUUID()}`;
+
+    const orderA = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceA,
+      actor: { uid: patientA, role: 'PATIENT' },
+      idempotency_key: reusedClientKey,
+    });
+    const orderB = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceB,
+      actor: { uid: patientB, role: 'PATIENT' },
+      idempotency_key: reusedClientKey,
+    });
+    cleanup.orderIds.push(orderA.orderId, orderB.orderId);
+    const receipts = await prisma.$queryRawUnsafe(
+      `SELECT id, receipt FROM payment_gateway_orders
+        WHERE id IN ($1, $2) ORDER BY id`,
+      orderA.orderId,
+      orderB.orderId,
+    );
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0].receipt).not.toBe(receipts[1].receipt);
+    expect(new Set(receipts.map(row => row.receipt)).size).toBe(2);
+
+    const scopedKey = `same-subject-key-${randomUUID()}`;
+    const actorA = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceA,
+      amount: 20,
+      actor: { uid: patientA, role: 'ADMIN' },
+      idempotency_key: scopedKey,
+    });
+    const actorB = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceA,
+      amount: 20,
+      actor: { uid: patientB, role: 'ADMIN' },
+      idempotency_key: scopedKey,
+    });
+    const differentAmount = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: invoiceA,
+      amount: 25,
+      actor: { uid: patientA, role: 'ADMIN' },
+      idempotency_key: scopedKey,
+    });
+    cleanup.orderIds.push(actorA.orderId, actorB.orderId, differentAmount.orderId);
+    const scopedReceipts = await prisma.$queryRawUnsafe(
+      `SELECT receipt FROM payment_gateway_orders
+        WHERE id IN ($1, $2, $3) ORDER BY id`,
+      actorA.orderId,
+      actorB.orderId,
+      differentAmount.orderId,
+    );
+    expect(new Set(scopedReceipts.map(row => row.receipt)).size).toBe(3);
+  });
+
+  it('allows a retired webhook secret only for intents bound before its rotation', async () => {
+    const patient = await makePatient();
+    const firstInvoice = await makeIssuedInvoice(patient, 60);
+    const preRotation = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: firstInvoice,
+      actor: { uid: patient, role: 'PATIENT' },
+      idempotency_key: `pre-rotation-${randomUUID()}`,
+    });
+    cleanup.orderIds.push(preRotation.orderId);
+
+    await gateway.upsertGatewayConfig({
+      tenantId: TENANT,
+      provider: 'dry_run',
+      environment: 'sandbox',
+      enabled: true,
+      webhook_secret: `replacement-webhook-material-${randomUUID()}`,
+    });
+    const [fullConfig] = await prisma.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_provider_configs
+        WHERE tenant_id = $1::uuid AND provider = 'dry_run' AND environment = 'sandbox'`,
+      TENANT,
+    );
+    const retired = gateway.decryptedWebhookSecrets(fullConfig)
+      .find(credential => credential.current === false);
+    expect(retired).toEqual(expect.objectContaining({ version: 1, current: false }));
+    await expect(gateway.hasBoundNonterminalWebhookIntent({
+      config: fullConfig,
+      credential: retired,
+      payload: { payload: { payment: { entity: { order_id: preRotation.providerOrderId } } } },
+    })).resolves.toBe(true);
+
+    const secondInvoice = await makeIssuedInvoice(patient, 65);
+    const postRotation = await gateway.createGatewayOrder({
+      tenantId: TENANT,
+      invoice_id: secondInvoice,
+      actor: { uid: patient, role: 'PATIENT' },
+      idempotency_key: `post-rotation-${randomUUID()}`,
+    });
+    cleanup.orderIds.push(postRotation.orderId);
+    await expect(gateway.hasBoundNonterminalWebhookIntent({
+      config: fullConfig,
+      credential: retired,
+      payload: { payload: { payment: { entity: { order_id: postRotation.providerOrderId } } } },
+    })).resolves.toBe(false);
+  });
+
   it('books capture → ONE billing_payments row (reference = provider payment id) + same-tx ledger entry; replay stays one row', async () => {
     const patient = await makePatient();
     const invoiceId = await makeIssuedInvoice(patient, 500);

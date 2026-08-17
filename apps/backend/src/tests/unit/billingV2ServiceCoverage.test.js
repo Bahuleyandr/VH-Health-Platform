@@ -1382,7 +1382,9 @@ describe('refunds', () => {
   });
 
   it('markRefundPaid throws notFound when not approved', async () => {
-    queryMock.mockResolvedValueOnce([]);
+    queryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     await expect(svc.markRefundPaid(1, {})).rejects.toMatchObject({ statusCode: 404 });
   });
 

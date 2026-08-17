@@ -241,9 +241,10 @@ router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileVal
 }));
 
 router.post('/refunds', requireGatewayRefundRole, requireIdempotencyKey({
-  // Initiating a provider refund moves money at the provider before the
-  // response exists, so the recorded transport result remains authoritative.
-  required: true, scope: 'payment_gateway_refund', retainOnServerError: true,
+  // The provider call is protected by the committed gateway-refund intent and
+  // its stable provider idempotency key. Releasing a 5xx transport claim lets
+  // an exact retry recover that same intent instead of pinning a lost response.
+  required: true, scope: 'payment_gateway_refund', retainOnServerError: false,
 }), ...gatewayRefundCreateValidator, validate, wrap(async (req) => {
   const refund = await gateway.initiateGatewayRefund({
     tenantId: tenantOf(req),

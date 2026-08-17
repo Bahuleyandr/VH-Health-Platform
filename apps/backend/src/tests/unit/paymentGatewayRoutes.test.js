@@ -305,4 +305,30 @@ describe('role gates', () => {
       tenantId: 'trusted-tenant', billing_refund_id: 9, gateway_order_id: 21,
     }));
   });
+
+  it('releases a refund 5xx claim so the same HTTP key reaches durable provider retry', async () => {
+    initiateGatewayRefund
+      .mockRejectedValueOnce(new AppError(
+        'Provider response timed out', 503, 'PAYMENT_GATEWAY_PROVIDER_TIMEOUT',
+      ))
+      .mockResolvedValueOnce({
+        id: 6, billing_refund_id: 9, gateway_order_id: 21,
+        amount: 100, status: 'pending', replay: true,
+      });
+
+    const first = await request(app('CASHIER'))
+      .post('/api/v1/billing/gateway/refunds')
+      .set('Idempotency-Key', 'refund-lost-response-key')
+      .send({ billing_refund_id: 9, gateway_order_id: 21 });
+    expect(first.status).toBe(503);
+    expect(releaseIdempotencyKey).toHaveBeenCalledWith(55);
+
+    const retry = await request(app('CASHIER'))
+      .post('/api/v1/billing/gateway/refunds')
+      .set('Idempotency-Key', 'refund-lost-response-key')
+      .send({ billing_refund_id: 9, gateway_order_id: 21 });
+    expect(retry.status).toBe(200);
+    expect(retry.body.data).toEqual(expect.objectContaining({ id: 6, replay: true }));
+    expect(initiateGatewayRefund).toHaveBeenCalledTimes(2);
+  });
 });

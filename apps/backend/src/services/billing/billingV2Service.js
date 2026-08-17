@@ -1984,7 +1984,21 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
   return rows[0];
 }
 
-export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
+export async function markRefundPaid(refundId, {
+  paid_by, reference, tenantId, payout_rail = 'manual', gateway_refund_id = null,
+} = {}) {
+  const payoutRail = String(payout_rail || '').trim().toLowerCase();
+  if (!['manual', 'gateway'].includes(payoutRail)) {
+    throw AppError.badRequest('Refund payout rail must be manual or gateway');
+  }
+  const gatewayRefundId = gateway_refund_id == null ? null : Number(gateway_refund_id);
+  if (payoutRail === 'gateway'
+      && (!Number.isInteger(gatewayRefundId) || gatewayRefundId <= 0)) {
+    throw AppError.badRequest(
+      'Gateway refund execution evidence is required for gateway payout',
+      'BILLING_REFUND_GATEWAY_EXECUTION_REQUIRED',
+    );
+  }
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
@@ -1994,17 +2008,58 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
       paid_by ? String(paid_by) : null,
       reference || null,
       Number(refundId),
+      payoutRail,
+      gatewayRefundId,
     ];
     const tenantSql = appendTenantPredicate(params, tenantId);
     const rows = await tx.$queryRawUnsafe(
       `UPDATE billing_refunds
           SET approval_status = 'PAID', paid_by = $1::uuid,
-              paid_at = NOW(), reference = COALESCE($2, reference), updated_at = NOW()
+              paid_at = NOW(), reference = COALESCE($2, reference),
+              payout_rail = $4,
+              payout_rail_claimed_at = COALESCE(payout_rail_claimed_at, NOW()),
+              gateway_refund_id = CASE WHEN $4 = 'gateway' THEN $5::int ELSE NULL END,
+              updated_at = NOW()
         WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
+          AND (
+            (
+              $4 = 'manual'
+              AND (payout_rail IS NULL OR payout_rail = 'manual')
+              AND gateway_refund_id IS NULL
+            )
+            OR (
+              $4 = 'gateway'
+              AND payout_rail = 'gateway'
+              AND gateway_refund_id = $5::int
+            )
+          )
         RETURNING *`,
       ...params,
     );
-    if (!rows.length) throw AppError.notFound('Refund not found or not approved');
+    if (!rows.length) {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT approval_status, payout_rail, gateway_refund_id
+           FROM billing_refunds
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          LIMIT 1`,
+        Number(refundId), requireTenantId(tenantId),
+      );
+      if (existing.length && existing[0].approval_status === 'APPROVED'
+          && existing[0].payout_rail && existing[0].payout_rail !== payoutRail) {
+        throw AppError.conflict(
+          `Refund payout is already owned by the ${existing[0].payout_rail} rail`,
+          'BILLING_REFUND_PAYOUT_RAIL_CONFLICT',
+        );
+      }
+      if (existing.length && payoutRail === 'gateway'
+          && Number(existing[0].gateway_refund_id) !== gatewayRefundId) {
+        throw AppError.conflict(
+          'A different gateway refund execution owns this payout',
+          'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT',
+        );
+      }
+      throw AppError.notFound('Refund not found or not approved');
+    }
     const refund = rows[0];
 
     // If linked to an advance: atomically reduce the advance balance (SHADOW/OFF

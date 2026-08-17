@@ -135,13 +135,21 @@ describe('disabled and rotated credential settlement boundary', () => {
 
   it('treats a historical rotated secret as inbound-only even while the config is enabled', async () => {
     decryptedWebhookSecrets.mockReturnValue([
-      { secret: 'current-webhook-material-fixture', current: true },
-      { secret: WEBHOOK_SECRET, current: false },
+      { secret: 'current-webhook-material-fixture', current: true, version: 4 },
+      {
+        secret: WEBHOOK_SECRET,
+        current: false,
+        version: 3,
+        retiredAt: new Date('2026-08-17T07:00:00.000Z'),
+      },
     ]);
     hasBoundNonterminalWebhookIntent.mockResolvedValue(false);
     const res = await signedPost(payload);
     expect(res.status).toBe(404);
     expect(recordWebhookEvent).not.toHaveBeenCalled();
+    expect(hasBoundNonterminalWebhookIntent).toHaveBeenCalledWith(expect.objectContaining({
+      credential: expect.objectContaining({ current: false, version: 3 }),
+    }));
   });
 });
 
@@ -242,6 +250,19 @@ describe('verified-but-unprocessable deliveries', () => {
     expect(res.body.data.outcome).toBe('failed');
     expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT, eventId: 10, status: 'failed', failureReason: 'invoice imploded',
+    }));
+  });
+
+  it('returns 5xx when the durable failed-status write fails so the provider retries', async () => {
+    processWebhookEvent.mockRejectedValue(Object.assign(new Error('invoice imploded'), {
+      isOperational: true, statusCode: 400, code: 'PAYMENT_GATEWAY_AMOUNT_MISMATCH',
+    }));
+    markWebhookEvent.mockRejectedValueOnce(new Error('status store unavailable'));
+    const res = await signedPost(payload);
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
     }));
   });
 

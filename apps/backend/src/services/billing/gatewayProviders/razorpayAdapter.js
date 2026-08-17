@@ -92,10 +92,10 @@ export async function createOrder({ keyId, keySecret, amountPaise, currency = 'I
   });
   return {
     providerOrderId: order?.id,
-    amountPaise: Number(order?.amount ?? amountPaise),
-    currency: order?.currency || currency,
-    receipt: order?.receipt || receipt,
-    status: order?.status || 'created',
+    amountPaise: order?.amount == null ? null : Number(order.amount),
+    currency: order?.currency,
+    receipt: order?.receipt,
+    status: order?.status,
     raw: order,
   };
 }
@@ -185,7 +185,7 @@ export async function createRefund({
     amountPaise: refund?.amount == null ? null : Number(refund.amount),
     currency: refund?.currency,
     // Razorpay refund status vocabulary: pending | processed | failed.
-    status: refund?.status || 'pending',
+    status: refund?.status,
     raw: refund,
   };
 }
