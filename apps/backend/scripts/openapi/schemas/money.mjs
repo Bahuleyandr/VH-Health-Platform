@@ -986,7 +986,7 @@ export const schemas = {
     properties: {
       invoice_id: { type: 'integer' },
       patient_uid: { type: 'string', format: 'uuid' },
-      amount: { type: 'number' },
+      amount: { type: 'number', minimum: 0.01, multipleOf: 0.01 },
       mode: { type: 'string' },
       reference: { type: 'string' },
       denominations: {},
@@ -1005,7 +1005,7 @@ export const schemas = {
     properties: {
       patient_uid: { type: 'string', format: 'uuid' },
       admission_id: { type: 'integer' },
-      amount: { type: 'number' },
+      amount: { type: 'number', minimum: 0.01, multipleOf: 0.01 },
       mode: { type: 'string' },
       reference: { type: 'string' },
       collected_by: { type: 'string', format: 'uuid' },
@@ -1017,7 +1017,7 @@ export const schemas = {
     description: 'Reverse-engineered from billingV2Service.settleAdvance; not validator-backed. Requires X-Idempotency-Key header.',
     properties: {
       invoice_id: { type: 'integer' },
-      amount: { type: 'number' },
+      amount: { type: 'number', minimum: 0.01, multipleOf: 0.01 },
     },
   },
   RaiseRefundRequest: {
@@ -1027,7 +1027,7 @@ export const schemas = {
       patient_uid: { type: 'string', format: 'uuid' },
       invoice_id: { type: 'integer' },
       advance_id: { type: 'integer' },
-      amount: { type: 'number' },
+      amount: { type: 'number', minimum: 0.01, multipleOf: 0.01 },
       reason: { type: 'string' },
       mode: { type: 'string' },
     },

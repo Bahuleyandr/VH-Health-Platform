@@ -141,6 +141,35 @@ describe('order creation idempotency', () => {
     expect(res.status).toBe(400);
     expect(createGatewayOrder).not.toHaveBeenCalled();
   });
+
+  it('rejects a sub-paisa order amount at the route boundary', async () => {
+    const res = await request(app())
+      .post('/api/v1/billing/gateway/orders')
+      .set('Idempotency-Key', 'order-key-sub-paisa')
+      .send({ invoice_id: 12, amount: 100.001 });
+    expect(res.status).toBe(400);
+    expect(createGatewayOrder).not.toHaveBeenCalled();
+  });
+
+  it('accepts an exact two-decimal partial amount at the route boundary', async () => {
+    const res = await request(app())
+      .post('/api/v1/billing/gateway/orders')
+      .set('Idempotency-Key', 'order-key-partial')
+      .send({ invoice_id: 12, amount: 100.01 });
+    expect(res.status).toBe(200);
+    expect(createGatewayOrder).toHaveBeenCalledWith(expect.objectContaining({ amount: 100.01 }));
+  });
+
+  it('accepts harmless JSON numeric representation dust at the route boundary', async () => {
+    const res = await request(app())
+      .post('/api/v1/billing/gateway/orders')
+      .set('Idempotency-Key', 'order-key-numeric-dust')
+      .send({ invoice_id: 12, amount: 0.1 + 0.2 });
+    expect(res.status).toBe(200);
+    expect(createGatewayOrder).toHaveBeenCalledWith(expect.objectContaining({
+      amount: expect.closeTo(0.3, 12),
+    }));
+  });
 });
 
 describe('config-gate OFF surfaces through the route', () => {

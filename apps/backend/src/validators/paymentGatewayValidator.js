@@ -11,6 +11,7 @@ import {
   optionalString,
   optionalEnum,
 } from './sharedValidators.js';
+import { toPaise } from '../utils/money.js';
 
 const GATEWAY_PROVIDERS = ['razorpay', 'dry_run'];
 const GATEWAY_ENVIRONMENTS = ['sandbox', 'production'];
@@ -26,6 +27,20 @@ export const gatewayOrderCreateValidator = [
   body('amount')
     .optional({ nullable: true })
     .isFloat({ min: 0.01 }).withMessage('amount must be a positive number')
+    .bail()
+    .custom((value) => {
+      try {
+        const parsed = Number(value);
+        if (typeof value === 'number'
+            && Math.abs(parsed - Math.round(parsed * 100) / 100) > 1e-9) {
+          throw new Error('sub-paisa precision');
+        }
+        toPaise(typeof value === 'number' ? value : String(value).trim());
+        return true;
+      } catch {
+        throw new Error('amount must have at most 2 decimal places');
+      }
+    })
     .toFloat(),
   body('payment_link_token').custom((value, { req }) => {
     if (!value && !req.body?.invoice_id) {

@@ -59,6 +59,7 @@ export const schemas = {
       amount: {
         type: 'number',
         minimum: 0.01,
+        multipleOf: 0.01,
         nullable: true,
         description: 'Rupees. Defaults to the invoice amount due (or the link amount); may not exceed it.',
       },
@@ -359,7 +360,7 @@ export const operations = {
   },
   'POST /api/v1/billing/gateway/refunds': {
     description:
-      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key and exclusive gateway payout claim are committed before the external refund request. The HTTP idempotency envelope is released on 5xx so an exact retry reaches that same durable provider intent and key. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund lifecycle; the signed refund.processed webhook completes it through the trusted markGatewayRefundPaid path with exact provider refund evidence. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
+      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key and exclusive gateway payout claim are committed before the external refund request. The HTTP idempotency envelope is released on 5xx so an exact retry reaches that same durable provider intent and key. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund lifecycle. Exact provider evidence returned synchronously with status processed completes it immediately through the trusted markGatewayRefundPaid path; otherwise the signed refund.processed webhook completes the same path. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
     parameters: [idempotencyHeader],
     security: authenticatedSecurity,
     request: 'PaymentGatewayRefundCreateRequest',
@@ -388,7 +389,7 @@ export const operations = {
   },
   'POST /api/v1/billing/gateway/refunds/{id}/reconcile': {
     description:
-      'Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing.',
+      'Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing. If exact processed provider evidence arrives later, the stamp is preserved in metadata before the trusted billing settlement path supersedes it.',
     request: 'PaymentGatewayRefundReconcileRequest',
     response: 'PaymentGatewayRefundResponse',
     security: authenticatedSecurity,

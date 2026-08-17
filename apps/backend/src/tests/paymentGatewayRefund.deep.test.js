@@ -3,15 +3,17 @@
 // Gateway refund execution leg against a real database (migration 697):
 // authority stays in billing_refunds (raiseRefund → approveRefund →
 // markRefundPaid); the gateway adds only the provider execution row. The
-// refund.processed webhook drives markRefundPaid with reference =
+// exact refund.processed evidence drives markRefundPaid with reference =
 // provider_refund_id, posting the ledger REFUND_PAID entry under enforce
 // wiring; replays touch nothing twice, and one live execution leg per
 // billing refund is DB-enforced. dry_run provider — zero credentials.
 
 import { randomUUID } from 'node:crypto';
+import { jest } from '@jest/globals';
 import prisma from '../lib/prisma.js';
 import * as billing from '../services/billing/billingV2Service.js';
 import * as gateway from '../services/billing/paymentGatewayService.js';
+import dryRunAdapter from '../services/billing/gatewayProviders/dryRunAdapter.js';
 import { toPaise } from '../utils/money.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -133,6 +135,53 @@ afterAll(async () => {
 }, 30_000);
 
 d('payment gateway refund execution leg (deep)', () => {
+  it('correlates an immediate processed response by provider config id, not gateway order id', async () => {
+    const patient = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 325);
+    const [order] = await prisma.$queryRawUnsafe(
+      `SELECT id, provider_config_id FROM payment_gateway_orders
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      orderId, TENANT,
+    );
+    expect(Number(order.id)).toBe(orderId);
+    expect(Number(order.provider_config_id)).toBe(Number(config.id));
+    expect(Number(order.id)).not.toBe(Number(order.provider_config_id));
+
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 125, reason: 'synchronous processed refund', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+
+    const createRefundSpy = jest.spyOn(dryRunAdapter, 'createRefund').mockImplementationOnce(async (args) => ({
+      providerRefundId: `rfnd_dry_${args.receipt}`,
+      providerPaymentId: args.providerPaymentId,
+      amountPaise: args.amountPaise,
+      currency: 'INR',
+      status: 'processed',
+    }));
+    try {
+      const leg = await gateway.initiateGatewayRefund({
+        tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+      });
+      expect(leg.status).toBe('processed');
+
+      const [authority] = await prisma.$queryRawUnsafe(
+        `SELECT approval_status, payout_rail, gateway_refund_id, reference
+           FROM billing_refunds WHERE id = $1::int AND tenant_id = $2::uuid`,
+        Number(refund.id), TENANT,
+      );
+      expect(authority).toMatchObject({
+        approval_status: 'PAID',
+        payout_rail: 'gateway',
+        gateway_refund_id: Number(leg.id),
+        reference: leg.provider_refund_id,
+      });
+    } finally {
+      createRefundSpy.mockRestore();
+    }
+  });
+
   it('APPROVED refund → provider execution row → processed webhook drives markRefundPaid + ledger REFUND_PAID; replay is inert', async () => {
     const patient = await makePatient();
     const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(patient, 400);
@@ -207,6 +256,75 @@ d('payment gateway refund execution leg (deep)', () => {
       `SELECT id FROM ledger_entries WHERE idempotency_key = $1`, `refund-paid-${refund.id}`,
     );
     expect(entriesAfter.length).toBe(1);
+  });
+
+  it('settles later exact processed evidence after preserving a manual reconciliation audit', async () => {
+    const actor = await makePatient();
+    const { invoiceId, orderId, providerPaymentId } = await makeCapturedGatewayPayment(actor, 240);
+    const refund = await billing.raiseRefund({
+      invoice_id: invoiceId, amount: 90, reason: 'late processed provider evidence', mode: 'UPI', tenantId: TENANT,
+    });
+    cleanup.refundIds.push(refund.id);
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    const leg = await gateway.initiateGatewayRefund({
+      tenantId: TENANT, billing_refund_id: refund.id, gateway_order_id: orderId,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'requires_reconciliation',
+              failure_code = 'provider_status_unknown',
+              failure_reason = 'Provider status required operator review',
+              updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(leg.id), TENANT,
+    );
+    const note = 'Provider portal showed pending during the original operator review';
+    await gateway.resolveGatewayRefundReconciliation({
+      tenantId: TENANT, id: leg.id, note, resolved_by: actor,
+    });
+
+    const processed = await gateway.handleRefundProcessedEvent({
+      tenantId: TENANT,
+      config,
+      payload: { payload: { refund: { entity: {
+        id: leg.provider_refund_id,
+        payment_id: providerPaymentId,
+        amount: toPaise(90),
+        currency: 'INR',
+        status: 'processed',
+        notes: { billing_refund_id: String(refund.id) },
+      } } } },
+    });
+    expect(processed.outcome).toBe('refund_processed');
+
+    const [authority] = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, payout_rail, gateway_refund_id, reference
+         FROM billing_refunds WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(refund.id), TENANT,
+    );
+    expect(authority).toMatchObject({
+      approval_status: 'PAID',
+      payout_rail: 'gateway',
+      gateway_refund_id: Number(leg.id),
+      reference: leg.provider_refund_id,
+    });
+
+    const [updatedLeg] = await prisma.$queryRawUnsafe(
+      `SELECT status, reconciled_at, reconciliation_note, reconciled_by, metadata
+         FROM payment_gateway_refunds WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(leg.id), TENANT,
+    );
+    expect(updatedLeg).toMatchObject({
+      status: 'processed', reconciled_at: null, reconciliation_note: null, reconciled_by: null,
+    });
+    expect(updatedLeg.metadata.provider_evidence_superseded_reconciliations).toEqual([
+      expect.objectContaining({
+        reconciliation_note: note,
+        reconciled_by: actor,
+        provider_refund_id: leg.provider_refund_id,
+        superseded_by: 'exact_provider_processed_evidence',
+      }),
+    ]);
   });
 
   it('two concurrent initiations converge on one idempotent provider refund effect', async () => {

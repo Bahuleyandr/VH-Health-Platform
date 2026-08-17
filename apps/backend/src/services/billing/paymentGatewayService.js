@@ -56,6 +56,25 @@ export function paymentModeForMethod(method) {
   return METHOD_TO_MODE[String(method || '').trim().toLowerCase()] || 'UPI';
 }
 
+function requirePositivePaise(amount) {
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw AppError.badRequest('amount must be > 0', 'PAYMENT_GATEWAY_BAD_AMOUNT');
+  }
+  try {
+    if (typeof amount === 'number'
+        && Math.abs(parsed - Math.round(parsed * 100) / 100) > 1e-9) {
+      throw new Error('sub-paisa precision');
+    }
+    return toPaise(typeof amount === 'number' ? amount : String(amount).trim());
+  } catch {
+    throw AppError.badRequest(
+      'amount must have at most 2 decimal places',
+      'PAYMENT_GATEWAY_BAD_AMOUNT',
+    );
+  }
+}
+
 // 694 CHECK list for payment_gateway_orders.method.
 function normalizeOrderMethod(method) {
   const value = String(method || '').trim().toLowerCase();
@@ -453,11 +472,12 @@ export async function createGatewayOrder({
     throw AppError.forbidden('Patients can only pay their own bills');
   }
 
-  const orderAmount = amount != null ? Number(amount) : subject.defaultAmount;
-  if (!Number.isFinite(orderAmount) || orderAmount <= 0) {
-    throw AppError.badRequest('amount must be > 0');
-  }
-  if (orderAmount > subject.maxAmount + 0.01) {
+  const orderAmountPaise = requirePositivePaise(
+    amount != null ? amount : subject.defaultAmount,
+  );
+  const maxAmountPaise = toPaise(subject.maxAmount);
+  const orderAmount = orderAmountPaise / 100;
+  if (orderAmountPaise > maxAmountPaise) {
     throw AppError.badRequest(
       `Amount ${orderAmount} exceeds the payable amount ${subject.maxAmount}`,
       'PAYMENT_GATEWAY_AMOUNT_EXCEEDS_DUE',
@@ -474,7 +494,7 @@ export async function createGatewayOrder({
     subjectKind,
     subjectId,
     scope: 'payment_gateway_order',
-    requestedAmountIdentity: amount == null ? 'default_due' : toPaise(orderAmount),
+    requestedAmountIdentity: amount == null ? 'default_due' : orderAmountPaise,
     idempotencyKey: idempotency_key,
   });
   const defaultExpiry = new Date(Date.now() + DEFAULT_ORDER_EXPIRY_HOURS * 3600 * 1000);
@@ -1378,6 +1398,43 @@ function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = 
   return mismatches;
 }
 
+async function reopenRefundReconciliationForExactProviderEvidence({
+  tenant, gatewayRefund, providerRefundId,
+}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_refunds
+        SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{provider_evidence_superseded_reconciliations}',
+              (
+                CASE
+                  WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
+                    THEN metadata->'provider_evidence_superseded_reconciliations'
+                  ELSE '[]'::jsonb
+                END
+              ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                'reconciled_at', reconciled_at,
+                'reconciliation_note', reconciliation_note,
+                'reconciled_by', reconciled_by,
+                'provider_refund_id', $1::text,
+                'superseded_by', 'exact_provider_processed_evidence'
+              ))),
+              true
+            ),
+            reconciled_at = NULL, reconciliation_note = NULL,
+            reconciled_by = NULL, updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND status = 'requires_reconciliation' AND reconciled_at IS NOT NULL
+      RETURNING id`,
+    String(providerRefundId), Number(gatewayRefund.id), tenant,
+  );
+  if (rows.length) {
+    logger.info('payment gateway refund reconciliation superseded by exact provider evidence', {
+      gateway_refund_id: Number(gatewayRefund.id),
+    });
+  }
+}
+
 async function findGatewayRefundForWebhook({ tenant, config, entity }) {
   const providerRefundId = entity.id || null;
   const providerPaymentId = entity.payment_id || null;
@@ -1576,7 +1633,8 @@ export async function initiateGatewayRefund({
     }
 
     const orderRows = await tx.$queryRawUnsafe(
-      `SELECT o.id, o.provider, o.environment, o.provider_payment_id,
+      `SELECT o.id, o.provider, o.environment, o.provider_config_id,
+              o.provider_payment_id,
               o.amount, o.invoice_id, o.patient_uid::text, o.billing_payment_id,
               bp.invoice_id AS payment_invoice_id,
               bp.patient_uid::text AS payment_patient_uid, bp.mode AS payment_mode,
@@ -1743,9 +1801,13 @@ export async function initiateGatewayRefund({
 
   if (providerRefund.status === 'processed') {
     try {
-      await handleRefundProcessedEvent({
+      const processed = await handleRefundProcessedEvent({
         tenantId: tenant,
-        config: intent.order,
+        config: {
+          id: Number(intent.order.provider_config_id),
+          provider: intent.order.provider,
+          environment: intent.order.environment,
+        },
         payload: {
           payload: {
             refund: {
@@ -1761,6 +1823,13 @@ export async function initiateGatewayRefund({
           },
         },
       });
+      if (!['refund_processed', 'replay', 'requires_reconciliation'].includes(processed.outcome)) {
+        throw new AppError(
+          'Processed provider refund could not be correlated to its durable intent',
+          502,
+          'PAYMENT_GATEWAY_REFUND_CORRELATION_FAILED',
+        );
+      }
     } catch (err) {
       const parkedRows = await prisma.$queryRawUnsafe(
         `UPDATE payment_gateway_refunds
@@ -1828,7 +1897,7 @@ function gatewayRefundReceipt(row, order = {}) {
 }
 
 /**
- * refund.processed webhook → mark the execution leg processed and drive
+ * Exact refund.processed provider evidence → mark the execution leg processed and drive
  * markGatewayRefundPaid (billingV2 authority; posts REFUND_PAID per ledger wiring)
  * with reference = provider_refund_id. Idempotent under redelivery: an
  * already-PAID billing refund is accepted as done, and an already-processed
@@ -1845,9 +1914,6 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
   }
-  if (gatewayRefund.reconciled_at) {
-    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
-  }
   if (gatewayRefund.status === 'processed') {
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
@@ -1858,6 +1924,12 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   if (evidenceMismatches.length) {
     return parkRefundEvidenceMismatch({
       tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
+    });
+  }
+
+  if (gatewayRefund.reconciled_at) {
+    await reopenRefundReconciliationForExactProviderEvidence({
+      tenant, gatewayRefund, providerRefundId,
     });
   }
 

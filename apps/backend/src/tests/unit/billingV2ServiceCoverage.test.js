@@ -944,6 +944,13 @@ describe('collectPayment additional branches', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it('rejects sub-paisa payment amounts before opening a transaction', async () => {
+    await expect(
+      svc.collectPayment({ invoice_id: 9, amount: 100.001, mode: 'UPI' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
   it('rejects CASH without a shift (CASH_PAYMENT_REQUIRES_SHIFT)', async () => {
     await expect(
       svc.collectPayment({ invoice_id: 9, amount: 100, mode: 'CASH' }),
@@ -970,6 +977,16 @@ describe('collectPayment additional branches', () => {
     await expect(
       svc.collectPayment({ invoice_id: 9, amount: 500, mode: 'UPI' }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects exactly one paisa above outstanding due', async () => {
+    queryMock.mockResolvedValueOnce([{
+      status: 'ISSUED', patient_uid: PATIENT, amount_due: '100.00',
+    }]);
+    await expect(
+      svc.collectPayment({ invoice_id: 9, amount: 100.01, mode: 'UPI' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects when no patient_uid and no invoice_id', async () => {

@@ -16,6 +16,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
+import { toPaise } from '../../utils/money.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
@@ -94,8 +95,19 @@ function requireValidAmount(amount, label = 'amount') {
     throw AppError.badRequest(`${label} must be a finite number`);
   }
   if (parsed <= 0) throw AppError.badRequest(`${label} must be > 0`);
-  if (Math.abs(parsed - toFixed2(parsed)) > 1e-9) {
-    throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+  if (typeof amount === 'number') {
+    // JSON numbers can carry harmless IEEE-754 representation dust (for
+    // example, 0.1 + 0.2). Keep that compatibility while rejecting a real
+    // third decimal such as 100.001.
+    if (Math.abs(parsed - toFixed2(parsed)) > 1e-9) {
+      throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+    }
+  } else {
+    try {
+      toPaise(String(amount).trim());
+    } catch {
+      throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+    }
   }
   return parsed;
 }
@@ -1488,7 +1500,7 @@ async function collectPaymentTx(tx, {
       throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
     }
     resolvedPatientUid = inv.patient_uid;
-    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+    if (toPaise(amount) > toPaise(inv.amount_due)) {
       throw AppError.badRequest(
         `Amount ${amount} exceeds outstanding due ${inv.amount_due}`,
       );
@@ -1730,7 +1742,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
     );
     if (!adv.length) throw AppError.notFound('Advance not found');
     if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
-    if (Number(amount) > Number(adv[0].balance) + 0.01) {
+    if (toPaise(amount) > toPaise(adv[0].balance)) {
       throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
     }
 
@@ -1750,7 +1762,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
       );
     }
     settledPatientUid = inv.patient_uid; // captured for the post-commit ledger entry
-    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+    if (toPaise(amount) > toPaise(inv.amount_due)) {
       throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
     }
 
