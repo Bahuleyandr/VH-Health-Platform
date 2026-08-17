@@ -50,7 +50,16 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { recordMovementTx, dispenseControlledTx } from './inventoryV2Service.js';
+import {
+  recordMovementTx, dispenseControlledTx,
+} from './inventoryV2Service.js';
+import {
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  approveControlledDispenseWitnessApproval,
+  assertApprovedControlledDispenseWitness,
+  consumeControlledDispenseWitnessApproval,
+  createControlledDispenseWitnessApproval,
+} from './controlledDispenseWitnessService.js';
 import {
   createDraftInvoice, addInvoiceItem, issueInvoice, voidInvoice,
   collectPayment, raiseRefund, approveRefund, markRefundPaid, getInvoice,
@@ -303,7 +312,8 @@ async function loadSaleItems(db, tenantId, lines) {
 }
 
 function enforceScheduleRules({
-  itemsById, lines, rx, witness, patient_uid, customer_phone,
+  itemsById, lines, rx, witnessApprovalId, patient_uid, customer_phone,
+  requireWitnessApproval = true,
 }) {
   const scheduled = [];
   const registerStrict = [];
@@ -329,9 +339,9 @@ function enforceScheduleRules({
       );
     }
   }
-  if (needsWitness && !(witness?.uid && witness?.name)) {
+  if (needsWitness && requireWitnessApproval && !witnessApprovalId) {
     throw AppError.badRequest(
-      'Schedule X / narcotic items require a witnessed dispense: witness.uid + witness.name',
+      'Schedule X / narcotic items require an independently approved witness request',
       'COUNTER_SALE_WITNESS_REQUIRED',
     );
   }
@@ -348,6 +358,84 @@ function enforceScheduleRules({
     );
   }
   return { hasScheduled: scheduled.length > 0, needsWitness };
+}
+
+function counterSaleWitnessPayload({
+  lines, patient_uid, customer_name, customer_phone, rx,
+  payment_mode, payment_reference, notes,
+}) {
+  return {
+    lines: lines
+      .map((line) => ({
+        inventory_item_id: Number(line.inventory_item_id),
+        quantity: Number(line.quantity),
+      })),
+    patient_uid: patient_uid ? String(patient_uid) : null,
+    customer_name: customer_name ? String(customer_name).trim() : null,
+    customer_phone: customer_phone ? String(customer_phone).trim() : null,
+    prescription: {
+      doctor_name: rx?.doctor_name ? String(rx.doctor_name).trim() : null,
+      reference: rx?.reference ? String(rx.reference).trim() : null,
+      upload_id: rx?.upload_id == null ? null : Number(rx.upload_id),
+      id_proof_type: rx?.id_proof_type || null,
+      id_proof_last4: rx?.id_proof_last4 ? String(rx.id_proof_last4).slice(-4) : null,
+    },
+    payment_mode: payment_mode ? String(payment_mode).trim().toUpperCase() : null,
+    payment_reference: payment_reference ? String(payment_reference).trim() : null,
+    notes: notes ? String(notes).trim() : null,
+  };
+}
+
+async function prepareCounterSaleWitnessPayload(params) {
+  if (Object.hasOwn(params || {}, 'witness_approval_id')) {
+    throw AppError.badRequest(
+      'witness_approval_id is not accepted before witness approval',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_PRESELECTED',
+    );
+  }
+  validateSaleInput({
+    ...params,
+    sold_by: params.requested_by || 'authenticated-seller',
+  });
+  const tenant = String(params.tenantId);
+  const itemsById = await loadSaleItems(prisma, tenant, params.lines);
+  const rules = enforceScheduleRules({
+    itemsById,
+    lines: params.lines,
+    rx: params.rx,
+    witnessApprovalId: null,
+    patient_uid: params.patient_uid,
+    customer_phone: params.customer_phone,
+    requireWitnessApproval: false,
+  });
+  if (!rules.needsWitness) {
+    throw AppError.badRequest(
+      'A witness approval is only available for a sale containing Schedule X / narcotic items',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+  return counterSaleWitnessPayload({ itemsById, ...params });
+}
+
+export async function requestCounterSaleWitnessApproval(params) {
+  const payload = await prepareCounterSaleWitnessPayload(params);
+  return createControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
+    payload,
+    requestedBy: params.requested_by,
+  });
+}
+
+export async function approveCounterSaleWitnessApproval(params) {
+  const payload = await prepareCounterSaleWitnessPayload(params.sale);
+  return approveControlledDispenseWitnessApproval({
+    tenantId: params.sale.tenantId,
+    approvalId: params.approvalId,
+    actorUid: params.actorUid,
+    payload,
+    requesterUid: params.requesterUid,
+  });
 }
 
 /**
@@ -391,7 +479,7 @@ async function requireOpenDrawerSession(db, { tenantId, cashierUid }) {
  */
 export async function createCounterSale({
   tenantId, lines, patient_uid, customer_name, customer_phone,
-  rx, witness, payment_mode, payment_reference, notes,
+  rx, witness_approval_id, payment_mode, payment_reference, notes,
   sold_by, sold_by_name, request_id,
 }) {
   // ── Phase 0: pre-flight (reads only) ──────────────────────────────────
@@ -411,9 +499,37 @@ export async function createCounterSale({
   }
 
   const itemsById = await loadSaleItems(prisma, tenant, lines);
-  enforceScheduleRules({
-    itemsById, lines, rx, witness, patient_uid, customer_phone,
+  const scheduleRules = enforceScheduleRules({
+    itemsById,
+    lines,
+    rx,
+    witnessApprovalId: witness_approval_id,
+    patient_uid,
+    customer_phone,
   });
+
+  const witnessPayload = scheduleRules.needsWitness
+    ? counterSaleWitnessPayload({
+      lines,
+      patient_uid,
+      customer_name,
+      customer_phone,
+      rx,
+      payment_mode,
+      payment_reference,
+      notes,
+    })
+    : null;
+  if (scheduleRules.needsWitness) {
+    await assertApprovedControlledDispenseWitness({
+      db: prisma,
+      tenantId: tenant,
+      approvalId: witness_approval_id,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
+      payload: witnessPayload,
+      requestedBy: sold_by,
+    });
+  }
 
   // Identity snapshot for statutory register rows (H1/X/narcotic lines):
   // the registered patient's name/phone, or the captured walk-in identity.
@@ -587,6 +703,16 @@ export async function createCounterSale({
   try {
     const result = await setTenantTx(tenant, async (tx) => {
       const totalAmount = Number(invoice.total_amount);
+      const witnessEvidence = scheduleRules.needsWitness
+        ? await consumeControlledDispenseWitnessApproval({
+          tx,
+          tenantId: tenant,
+          approvalId: witness_approval_id,
+          scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
+          payload: witnessPayload,
+          requestedBy: sold_by,
+        })
+        : null;
       for (const { planned, lineId } of lineRows) {
         const controlled = isControlled(planned.item);
         for (const alloc of planned.plan) {
@@ -606,8 +732,7 @@ export async function createCounterSale({
               patient_id_proof_last4: rx?.id_proof_last4 || null,
               performed_by: sold_by,
               performed_by_name: sold_by_name || 'Pharmacy counter',
-              witness_uid: witness?.uid || null,
-              witness_name: witness?.name || null,
+              witness_evidence: witnessEvidence,
               notes: `Counter sale #${sale.id}`,
               reference_id: `counter-sale-${sale.id}`,
               require_usable_batch: true,

@@ -86,6 +86,23 @@ describe('tenant notification channel preferences', () => {
     });
   });
 
+  it('pins a replay to its server-authored unresolved channel set', () => {
+    const resolved = resolveChannelsForOutboxRow(
+      {
+        type: 'lab_result_ready',
+        recipient_id: 42,
+        payload: { __delivery_channels: ['SMS', 'sms', 'fax'] },
+      },
+      { notificationChannels: { results_ready: ['push', 'sms'] } },
+    );
+
+    expect(resolved).toEqual({
+      channels: ['sms'],
+      preferenceKey: 'results_ready',
+      source: 'tenant',
+    });
+  });
+
   it('falls back to legacy behavior for missing, empty, or invalid configured channels', () => {
     const row = { type: 'results_ready', recipient_id: 42, recipient_phone: '+919000000005' };
 

@@ -126,7 +126,11 @@ describe('radiology contrast/allergy screening at order time (migration 678)', (
         ...baseOrder(ALLERGIC_PATIENT_UID),
         contrast_planned: true,
         contrast_agent: 'iohexol',
-        override: { reason: 'Premedicated: prednisolone + cetirizine per contrast-allergy protocol' },
+        override: {
+          reason: 'Premedicated: prednisolone + cetirizine per contrast-allergy protocol',
+          approvedBy: CLEAN_PATIENT_UID,
+        },
+        contrast_override_by: CLEAN_PATIENT_UID,
       });
 
     expect(res.statusCode).toBe(201);
@@ -227,7 +231,7 @@ describe('radiology contrast/allergy screening at order time (migration 678)', (
       expect(res.body.data.contrast_planned).toBe(true);
       expect(res.body.data.contrast_allergy_screen).toMatchObject({
         contrast_planned: true,
-        intent_source: 'modality_presumed',
+        intent_source: 'study_text',
         status: 'completed',
         safe: true,
       });

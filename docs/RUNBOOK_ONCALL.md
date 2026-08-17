@@ -310,6 +310,26 @@ explicitly accepting duplicate-delivery risk. The original uncertain row is
 never silently retried. Never use **Record acceptance** for a provider ticket
 that merely reports receipt of a support request or for inferred delivery.
 
+## NotificationOutboxTerminalDeadLetters
+
+One or more notification intents have no automatic path left. The bounded
+auto-replay sweep (`notification-outbox-auto-replay`, every 15 minutes) already
+requeues eligible `RECONCILIATION_REQUIRED` rows as new intents — up to two
+generations per chain, within a 24-hour age ceiling and a fail-closed reason
+allowlist — so a terminal row means either the replay chain crossed the bound
+(the row's reason is `auto_replay_exhausted`), the row aged out, its reason is
+outside the allowlist, or a `FAILED` row carries a terminal provider rejection.
+Handle it exactly like **NotificationOutboxDeadLetters**: repair the provider
+or configuration cause, then use the audited operator **Replay** or **Record
+acceptance** actions in **Admin → Notifications → Delivery Health** for the
+named row. Never change outbox state with raw SQL. `SUPPRESSED` rows are NOT
+part of this alert — they are intentional never-send cancellations (payroll
+supersede semantics) and must not be replayed; their volume is visible on
+`notification_outbox_suppressed_rows`. The sweep's kill switch is
+`NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED=false` (default on); each sweep
+requeue is an accepted duplicate-delivery risk recorded in `audit_logs` under
+`NOTIFICATION_OUTBOX_AUTO_REPLAYED`.
+
 ## NotificationDeliveryCursorPaused
 
 A channel is deliberately blocked behind a rejected or uncertain head row so

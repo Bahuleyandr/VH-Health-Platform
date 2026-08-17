@@ -3676,6 +3676,10 @@
   "@splashUpdateButton": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
+  "splashUpdateNoStoreBody": "The updated version is not yet available for download on this device. Please contact the hospital reception for help installing the latest version of VH Health.",
+  "@splashUpdateNoStoreBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
   "yourHealthTimelineFilterAll": "All",
   "@yourHealthTimelineFilterAll": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."

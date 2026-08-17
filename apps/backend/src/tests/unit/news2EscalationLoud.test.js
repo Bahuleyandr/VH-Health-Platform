@@ -63,6 +63,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 // Stub the canonical emit — this suite pins escalation loudness, not the
 // timeline invariant (news2-standalone-canonical.deep.test.js pins that).
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(async () => ({ timeline: { id: 1 }, audit: { id: 1 } })),
 }));
 

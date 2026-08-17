@@ -23,6 +23,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: canonicalMock,
 }));
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({

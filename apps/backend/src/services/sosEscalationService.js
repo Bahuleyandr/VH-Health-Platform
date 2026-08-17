@@ -9,8 +9,10 @@
 //
 // Sweep contract (runs per tenant from the scheduler, every 2 minutes):
 //   * Eligible: status = 'ACTIVE', never acknowledged (responded_at IS NULL),
-//     last action (last_escalated_at, else raised_at) older than the window
-//     (sosConfig ESCALATION_TIMEOUT, 5 minutes).
+//     not a drill (is_test_alert = FALSE, migration 692 — a test alert keeps
+//     its row, timeline pair and SLA clock but must never page the emergency
+//     team or ops), last action (last_escalated_at, else raised_at) older
+//     than the window (sosConfig ESCALATION_TIMEOUT, 5 minutes).
 //   * Idempotence: the claim UPDATE stamps last_escalated_at and re-checks the
 //     window predicate, so concurrent/overlapping sweeps escalate once per
 //     window per alert, and each alert escalates one step per window — not one
@@ -105,6 +107,7 @@ export async function runSosAlertAgeEscalationSweep({
       WHERE sa.tenant_id = $1::uuid
         AND sa.status = 'ACTIVE'
         AND sa.responded_at IS NULL
+        AND sa.is_test_alert = FALSE
         AND sa.raised_at > NOW() - ($4::int * INTERVAL '1 hour')
         AND COALESCE(sa.last_escalated_at, sa.raised_at) < NOW() - ($2::int * INTERVAL '1 minute')
       ORDER BY sa.raised_at ASC
@@ -127,6 +130,7 @@ export async function runSosAlertAgeEscalationSweep({
           AND tenant_id = $2::uuid
           AND status = 'ACTIVE'
           AND responded_at IS NULL
+          AND is_test_alert = FALSE
           AND raised_at > NOW() - ($4::int * INTERVAL '1 hour')
           AND COALESCE(last_escalated_at, raised_at) < NOW() - ($3::int * INTERVAL '1 minute')
         RETURNING id, UPPER(COALESCE(severity, '')) AS severity`,

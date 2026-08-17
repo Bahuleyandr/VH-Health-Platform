@@ -1277,6 +1277,56 @@ export async function completeWorkflowSla(input = {}, options = {}) {
   }
 }
 
+// Cancel is the third SLA lifecycle verb: the monitored obligation itself went
+// away (case cancelled, activation stood down, request abandoned), so the
+// clock must stop without counting as met. Raw copies of this UPDATE already
+// live in stemiPathwayService (stand-down) and porterTransportService
+// (transition close); this shared wrapper is the canonical home for new
+// callers (cath-lab cancel, stroke cancel, housekeeping cancel).
+//
+// Guard: 'completed' and 'cancelled' rows are terminal and never re-touched —
+// but unlike completeWorkflowSla, a 'breached'/'escalated' clock IS
+// cancellable (the obligation disappearing supersedes an open breach).
+// ruleCode is optional: omitted, every open clock on the source row is
+// cancelled (e.g. both stroke door-to-CT and door-to-needle).
+// Returns the array of cancelled instances (possibly empty).
+export async function cancelWorkflowSla(input = {}, options = {}) {
+  const db = dbClient(options.db);
+  if (!hasRawClient(db)) return [];
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
+  const sourceTable = cleanText(input.sourceTable || input.source_table);
+  const sourceId = cleanText(input.sourceId || input.source_id);
+  if (!sourceTable || !sourceId) return [];
+  const ruleCode = cleanText(input.ruleCode || input.rule_code);
+
+  try {
+    const rows = await db.$queryRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET status = 'cancelled',
+              metadata = metadata || $4::jsonb,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND source_table = $2
+          AND source_id = $3
+          AND status NOT IN ('completed', 'cancelled')
+          AND ($5::text IS NULL OR rule_code = $5::text)
+        RETURNING *`,
+      tenantId,
+      sourceTable,
+      sourceId,
+      stringifyJson(input.metadata),
+      ruleCode || null,
+    );
+    return rows;
+  } catch (err) {
+    logCanonicalFailure('workflow SLA cancel', err);
+    return [];
+  }
+}
+
 function issueMessage(issue) {
   return cleanText(issue?.message || issue?.reason || issue?.summary || issue?.title, 'Medication safety review finding');
 }

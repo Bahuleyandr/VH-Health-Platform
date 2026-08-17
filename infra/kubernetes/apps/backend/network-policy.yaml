@@ -64,6 +64,16 @@ spec:
       ports:
         - protocol: TCP
           port: 5000
+    # 5. canary-health-check CronJob → backend synthetic probes
+    # (/health/live, /health/ready). Same namespace; egress side lives in
+    # canary-network-policy.yaml.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: canary-health-check
+      ports:
+        - protocol: TCP
+          port: 5000
   egress:
     # ---- In-cluster platform services (Agent B's namespace) ----
 

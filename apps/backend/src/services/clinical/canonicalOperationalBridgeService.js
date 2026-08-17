@@ -7,6 +7,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
+  cancelWorkflowSla,
   completeWorkflowSla,
   isSchemaMissing as isCanonicalTableMissing,
   recordCanonicalClinicalEvent,
@@ -320,6 +321,20 @@ export async function emitHousekeepingRequestStatus({
         metadata: {
           completed_status: status,
           completed_by: actorUid || null,
+        },
+      }, { db: client });
+    } else if (status === 'cancelled') {
+      // A cancelled/abandoned request has no turnaround left to measure —
+      // cancel (never complete) the request-keyed clock. The bed-keyed twin
+      // started by discharge/transfer still completes at markBedReady.
+      await cancelWorkflowSla({
+        tenantId,
+        ruleCode: 'bed_cleaning_turnaround',
+        sourceTable: 'housekeeping_requests',
+        sourceId: String(request.id),
+        metadata: {
+          cancelled_status: status,
+          cancelled_by: actorUid || null,
         },
       }, { db: client });
     }

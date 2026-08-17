@@ -369,4 +369,53 @@ d('NL-13 P2 stroke pathway — deep activation to evidence loop', () => {
     expect(priority.priority_tier).toBe('stat');
     expect(priority.priority_score).toBeGreaterThanOrEqual(120);
   }, 60_000);
+
+  test('cancelling an activation cancels open stroke SLA clocks but never flips a met one (SLA-halves G2)', async () => {
+    // Fresh activation: both door-to-CT and door-to-needle clocks arm.
+    const activationRes = await doctor().post('/api/v1/stroke-pathway/activations').send({
+      patient_uid: PATIENT_UID,
+      encounter_id: ENCOUNTER_ID,
+      activation_source: 'ed_triage',
+      last_known_well_at: '2026-07-09T09:15:00.000Z',
+      arrived_at: '2026-07-09T09:55:00.000Z',
+      door_time_at: '2026-07-09T10:00:00.000Z',
+      activated_at: '2026-07-09T10:01:00.000Z',
+    });
+    expect(activationRes.status).toBe(200);
+    const activation = activationRes.body.data;
+
+    // Meet the CT clock (10:10 is inside the 20-minute target set above).
+    const ctStart = await doctor().post(`/api/v1/stroke-pathway/activations/${activation.id}/events`).send({
+      event_type: 'ct_start',
+      occurred_at: '2026-07-09T10:10:00.000Z',
+    });
+    expect(ctStart.status).toBe(200);
+
+    // Mimic identified — cancel the activation.
+    const cancelRes = await doctor().patch(`/api/v1/stroke-pathway/activations/${activation.id}/status`).send({
+      status: 'cancelled',
+      notes: 'stroke mimic',
+    });
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.data.status).toBe('cancelled');
+
+    const slas = await prisma.$queryRawUnsafe(
+      `SELECT rule_code, status, completed_at, metadata
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'stroke_activations'
+          AND source_id = $2
+        ORDER BY rule_code`,
+      TENANT_ID,
+      String(activation.id),
+    );
+    const byRule = Object.fromEntries(slas.map((row) => [row.rule_code, row]));
+    // The met CT clock keeps its completion — cancel never re-touches it.
+    expect(byRule.stroke_door_to_ct.status).toBe('completed');
+    expect(byRule.stroke_door_to_ct.completed_at).not.toBeNull();
+    // The never-met needle clock is cancelled, not left 'active' forever.
+    expect(byRule.stroke_door_to_needle.status).toBe('cancelled');
+    expect(byRule.stroke_door_to_needle.completed_at).toBeNull();
+    expect(byRule.stroke_door_to_needle.metadata.cancel_reason).toBe('stroke mimic');
+  }, 60_000);
 });

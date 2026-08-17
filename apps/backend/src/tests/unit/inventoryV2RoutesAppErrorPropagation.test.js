@@ -20,6 +20,19 @@ const listItemsMock = jest.fn();
 // `inv.tenantOf(req)` (it does not import tenantService directly), so the
 // mock must provide tenantOf too.
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
+  CONTROLLED_DISPENSE_WITNESS_ROLES: [
+    'PHARMACY_STAFF',
+    'PHARMACY_INCHARGE',
+    'DOCTOR',
+    'DUTY_DOCTOR',
+    'MEDICAL_SUPERINTENDENT',
+    'NURSING_STAFF',
+    'NURSING_INCHARGE',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
+    'OP_STAFF_NURSE',
+    'OP_INCHARGE',
+  ],
   tenantOf: () => '00000000-0000-4000-8000-000000000001',
   listItems: listItemsMock,
 }));

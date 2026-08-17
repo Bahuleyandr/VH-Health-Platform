@@ -33,7 +33,139 @@ export function isWsFanoutReady() {
 
 /** Tear down this process's fan-out subscriber (graceful shutdown / tests). */
 export function closeWsFanout() {
+  cancelWsFanoutRewire();
   return fanout.close();
+}
+
+// --- Background fan-out rewire (PR #874 follow-up) -------------------------
+//
+// Closes the LAST degraded-start hole in the fan-out wiring: Redis init
+// SUCCEEDED at boot but initWsFanout itself failed (subscriber duplicate
+// couldn't connect / PSUBSCRIBE rejected / zero-subscription ack). The
+// non-strict posture logged a warning and served anyway — and since nothing
+// ever called initWsFanout again, the pod stayed silently deaf to cross-pod
+// clinical broadcasts (code-blue / vitals) until restart. The sibling holes
+// were already closed: an initRedis failure arms scheduleRedisReinit with an
+// onReconnect rewire hook (873-F10), and a mid-flight subscriber drop is
+// re-subscribed by the adapter's own 'ready' handler — but neither path fires
+// when the boot-time init itself is what failed.
+//
+// Shape mirrors scheduleRedisReinit (unref'd timer, idempotent, loud logs,
+// stop-on-success) with two deliberate differences: exponential backoff with
+// a delay cap instead of a fixed cadence (each failed attempt burns a Redis
+// duplicate connection, so probe fast at first and settle to a slow patrol),
+// and a bounded attempt count — Redis-down recovery is owned by
+// scheduleRedisReinit/ioredis, so an attempt cap here cannot strand the
+// cache; it only stops re-probing a bus that keeps refusing PSUBSCRIBE while
+// the degraded state stays visible on /health/ready
+// (redis_websocket_subscriber), the vh_redis_ws_fanout_ready gauge, and the
+// WsFanoutSubscriberDown alert. Failed attempts also count into
+// recordWsFanoutSubscriberError via the adapter.
+//
+// The adapter owns subscriber creation and failed-initialization cleanup. Its
+// single-flight init also coalesces a reconnect-hook attempt with a timer tick,
+// preventing parallel duplicates and competing PSUBSCRIBEs.
+
+const WS_FANOUT_REWIRE_INITIAL_DELAY_MS = 5_000;
+const WS_FANOUT_REWIRE_MAX_DELAY_MS = 300_000;
+const WS_FANOUT_REWIRE_MAX_ATTEMPTS = 40;
+
+let fanoutRewireTimer = null;
+let fanoutRewireActive = false;
+let fanoutRewireGeneration = 0;
+
+/**
+ * Arm the background rewire loop. Called from bin/www.js when the boot-time
+ * (or reinit-hook) initWsFanout fails on a non-strict start.
+ * @param {object} opts
+ * @param {() => object|null} opts.getClient - returns the live Redis singleton
+ *   (bin/www.js passes lib/redis.js getRedisClient; injected for tests).
+ * @returns {boolean} true when a loop was armed; false when one is already
+ *   running or the fan-out is already wired.
+ */
+export function scheduleWsFanoutRewire({
+  getClient,
+  initialDelayMs = WS_FANOUT_REWIRE_INITIAL_DELAY_MS,
+  maxDelayMs = WS_FANOUT_REWIRE_MAX_DELAY_MS,
+  maxAttempts = WS_FANOUT_REWIRE_MAX_ATTEMPTS,
+} = {}) {
+  if (typeof getClient !== 'function') {
+    throw new TypeError('scheduleWsFanoutRewire requires a getClient function');
+  }
+  if (fanoutRewireActive || fanout.isEnabled()) return false;
+  fanoutRewireActive = true;
+  const rewireGeneration = ++fanoutRewireGeneration;
+  let attempts = 0;
+
+  logger.warn(
+    `WS fan-out degraded at start — retrying subscriber wiring in the background `
+      + `(first attempt in ${initialDelayMs}ms, backoff capped at ${maxDelayMs}ms, `
+      + `up to ${maxAttempts} attempts; broadcasts stay single-process until then)`,
+  );
+
+  const armNext = (delayMs) => {
+    if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+    fanoutRewireTimer = setTimeout(async () => {
+      fanoutRewireTimer = null;
+      if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+      if (fanout.isEnabled()) {
+        // Wired by another path (Redis reinit hook) — stand down quietly.
+        fanoutRewireActive = false;
+        return;
+      }
+      attempts += 1;
+      try {
+        const client = getClient();
+        if (!client) {
+          // Redis itself is gone (again); its recovery is owned elsewhere —
+          // treat as a failed attempt and keep patrolling.
+          throw new Error('Redis client unavailable');
+        }
+        const initialized = await initWsFanout({ pub: client });
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+        if (!initialized) {
+          throw new Error('Redis WebSocket subscriber did not initialize');
+        }
+        fanoutRewireActive = false;
+        logger.info(
+          `WS Redis fan-out restored by background rewire (attempt ${attempts}/${maxAttempts})`,
+        );
+      } catch (err) {
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+        if (attempts >= maxAttempts) {
+          fanoutRewireActive = false;
+          logger.error(
+            `WS fan-out background rewire GAVE UP after ${attempts} attempts — cross-pod `
+              + 'broadcasts remain single-process until this pod restarts (visible as '
+              + 'redis_websocket_subscriber on /health/ready, vh_redis_ws_fanout_ready, '
+              + 'and the WsFanoutSubscriberDown alert):',
+            err?.message || err,
+          );
+          return;
+        }
+        logger.warn(
+          `WS fan-out background rewire attempt ${attempts}/${maxAttempts} failed — retrying in ${Math.min(delayMs * 2, maxDelayMs)}ms:`,
+          err?.message || err,
+        );
+        armNext(Math.min(delayMs * 2, maxDelayMs));
+      }
+    }, delayMs);
+    // Never hold the process open for the patrol.
+    fanoutRewireTimer.unref?.();
+  };
+
+  armNext(initialDelayMs);
+  return true;
+}
+
+/** Disarm the rewire loop (graceful shutdown / tests). */
+export function cancelWsFanoutRewire() {
+  fanoutRewireGeneration += 1;
+  if (fanoutRewireTimer) {
+    clearTimeout(fanoutRewireTimer);
+    fanoutRewireTimer = null;
+  }
+  fanoutRewireActive = false;
 }
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */

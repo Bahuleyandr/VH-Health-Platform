@@ -45,6 +45,9 @@ export function requireIdempotencyKey({
   scope = 'generic',
   onlyWhen = null,
   continuityReceiptRequired = false,
+  // Secret-bearing routes project only non-secret action identity fields here;
+  // the persisted request hash must never become a credential verifier.
+  requestBodyForIdempotency = null,
   // ★ Set on any route whose handler can emit a 5xx AFTER it has already
   // committed irreversible effects (stock movements, money, statutory
   // registers). The default (false) releases the claim on a 5xx so a client
@@ -70,7 +73,9 @@ export function requireIdempotencyKey({
       return error(res, 'Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]', 400);
     }
 
-    const requestBodyHash = hashRequestBody(req.body || {});
+    const requestBodyHash = hashRequestBody(
+      requestBodyForIdempotency ? requestBodyForIdempotency(req) : (req.body || {}),
+    );
     let claim;
     try {
       claim = await claimIdempotencyKey({

@@ -66,6 +66,10 @@ export const SECURITY_CONFIG = {
     inactivityTimeoutMinutes: 30,
   },
 
+  controlledDispenseWitness: {
+    approvalTtlMinutes: parseInt(process.env.CONTROLLED_DISPENSE_WITNESS_APPROVAL_TTL_MINUTES || '5'),
+  },
+
   // Token blacklist
   blacklist: {
     maxTokenLifetimeDays: 30,  // Longest any token can live (for blacklist TTL)

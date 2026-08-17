@@ -14,8 +14,12 @@ import {
   STORES_PURCHASE_INCHARGE,
   hasRole,
 } from '../../utils/roles.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { AppError } from '../../utils/AppError.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
 const router = Router();
+export const pharmacyInventoryWitnessApprovalRoutes = Router({ mergeParams: true });
 
 export const PHARMACY_INVENTORY_READ_ROLES = [
   ADMIN,
@@ -41,6 +45,10 @@ export const PHARMACY_CONTROLLED_DISPENSE_ROLES = [
   ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+];
+
+export const PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES = [
+  ...inv.CONTROLLED_DISPENSE_WITNESS_ROLES,
 ];
 
 function wrap(handler) {
@@ -92,6 +100,56 @@ function requireControlledDispense(req, res, next) {
   )(req, res, next);
 }
 
+function requireControlledDispenseApprovalHost(req, res, next) {
+  return requireInventoryRole(
+    PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
+    'Clinical witness role required',
+  )(req, res, next);
+}
+
+async function resolveWitnessActor(req, tenantId) {
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  if (employeeId == null && password == null) {
+    return { actorUid: req.user?.uid, requesterUid: null };
+  }
+  try {
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId,
+      password,
+      req,
+      tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
+    return { actorUid: witness.uid, requesterUid: req.user?.uid };
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
+}
+
+function witnessApprovalIdempotencyBody(req) {
+  const body = req.body || {};
+  const usesStaffPassword = Object.hasOwn(body, 'employeeId') || Object.hasOwn(body, 'password');
+  return {
+    credentialMode: usesStaffPassword ? 'staff_password' : 'bearer',
+    employeeId: usesStaffPassword
+      ? String(body.employeeId || '').trim().toUpperCase() || null
+      : null,
+    dispense: body.dispense || {},
+  };
+}
+
 // ── Drug master / items ───────────────────────────────────────────────
 router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   tenantId: inv.tenantOf(req),
@@ -123,6 +181,37 @@ router.post('/movements', requireInventoryMaintain, wrap(async (req) => inv.reco
 })));
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
+router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_witness_request',
+    retainOnServerError: true,
+  }),
+  wrap(async (req) => inv.requestControlledDispenseWitnessApproval({
+    ...req.body,
+    tenantId: inv.tenantOf(req),
+    requested_by: req.user?.uid,
+  })));
+
+pharmacyInventoryWitnessApprovalRoutes.post('/',
+  requireControlledDispenseApprovalHost,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_witness_approval',
+    retainOnServerError: true,
+    requestBodyForIdempotency: witnessApprovalIdempotencyBody,
+  }),
+  wrap(async (req) => {
+    const tenantId = inv.tenantOf(req);
+    const actor = await resolveWitnessActor(req, tenantId);
+    return inv.approveInventoryDispenseWitnessApproval({
+      tenantId,
+      approvalId: req.params.id,
+      ...actor,
+      dispense: req.body.dispense || {},
+    });
+  }));
+
 router.post('/controlled-dispense', requireControlledDispense, wrap(async (req) => inv.dispenseControlled({
   ...req.body,
   tenantId: inv.tenantOf(req),

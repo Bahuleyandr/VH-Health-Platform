@@ -195,6 +195,10 @@
   "jest": {
     "testEnvironment": "node",
     "transform": {},
+    "reporters": [
+      "default",
+      "<rootDir>/scripts/jest-skip-floor-reporter.cjs"
+    ],
     "setupFiles": [
       "<rootDir>/src/scripts/testing/jest.setup.cjs"
     ],

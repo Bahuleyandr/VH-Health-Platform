@@ -2419,6 +2419,7 @@
   "splashUpdateRequired": "புதுப்பிப்பு அவசியம்",
   "splashUpdateBody": "VH Health இன் இந்த பதிப்பு இனி ஆதரிக்கப்படாது. தொடர சமீபத்திய பதிப்பை நிறுவவும்.",
   "splashUpdateButton": "VH Health புதுப்பி",
+  "splashUpdateNoStoreBody": "புதுப்பிக்கப்பட்ட பதிப்பு இந்த சாதனத்தில் பதிவிறக்கத்திற்கு இன்னும் கிடைக்கவில்லை. VH Health இன் சமீபத்திய பதிப்பை நிறுவ உதவிக்கு மருத்துவமனை வரவேற்பைத் தொடர்பு கொள்ளவும்.",
   "yourHealthTimelineFilterAll": "அனைத்தும்",
   "yourHealthTimelineFilterVisits": "வருகைகள்",
   "yourHealthTimelineFilterPrescriptions": "மருந்துச் சீட்டுகள்",
