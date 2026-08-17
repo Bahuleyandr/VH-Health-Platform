@@ -19,13 +19,20 @@ import {
   STORES_PURCHASE_INCHARGE,
   hasRole,
 } from '../../utils/roles.js';
+import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = Router();
+export const pharmacyCounterSaleWitnessApprovalRoutes = Router({ mergeParams: true });
 
 export const COUNTER_SALE_SELL_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const COUNTER_SALE_VOID_ROLES = [ADMIN, PHARMACY_INCHARGE];
 export const COUNTER_SALE_READ_ROLES = [
   ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE,
+];
+export const COUNTER_SALE_APPROVAL_HOST_ROLES = [
+  ...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
 ];
 
 function wrap(handler) {
@@ -58,6 +65,53 @@ const requireVoid = requireCounterSaleRole(
 const requireRead = requireCounterSaleRole(
   COUNTER_SALE_READ_ROLES, 'Pharmacy role required',
 );
+const requireApprovalHost = requireCounterSaleRole(
+  COUNTER_SALE_APPROVAL_HOST_ROLES,
+  'Pharmacy seller or clinical witness role required',
+);
+
+function witnessApprovalIdempotencyBody(req) {
+  const body = req.body || {};
+  const usesStaffPassword = Object.hasOwn(body, 'employeeId') || Object.hasOwn(body, 'password');
+  return {
+    credentialMode: usesStaffPassword ? 'staff_password' : 'bearer',
+    employeeId: usesStaffPassword
+      ? String(body.employeeId || '').trim().toUpperCase() || null
+      : null,
+    sale: body.sale || {},
+  };
+}
+
+async function resolveWitnessActor(req, tenantId) {
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  if (employeeId == null && password == null) {
+    return { actorUid: req.user?.uid, requesterUid: null };
+  }
+  try {
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId,
+      password,
+      req,
+      tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
+    return { actorUid: witness.uid, requesterUid: req.user?.uid };
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
+}
 
 // POS pick list: sellable items with usable stock + FEFO head batch/price.
 router.get('/items', requireRead, wrap(async (req) => ({
@@ -67,6 +121,36 @@ router.get('/items', requireRead, wrap(async (req) => ({
     limit: req.query.limit,
   }),
 })));
+
+router.post('/witness-approvals', requireSell, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_counter_sale_witness_request',
+  retainOnServerError: true,
+}), wrap(async (req) => (
+  counterSales.requestCounterSaleWitnessApproval({
+    ...req.body,
+    tenantId: tenantOf(req),
+    requested_by: req.user?.uid,
+  })
+)));
+
+pharmacyCounterSaleWitnessApprovalRoutes.post('/', requireApprovalHost, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_counter_sale_witness_approval',
+  retainOnServerError: true,
+  requestBodyForIdempotency: witnessApprovalIdempotencyBody,
+}), wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const actor = await resolveWitnessActor(req, tenantId);
+  return counterSales.approveCounterSaleWitnessApproval({
+    approvalId: req.params.id,
+    ...actor,
+    sale: {
+      ...(req.body.sale || {}),
+      tenantId,
+    },
+  });
+}));
 
 // Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.
 //
@@ -90,7 +174,7 @@ router.post('/', requireSell, requireIdempotencyKey({
   customer_name: req.body.customer_name,
   customer_phone: req.body.customer_phone,
   rx: req.body.rx,
-  witness: req.body.witness,
+  witness_approval_id: req.body.witness_approval_id,
   payment_mode: req.body.payment_mode,
   payment_reference: req.body.payment_reference,
   notes: req.body.notes,

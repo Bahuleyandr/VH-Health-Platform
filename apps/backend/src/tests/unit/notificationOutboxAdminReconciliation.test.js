@@ -16,6 +16,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../observability/reliabilityMetrics.js', () => ({
   recordOutboxOperatorRedrive: jest.fn(),
+  recordNotificationOutboxAutoReplay: jest.fn(),
 }));
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
   notificationOutbox: { queue: jest.fn() },

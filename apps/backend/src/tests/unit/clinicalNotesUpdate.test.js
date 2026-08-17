@@ -55,6 +55,7 @@ const recordCanonicalClinicalEventMock = jest.fn(async () => ({
 const ensureEncounterForAppointmentMock = jest.fn(async () => null);
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
   ensureEncounterForAppointment: ensureEncounterForAppointmentMock,
   recordClinicalAuditEvent: jest.fn(),

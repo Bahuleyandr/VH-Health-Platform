@@ -34,6 +34,7 @@ jest.unstable_mockModule('../../services/pharmacy/compositionSubstitutionAudit.j
   recordBrandSubstitutionAudit: jest.fn(async () => {}),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   ensureEncounterForAppointment: jest.fn(async () => null),
   recordCanonicalClinicalEvent: jest.fn(async () => ({})),
   recordMedicationSafetyReviews: jest.fn(async () => {}),

@@ -77,6 +77,7 @@ const recordCanonicalSpy = jest.fn(async (input, options) => {
 });
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: recordCanonicalSpy,
   recordClinicalAuditEvent: jest.fn(),
   currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),

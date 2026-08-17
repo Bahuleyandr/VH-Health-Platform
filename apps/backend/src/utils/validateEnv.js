@@ -112,6 +112,10 @@ export const envSchema = Joi.object({
   // boot is better than that. The service clamps again at runtime.
   STAFF_PUSH_FANOUT_CAP: Joi.number().integer().min(1).max(500).optional()
     .label('STAFF_PUSH_FANOUT_CAP'),
+  NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('true')
+    .label('NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED'),
 
   // ── Clinical credential-gate enforcement flags (see config/privilegeGates.js) ──
   // Each turns ON credential enforcement for one clinical act; default OFF.

@@ -185,3 +185,12 @@ describe('validateEnv clinical continuity action-registry gate', () => {
     expect(validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1' }).error).toBeDefined();
   });
 });
+
+describe('validateEnv notification outbox auto-replay kill switch', () => {
+  it('defaults enabled and accepts only exact true or false strings', () => {
+    expect(validate().value.NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED).toBe('true');
+    expect(validate({ NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED: 'false' }).error).toBeUndefined();
+    expect(validate({ NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED: 'FALSE' }).error).toBeDefined();
+    expect(validate({ NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED: '0' }).error).toBeDefined();
+  });
+});

@@ -6419,6 +6419,12 @@ abstract class AppLocalizations {
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
+  /// **'The updated version is not yet available for download on this device. Please contact the hospital reception for help installing the latest version of VH Health.'**
+  String get splashUpdateNoStoreBody;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
   /// **'All'**
   String get yourHealthTimelineFilterAll;
 

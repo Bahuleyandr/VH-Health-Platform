@@ -1,0 +1,42 @@
+# Canary synthetic-probe egress. The vhhealth namespace default-deny
+# (base/_common/network-policies.yaml) already selects these pods; this policy
+# grants the only two flows the probe needs: DNS and the backend pods on 5000
+# (the Service's targetPort — NetworkPolicy evaluates post-DNAT, so the rule
+# names the pod port, not the Service port 80). Everything else stays denied.
+# The matching ingress-side allow lives in network-policy.yaml (rule 5).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: canary-health-check-egress
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: canary-health-check
+    app.kubernetes.io/component: outage-critical-job
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: canary-health-check
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - protocol: TCP
+          port: 5000

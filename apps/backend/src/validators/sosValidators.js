@@ -8,7 +8,8 @@ export const createAlert = [
   body('longitude').optional().isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
   body('severity').optional().isIn(Object.values(SOS_SEVERITY)).withMessage('Valid severity level required'),
   body('emergencyType').optional().isIn(['medical', 'accident', 'violence', 'mental_health', 'fire', 'other']).withMessage('Valid emergency type required'),
-  body('message').optional().isLength({ max: 500 }).withMessage('Message too long (max 500 characters)')
+  body('message').optional().isLength({ max: 500 }).withMessage('Message too long (max 500 characters)'),
+  body('isTestAlert').optional().isBoolean().withMessage('isTestAlert must be a boolean').toBoolean()
 ];
 
 // Update emergency contact

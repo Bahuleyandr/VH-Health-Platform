@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn().mockRejectedValue(new Error('canonical write failed (injected)')),
   recordTimelineEvent: jest.fn().mockResolvedValue(null),
   recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),

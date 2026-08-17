@@ -14,14 +14,22 @@ import {
   classifyFcmProviderResponse,
   isTerminalRejectionCode,
 } from './terminalRejectionCodes.js';
-import { resolveChannelsForOutboxRow } from './tenantNotificationChannels.js';
+import {
+  DELIVERY_CHANNELS_PAYLOAD_KEY,
+  REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+  resolveChannelsForOutboxRow,
+} from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function payloadObject(row) {
-  return row?.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
-    ? row.payload
-    : {};
+  if (!row?.payload || typeof row.payload !== 'object' || Array.isArray(row.payload)) return {};
+  const {
+    [DELIVERY_CHANNELS_PAYLOAD_KEY]: _deliveryChannels,
+    [REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]: _replayChainStartedAt,
+    ...payload
+  } = row.payload;
+  return payload;
 }
 
 function normalizeTenantId(value) {

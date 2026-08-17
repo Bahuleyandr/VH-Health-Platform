@@ -375,7 +375,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _openStoreForUpdate() async {
     final block = _minimumVersionBlock;
-    if (block == null) return;
+    // No configured store URL (e.g. no App Store listing exists yet) — there
+    // is nothing to open; the update screen hides its Update CTA instead.
+    if (block == null || block.storeUrl.trim().isEmpty) return;
     await SafeUrlLauncher.launch(
       block.storeUrl,
       mode: LaunchMode.externalApplication,
@@ -386,7 +388,10 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final minimumVersionBlock = _minimumVersionBlock;
     if (minimumVersionBlock != null) {
-      return _UpdateRequiredScreen(onUpdate: _openStoreForUpdate);
+      return _UpdateRequiredScreen(
+        onUpdate: _openStoreForUpdate,
+        hasStoreUrl: minimumVersionBlock.storeUrl.trim().isNotEmpty,
+      );
     }
 
     return Scaffold(
@@ -457,9 +462,19 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 class _UpdateRequiredScreen extends StatelessWidget {
-  const _UpdateRequiredScreen({required this.onUpdate});
+  const _UpdateRequiredScreen({
+    required this.onUpdate,
+    required this.hasStoreUrl,
+  });
 
   final VoidCallback onUpdate;
+
+  /// False when no store URL is configured for this platform (e.g. no App
+  /// Store listing exists yet). The block still stands — only the CTA changes:
+  /// a button that silently does nothing must never be shown to a
+  /// hard-blocked patient, so static copy points at the hospital's
+  /// distribution channel instead.
+  final bool hasStoreUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -514,19 +529,32 @@ class _UpdateRequiredScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 28),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: onUpdate,
-                            icon: const Icon(Icons.system_update_alt),
-                            label: Text(
-                              AppLocalizations.of(context)!.splashUpdateButton,
+                        if (hasStoreUrl)
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: onUpdate,
+                              icon: const Icon(Icons.system_update_alt),
+                              label: Text(
+                                AppLocalizations.of(context)!
+                                    .splashUpdateButton,
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(52),
+                              ),
                             ),
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: const Size.fromHeight(52),
+                          )
+                        else
+                          Text(
+                            AppLocalizations.of(context)!
+                                .splashUpdateNoStoreBody,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.86),
+                              fontSize: 15,
+                              height: 1.42,
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),

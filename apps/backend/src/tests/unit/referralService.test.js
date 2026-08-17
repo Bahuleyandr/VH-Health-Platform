@@ -44,6 +44,7 @@ jest.unstable_mockModule('../../services/notification/staffNotificationService.j
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   startWorkflowSla: jest.fn(),

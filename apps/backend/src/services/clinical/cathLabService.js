@@ -9,6 +9,7 @@ import { recordMovement } from '../pharmacy/inventoryV2Service.js';
 import { reserveStock } from '../pharmacySupply/pharmacySupplyService.js';
 import { emitCathProcedureCompletionFollowUps } from './cathQuickWinsService.js';
 import {
+  cancelWorkflowSla,
   completeWorkflowSla,
   recordCanonicalClinicalEvent,
   startWorkflowSla
@@ -781,6 +782,25 @@ export async function transitionCaseStatus(caseId, input = {}, context = {}) {
           sourceTable: 'cath_lab_cases',
           sourceId: String(updated.id),
           metadata: { completed_by: context.actorUid || null }
+        },
+        { db: tx }
+      );
+    } else if (target === 'cancelled' && updated.sla_rule_code) {
+      // A cancelled case has no obligation left to meet — stop its clock as
+      // 'cancelled' (never 'completed'), mirroring the STEMI stand-down
+      // cancel. Without this every cancelled case left its SLA instance
+      // 'active' forever (CASE_TRANSITIONS allows 'cancelled' from every
+      // non-terminal status).
+      await cancelWorkflowSla(
+        {
+          tenantId,
+          ruleCode: updated.sla_rule_code,
+          sourceTable: 'cath_lab_cases',
+          sourceId: String(updated.id),
+          metadata: {
+            cancel_reason: cleanText(input.reason),
+            cancelled_by: context.actorUid || null
+          }
         },
         { db: tx }
       );

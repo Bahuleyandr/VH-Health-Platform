@@ -6,6 +6,7 @@ import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent, recordMedicationSafetyReviews } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   assertContrastOrderAllowed,
+  hasExplicitContrastStudySignal,
   isContrastPresumedModality,
   validateRadiologyContrastSafety,
 } from '../../utils/clinical/contrastAllergyCheck.js';
@@ -339,14 +340,14 @@ export function pickDeterministicSignedReportSample(rows = [], { seed = 'radiolo
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid, tenantId = null) {
+export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid, tenantId = null, { db = prisma } = {}) {
   if (rawEncounterId == null || rawEncounterId === '') return null;
   const raw = String(rawEncounterId).trim();
   if (UUID_RE.test(raw)) {
     // Tenant + patient scoped: an encounter uuid belonging to another tenant
     // or another patient must not resolve (group-1 tenant-shape sweep).
     const scopedTenantId = requireTenantId(tenantId);
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
         `SELECT id FROM admissions
           WHERE encounter_id = $1::uuid
             AND tenant_id = $2::uuid
@@ -611,9 +612,9 @@ function parseContrastIntent(data = {}, modality = null) {
   const contrastAgent = cleanOptionalText(data.contrast_agent ?? data.contrastAgent);
   const rawPlanned = data.contrast_planned ?? data.contrastPlanned;
   if (rawPlanned === false || rawPlanned === 'false') {
-    if (contrastAgent) {
+    if (contrastAgent || hasExplicitContrastStudySignal(data)) {
       throw AppError.badRequest(
-        'contrast_agent cannot be set when contrast_planned is explicitly false',
+        'contrast_planned cannot be false when the order names a contrast agent or contrast-enhanced study',
         'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
       );
     }
@@ -625,10 +626,45 @@ function parseContrastIntent(data = {}, modality = null) {
   if (contrastAgent) {
     return { contrastPlanned: true, contrastAgent, intentSource: 'agent_named' };
   }
+  if (hasExplicitContrastStudySignal(data)) {
+    return { contrastPlanned: true, contrastAgent: null, intentSource: 'study_text' };
+  }
   if (isContrastPresumedModality(modality)) {
     return { contrastPlanned: true, contrastAgent: null, intentSource: 'modality_presumed' };
   }
   return { contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed' };
+}
+
+const DERIVED_CONTRAST_INTENT_SOURCES = new Set([
+  'explicit',
+  'agent_named',
+  'study_text',
+  'modality_presumed',
+  'explicitly_negated',
+  'modality_not_presumed',
+]);
+
+function contrastIntentForCreate(data, modality, context = {}) {
+  const parsed = parseContrastIntent(data, modality);
+  const authoritative = context.contrastIntent;
+  if (authoritative == null) return parsed;
+  const contrastAgent = cleanOptionalText(authoritative.contrastAgent);
+  if (
+    typeof authoritative.contrastPlanned !== 'boolean'
+    || !DERIVED_CONTRAST_INTENT_SOURCES.has(authoritative.intentSource)
+    || parsed.contrastPlanned !== authoritative.contrastPlanned
+    || parsed.contrastAgent !== contrastAgent
+  ) {
+    throw AppError.conflict(
+      'Materialized radiology contrast intent contradicts the clinical order',
+      'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    );
+  }
+  return {
+    contrastPlanned: authoritative.contrastPlanned,
+    contrastAgent,
+    intentSource: authoritative.intentSource,
+  };
 }
 
 // Evidence blob persisted to radiology_orders.contrast_allergy_screen — the
@@ -747,7 +783,11 @@ class RadiologyService {
     // fluoroscopy orders are presumed contrast-planned (and therefore always
     // screened) unless the client explicitly negates with
     // contrast_planned: false.
-    const { contrastPlanned, contrastAgent, intentSource } = parseContrastIntent(data, modality);
+    const { contrastPlanned, contrastAgent, intentSource } = contrastIntentForCreate(
+      data,
+      modality,
+      context,
+    );
     let contrastScreen = null;
     let contrastOverride = null;
     if (contrastPlanned) {
@@ -755,7 +795,7 @@ class RadiologyService {
         patientUid: patient_uid,
         modality,
         contrastAgent,
-      });
+      }, { db: context.tx || prisma });
       contrastOverride = assertContrastOrderAllowed(
         contrastScreen,
         data.override ?? (data.contrast_override_reason
@@ -774,8 +814,13 @@ class RadiologyService {
       }
     }
 
-    const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid, tenantId);
-    const order = await setTenantTx(tenantId, async (tx) => {
+    const resolvedEncounterId = await resolveEncounterIdForRadiology(
+      encounter_id,
+      patient_uid,
+      tenantId,
+      { db: context.tx || prisma },
+    );
+    const persist = async (tx) => {
       // Validate EVERY admission reference (explicit admission_id AND an
       // integer-supplied encounter_id) against this tenant + patient before
       // persisting either — an unvalidated candidate must never be stored as
@@ -870,7 +915,10 @@ class RadiologyService {
         });
       }
       return row;
-    });
+    };
+    const order = context.tx
+      ? await persist(context.tx)
+      : await setTenantTx(tenantId, persist);
 
     logger.info('Radiology order created', { orderId: order.id, modality, patient_uid });
     return normalizeWireValue(order);

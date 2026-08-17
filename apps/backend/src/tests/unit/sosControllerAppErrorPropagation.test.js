@@ -83,7 +83,7 @@ app.use((req, _res, next) => {
   req.tenantId = TENANT_ID;
   req.user = {
     uid: '11111111-1111-4111-8111-111111111111',
-    role: 'PATIENT',
+    role: req.headers['x-test-role'] || 'PATIENT',
     phone: '9876543210',
   };
   next();
@@ -96,6 +96,42 @@ beforeEach(() => {
 });
 
 describe('sosController relays AppError code + details over HTTP', () => {
+  test('patient callers cannot suppress a real SOS by marking it as a drill', async () => {
+    const response = await request(app)
+      .post('/api/v1/sos/')
+      .send({ latitude: 12.9716, longitude: 77.5946, isTestAlert: true });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body.code).toBe('SOS_DRILL_ROLE_REQUIRED');
+    expect(createAlertMock).not.toHaveBeenCalled();
+  });
+
+  test('an admin drill carries server-derived actor provenance', async () => {
+    createAlertMock.mockResolvedValueOnce({ alert_id: 42, is_test: true });
+
+    const response = await request(app)
+      .post('/api/v1/sos/')
+      .set('x-test-role', 'ADMIN')
+      .send({
+        latitude: 12.9716,
+        longitude: 77.5946,
+        isTestAlert: true,
+        drillAuthorization: {
+          actorUid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          actorRole: 'SUPER_ADMIN',
+        },
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(createAlertMock).toHaveBeenCalledWith(expect.objectContaining({
+      isTestAlert: true,
+      drillAuthorization: {
+        actorUid: '11111111-1111-4111-8111-111111111111',
+        actorRole: 'ADMIN',
+      },
+    }));
+  });
+
   test('createEmergencyAlert relays an AppError with code and details (409)', async () => {
     createAlertMock.mockRejectedValueOnce(AppError.conflict(
       'An active SOS alert already exists',

@@ -63,6 +63,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   startWorkflowSla: startWorkflowSlaMock,
 }));
 
