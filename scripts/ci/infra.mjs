@@ -99,6 +99,7 @@ export function runInfraStage({
       // builds (the PreSync migration Job called a stripped `npm` for months).
       'scripts/backend-image-command-contract.test.mjs',
       'scripts/ci/forgejo-deploy-preflight.test.mjs',
+      'scripts/ci/forgejo-buildkit-builder.test.mjs',
       'scripts/check-redis-ha-contract.test.mjs',
       'scripts/ci/infra.test.mjs',
       // CI-policy guards: workflow-shape invariants for the canonical gate,

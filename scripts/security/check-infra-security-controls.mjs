@@ -30,6 +30,7 @@ const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
 const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
 const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
 const forgejoSecuritySweep = read('.forgejo/workflows/security-sweep.yml');
+const forgejoBuildkitHelper = read('scripts/ci/forgejo-buildkit-builder.mjs');
 const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
@@ -106,8 +107,11 @@ check('container npm postinstall hooks remain inside each Docker build context',
   ]));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
-  const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
-  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
+  const workflowBuilds = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
+  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(workflowBuilds) &&
+    new RegExp(`^  'mirror\\.gcr\\.io/library/node:26\\.5\\.0-alpine${sha256Digest}';$`, 'm')
+      .test(forgejoBuildkitHelper) &&
+    forgejoBuildkitHelper.includes('`NODE_IMAGE=${NODE_IMAGE}`');
 });
 
 check('backend generation stays within the Forgejo runner memory budget', () =>
@@ -133,10 +137,13 @@ check('Forgejo admin image builds provide the backend named context', () =>
   forgejoContainerSupplyChain.includes(
     "build_contexts: '--build-context backend=apps/backend'",
   ) &&
-  forgejoDalekDeploy.includes('--build-context backend=apps/backend') &&
+  forgejoDalekDeploy.includes(
+    'node scripts/ci/forgejo-buildkit-builder.mjs build dalek',
+  ) &&
   forgejoReleaseImages.includes(
-    'build_context_args+=(--build-context "backend=apps/backend")',
-  ));
+    'node scripts/ci/forgejo-buildkit-builder.mjs build release',
+  ) &&
+  (forgejoBuildkitHelper.match(/buildContexts: \['backend=apps\/backend'\]/g) || []).length === 2);
 
 check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
   const workflows = [
