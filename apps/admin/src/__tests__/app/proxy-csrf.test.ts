@@ -50,7 +50,9 @@ describe("proxy CSRF mutation-origin validation (SEC-8)", () => {
   });
 
   it("rejects PUT with a mismatched Origin", async () => {
-    const res = await PUT(makeReq("PUT", { origin: "https://evil.example.com" }));
+    const res = await PUT(
+      makeReq("PUT", { origin: "https://evil.example.com" }),
+    );
     expect(res.status).toBe(403);
   });
 
