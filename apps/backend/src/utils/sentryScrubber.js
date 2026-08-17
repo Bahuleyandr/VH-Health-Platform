@@ -1,3 +1,5 @@
+import { redactSensitiveQueryParams } from './urlRedaction.js';
+
 const REDACTED = '[Filtered]';
 
 const SENSITIVE_KEY_PATTERN =
@@ -30,12 +32,12 @@ export function scrubSentryText(value) {
 
 export function normalizeSentryPath(value) {
   if (typeof value !== 'string' || value.length === 0) return value;
-  let path = value;
+  let path = redactSensitiveQueryParams(value);
   try {
-    const url = new URL(value);
-    path = url.pathname || value;
+    const url = new URL(path);
+    path = url.pathname || path;
   } catch (_) {
-    [path] = value.split('?');
+    [path] = path.split('?');
   }
   const normalized = path
     .replace(

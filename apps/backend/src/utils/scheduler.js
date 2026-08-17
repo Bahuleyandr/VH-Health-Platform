@@ -257,6 +257,7 @@ import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineSer
 // started can never complete; flip them to expired so they stop blocking
 // fresh proposals on the same roster assignments.
 import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
+import { expireStaleGatewayOrders } from '../services/billing/paymentGatewayService.js';
 // Ambulance GPS position retention — the fix stream (migration 683) is
 // high-volume operational telemetry; keep only the tenant-configured window
 // (default 7 days).
@@ -1069,6 +1070,32 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }));
 
+  // 🪪 Every 5 minutes — ABHA enrolment session expiry (migration 701).
+  // Live sessions past expires_at flip to 'expired' so the one-live-session
+  // partial unique never wedges a patient behind an abandoned OTP txn.
+  registerCron('*/5 * * * *', withJobLock('abha-enrolment-expiry', async () => {
+    const { sweepExpiredEnrolmentSessions } = await import('../services/abdm/abhaEnrolmentService.js');
+    await sweepExpiredEnrolmentSessions();
+  }));
+
+  // 🧾 Every 5 minutes — Scan & Share intake expiry (migration 702). Share
+  // tokens are short-lived; unactioned 'received' intakes expire off the
+  // front-desk queue.
+  registerCron('*/5 * * * *', withJobLock('abdm-share-intake-expiry', async () => {
+    const { sweepExpiredShareIntakes } = await import('../services/abdm/abdmShareIntakeService.js');
+    await sweepExpiredShareIntakes();
+  }));
+
+  // 🔑 Every 5 minutes — tenant-scoped HIU expiry, key scrub and R2 erasure.
+  // Consent dataEraseAt is persisted into request/artifact state; decrypted
+  // bundles remain durable retry pointers until their R2 delete succeeds.
+  registerCron('*/5 * * * *', withJobLock('abdm-hiu-fetch-expiry', async () => {
+    const { sweepExpiredHiuFetchSessions } = await import('../services/abdm/abdmHiuService.js');
+    await runForEachTenant('abdm-hiu-retention', tenantId => (
+      sweepExpiredHiuFetchSessions({ tenantId })
+    ));
+  }));
+
   // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
   // Per-tenant fan-out; runDueMisReportSchedules evaluates each enabled
   // schedule against the tenant's local clock (settings.timezone, defaulting
@@ -1177,6 +1204,16 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('shift-swap-expiry', tenantId => (
       expireStaleShiftSwapRequests({ tenantId })
     ));
+  }));
+
+  // 🗓️ Every 15 min — expire payment gateway orders (migration 694) whose
+  // checkout window lapsed while still created/attempted. Mirrors the
+  // payment-link expiry idiom: idempotent cross-tenant UPDATE; a capture
+  // webhook arriving later still books (capture path ignores expiry — the
+  // provider's money is authoritative).
+  registerCron('*/15 * * * *', withJobLock('payment-gateway-order-expiry', async () => {
+    const { expired } = await expireStaleGatewayOrders();
+    if (expired) logger.info(`Scheduled Task: expired ${expired} payment gateway orders`);
   }));
 
   // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).

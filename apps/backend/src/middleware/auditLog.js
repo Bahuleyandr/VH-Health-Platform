@@ -14,7 +14,15 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
-import { isHl7ReceiveEndpoint } from '../utils/urlRedaction.js';
+import {
+  getAuthenticatedCallbackAuditContext,
+  isProviderCallbackPath,
+} from '../utils/authenticatedCallbackAudit.js';
+import {
+  isHl7ReceiveEndpoint,
+  isSmsDeliveryStatusEndpoint,
+  redactSensitiveQueryParams,
+} from '../utils/urlRedaction.js';
 
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
@@ -278,6 +286,7 @@ export function deriveAction(method, path) {
 const REDACT_FIELDS = new Set([
   'password', 'password_hash', 'token', 'access_token', 'refresh_token',
   'secret', 'api_key', 'apikey', 'authorization', 'otp', 'pin',
+  'auth_key', 'auth_token', 'key_secret', 'webhook_secret', 'callback_token',
   'ssn', 'aadhar', 'pan', 'bank_account',
 ]);
 
@@ -331,9 +340,13 @@ export function sanitizeBody(body) {
 }
 
 function excludesAuditRequestBody(cleanPath) {
-  // HL7 fields can carry PHI at arbitrary positions, including hostile query
-  // input, so this endpoint cannot safely derive audit context from either.
-  return isHl7ReceiveEndpoint(String(cleanPath || ''));
+  // HL7 and provider DLR fields can carry PHI at arbitrary positions,
+  // including hostile query input, so these endpoints cannot safely derive
+  // audit context from either.
+  const path = String(cleanPath || '');
+  return isHl7ReceiveEndpoint(path)
+    || isSmsDeliveryStatusEndpoint(path)
+    || isProviderCallbackPath(path);
 }
 
 // ─── Paths to skip entirely ──────────────────────────────────────────────────
@@ -397,7 +410,10 @@ function derivePathContext(path) {
   return context;
 }
 
-function auditTenantId(req) {
+function auditTenantId(req, cleanPath = '') {
+  if (isProviderCallbackPath(cleanPath)) {
+    return getAuthenticatedCallbackAuditContext(req)?.tenantId || null;
+  }
   return req.tenantId
     || req.user?.tenant_id
     || req.user?.tenantId
@@ -432,6 +448,9 @@ export function deriveAuditResourceContext(
   cleanPath,
   { deviceType = null, userRole = null } = {},
 ) {
+  const callbackContext = isProviderCallbackPath(cleanPath)
+    ? getAuthenticatedCallbackAuditContext(req)
+    : null;
   const pathContext = derivePathContext(cleanPath);
   const trustedDeviceType = normalizeDeviceType(deviceType) || deviceType || null;
   const headerDeviceType = requestDeviceType(req);
@@ -456,8 +475,14 @@ export function deriveAuditResourceContext(
       && trustedDeviceType !== headerDeviceType
       ? { device_type_mismatch: true }
       : {}),
-    tenant_id: auditTenantId(req),
-    actor_role: userRole,
+    tenant_id: auditTenantId(req, cleanPath),
+    actor_role: callbackContext?.actorRole || userRole,
+    ...(callbackContext ? {
+      actor_type: 'external_provider',
+      callback_provider: callbackContext.provider,
+      external_actor_id: callbackContext.externalActorId,
+      authenticated_callback: true,
+    } : {}),
     ...pathContext,
   };
 
@@ -500,24 +525,59 @@ export function auditLogMiddleware(req, res, next) {
   const startMs = Date.now();
 
   res.on('finish', () => {
+    const safeUrlOnFinish = redactSensitiveQueryParams(req.originalUrl || req.path || '');
+    const cleanPathOnFinish = safeUrlOnFinish.split('?')[0];
+    const callbackContext = isProviderCallbackPath(cleanPathOnFinish)
+      ? getAuthenticatedCallbackAuditContext(req)
+      : null;
+
+    // Public provider callbacks are audited only after their route has both
+    // resolved a tenant from server-side credentials and authenticated the
+    // provider. Before that point the body is untrusted PHI-shaped input and
+    // attributing it to the schema default tenant would disclose it there.
+    if (isProviderCallbackPath(cleanPathOnFinish) && !callbackContext) {
+      _auditLogToFile('unattributed provider callback', {
+        action: 'provider_callback_rejected',
+        module: deriveModule(cleanPathOnFinish),
+        path: cleanPathOnFinish,
+        method: req.method,
+        status_code: res.statusCode,
+        success: false,
+        verification_state: 'unverified',
+        tenant_id: null,
+        request_id: null,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    if (shouldSkip(req.method, cleanPathOnFinish)) return;
+
     if (pendingAuditLogs >= MAX_PENDING_AUDIT_LOGS) {
       // Backpressure drop — but the audit entry must still be durable. Write it
       // to the same Winston file fallback the DB-error path uses so it is never
       // silently lost (audit §3). Build the minimal recoverable tuple here; the
       // full enrichment in the setImmediate branch is skipped under load.
-      const cleanPathOnDrop = req.originalUrl ? req.originalUrl.split('?')[0] : (req.path || '');
+      const safeUrlOnDrop = safeUrlOnFinish;
+      const cleanPathOnDrop = cleanPathOnFinish;
       const userOnDrop = req.user;
       _auditLogToFile('queue full', {
         action: deriveAction(req.method, cleanPathOnDrop),
         module: deriveModule(cleanPathOnDrop),
-        userId: normalizeAuditLogUserId(
+        userId: callbackContext ? null : normalizeAuditLogUserId(
           userOnDrop?.id ?? userOnDrop?.userId ?? userOnDrop?.user_id ?? null,
         ),
-        userRole: userOnDrop?.role || userOnDrop?.claims?.role || null,
-        path: excludesAuditRequestBody(cleanPathOnDrop) ? cleanPathOnDrop : req.originalUrl,
+        userRole: callbackContext?.actorRole
+          || userOnDrop?.role || userOnDrop?.claims?.role || null,
+        path: excludesAuditRequestBody(cleanPathOnDrop) ? cleanPathOnDrop : safeUrlOnDrop,
         method: req.method,
         status_code: res.statusCode,
-        tenant_id: auditTenantId(req),
+        tenant_id: callbackContext?.tenantId || auditTenantId(req, cleanPathOnDrop),
+        ...(callbackContext ? {
+          actor_type: 'external_provider',
+          callback_provider: callbackContext.provider,
+          external_actor_id: callbackContext.externalActorId,
+          verification_state: 'verified',
+        } : {}),
         timestamp: new Date().toISOString(),
       });
       return;
@@ -525,39 +585,40 @@ export function auditLogMiddleware(req, res, next) {
     pendingAuditLogs++;
     setImmediate(async () => {
       const { method, originalUrl, query, body, ip, headers } = req;
-      const cleanPath = originalUrl ? originalUrl.split('?')[0] : (req.path || '');
+      const safeUrl = redactSensitiveQueryParams(originalUrl || req.path || '');
+      const cleanPath = safeUrl.split('?')[0];
       const user = req.user;
-      const userId = normalizeAuditLogUserId(user?.id ?? user?.userId ?? user?.user_id ?? null);
+      const authenticatedCallback = isProviderCallbackPath(cleanPath)
+        ? getAuthenticatedCallbackAuditContext(req)
+        : null;
+      const userId = authenticatedCallback
+        ? null
+        : normalizeAuditLogUserId(user?.id ?? user?.userId ?? user?.user_id ?? null);
       try {
-        if (shouldSkip(method, cleanPath)) return;
-
         // userId already declared above for catch block access
-        const userName = user?.name || user?.displayName || user?.username || user?.email || null;
-        const userRole = user?.role || user?.claims?.role || null;
+        if (isProviderCallbackPath(cleanPath) && !authenticatedCallback) return;
+        const userName = authenticatedCallback?.actorName
+          || user?.name || user?.displayName || user?.username || user?.email || null;
+        const userRole = authenticatedCallback?.actorRole
+          || user?.role || user?.claims?.role || null;
 
         const statusCode    = res.statusCode;
         const responseTimeMs = Date.now() - startMs;
         const isSuccess     = statusCode < 400;
 
-        const actorUid = req.acting?.actorUid ?? user?.uid ?? null;
-        const subjectUid = user?.uid ?? null;
-        const actingAsDependent = req.acting != null;
+        const actorUid = authenticatedCallback ? null : (req.acting?.actorUid ?? user?.uid ?? null);
+        const subjectUid = authenticatedCallback ? null : (user?.uid ?? null);
+        const actingAsDependent = authenticatedCallback ? false : req.acting != null;
         const deviceType = user?.deviceType ?? user?.claims?.deviceType ?? null;
         const auditContext = deriveAuditResourceContext(req, cleanPath, {
           deviceType,
           userRole,
         });
+        const tenantId = authenticatedCallback?.tenantId || null;
+        const tenantColumn = tenantId ? ', tenant_id' : '';
+        const tenantValue = tenantId ? ',$23::uuid' : '';
 
-        await prisma.$queryRawUnsafe(`
-          INSERT INTO audit_log
-            (uid, user_id, user_name, user_role, ip_address, method, path, module, action,
-             resource, resource_id, metadata, query_params, request_summary,
-             status_code, response_time_ms, success, user_agent,
-             actor_uid, subject_uid, acting_as_dependent, device_type)
-          VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
-                  CAST($13 AS jsonb),$14,$15,$16,$17,$18,
-                  $19::uuid,$20::uuid,$21,$22)
-        `,
+        const params = [
           actorUid,
           userId,
           userName,
@@ -582,14 +643,36 @@ export function auditLogMiddleware(req, res, next) {
           subjectUid,
           actingAsDependent,
           deviceType,
-        );
+        ];
+        if (tenantId) params.push(tenantId);
+
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO audit_log
+            (uid, user_id, user_name, user_role, ip_address, method, path, module, action,
+             resource, resource_id, metadata, query_params, request_summary,
+             status_code, response_time_ms, success, user_agent,
+             actor_uid, subject_uid, acting_as_dependent, device_type${tenantColumn})
+          VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
+                  CAST($13 AS jsonb),$14,$15,$16,$17,$18,
+                  $19::uuid,$20::uuid,$21,$22${tenantValue})
+        `, ...params);
       } catch (err) {
         // Fallback: write to audit log file when DB is unavailable
         _auditLogToFile('DB write failed', {
           action: deriveAction(method, cleanPath),
           userId: userId,
-          path: excludesAuditRequestBody(cleanPath) ? cleanPath : req.originalUrl,
+          path: excludesAuditRequestBody(cleanPath) ? cleanPath : safeUrl,
           method: req.method,
+          status_code: res.statusCode,
+          success: res.statusCode < 400,
+          ...(authenticatedCallback ? {
+            userRole: authenticatedCallback.actorRole,
+            tenant_id: authenticatedCallback.tenantId,
+            actor_type: 'external_provider',
+            callback_provider: authenticatedCallback.provider,
+            external_actor_id: authenticatedCallback.externalActorId,
+            verification_state: 'verified',
+          } : {}),
           timestamp: new Date().toISOString(),
           error: err?.message
         });

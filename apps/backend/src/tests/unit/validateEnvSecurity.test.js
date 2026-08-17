@@ -90,6 +90,119 @@ describe('validateEnv signed integration secrets', () => {
 
     expect(result.status).toBe(0);
   });
+
+  it('fails closed when production ABDM omits its enrolment base URL', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABHA_ENROLMENT_BASE_URL');
+  });
+
+  it('fails closed when production ABDM names the sandbox enrolment host', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abhasbx.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABHA_ENROLMENT_BASE_URL');
+  });
+
+  it('allows production ABDM with an explicit non-sandbox HTTPS enrolment host', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  it('refuses to boot production with legacy unbound ABDM callback signatures enabled', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: 'true',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
+      ABDM_ENVIRONMENT: 'production',
+      ABDM_CM_ID: 'production-cm',
+      ABHA_ENROLMENT_BASE_URL: 'https://abha.abdm.gov.in/abha/api/v3',
+      ABDM_GATEWAY_URL: 'https://gateway.abdm.gov.in/gateway',
+      ABDM_BRIDGE_URL: 'https://bridge.abdm.gov.in/v1',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND');
+  });
+});
+
+describe('validateEnv Twilio SMS callback contract', () => {
+  const twilioEnv = {
+    SMS_PROVIDER: 'twilio',
+    TWILIO_ACCOUNT_SID: 'AC-test-account',
+    TWILIO_AUTH_TOKEN: 'test-twilio-auth-token',
+    TWILIO_SMS_FROM: '+15005550006',
+  };
+
+  it('requires PUBLIC_BASE_URL when the environment enables Twilio SMS', () => {
+    const result = runValidateEnv(twilioEnv);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('PUBLIC_BASE_URL');
+  });
+
+  it('requires TWILIO_ACCOUNT_SID when the environment enables Twilio SMS', () => {
+    const { TWILIO_ACCOUNT_SID: _omitted, ...withoutSid } = twilioEnv;
+    const result = runValidateEnv({
+      ...withoutSid,
+      PUBLIC_BASE_URL: 'https://api.vhhealth.app',
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('TWILIO_ACCOUNT_SID');
+  });
+
+  it('accepts a complete production Twilio SMS callback configuration', () => {
+    const result = runValidateEnv({
+      ...twilioEnv,
+      PUBLIC_BASE_URL: 'https://api.vhhealth.app',
+    });
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects an HTTP PUBLIC_BASE_URL in production', () => {
+    const result = runValidateEnv({
+      ...twilioEnv,
+      PUBLIC_BASE_URL: 'http://api.vhhealth.app',
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('PUBLIC_BASE_URL');
+  });
 });
 
 describe('validateEnv Redis Sentinel production contract', () => {

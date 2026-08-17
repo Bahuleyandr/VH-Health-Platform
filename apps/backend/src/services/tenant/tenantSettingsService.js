@@ -31,6 +31,35 @@
 //       retentionDays?: number,           // position-event retention (1-90, default 7)
 //       minSecondsBetweenFixes?: number,  // per-reporter ingest floor (1-300, default 3)
 //     },
+//     paymentGateway?: {
+//       enabled?: boolean,                // default false — online gateway (UPI/cards).
+//                                         // Effective only with PAYMENT_GATEWAY_ENABLED=true
+//                                         // AND an enabled payment_gateway_provider_configs row.
+//     },
+//     sms?: {
+//       enabled?: boolean,                // default false — real SMS gateway sends.
+//                                         // Effective only when SMS_PROVIDER is not the
+//                                         // 'logger' kill switch AND an enabled
+//                                         // sms_provider_configs row (or complete env
+//                                         // credentials) exists; otherwise dry-run.
+//     },
+//     abdmEnrolment?: {
+//       enabled?: boolean,                // default false — ABHA enrolment flows
+//                                         // (Aadhaar-OTP/mobile-OTP). Effective only
+//                                         // with ABDM_ENABLED=true; sandbox unless
+//                                         // ABDM_ENVIRONMENT=production.
+//     },
+//     abdmHiu?: {
+//       enabled?: boolean,                // default false — thin HIU consent/fetch
+//                                         // legs. Effective only with ABDM_ENABLED=true.
+//     },
+//     uhi?: {
+//       enabled?: boolean,                // default false — UHI (DHP/beckn) network
+//                                         // adapter webhook legs. Effective only with
+//                                         // UHI_ENABLED=true; sandbox unless
+//                                         // environment: 'production'.
+//       environment?: 'sandbox'|'production',
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -166,6 +195,77 @@ export async function getAmbulanceGpsTrackingSettings(tenantId) {
     minSecondsBetweenFixes: Number.isFinite(intervalParsed) && intervalParsed >= 1 && intervalParsed <= 300
       ? intervalParsed
       : defaults.minSecondsBetweenFixes,
+  };
+}
+
+// Online payment gateway (migrations 693-697). Disabled by default — turning
+// the feature on is a settings write + provider config row, never a
+// migration. Effective enablement additionally requires the
+// PAYMENT_GATEWAY_ENABLED env kill switch and an enabled provider config
+// (paymentGatewayService.resolveGatewayContext ANDs all three). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getPaymentGatewaySettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.paymentGateway;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// SMS gateway (migrations 699/700). Disabled by default — the outbox drain
+// resolves every tenant to the dry-run logger until this settings write AND a
+// provider config row (or complete env credentials) exist; SMS_PROVIDER=logger
+// remains the deployment-wide kill switch
+// (smsProviders/index.js:resolveSmsProviderContext ANDs all of it). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getSmsSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.sms;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// ABHA enrolment (migration 701). Disabled by default — enrolment reaches the
+// national ABDM sandbox/production gateway, so it turns on per tenant via a
+// settings write only after the deployment sets ABDM_ENABLED and the operator
+// decides. Defensive like every accessor here: malformed config yields the
+// disabled default, never a throw.
+export async function getAbdmEnrolmentSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmEnrolment;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// Thin HIU legs (migration 703 + the 124 abdmFull consent layer). Disabled by
+// default — same posture as abdmEnrolment. Defensive: malformed config yields
+// the disabled default, never a throw.
+export async function getAbdmHiuSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmHiu;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// UHI (Unified Health Interface / DHP-beckn) adapter (migration 705).
+// Disabled by default — the webhook legs answer the national UHI network, so
+// a tenant opts in via a settings write only after the deployment sets
+// UHI_ENABLED (env is the kill switch, this is the per-hospital enable).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getUhiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.uhi;
+  const defaults = { enabled: false, environment: 'sandbox' };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    enabled: raw.enabled === true,
+    environment: raw.environment === 'production' ? 'production' : 'sandbox',
   };
 }
 

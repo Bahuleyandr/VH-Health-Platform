@@ -54,8 +54,13 @@ import * as devices from './openapi/schemas/devices.mjs';
 import * as health from './openapi/schemas/health.mjs';
 import * as radiology from './openapi/schemas/radiology.mjs';
 import * as misReportSchedules from './openapi/schemas/misReportSchedules.mjs';
+import * as paymentGateway from './openapi/schemas/paymentGateway.mjs';
+import * as smsConfig from './openapi/schemas/smsConfig.mjs';
+import * as abdmCompletion from './openapi/schemas/abdmCompletion.mjs';
 import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
+import * as facilityAssets from './openapi/schemas/facilityAssets.mjs';
+import * as uhi from './openapi/schemas/uhi.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -100,7 +105,12 @@ const SCHEMA_MODULES = [
   shiftSwapOnCall,
   ambulanceTracking,
   pharmacyCounterSale,
-  dietaryKitchen
+  dietaryKitchen,
+  paymentGateway,
+  smsConfig,
+  abdmCompletion,
+  facilityAssets,
+  uhi
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

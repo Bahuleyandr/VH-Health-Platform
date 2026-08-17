@@ -158,6 +158,30 @@ describe('buildOpenApiDocument overlay', () => {
     expect(doc.paths['/api/v1/x'].post.requestBody.required).toBe(false);
   });
 
+  it('attaches exact non-JSON request content from the overlay', () => {
+    const routes = [{ method: 'post', path: '/api/v1/x' }];
+    const overlay = {
+      'POST /api/v1/x': {
+        requestContent: {
+          'application/x-www-form-urlencoded': 'XFormRequest',
+          'application/json': 'XJsonRequest',
+        },
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    expect(doc.paths['/api/v1/x'].post.requestBody).toEqual({
+      required: true,
+      content: {
+        'application/x-www-form-urlencoded': {
+          schema: { $ref: '#/components/schemas/XFormRequest' },
+        },
+        'application/json': {
+          schema: { $ref: '#/components/schemas/XJsonRequest' },
+        },
+      },
+    });
+  });
+
   it('attaches overlay query parameters after path parameters', () => {
     const routes = [{ method: 'get', path: '/api/v1/x/{id}' }];
     const overlay = {

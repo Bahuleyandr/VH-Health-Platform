@@ -107,6 +107,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   quality: { minRank: STAFF },
   referral: { minRank: STAFF },
   "referral-facilities": { minRank: ADMIN_ONLY },
+  "facility-assets": { minRank: ADMIN_ONLY },
   productivity: { minRank: STAFF },
   "order-set-studio": { roles: ORDER_SET_STUDIO_ROLES },
   messaging: { minRank: STAFF },

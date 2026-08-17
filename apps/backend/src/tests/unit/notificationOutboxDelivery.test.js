@@ -7,6 +7,7 @@ const HASH = 'a'.repeat(64);
 const dispatchMock = jest.fn();
 const getTenantSettingsMock = jest.fn();
 const sendPushMock = jest.fn();
+const sendSmsMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
 const beginProviderAttemptsMock = jest.fn();
 const recordProviderReceiptMock = jest.fn();
@@ -41,9 +42,7 @@ jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', ()
   sendPushNotification: sendPushMock,
 }));
 jest.unstable_mockModule('../../services/smsService.js', () => ({
-  sendSMS: jest.fn(),
-  sendAppointmentConfirmationSMS: jest.fn(),
-  sendAppointmentReminderSMS: jest.fn(),
+  sendSMS: sendSmsMock,
 }));
 jest.unstable_mockModule('../../services/notification/notificationDeliveryLedgerService.js', () => ({
   beginProviderAttempts: beginProviderAttemptsMock,
@@ -89,6 +88,15 @@ describe('notification outbox durable provider delivery', () => {
     dispatchMock.mockReset();
     getTenantSettingsMock.mockReset();
     sendPushMock.mockReset();
+    sendSmsMock.mockReset();
+    // The provider seam's dry-run DEFAULT: nothing configured resolves to an
+    // honest provider rejection (never a fake delivery).
+    sendSmsMock.mockResolvedValue({
+      outcome: 'rejected',
+      providerReference: null,
+      providerCode: 'sms_gateway_not_configured',
+      evidence: { dry_run: true, reason: 'not_configured' },
+    });
     queryRawUnsafeMock.mockReset();
     beginProviderAttemptsMock.mockReset();
     recordProviderReceiptMock.mockReset();
@@ -298,11 +306,24 @@ describe('notification outbox durable provider delivery', () => {
       title: intent.title,
       body: intent.body,
       payload: { tenant_id: TENANT_ID, ...intent.data },
+      template_version: intent.templateVersion,
       rendered_intent_hash: intent.renderedIntentHash,
     }));
 
     expect(result.outcome).toBe('rejected');
     expect(result.mode).toBe('legacy');
+    // The drain now calls the provider seam with delivery provenance so the
+    // adapter can resolve tenant config + DLT template registration…
+    expect(sendSmsMock).toHaveBeenCalledWith(
+      intent.recipientPhone,
+      expect.stringContaining(intent.body),
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        templateVersion: 'sms.investigation_booking_confirmed.v1',
+        outboxId: 1002,
+      }),
+    );
+    // …and the dry-run default still records an honest provider rejection.
     expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'sms',
       outcome: 'rejected',

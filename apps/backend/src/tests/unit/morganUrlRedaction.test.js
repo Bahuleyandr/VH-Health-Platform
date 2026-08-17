@@ -39,6 +39,15 @@ describe('morgan access-log URL redaction', () => {
     expect(logger.morganSafeUrlToken({ url: '/api/v1/users/me' }, {})).toBe('/api/v1/users/me');
   });
 
+  it('removes SMS callback bearer tokens from access-log URLs', () => {
+    const token = 'tok_abcdefghijklmnopqrstuvwxyz01';
+    const out = logger.morganSafeUrlToken({
+      originalUrl: `/webhooks/sms/dlr/${token}`,
+    }, {});
+    expect(out).toBe('/webhooks/sms/dlr/[REDACTED]');
+    expect(out).not.toContain(token);
+  });
+
   it('skips only the pathname-anchored public payment route, never a query-string decoy', () => {
     expect(logger.morganSkipSensitivePath({ originalUrl: '/pay/opaque-link-token?view=1' })).toBe(true);
     expect(logger.morganSkipSensitivePath({ originalUrl: '/api/v1/users?next=/pay/opaque-link-token' })).toBe(false);

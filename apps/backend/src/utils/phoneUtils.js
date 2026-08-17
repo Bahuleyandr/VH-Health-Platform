@@ -26,6 +26,18 @@ export const normalizePhone = (phone) => {
   return normalized;
 };
 
+/** Normalize only supported Indian mobile formats for the SMS providers. */
+export const normalizeIndianSmsPhone = (phone) => {
+  if (phone === null || phone === undefined) return null;
+  const compact = String(phone).trim().replace(/[\s()-]/g, '');
+  let subscriber = null;
+  if (/^\+91[6-9]\d{9}$/.test(compact)) subscriber = compact.slice(3);
+  else if (/^91[6-9]\d{9}$/.test(compact)) subscriber = compact.slice(2);
+  else if (/^0[6-9]\d{9}$/.test(compact)) subscriber = compact.slice(1);
+  else if (/^[6-9]\d{9}$/.test(compact)) subscriber = compact;
+  return subscriber ? `91${subscriber}` : null;
+};
+
 /**
  * Format phone number for display
  */
@@ -61,6 +73,7 @@ export const isValidPhone = (phone) => {
 
 export default {
   normalizePhone,
+  normalizeIndianSmsPhone,
   formatPhoneDisplay,
   isValidPhone
 };

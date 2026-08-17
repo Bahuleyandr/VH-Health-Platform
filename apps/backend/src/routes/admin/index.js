@@ -22,6 +22,7 @@ import adminUserRoutes from '../user/adminUserRoutes.js';
 import auditRoutes from './auditRoutes.js';
 import eventOutboxRoutes from './eventOutboxRoutes.js';
 import notificationOutboxRoutes from './notificationOutboxRoutes.js';
+import smsConfigRoutes from './smsConfigRoutes.js';
 import externalRecoveryOperabilityRoutes from './externalRecoveryOperabilityRoutes.js';
 import carePathwayReconciliationRoutes from './carePathwayReconciliationRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
@@ -216,6 +217,9 @@ router.use('/appointments', appointmentAdminRoutes);
 router.use('/doctors', adminDoctorRoutes);
 router.use('/departments', adminDepartmentRoutes);
 router.use('/users', adminUserRoutes);
+// SMS gateway config (699/700) — mounted BEFORE the legacy '/notifications'
+// router so its /notifications/sms/* paths are not shadowed.
+router.use('/notifications/sms', smsConfigRoutes);
 router.use('/notifications', adminNotificationRoutes);
 router.use('/records', adminRecordRoutes);
 router.use('/investigations', adminInvestigationRoutes);

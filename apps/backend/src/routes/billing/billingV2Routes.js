@@ -506,9 +506,9 @@ router.post('/refunds/:id/reject', requireAdmin, wrap(async (req) => {
 
 router.post('/refunds/:id/pay', requireCashOut, requireIdempotencyKey({ required: true, scope: 'billing_refund_pay' }), wrap(async (req) => {
   const refund = await billing.markRefundPaid(req.params.id, {
-    ...req.body,
     tenantId: tenantOf(req),
     paid_by: req.user?.uid,
+    reference: req.body?.reference,
   });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_PAID', {
     ...refund,

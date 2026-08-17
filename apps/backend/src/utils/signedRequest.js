@@ -1,9 +1,14 @@
 // HMAC request authenticity helper for public/integration callbacks.
 //
-// Callers sign the canonical string:
+// Legacy callers sign:
 //   <timestamp>.<requestId>.<payload>
-// where payload is either the parsed JSON body re-serialized with
-// JSON.stringify, or a raw protocol payload string such as HL7v2.
+// Endpoint-bound v1 callers sign:
+//   vhhealth.signed-request.v1\n<METHOD>\n<CANONICAL_PATH>\n<timestamp>\n<requestId>\n<payload>
+// where payload is either the exact captured request bytes, a raw protocol
+// payload string such as HL7v2, or (for trusted internal callers only) parsed
+// JSON serialized with JSON.stringify. New public HTTP callback contracts must
+// use endpoint-bound v1; legacy stays available only for explicitly held
+// protocol-compatibility callers.
 
 import crypto from 'crypto';
 
@@ -14,6 +19,11 @@ import { AppError } from './AppError.js';
 
 const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 const MAX_REPLAY_CACHE_ENTRIES = 5000;
+const ENDPOINT_BOUND_V1_DOMAIN = 'vhhealth.signed-request.v1';
+export const SIGNED_REQUEST_SIGNATURE_VERSIONS = Object.freeze({
+  LEGACY: 'legacy',
+  ENDPOINT_BOUND_V1: 'v1',
+});
 // Per-process fast-path cache. Rejects same-process replays without a round
 // trip; the durable cross-replica authority is the interop_replay_guard table.
 // Redis is only a post-claim coordination marker (see assertSharedReplayOnce /
@@ -33,7 +43,162 @@ function normalizeSignature(value) {
 }
 
 function canonicalPayload(payload) {
-  return typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+  if (Buffer.isBuffer(payload)) return payload;
+  if (payload instanceof Uint8Array) {
+    return Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  }
+  if (typeof payload === 'string') return Buffer.from(payload, 'utf8');
+  return Buffer.from(JSON.stringify(payload || {}), 'utf8');
+}
+
+function normalizeSignatureVersion(value, { codePrefix, context }) {
+  const version = String(value || SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY).trim().toLowerCase();
+  if (version === SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY
+      || version === SIGNED_REQUEST_SIGNATURE_VERSIONS.ENDPOINT_BOUND_V1) {
+    return version;
+  }
+  throw AppError.unauthorized(
+    `${context} signature version is unsupported`,
+    `${codePrefix}_SIGNATURE_VERSION_UNSUPPORTED`,
+  );
+}
+
+function canonicalMethod(value, { codePrefix, context }) {
+  const method = String(value || '').trim().toUpperCase();
+  if (!/^[A-Z]+$/.test(method)) {
+    throw AppError.unauthorized(
+      `${context} HTTP method is required`,
+      `${codePrefix}_METHOD_REQUIRED`,
+    );
+  }
+  return method;
+}
+
+function canonicalPath(value, { codePrefix, context }) {
+  const path = String(value || '').trim();
+  // The caller must supply the already-canonical application path. Query
+  // parameters are deliberately outside the endpoint identity; reverse-proxy
+  // prefixes must be removed before this boundary. Refuse to normalize here —
+  // accepting two spellings would make the signed intent ambiguous.
+  if (!path.startsWith('/')
+      || path.includes('?')
+      || path.includes('#')
+      || path.includes('\\')
+      || path.includes('//')
+      || /\/(?:\.{1,2})(?:\/|$)/.test(path)) {
+    throw AppError.unauthorized(
+      `${context} canonical path is invalid`,
+      `${codePrefix}_CANONICAL_PATH_INVALID`,
+    );
+  }
+  return path;
+}
+
+function assertLineSafe(value, field, { codePrefix, context }) {
+  if (/[\r\n]/.test(value)) {
+    throw AppError.unauthorized(
+      `${context} ${field} is invalid`,
+      `${codePrefix}_${field.toUpperCase().replaceAll(' ', '_')}_INVALID`,
+    );
+  }
+}
+
+function signingPrefix({ signatureVersion, method, canonicalPath: path, timestamp, requestId, codePrefix, context }) {
+  if (signatureVersion === SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY) {
+    return Buffer.from(`${timestamp}.${requestId}.`, 'utf8');
+  }
+  const boundMethod = canonicalMethod(method, { codePrefix, context });
+  const boundPath = canonicalPath(path, { codePrefix, context });
+  assertLineSafe(timestamp, 'timestamp', { codePrefix, context });
+  assertLineSafe(requestId, 'request id', { codePrefix, context });
+  return Buffer.from(
+    `${ENDPOINT_BOUND_V1_DOMAIN}\n${boundMethod}\n${boundPath}\n${timestamp}\n${requestId}\n`,
+    'utf8',
+  );
+}
+
+function signatureHex({
+  secret,
+  signatureVersion,
+  method,
+  canonicalPath: path,
+  timestamp,
+  requestId,
+  payload,
+  codePrefix,
+  context,
+}) {
+  return crypto.createHmac('sha256', secret)
+    .update(signingPrefix({
+      signatureVersion,
+      method,
+      canonicalPath: path,
+      timestamp,
+      requestId,
+      codePrefix,
+      context,
+    }))
+    .update(canonicalPayload(payload))
+    .digest('hex');
+}
+
+function replayMember({
+  signatureVersion,
+  method,
+  canonicalPath: path,
+  requestId,
+  timestamp,
+  signature,
+  codePrefix,
+  context,
+}) {
+  if (signatureVersion === SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY) {
+    return `${requestId}:${timestamp}:${signature}`;
+  }
+  const boundMethod = canonicalMethod(method, { codePrefix, context });
+  const boundPath = canonicalPath(path, { codePrefix, context });
+  assertLineSafe(timestamp, 'timestamp', { codePrefix, context });
+  assertLineSafe(requestId, 'request id', { codePrefix, context });
+  const digest = crypto.createHash('sha256')
+    .update(`${ENDPOINT_BOUND_V1_DOMAIN}\n${boundMethod}\n${boundPath}\n${timestamp}\n${requestId}\n${signature}`, 'utf8')
+    .digest('hex');
+  return `v1:${digest}`;
+}
+
+export function signSignedRequest({
+  secret,
+  timestamp,
+  requestId,
+  payload,
+  signatureVersion = SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY,
+  method,
+  canonicalPath: path,
+  context = 'Signed request',
+  codePrefix = 'SIGNED_REQUEST',
+} = {}) {
+  if (!secret) {
+    throw new AppError(`${context} signing secret is not configured`, 503, `${codePrefix}_SECRET_NOT_CONFIGURED`);
+  }
+  const ts = String(timestamp || '').trim();
+  const rid = String(requestId || '').trim();
+  if (!ts) {
+    throw AppError.unauthorized(`${context} timestamp is required`, `${codePrefix}_TIMESTAMP_REQUIRED`);
+  }
+  if (!rid) {
+    throw AppError.unauthorized(`${context} request id is required`, `${codePrefix}_REQUEST_ID_REQUIRED`);
+  }
+  const version = normalizeSignatureVersion(signatureVersion, { codePrefix, context });
+  return signatureHex({
+    secret,
+    signatureVersion: version,
+    method,
+    canonicalPath: path,
+    timestamp: ts,
+    requestId: rid,
+    payload,
+    codePrefix,
+    context,
+  });
 }
 
 function timestampMs(timestamp) {
@@ -85,6 +250,9 @@ export function verifySignedRequest({
   toleranceMs = DEFAULT_TOLERANCE_MS,
   replayNamespace = 'signed-request',
   claimLocalReplay = true,
+  signatureVersion = SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY,
+  method,
+  canonicalPath: path,
 } = {}) {
   if (!secret) {
     throw new AppError(`${context} signing secret is not configured`, 503, `${codePrefix}_SECRET_NOT_CONFIGURED`);
@@ -103,8 +271,18 @@ export function verifySignedRequest({
     throw AppError.unauthorized(`${context} signature is required`, `${codePrefix}_SIGNATURE_REQUIRED`);
   }
 
-  const signedPayload = `${ts}.${rid}.${canonicalPayload(payload)}`;
-  const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+  const version = normalizeSignatureVersion(signatureVersion, { codePrefix, context });
+  const expected = signatureHex({
+    secret,
+    signatureVersion: version,
+    method,
+    canonicalPath: path,
+    timestamp: ts,
+    requestId: rid,
+    payload,
+    codePrefix,
+    context,
+  });
   const expectedBuf = Buffer.from(expected, 'hex');
   const providedBuf = Buffer.from(provided, 'hex');
   if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {
@@ -113,7 +291,16 @@ export function verifySignedRequest({
 
   if (claimLocalReplay) {
     rememberReplayKey(
-      `${replayNamespace}:${rid}:${ts}:${provided}`,
+      `${replayNamespace}:${replayMember({
+        signatureVersion: version,
+        method,
+        canonicalPath: path,
+        requestId: rid,
+        timestamp: ts,
+        signature: provided,
+        codePrefix,
+        context,
+      })}`,
       requestTime + toleranceMs,
       codePrefix,
       context,
@@ -154,6 +341,9 @@ export function verifySignedRequest({
  * @param {number} [args.toleranceMs]    Freshness window around the signed timestamp.
  * @param {string} [args.codePrefix]     Error code prefix (defaults SIGNED_REQUEST).
  * @param {string} [args.context]        Human label for the error message.
+ * @param {'legacy'|'v1'} [args.signatureVersion] Signature contract version.
+ * @param {string} [args.method]          Required for endpoint-bound v1.
+ * @param {string} [args.canonicalPath]   Required for endpoint-bound v1.
  */
 export async function assertSharedReplayOnce({
   replayNamespace = 'signed-request',
@@ -163,14 +353,27 @@ export async function assertSharedReplayOnce({
   toleranceMs = DEFAULT_TOLERANCE_MS,
   codePrefix = 'SIGNED_REQUEST',
   context = 'Signed request',
+  signatureVersion = SIGNED_REQUEST_SIGNATURE_VERSIONS.LEGACY,
+  method,
+  canonicalPath: path,
 } = {}) {
   const rid = String(requestId || '').trim();
   const ts = String(timestamp || '').trim();
   const provided = normalizeSignature(signature) || '';
-  // Bind the key to the signature too, so a malicious id-collision attempt with
-  // a different (still-valid? — impossible without the secret) signature cannot
-  // be conflated. Mirrors the in-memory key shape.
-  const member = `${rid}:${ts}:${provided}`;
+  const version = normalizeSignatureVersion(signatureVersion, { codePrefix, context });
+  // Endpoint-bound requests claim the exact signed intent. A signature sent to
+  // the wrong method/path therefore fails authentication before it can consume
+  // the intended endpoint's durable replay identity.
+  const member = replayMember({
+    signatureVersion: version,
+    method,
+    canonicalPath: path,
+    requestId: rid,
+    timestamp: ts,
+    signature: provided,
+    codePrefix,
+    context,
+  });
   const requestTime = timestampMs(ts);
   const remainingAcceptanceMs = Number.isFinite(requestTime)
     ? requestTime + toleranceMs - nowMs()
@@ -233,10 +436,15 @@ export async function assertSharedReplayOnce({
 }
 
 export const __testing__ = {
+  canonicalMethod,
+  canonicalPath,
   canonicalPayload,
   normalizeSignature,
+  normalizeSignatureVersion,
+  replayMember,
   replayCache,
+  signingPrefix,
   timestampMs,
 };
 
-export default { verifySignedRequest, assertSharedReplayOnce };
+export default { verifySignedRequest, assertSharedReplayOnce, signSignedRequest };

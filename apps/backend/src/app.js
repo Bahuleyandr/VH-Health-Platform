@@ -125,6 +125,10 @@ import {
 
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
+import { abdmEnrolmentPortalRouter, abdmEnrolmentStaffRouter } from './routes/abdm/abdmEnrolmentRoutes.js';
+import abdmShareIntakeRoutes from './routes/abdm/abdmShareIntakeRoutes.js';
+import abdmHiuRoutes from './routes/abdm/abdmHiuRoutes.js';
+import { callbackRouter as uhiCallbackRoutes, adminRouter as uhiAdminRoutes } from './routes/uhi/uhiRoutes.js';
 import adoptionRoutes from './routes/adoption/adoptionRoutes.js';
 import { callbackRouter as nhcxCallbackRoutes } from './routes/nhcx/nhcxCallbackRoutes.js';
 import interfaceEngineIngressRoutes from './routes/interfaceEngine/interfaceEngineIngressRoutes.js';
@@ -148,6 +152,7 @@ import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
 import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
 import ambulanceTrackingRoutes from './routes/ed/ambulanceTrackingRoutes.js';
+import facilityAssetRoutes from './routes/facility/facilityAssetRoutes.js';
 import ipdSupportRoutes from './routes/ipd/ipdSupportRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
@@ -245,6 +250,9 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
 import publicPaymentPageRoutes from './routes/billing/publicPaymentPageRoutes.js';
+import paymentGatewayRoutes from './routes/billing/paymentGatewayRoutes.js';
+import paymentGatewayWebhookRoutes from './routes/billing/paymentGatewayWebhookRoutes.js';
+import smsDlrWebhookRoutes from './routes/webhooks/smsDlrRoutes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import labIngestRoutes from './routes/lab/labIngestRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
@@ -588,8 +596,33 @@ function captureJsonRawBody(req, body) {
     req.scimRawBody = Buffer.from(body);
   }
   if (path === '/api/v1/abdm/consent/on-notify'
-      || path === '/api/v1/abdm/health-info/on-request') {
+      || path === '/api/v1/abdm/health-info/on-request'
+      // ABDM completion (migrations 701-703): Scan & Share + thin-HIU
+      // callbacks verify the HMAC over these EXACT bytes. Every entry in
+      // ABDM_CALLBACK_PATHS (abdmRoutes.js) must appear here with the
+      // /api/v1/abdm mount prefix.
+      || path === '/api/v1/abdm/patients/profile/share'
+      || path === '/api/v1/abdm/hiu/consent-requests/on-init'
+      || path === '/api/v1/abdm/hiu/consents/notify'
+      || path === '/api/v1/abdm/hiu/health-info/on-request'
+      || path === '/api/v1/abdm/hiu/health-info/push') {
     req.abdmRawBody = Buffer.from(body);
+  }
+  // Payment gateway webhooks are HMAC-signed over the EXACT raw bytes —
+  // express.json re-serialization is not byte-stable, so the router verifies
+  // against this captured buffer (paymentGatewayWebhookRoutes).
+  if (path.startsWith('/webhooks/payments/')) {
+    req.paymentGatewayRawBody = Buffer.from(body);
+  }
+  // UHI webhook legs (migration 705): the beckn ed25519 signature covers a
+  // BLAKE-512 digest of these EXACT bytes. Every entry in UHI_CALLBACK_PATHS
+  // (uhiRoutes.js) must appear here with the /api/v1/uhi mount prefix.
+  if (path === '/api/v1/uhi/search'
+      || path === '/api/v1/uhi/init'
+      || path === '/api/v1/uhi/confirm'
+      || path === '/api/v1/uhi/status'
+      || path === '/api/v1/uhi/cancel') {
+    req.uhiRawBody = Buffer.from(body);
   }
 }
 
@@ -799,6 +832,11 @@ app.use('/api/v1/scim/v2', scimRateLimiter, scimRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);
+// UHI network webhooks (public — no JWT/API key; beckn ed25519 signature over
+// the captured raw bytes, fail-closed per-tenant resolution, env + tenant
+// kill switches default OFF). Pre-RLS mount: every write inside carries an
+// explicit tenant_id.
+app.use('/api/v1/uhi', uhiCallbackRoutes);
 // NHCX gateway callbacks (public — no JWT/API key, tenant-scoped signed callback)
 app.use('/api/v1/integrations/nhcx', nhcxCallbackRoutes);
 // NL11-S11 interface-engine ingress (public connector, HMAC-signed per tenant/channel).
@@ -872,6 +910,29 @@ app.use(
 // the patient profile — that limiter is the anti-enumeration control, and the
 // router answers unknown and malformed tokens with one identical page.
 app.use('/pay', patientRateLimiter, publicPaymentPageRoutes);
+
+// ====================================
+// PAYMENT GATEWAY PROVIDER WEBHOOKS (public, provider-signature-authenticated)
+// ====================================
+// Razorpay-shaped webhook deliveries carry no VH credential — authenticity is
+// the HMAC-SHA256 signature over the raw body, verified against the tenant's
+// encrypted webhook secret. The URL's opaque token resolves the tenant
+// FAIL-CLOSED (unknown token → 404, nothing written) — this is a pre-RLS
+// mount, so the handler writes tenant_id explicitly on every row (migration
+// 695 contract). Raw body is captured by the express.json verify hook above.
+app.use('/webhooks/payments', genericLimiter, paymentGatewayWebhookRoutes);
+
+// ====================================
+// SMS DELIVERY-STATUS (DLR) WEBHOOKS (public, token/signature-authenticated)
+// ====================================
+// MSG91/Twilio delivery-status callbacks carry no VH credential — the URL's
+// bearer token resolves the tenant FAIL-CLOSED via its SHA-256 hash on
+// sms_provider_configs (699); unknown token → 401, nothing written, never a
+// default tenant. Twilio deliveries are additionally verified against
+// X-Twilio-Signature (URL + sorted params, so no raw-body capture needed).
+// Receipts land append-only in the 609 ledger inside setTenant; outbox
+// status is NEVER flipped from a DLR (migration 700 contract).
+app.use('/webhooks/sms', genericLimiter, smsDlrWebhookRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE
@@ -1127,6 +1188,24 @@ const ABDM_PHI_PATHS = [
   '/api/v1/abdm/consent-requests',
   '/api/v1/abdm/consents',
 ];
+// ABDM completion (migrations 701-703) — mounted BEFORE the generic /abdm
+// patient router so the sub-paths resolve deterministically.
+//
+// Front-desk assisted ABHA enrolment. No route-level PHI logger: every
+// enrolment route logs its own logPhiAccess('abha_enrolment') with accurate
+// patient attribution (mirrors the /register-abha exclusion above — a mount
+// logger would double-log each write).
+app.use('/api/v1/abdm/enrolment', abdmEnrolmentStaffRouter);
+// Thin HIU. Consent surfaces + session/bundle LISTS ride the route-scoped
+// PHI logger; the bundle-CONTENT read is excluded here because the route
+// logs it explicitly as 'abdm_hiu_bundle' with patient attribution.
+app.use('/api/v1/abdm/hiu', phiAccessLoggerForPaths('ABDM', [
+  '/api/v1/abdm/hiu/consent-requests',
+  '/api/v1/abdm/hiu/consents',
+  /^\/api\/v1\/abdm\/hiu\/sessions(\/\d+(\/bundles)?)?$/,
+]), abdmHiuRoutes);
+// Scan & Share front-desk work queue — shared demographics are PHI.
+app.use('/api/v1/front-desk/abdm/share-intakes', phiAccessLogger('ABDM'), abdmShareIntakeRoutes);
 app.use('/api/v1/abdm', phiAccessLoggerForPaths('ABDM', ABDM_PHI_PATHS), abdmPatientRoutes);
 
 // ====================================
@@ -1202,6 +1281,12 @@ app.use(
   phiAccessLogger('AMBULANCE_TRACKING'),
   ambulanceTrackingRoutes,
 );
+
+// General (non-biomedical) facility asset register (migration 704). Role
+// gates (manage vs read arrays) live in the router; no PHI logger — the
+// register has no patient linkage, mutations write ordinary audit_logs rows
+// plus the append-only facility_asset_events domain history.
+app.use('/api/v1/facility/assets', facilityAssetRoutes);
 
 // IPD support subsystem — advance deposits, attendant passes, ward
 // indents (architectural item A4 / migration 174). RBAC is broad
@@ -1588,6 +1673,8 @@ app.use('/api/v1/admin/surgical', (req, res) => {
 // REQUIRE_MFA_FOR_SUPER_ADMIN login flag — see docs/GO_LIVE_ACTIVATION_CHECKLIST.md.
 app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
+// UHI evidence/dedupe ledger (migration 705) — read-only ops debugging surface.
+app.use('/api/v1/admin/uhi', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, uhiAdminRoutes);
 
 // System settings + status — admin-portal surface, so IP-allowlisted like
 // /api/v1/admin (fails closed in production until ADMIN_IP_ALLOWLIST is set;
@@ -1658,6 +1745,18 @@ app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBod
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), patientAccessGuard('BLOOD_BANK', { careTeamModeGoverned: true }), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+
+// Online payment gateway (config-gated DEFAULT OFF; UPI + cards via a
+// provider-abstracted adapter). Mounted BEFORE the generic /api/v1/billing
+// mounts so their role gates cannot shadow this surface; PATIENT is admitted
+// for self-payment order creation (service enforces ownership), admin config
+// and refund execution are gated route-level.
+app.use(
+  '/api/v1/billing/gateway',
+  requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'),
+  billingPhiAccessLogger(),
+  paymentGatewayRoutes,
+);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(
@@ -1753,6 +1852,10 @@ app.use('/api/v1/productivity', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLE
 // backend-HTTP P3 #7). No SUPER_ADMIN step-up: aggregate BI reads are not a
 // control-plane mutation surface (matches /admin/tenant-context posture).
 app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, dashboardsRoutes);
+// ABHA self-enrolment (migration 701) — mounted BEFORE the portal barrel so
+// /portal/abdm/enrolment/* resolves here. Routes log their own
+// logPhiAccess('abha_enrolment'); identity comes from the JWT only.
+app.use('/api/v1/portal/abdm/enrolment', patientRateLimiter, requireRole('PATIENT'), abdmEnrolmentPortalRouter);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);

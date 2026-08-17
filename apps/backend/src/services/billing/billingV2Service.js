@@ -16,6 +16,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
+import { toPaise } from '../../utils/money.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
@@ -94,8 +95,19 @@ function requireValidAmount(amount, label = 'amount') {
     throw AppError.badRequest(`${label} must be a finite number`);
   }
   if (parsed <= 0) throw AppError.badRequest(`${label} must be > 0`);
-  if (Math.abs(parsed - toFixed2(parsed)) > 1e-9) {
-    throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+  if (typeof amount === 'number') {
+    // JSON numbers can carry harmless IEEE-754 representation dust (for
+    // example, 0.1 + 0.2). Keep that compatibility while rejecting a real
+    // third decimal such as 100.001.
+    if (Math.abs(parsed - toFixed2(parsed)) > 1e-9) {
+      throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+    }
+  } else {
+    try {
+      toPaise(String(amount).trim());
+    } catch {
+      throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+    }
   }
   return parsed;
 }
@@ -1488,7 +1500,7 @@ async function collectPaymentTx(tx, {
       throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
     }
     resolvedPatientUid = inv.patient_uid;
-    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+    if (toPaise(amount) > toPaise(inv.amount_due)) {
       throw AppError.badRequest(
         `Amount ${amount} exceeds outstanding due ${inv.amount_due}`,
       );
@@ -1730,7 +1742,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
     );
     if (!adv.length) throw AppError.notFound('Advance not found');
     if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
-    if (Number(amount) > Number(adv[0].balance) + 0.01) {
+    if (toPaise(amount) > toPaise(adv[0].balance)) {
       throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
     }
 
@@ -1750,7 +1762,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
       );
     }
     settledPatientUid = inv.patient_uid; // captured for the post-commit ledger entry
-    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+    if (toPaise(amount) > toPaise(inv.amount_due)) {
       throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
     }
 
@@ -1984,9 +1996,40 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
   return rows[0];
 }
 
-export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
+async function settleRefundPaid(refundId, {
+  paid_by, reference, tenantId, payoutRail, gatewayRefundId = null,
+  providerRefundId = null,
+}) {
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    if (payoutRail === 'gateway') {
+      const evidenceRows = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM payment_gateway_refunds
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND billing_refund_id = $3::int
+            AND status IN ('initiated', 'pending', 'requires_reconciliation')
+            AND reconciled_at IS NULL
+            AND (provider_refund_id IS NULL OR provider_refund_id = $4)
+          FOR UPDATE`,
+        gatewayRefundId, requireTenantId(tenantId), Number(refundId), providerRefundId,
+      );
+      if (!evidenceRows.length) {
+        throw AppError.conflict(
+          'Gateway refund execution evidence is not settlement-authoritative',
+          'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID',
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET provider_refund_id = COALESCE(provider_refund_id, $1),
+                updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid`,
+        providerRefundId, gatewayRefundId, requireTenantId(tenantId),
+      );
+    }
+
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
     // so the ledger-reducing writes below run exactly once.
@@ -1994,17 +2037,58 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
       paid_by ? String(paid_by) : null,
       reference || null,
       Number(refundId),
+      payoutRail,
+      gatewayRefundId,
     ];
     const tenantSql = appendTenantPredicate(params, tenantId);
     const rows = await tx.$queryRawUnsafe(
       `UPDATE billing_refunds
           SET approval_status = 'PAID', paid_by = $1::uuid,
-              paid_at = NOW(), reference = COALESCE($2, reference), updated_at = NOW()
+              paid_at = NOW(), reference = COALESCE($2, reference),
+              payout_rail = $4,
+              payout_rail_claimed_at = COALESCE(payout_rail_claimed_at, NOW()),
+              gateway_refund_id = CASE WHEN $4 = 'gateway' THEN $5::int ELSE NULL END,
+              updated_at = NOW()
         WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
+          AND (
+            (
+              $4 = 'manual'
+              AND (payout_rail IS NULL OR payout_rail = 'manual')
+              AND gateway_refund_id IS NULL
+            )
+            OR (
+              $4 = 'gateway'
+              AND payout_rail = 'gateway'
+              AND gateway_refund_id = $5::int
+            )
+          )
         RETURNING *`,
       ...params,
     );
-    if (!rows.length) throw AppError.notFound('Refund not found or not approved');
+    if (!rows.length) {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT approval_status, payout_rail, gateway_refund_id
+           FROM billing_refunds
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          LIMIT 1`,
+        Number(refundId), requireTenantId(tenantId),
+      );
+      if (existing.length && existing[0].approval_status === 'APPROVED'
+          && existing[0].payout_rail && existing[0].payout_rail !== payoutRail) {
+        throw AppError.conflict(
+          `Refund payout is already owned by the ${existing[0].payout_rail} rail`,
+          'BILLING_REFUND_PAYOUT_RAIL_CONFLICT',
+        );
+      }
+      if (existing.length && payoutRail === 'gateway'
+          && Number(existing[0].gateway_refund_id) !== gatewayRefundId) {
+        throw AppError.conflict(
+          'A different gateway refund execution owns this payout',
+          'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT',
+        );
+      }
+      throw AppError.notFound('Refund not found or not approved');
+    }
     const refund = rows[0];
 
     // If linked to an advance: atomically reduce the advance balance (SHADOW/OFF
@@ -2071,6 +2155,40 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
     }
   }
   return refund;
+}
+
+export async function markRefundPaid(refundId, {
+  paid_by, reference, tenantId,
+} = {}) {
+  return settleRefundPaid(refundId, {
+    paid_by,
+    reference,
+    tenantId,
+    payoutRail: 'manual',
+    gatewayRefundId: null,
+  });
+}
+
+export async function markGatewayRefundPaid(refundId, {
+  tenantId, gateway_refund_id, provider_refund_id,
+} = {}) {
+  const gatewayRefundId = Number(gateway_refund_id);
+  const providerRefundId = String(provider_refund_id || '').trim();
+  if (!Number.isInteger(gatewayRefundId) || gatewayRefundId <= 0
+      || !providerRefundId || providerRefundId.length > 120) {
+    throw AppError.badRequest(
+      'Exact gateway refund execution evidence is required for gateway payout',
+      'BILLING_REFUND_GATEWAY_EXECUTION_REQUIRED',
+    );
+  }
+  return settleRefundPaid(refundId, {
+    paid_by: null,
+    reference: providerRefundId,
+    tenantId,
+    payoutRail: 'gateway',
+    gatewayRefundId,
+    providerRefundId,
+  });
 }
 
 export async function listRefunds({ tenantId, approval_status, patient_uid } = {}) {

@@ -18,6 +18,7 @@ import { checkCanonicalAbhaDuplicates } from './lib/abdmPreflight.mjs';
 
 const REQUIRED_ENV = ['ABDM_CLIENT_ID', 'ABDM_CLIENT_SECRET', 'ABDM_HIP_ID', 'ABDM_CALLBACK_URL'];
 const OPTIONAL_ENV = ['ABDM_GATEWAY_URL', 'ABDM_BRIDGE_URL', 'ABDM_HIP_NAME', 'ABDM_ENABLED'];
+const NON_PRODUCTION_HOST_LABEL = /(^|[.-])(dev|sandbox|sbx)([.-]|$)/i;
 const REQUIRED_TABLES = [
   'abdm_consents', 'abdm_consent_requests', 'abdm_consent_artifacts',
   'abdm_care_contexts', 'abdm_data_requests', 'abdm_data_transfers',
@@ -44,9 +45,34 @@ const KNOWN_GAPS = [
 ];
 
 function checkEnv() {
-  const missing = REQUIRED_ENV.filter((k) => !(process.env[k] || '').trim());
-  const present = REQUIRED_ENV.filter((k) => (process.env[k] || '').trim());
-  return { missing, present };
+  const required = process.env.ABDM_ENVIRONMENT === 'production'
+    ? [...REQUIRED_ENV, 'ABDM_GATEWAY_URL', 'ABDM_BRIDGE_URL']
+    : REQUIRED_ENV;
+  const missing = required.filter((k) => !(process.env[k] || '').trim());
+  const present = required.filter((k) => (process.env[k] || '').trim());
+  const invalid = [];
+  if (process.env.ABDM_ENVIRONMENT === 'production') {
+    for (const key of ['ABDM_GATEWAY_URL', 'ABDM_BRIDGE_URL']) {
+      const raw = (process.env[key] || '').trim();
+      if (!raw) continue;
+      try {
+        const url = new URL(raw);
+        const hostname = url.hostname.toLowerCase();
+        if (
+          url.protocol !== 'https:'
+          || hostname === 'localhost'
+          || hostname === '0.0.0.0'
+          || hostname === '[::1]'
+          || hostname.endsWith('.local')
+          || /^127\./.test(hostname)
+          || NON_PRODUCTION_HOST_LABEL.test(hostname)
+        ) invalid.push(key);
+      } catch {
+        invalid.push(key);
+      }
+    }
+  }
+  return { missing, present, invalid, requiredCount: required.length };
 }
 
 async function checkTables() {
@@ -76,9 +102,10 @@ try {
 }
 
 console.log('═══ ABDM readiness preflight (roadmap C1) ═══\n');
-console.log(`Config: ${env.present.length}/${REQUIRED_ENV.length} required env vars set`);
+console.log(`Config: ${env.present.length}/${env.requiredCount} required env vars set`);
 for (const k of env.present) console.log(`  ✓ ${k}`);
 for (const k of env.missing) console.log(`  ✗ ${k} (owner-side: sandbox signup at https://sandbox.abdm.gov.in)`);
+for (const k of env.invalid) console.log(`  ✗ ${k} must be an explicit non-development HTTPS URL in production`);
 for (const k of OPTIONAL_ENV) {
   console.log(`  · ${k} = ${(process.env[k] || '(default)').slice(0, 60)}`);
 }
@@ -106,6 +133,7 @@ for (const gap of KNOWN_GAPS) {
 
 const blockers =
   env.missing.length
+  + env.invalid.length
   + (tables.error ? 1 : 0)
   + (tables.missing?.length || 0)
   + (tables.abhaDuplicates?.duplicateGroups || 0)

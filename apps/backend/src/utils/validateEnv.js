@@ -12,6 +12,30 @@ import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVe
 // Minimum key length for all at-rest encryption keys (base64-encoded 32 bytes = 44 chars,
 // but Joi.min counts characters; 32 is the floor below which we refuse to boot).
 const MIN_KEY_LENGTH = 32;
+const ABHA_ENROLMENT_SANDBOX_HOST = 'abhasbx.abdm.gov.in';
+const NON_PRODUCTION_HOST_LABEL = /(^|[.-])(dev|sandbox|sbx)([.-]|$)/i;
+
+function rejectProductionAbhaSandboxHost(value, helpers) {
+  if (new URL(value).hostname.toLowerCase() === ABHA_ENROLMENT_SANDBOX_HOST) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
+
+function rejectProductionAbdmNonProductionHost(value, helpers) {
+  const hostname = new URL(value).hostname.toLowerCase();
+  if (
+    hostname === 'localhost'
+    || hostname === '0.0.0.0'
+    || hostname === '[::1]'
+    || hostname.endsWith('.local')
+    || /^127\./.test(hostname)
+    || NON_PRODUCTION_HOST_LABEL.test(hostname)
+  ) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
 
 const ENCRYPTION_KEY_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
@@ -569,6 +593,69 @@ export const envSchema = Joi.object({
     .default(600)
     .label('TELECONSULT_TOKEN_TTL_SECONDS'),
 
+  // Online payment gateway (UPI + cards) deployment-wide kill switch.
+  // Default OFF. Provider credentials are strictly per-tenant rows
+  // (payment_gateway_provider_configs, encryptField ciphertext) — no env
+  // credentials exist, so enabling requires no additional env keys; the
+  // dry_run provider needs no credentials at all.
+  PAYMENT_GATEWAY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PAYMENT_GATEWAY_ENABLED'),
+
+  // SMS gateway (migrations 699/700). Unset = dry-run everywhere (DEFAULT
+  // OFF); 'logger' is the explicit deployment-wide kill switch (tenant
+  // configs ignored); 'msg91'/'twilio' enable an env-credential fallback for
+  // tenants without their own sms_provider_configs row — per-tenant rows
+  // always win, and tenants.settings.sms.enabled still gates every real
+  // send. A named env provider must carry complete credentials.
+  SMS_PROVIDER: Joi.string()
+    .valid('msg91', 'twilio', 'logger')
+    .optional()
+    .label('SMS_PROVIDER'),
+  MSG91_AUTH_KEY: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_AUTH_KEY'),
+  MSG91_SENDER_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(20).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_SENDER_ID'),
+  MSG91_DLT_ENTITY_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(40).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_DLT_ENTITY_ID'),
+  TWILIO_SMS_FROM: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_SMS_FROM'),
+  // Shared Twilio account credentials (also used by the WhatsApp/voice
+  // channels, which only soft-check them at send time) become REQUIRED when
+  // the deployment names twilio as the env SMS provider.
+  TWILIO_ACCOUNT_SID: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_ACCOUNT_SID'),
+  TWILIO_AUTH_TOKEN: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_AUTH_TOKEN'),
+  PUBLIC_BASE_URL: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().uri({ scheme: ['https'] }).required(),
+      otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).required(),
+    }),
+    otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).allow('').optional(),
+  }).label('PUBLIC_BASE_URL'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',
@@ -580,6 +667,13 @@ export const envSchema = Joi.object({
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CALLBACK_SECRET'),
+  // The endpoint-unbound callback contract exists only as an explicit sandbox
+  // migration seam. Production must never boot with downgrade acceptance.
+  ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().valid('false').default('false'),
+    otherwise: Joi.string().valid('true', 'false').default('false'),
+  }).label('ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND'),
   // CAN-026: Consent-Manager artefact signature verification is a mandatory
   // trust layer for the national health network — an ABDM-enabled deployment
   // must run with it ON and a CM public key present, so it can't silently accept
@@ -594,6 +688,86 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CM_PUBLIC_KEY'),
+  // ABDM completion (migrations 701-703): the environment is EXPLICIT — the
+  // gateway previously hardcoded X-CM-ID 'sbx'. Defaults stay sandbox; a
+  // production deployment sets ABDM_ENVIRONMENT=production and MUST then name
+  // its Consent-Manager id (no production default exists on purpose).
+  ABDM_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('ABDM_ENVIRONMENT'),
+  ABDM_CM_ID: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_CM_ID'),
+  ABDM_GATEWAY_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/gateway'),
+  }).label('ABDM_GATEWAY_URL'),
+  ABDM_BRIDGE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/devservice/v1'),
+  }).label('ABDM_BRIDGE_URL'),
+  // ABHA enrolment API base (v3). Sandbox keeps the known-safe default;
+  // production must name a non-sandbox host explicitly so Aadhaar/mobile/OTP
+  // material cannot cross environments through a forgotten URL override.
+  ABHA_ENROLMENT_BASE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbhaSandboxHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://abhasbx.abdm.gov.in/abha/api/v3'),
+  }).label('ABHA_ENROLMENT_BASE_URL'),
+  // Thin-HIU identity; defaults to ABDM_HIP_ID in abdmConfig when unset.
+  ABDM_HIU_ID: Joi.string().allow('').optional().label('ABDM_HIU_ID'),
+
+  // UHI (Unified Health Interface / DHP-beckn) adapter — migration 705.
+  // Deployment kill switch, default OFF (ship-disabled, zero live
+  // credentials). When enabled, the network identity + signing key become
+  // mandatory (ABDM_ENABLED conditional-Joi precedent); the gateway public
+  // key stays optional because per-tenant verification keys live in
+  // tenant_interop_secrets (kind 'uhi_callback').
+  UHI_ENABLED: Joi.string().valid('true', 'false').default('false').label('UHI_ENABLED'),
+  UHI_GATEWAY_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://gateway.uhi.abdm.gov.in/api/v1')
+    .label('UHI_GATEWAY_URL'),
+  UHI_SUBSCRIBER_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SUBSCRIBER_ID'),
+  UHI_SIGNING_PRIVATE_KEY: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_PRIVATE_KEY'),
+  UHI_SIGNING_KEY_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_KEY_ID'),
+  UHI_GATEWAY_PUBLIC_KEY: Joi.string().allow('').optional().label('UHI_GATEWAY_PUBLIC_KEY'),
+  UHI_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('UHI_ENVIRONMENT'),
 }).unknown(true);
 
 // Validate the current environment variables

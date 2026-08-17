@@ -402,6 +402,24 @@ describe('recordWebhookEvent — idempotency', () => {
     expect(result.event.id).toBe(1);
   });
 
+  it('reclaims failed intake when an authenticated callback is retried', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 4, external_event_id: 'EVT-RETRY', status: 'failed', received_at: new Date(),
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 4, external_event_id: 'EVT-RETRY', status: 'pending', received_at: new Date(),
+    }]);
+    const result = await recordWebhookEvent({
+      tenantId: TENANT,
+      externalEventId: 'EVT-RETRY',
+      eventType: 'hiu_data_push',
+      payload: { pageNumber: 1 },
+      retryFailed: true,
+    });
+    expect(result).toMatchObject({ duplicate: false, reclaimed: true });
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain("SET status = 'pending'");
+  });
+
   it('inserts when event is new', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // dedup lookup
     queryUnsafeMock.mockResolvedValueOnce([{

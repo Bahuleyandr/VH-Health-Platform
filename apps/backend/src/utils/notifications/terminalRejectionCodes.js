@@ -30,6 +30,12 @@ export const TERMINAL_REJECTION_CODES = Object.freeze([
   'recipient_not_found',
   'email_address_missing',
   'phone_missing',
+  // Migration 699 DLT fail-closed gate: this outbox row's template kind has
+  // no active sms_template_registrations row, so THIS intent can never be
+  // sent as rendered (an unregistered send is forbidden). Terminal per-row,
+  // not per-channel: other template kinds keep delivering; the operator
+  // registers the template and replays the dead-lettered row.
+  'dlt_template_not_registered',
 ]);
 
 const TERMINAL_SET = new Set(TERMINAL_REJECTION_CODES);

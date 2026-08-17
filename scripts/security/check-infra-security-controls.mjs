@@ -34,6 +34,7 @@ const forgejoBuildkitHelper = read('scripts/ci/forgejo-buildkit-builder.mjs');
 const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
+const backendIngress = read('infra/kubernetes/apps/backend/ingress.yaml');
 
 const sha256Digest = '@sha256:[a-f0-9]{64}';
 const minimatchPatchCopy =
@@ -70,6 +71,10 @@ check('backend HTTPS redirect does not reflect req.headers.host', () =>
 check('backend admin IP allowlist fails closed in production', () =>
   backendAllowlist.includes('ADMIN_IP_ALLOWLIST_REQUIRED') &&
   backendAllowlist.includes('isProductionRuntime'));
+
+check('SMS callback path bearer is excluded from ingress access logs', () =>
+  /name:\s*vhhealth-backend-sms-webhooks[\s\S]*?nginx\.ingress\.kubernetes\.io\/enable-access-log:\s*"false"[\s\S]*?path:\s*\/webhooks\/sms\s*\n\s*pathType:\s*Prefix/.test(backendIngress) &&
+  (backendIngress.match(/path:\s*\/webhooks\/sms\s*$/gm) || []).length === 2);
 
 check('admin middleware uses trusted production redirect origin', () =>
   adminMiddleware.includes('trustedRedirectBase') &&

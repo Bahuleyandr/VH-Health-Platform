@@ -190,7 +190,17 @@ function buildOperation(method, openApiPath, opId, ov, tags) {
       op.responses[String(status)] = response;
     }
   }
-  if (ov && ov.request) {
+  if (ov && ov.requestContent) {
+    op.requestBody = {
+      required: ov.requestRequired !== false,
+      content: Object.fromEntries(
+        Object.entries(ov.requestContent).map(([contentType, schemaName]) => [
+          contentType,
+          { schema: { $ref: `#/components/schemas/${schemaName}` } },
+        ]),
+      ),
+    };
+  } else if (ov && ov.request) {
     op.requestBody = {
       required: ov.requestRequired !== false,
       content: { 'application/json': { schema: { $ref: `#/components/schemas/${ov.request}` } } },

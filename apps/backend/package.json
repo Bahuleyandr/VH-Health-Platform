@@ -353,10 +353,10 @@
         "branches": 55
       },
       "src/services/billing/paymentLinkService.js": {
-        "statements": 61,
-        "lines": 61,
-        "functions": 61,
-        "branches": 46
+        "statements": 75,
+        "lines": 75,
+        "functions": 80,
+        "branches": 55
       },
       "src/services/emr/cdsEngine.js": {
         "statements": 80,
@@ -390,6 +390,7 @@
     "minimatch": "10.2.5",
     "postcss": "8.5.25",
     "@prisma/dev": "0.24.16",
+    "deepmerge-ts": "^8.0.1",
     "find-my-way": "9.7.0",
     "valibot": "1.4.2",
     "rollup": "^2.80.0",
