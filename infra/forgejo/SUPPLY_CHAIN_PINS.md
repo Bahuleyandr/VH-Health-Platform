@@ -17,15 +17,16 @@ tools must also use exact versions; `@latest` package execution and movable
 cleanup are not authored in workflow shell. As a checked-in change guard, the
 checker accepts only reviewed literal Docker command shapes: `docker login`,
 `docker build`, `docker image inspect`, `docker save`, `docker tag`, `docker
-push`, and `docker buildx build` without an alternate `--builder`. A literal
-`docker` command with a dynamic or unreviewed immediate subcommand fails, as
-does a dynamic command position paired with lifecycle-shaping arguments. The
-exact reviewed prepare/cleanup calls to
-`scripts/ci/forgejo-buildkit-builder.mjs` remain the only lifecycle path. The
-helper invokes Docker without a shell and supplies the driver, config, and
-digest-pinned BuildKit image as fixed arguments. Its exact output selects the
-one-shot builder through the job-local `BUILDX_BUILDER` environment variable;
-the helper never changes Buildx's shared default selection.
+push`. A literal `docker` command with a dynamic or unreviewed immediate
+subcommand fails, as do direct Buildx commands, dynamic command positions paired
+with Buildx/lifecycle arguments, and the guard's recognized shell/process
+wrapper forms when their command or shell payload is dynamic or unreviewed. The
+exact reviewed prepare/build/cleanup calls to
+`scripts/ci/forgejo-buildkit-builder.mjs` are the only Buildx path. The helper
+invokes Docker without a shell and supplies the driver, config, digest-pinned
+BuildKit image, build options, and exact one-shot builder as fixed arguments.
+Controlled values occupy individual argument slots, and the helper appends the
+reviewed `--builder` after them so none can select an alternate builder.
 
 To update a pin:
 
@@ -35,8 +36,8 @@ To update a pin:
    commit or digest.
 3. Update every occurrence in one change.
 4. For a BuildKit image update, change the single `BUILDKIT_IMAGE` literal in
-   the helper and update its exact-argv test. For a config update, change the
-   checked-in config and the live worker-policy assertion together.
+   the helper and update its exact-argv test. For a config or image-build update,
+   change the helper's fixed arguments and the corresponding exact-argv test.
 5. Builders are one-shot job resources, never rollback generations. Before
    creation, the helper enumerates and retires exact legacy names, every numeric
    legacy generation (including higher generations), and stale one-shot names

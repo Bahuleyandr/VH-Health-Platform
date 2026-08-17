@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   BUILDKIT_IMAGE,
+  buildImages,
   builderPlan,
   cleanupBuilder,
   prepareBuilder,
@@ -66,6 +67,9 @@ class FakeDocker {
         stdout: '',
         stderr: '',
       };
+    }
+    if (args[0] === 'buildx' && args[1] === 'build') {
+      return { status: 0, stdout: '', stderr: '' };
     }
     if (args[0] === 'inspect') {
       const container = this.containers.get(args.at(-1));
@@ -210,5 +214,126 @@ test('prepare rejects an unexpected live worker policy', () => {
   assert.throws(
     () => prepareBuilder('release', { env: releaseEnv, execute: docker.execute }),
     /GC policy/,
+  );
+});
+
+test('release build uses fixed argv and appends the reviewed builder after dynamic inputs', () => {
+  const env = {
+    ...releaseEnv,
+    GITHUB_SHA: 'a'.repeat(40),
+    GHCR_IMAGE_OWNER: 'Bahuleyandr',
+    IMAGE: 'ghcr.io/bahuleyandr/vh-health-platform-backend',
+    PRIMARY_TAG: 'backend-v1.2.3',
+    LATEST_TAG: 'latest-backend',
+    RELEASE_PLATFORMS: 'linux/amd64,linux/arm64',
+  };
+  const docker = new FakeDocker();
+
+  buildImages('release', { env, execute: docker.execute });
+
+  const args = docker.calls.at(-1);
+  const builderIndex = args.indexOf('--builder');
+  assert.equal(args.filter((argument) => argument === '--builder').length, 1);
+  assert.equal(args[builderIndex + 1], builderPlan('release', env).builderName);
+  assert.ok(builderIndex > args.indexOf('NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66'));
+  assert.deepEqual(args.slice(-3), ['-f', 'apps/backend/Dockerfile', 'apps/backend']);
+});
+
+test('release build keeps dynamic values in fixed argument slots', () => {
+  const env = {
+    ...releaseEnv,
+    VH_BUILDKIT_JOB_KEY: 'admin',
+    GITHUB_SHA: 'b'.repeat(40),
+    GHCR_IMAGE_OWNER: 'bahuleyandr',
+    IMAGE: 'ghcr.io/bahuleyandr/vh-health-platform-adminportal',
+    PRIMARY_TAG: 'admin-v1.2.3',
+    LATEST_TAG: '',
+    RELEASE_PLATFORMS: 'linux/amd64',
+    NEXT_PUBLIC_API_URL: '--builder evil',
+    SENTRY_AUTH_TOKEN: 'must-not-enter-argv',
+  };
+  const docker = new FakeDocker();
+
+  buildImages('release', { env, execute: docker.execute });
+
+  const args = docker.calls.at(-1);
+  assert.equal(args.filter((argument) => argument === '--builder').length, 1);
+  assert.ok(args.includes('NEXT_PUBLIC_API_URL=--builder evil'));
+  assert.ok(args.indexOf('--builder') > args.indexOf('NEXT_PUBLIC_API_URL=--builder evil'));
+  assert.equal(args.some((argument) => argument.includes('must-not-enter-argv')), false);
+  assert.deepEqual(args.slice(-3), ['-f', 'apps/admin/Dockerfile', 'apps/admin']);
+});
+
+test('dalek build emits two fixed commands bound to the exact one-shot builder', () => {
+  const env = {
+    GITHUB_RUN_ID: '456',
+    GITHUB_RUN_ATTEMPT: '1',
+    GITHUB_SHA: 'c'.repeat(40),
+    GHCR_IMAGE_OWNER: 'bahuleyandr',
+    NEXT_PUBLIC_SENTRY_DSN: '',
+  };
+  const docker = new FakeDocker();
+
+  buildImages('dalek', { env, execute: docker.execute });
+
+  const builds = docker.calls.filter((args) => args[0] === 'buildx' && args[1] === 'build');
+  assert.equal(builds.length, 2);
+  for (const args of builds) {
+    const builderIndex = args.indexOf('--builder');
+    assert.equal(args.filter((argument) => argument === '--builder').length, 1);
+    assert.equal(args[builderIndex + 1], builderPlan('dalek', env).builderName);
+  }
+  assert.deepEqual(builds[0].slice(-3), ['-f', 'apps/backend/Dockerfile', 'apps/backend']);
+  assert.deepEqual(builds[1].slice(-3), ['-f', 'apps/admin/Dockerfile', 'apps/admin']);
+});
+
+test('release build rejects unreviewed target and platform values before Docker', () => {
+  const baseEnv = {
+    ...releaseEnv,
+    GITHUB_SHA: 'd'.repeat(40),
+    GHCR_IMAGE_OWNER: 'bahuleyandr',
+    IMAGE: 'ghcr.io/bahuleyandr/vh-health-platform-backend',
+    PRIMARY_TAG: 'backend-v1.2.3',
+    RELEASE_PLATFORMS: 'linux/amd64',
+  };
+  const docker = new FakeDocker();
+
+  assert.throws(
+    () => buildImages('release', {
+      env: { ...baseEnv, IMAGE: 'ghcr.io/attacker/foreign' },
+      execute: docker.execute,
+    }),
+    /reviewed release target/,
+  );
+  assert.throws(
+    () => buildImages('release', {
+      env: { ...baseEnv, RELEASE_PLATFORMS: 'linux/amd64 --builder unsafe' },
+      execute: docker.execute,
+    }),
+    /unsupported platform/,
+  );
+  assert.deepEqual(docker.calls, []);
+});
+
+test('build failures do not render controlled build values in the command label', () => {
+  const secretValue = 'https://sentry.invalid/secret-value';
+  const env = {
+    ...releaseEnv,
+    VH_BUILDKIT_JOB_KEY: 'admin',
+    GITHUB_SHA: 'e'.repeat(40),
+    GHCR_IMAGE_OWNER: 'bahuleyandr',
+    IMAGE: 'ghcr.io/bahuleyandr/vh-health-platform-adminportal',
+    PRIMARY_TAG: 'admin-v1.2.3',
+    RELEASE_PLATFORMS: 'linux/amd64',
+    NEXT_PUBLIC_SENTRY_DSN: secretValue,
+  };
+
+  assert.throws(
+    () => buildImages('release', {
+      env,
+      execute: () => ({ status: 1, stdout: '', stderr: 'build failed' }),
+    }),
+    (error) => /docker buildx build failed/.test(error.message) &&
+      !error.message.includes(secretValue),
   );
 });

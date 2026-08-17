@@ -186,15 +186,14 @@ test('rejects a mutable BuildKit helper image', () => {
   assert.match(violations[0].message, /one literal sha256 digest/);
 });
 
-test('accepts exact BuildKit helper calls and ordinary build use', () => {
+test('accepts exact BuildKit helper lifecycle and build calls', () => {
   const root = fixture({
     workflow: [
       'steps:',
       '  - run: |',
       "      trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup release || exit 1' EXIT",
-      '      BUILDX_BUILDER="$(node scripts/ci/forgejo-buildkit-builder.mjs prepare release)"',
-      '      export BUILDX_BUILDER',
-      '      docker buildx build --push .',
+      '      node scripts/ci/forgejo-buildkit-builder.mjs prepare release',
+      '      node scripts/ci/forgejo-buildkit-builder.mjs build release',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
   });
@@ -209,6 +208,17 @@ test('accepts reviewed Docker commands and Docker words outside command position
       '  - run: |',
       "      echo 'docker buildx create --driver docker-container is forbidden'",
       "      printf '%s\\n' docker buildx create",
+      "      /bin/sh -c 'printf %s docker buildx create'",
+      "      /bin/sh \"-c\" 'printf %s docker buildx create'",
+      "      /usr/bin/env printf '%s\\n' docker buildx create",
+      "      /usr/bin/env \"SAFE=value\" printf '%s\\n' docker buildx create",
+      "      /usr/bin/env --argv0 harmless printf '%s\\n' docker buildx create",
+      "      /usr/bin/env -S 'printf %s docker buildx create'",
+      "      nohup printf '%s\\n' docker buildx create",
+      "      nice printf '%s\\n' docker buildx create",
+      "      nice -n 5 printf '%s\\n' docker buildx create",
+      "      /usr/bin/time -f %E printf '%s\\n' docker buildx create",
+      "      s\"h\" -c 'echo docker.io'",
       '      registry=docker.io',
       '      formatter=node',
       '      "$formatter" --version',
@@ -218,7 +228,6 @@ test('accepts reviewed Docker commands and Docker words outside command position
       '      docker save "$image" -o image.tar',
       '      docker tag "$image" "$target"',
       '      docker push "$target"',
-      '      docker buildx build --push "${args[@]}" .',
       '      node scripts/run-db-guardrails-docker.mjs',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
@@ -342,12 +351,28 @@ test('rejects non-canonical Buildx argv construction and repeated driver flags',
       '  - run: docker "$(printf build)$(printf x)" create --driver docker-container',
       '  - run: tool=docker; "$tool" buildx create --driver docker-container',
       '  - run: plugin="$(printf docker-buildx)"; "$plugin" create --driver docker-container',
+      "  - run: /bin/sh -c 'docker buildx create --driver docker-container'",
+      "  - run: /bin/bash -c 'docker buildx create --driver docker-container'",
+      '  - run: /usr/bin/env docker buildx create --driver docker-container',
+      "  - run: s\"h\" -c 'docker buildx create --driver docker-container'",
+      '  - run: nohup docker buildx create --driver docker-container',
+      '  - run: nice docker buildx create --driver docker-container',
+      "  - run: payload='docker buildx create --driver docker-container'; /bin/sh -c \"$payload\"",
+      "  - run: payload='docker buildx create --driver docker-container'; /usr/bin/env sh -c \"$payload\"",
+      "  - run: wrapper=/bin/sh; payload='docker buildx create'; \"$wrapper\" -c \"$payload\"",
+      "  - run: payload='docker buildx create --driver docker-container'; /bin/sh \"-c\" \"$payload\"",
+      '  - run: /usr/bin/env "SAFE=value" docker buildx create --driver docker-container',
+      "  - run: /usr/bin/env -S 'docker buildx create --driver docker-container'",
+      '  - run: /usr/bin/env --argv0 harmless docker buildx create --driver docker-container',
+      '  - run: /usr/bin/time -f %E docker buildx create --driver docker-container',
+      '  - run: builder_flag=--builder; docker buildx build "$builder_flag" unsafe .',
+      '  - run: options=(--builder unsafe); docker buildx build "${options[@]}" .',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
   });
 
   const violations = findForgejoSupplyChainViolations(root);
-  assert.equal(violations.length, 22);
+  assert.equal(violations.length, 38);
   assert.ok(violations.every((violation) => /delegated to the approved helper/.test(violation.message)));
 });
 
@@ -358,12 +383,15 @@ test('rejects altered or indirect BuildKit helper calls', () => {
       '  - run: BUILDX_BUILDER="$(node scripts/ci/forgejo-buildkit-builder.mjs prepare "$PROFILE")"',
       '  - run: BUILDX_BUILDER="$(node scripts/ci/forgejo-buildkit-builder.mjs prepare release)" && echo bypass',
       "  - run: trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup release' EXIT",
+      '  - run: |',
+      '      /usr/bin/env \\',
+      '      node scripts/ci/forgejo-buildkit-builder.mjs build release',
     ].join('\n'),
     dockerfile: `FROM ghcr.io/example/runner:stable@sha256:${imageDigest}\n`,
   });
 
   const violations = findForgejoSupplyChainViolations(root);
-  assert.equal(violations.length, 3);
+  assert.equal(violations.length, 4);
   assert.ok(violations.every((violation) => /exact approved command/.test(violation.message)));
 });
 
@@ -439,13 +467,16 @@ test('repository workflows arm exact cleanup before one-shot builder preparation
       `trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup ${profile} || exit 1' EXIT`,
     );
     const prepare = workflow.indexOf(
-      `BUILDX_BUILDER="$(node scripts/ci/forgejo-buildkit-builder.mjs prepare ${profile})"`,
+      `node scripts/ci/forgejo-buildkit-builder.mjs prepare ${profile}`,
     );
-    const firstBuild = workflow.indexOf('docker buildx build');
+    const build = workflow.indexOf(
+      `node scripts/ci/forgejo-buildkit-builder.mjs build ${profile}`,
+    );
     assert.ok(trap >= 0, `${file} must arm exact cleanup`);
     assert.ok(prepare > trap, `${file} must arm cleanup before preparation`);
-    assert.ok(firstBuild > prepare, `${file} must prepare before building`);
-    assert.doesNotMatch(workflow, /docker buildx (?:create|inspect|rm|use)/);
+    assert.ok(build > prepare, `${file} must prepare before building`);
+    assert.doesNotMatch(workflow, /docker buildx/);
+    assert.doesNotMatch(workflow, /BUILDX_BUILDER/);
     assert.doesNotMatch(workflow, /rollback_builder|builder_generation|forgejo-buildkit-lifecycle/);
   }
 

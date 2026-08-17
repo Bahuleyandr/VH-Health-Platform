@@ -207,17 +207,45 @@ function workflowRunScalars(content, file) {
 
 const buildkitHelperPath = 'scripts/ci/forgejo-buildkit-builder.mjs';
 const approvedBuildkitHelperCommands = new Set([
-  'export BUILDX_BUILDER',
-  `BUILDX_BUILDER="$(node ${buildkitHelperPath} prepare dalek)"`,
-  `BUILDX_BUILDER="$(node ${buildkitHelperPath} prepare release)"`,
+  `node ${buildkitHelperPath} prepare dalek`,
+  `node ${buildkitHelperPath} build dalek`,
+  `node ${buildkitHelperPath} prepare release`,
+  `node ${buildkitHelperPath} build release`,
   `trap 'node ${buildkitHelperPath} cleanup dalek || exit 1' EXIT`,
   `trap 'node ${buildkitHelperPath} cleanup release || exit 1' EXIT`,
 ]);
 
 const reviewedDockerSubcommands = new Set(['build', 'login', 'push', 'save', 'tag']);
-const shellCommandWrappers = new Set(['bash', 'command', 'env', 'eval', 'exec', 'sh', 'sudo', 'time']);
-const shellControlPrefixes = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'time', 'until', 'while']);
+const shellControlPrefixes = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'until', 'while']);
 const lifecycleWords = new Set(['bootstrap', 'create', 'inspect', 'prune', 'rm', 'use']);
+const shellPayloadCommands = new Set(['bash', 'sh']);
+const nestedCommandWrappers = new Set(['command', 'env', 'exec', 'nice', 'nohup', 'sudo', 'time']);
+const wrapperValueOptions = new Map([
+  ['env', new Set(['-a', '--argv0', '-C', '--chdir', '-u', '--unset'])],
+  ['exec', new Set(['-a'])],
+  ['nice', new Set(['-n', '--adjustment'])],
+  ['sudo', new Set([
+    '-C', '--close-from', '-D', '--chdir', '-g', '--group', '-h', '--host', '-p', '--prompt',
+    '-R', '--chroot', '-r', '--role', '-T', '--command-timeout', '-t', '--type', '-u', '--user',
+  ])],
+  ['time', new Set(['-f', '--format', '-o', '--output'])],
+]);
+const wrapperFlagOptions = new Map([
+  ['command', new Set(['-p'])],
+  ['env', new Set([
+    '-0', '--null', '-i', '--ignore-environment', '-v', '--debug', '--block-signal',
+    '--default-signal', '--ignore-signal',
+  ])],
+  ['exec', new Set(['-c', '-l'])],
+  ['nice', new Set([])],
+  ['nohup', new Set([])],
+  ['sudo', new Set([
+    '-A', '--askpass', '-b', '--background', '-E', '--preserve-env', '-e', '--edit', '-H', '--set-home',
+    '-i', '--login', '-K', '--remove-timestamp', '-k', '--reset-timestamp', '-n', '--non-interactive',
+    '-P', '--preserve-groups', '-S', '--stdin', '-s', '--shell', '-V', '--version', '-v', '--validate',
+  ])],
+  ['time', new Set(['-a', '--append', '-p', '-q', '--quiet', '-v', '--verbose'])],
+]);
 
 function skipShellExpansion(script, start, opener, closer) {
   let depth = 1;
@@ -391,9 +419,101 @@ function hasLifecycleShape(words) {
     /(?:--bootstrap|--buildkitd-config|--driver(?:-opt)?|buildx_buildkit_)/i.test(flattened);
 }
 
-function hasDockerText(words) {
-  return /(?:^|[\s/])docker(?:-buildx)?(?:\s|$)/i
+function hasBuildxText(words) {
+  return /(?:^|[\s/])(?:docker-)?buildx(?:\s|$)|(?:^|\s)--builder(?:=|\s|$)/i
     .test(words.map((word) => word.value).join(' '));
+}
+
+function shellWordBasename(word) {
+  return word.value.split('/').at(-1);
+}
+
+function wrappedCommandIndex(words, commandIndex, wrapper) {
+  let index = commandIndex + 1;
+  while (index < words.length) {
+    const word = words[index];
+    if (wrapper === 'env' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value)) {
+      index += 1;
+      continue;
+    }
+    if (word.dynamic) return -1;
+    if (word.value === '--') return index + 1;
+    if (wrapper === 'command' && ['-v', '-V'].includes(word.value)) return words.length;
+    if (word.value.startsWith('-')) {
+      const [option, inlineValue] = word.value.split('=', 2);
+      if (wrapperValueOptions.get(wrapper)?.has(option)) {
+        if (inlineValue !== undefined) index += 1;
+        else {
+          if (!words[index + 1]) return -1;
+          index += 2;
+        }
+        continue;
+      }
+      if (wrapperFlagOptions.get(wrapper)?.has(word.value) ||
+          (wrapper === 'nice' && /^-\d+$/.test(word.value))) {
+        index += 1;
+        continue;
+      }
+      return -1;
+    }
+    break;
+  }
+  return index;
+}
+
+function envSplitPayload(words, commandIndex) {
+  let index = commandIndex + 1;
+  while (index < words.length) {
+    const word = words[index];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value)) {
+      index += 1;
+      continue;
+    }
+    if (word.dynamic) return { unsafe: true };
+    if (word.value === '-S' || word.value === '--split-string') {
+      const payload = words[index + 1];
+      if (!payload || payload.dynamic) return { unsafe: true };
+      return { payload: payload.value };
+    }
+    if (word.value.startsWith('--split-string=') || /^-S.+/.test(word.value)) {
+      const payload = word.value.startsWith('--split-string=')
+        ? word.value.slice('--split-string='.length)
+        : word.value.slice(2);
+      return payload ? { payload } : { unsafe: true };
+    }
+    if (word.value === '--') return null;
+    if (word.value.startsWith('-')) {
+      const [option, inlineValue] = word.value.split('=', 2);
+      if (wrapperValueOptions.get('env').has(option)) {
+        if (inlineValue !== undefined) index += 1;
+        else {
+          if (!words[index + 1]) return { unsafe: true };
+          index += 2;
+        }
+        continue;
+      }
+      if (wrapperFlagOptions.get('env').has(word.value)) {
+        index += 1;
+        continue;
+      }
+      return { unsafe: true };
+    }
+    return null;
+  }
+  return null;
+}
+
+function hasDynamicShellPayload(words, commandIndex, depth, { rejectUnknownDynamic = false } = {}) {
+  const optionIndex = words.findIndex(
+    (word, index) => index > commandIndex &&
+      (word.value === '--command' || /^-[abefhkmnptuvxBCEHPTlO]*c[abefhkmnptuvxBCEHPTlO]*$/.test(word.value)),
+  );
+  if (optionIndex === -1) {
+    return rejectUnknownDynamic && words.slice(commandIndex + 1).some((word) => word.dynamic);
+  }
+  const payload = words[optionIndex + 1];
+  if (!payload || payload.dynamic) return true;
+  return hasUnreviewedDockerCommand(payload.value, depth + 1);
 }
 
 function isReviewedDockerCommand(words, commandIndex) {
@@ -405,35 +525,53 @@ function isReviewedDockerCommand(words, commandIndex) {
   if (subcommand.value === 'image') {
     return words[commandIndex + 2]?.canonical && words[commandIndex + 2].value === 'inspect';
   }
-  if (subcommand.value !== 'buildx') return false;
-  const build = words[commandIndex + 2];
-  if (!build?.canonical || build.value !== 'build') return false;
-  return !words.slice(commandIndex + 3).some(
-    (word) => word.value === '--builder' || word.value.startsWith('--builder='),
-  );
+  return false;
 }
 
-function hasUnreviewedDockerCommand(script) {
+function hasUnreviewedShellCommand(words, commandIndex, depth) {
+  const command = words[commandIndex];
+  if (!command) return false;
+  const commandBasename = shellWordBasename(command);
+  if (commandBasename === 'docker-buildx' || commandBasename === 'buildx') return true;
+  if (commandBasename === 'docker' && command.value !== 'docker') return true;
+  if (command.value === 'docker') return !isReviewedDockerCommand(words, commandIndex);
+
+  if (shellPayloadCommands.has(commandBasename)) {
+    return hasDynamicShellPayload(words, commandIndex, depth, { rejectUnknownDynamic: true });
+  }
+  if (commandBasename === 'eval') {
+    const payload = words.slice(commandIndex + 1);
+    if (payload.some((word) => word.dynamic)) return true;
+    return hasUnreviewedDockerCommand(payload.map((word) => word.value).join(' '), depth + 1);
+  }
+  if (nestedCommandWrappers.has(commandBasename)) {
+    if (commandBasename === 'env') {
+      const split = envSplitPayload(words, commandIndex);
+      if (split?.unsafe) return true;
+      if (split?.payload) return hasUnreviewedDockerCommand(split.payload, depth + 1);
+    }
+    const nestedIndex = wrappedCommandIndex(words, commandIndex, commandBasename);
+    if (nestedIndex === -1) return true;
+    if (nestedIndex >= words.length) return false;
+    if (words[nestedIndex].dynamic) return true;
+    return hasUnreviewedShellCommand(words, nestedIndex, depth + 1);
+  }
+  if (
+    command.dynamic &&
+    (hasLifecycleShape(words.slice(commandIndex)) ||
+      hasBuildxText(words.slice(commandIndex)) ||
+      hasDynamicShellPayload(words, commandIndex, depth))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function hasUnreviewedDockerCommand(script, depth = 0) {
+  if (depth > 8) return true;
   for (const words of shellCommands(script)) {
     const commandIndex = shellCommandPosition(words);
-    const command = words[commandIndex];
-    if (!command) continue;
-    const commandBasename = command.value.split('/').at(-1);
-    if (commandBasename === 'docker-buildx' || commandBasename === 'buildx') return true;
-    if (commandBasename === 'docker' && command.value !== 'docker') return true;
-    if (command.value === 'docker') {
-      if (!isReviewedDockerCommand(words, commandIndex)) return true;
-      continue;
-    }
-    if (command.dynamic && hasLifecycleShape(words.slice(commandIndex))) return true;
-    if (
-      words.slice(0, commandIndex + 1).some(
-        (word) => word.canonical && shellCommandWrappers.has(word.value),
-      ) &&
-      (hasDockerText(words) || hasLifecycleShape(words))
-    ) {
-      return true;
-    }
+    if (hasUnreviewedShellCommand(words, commandIndex, depth)) return true;
   }
   return false;
 }
@@ -442,12 +580,13 @@ function workflowBuildkitLifecycleViolations(content, file) {
   const { scripts, violations } = workflowRunScalars(content, file);
 
   for (const run of scripts) {
-    const helperLines = run.script
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.includes(buildkitHelperPath));
+    const runLines = run.script.split(/\r?\n/);
+    const helperLines = runLines
+      .map((line, index) => ({ index, line: line.trim() }))
+      .filter(({ line }) => line.includes(buildkitHelperPath));
     const invalidHelperCall = helperLines.some(
-      (line) => !approvedBuildkitHelperCommands.has(line),
+      ({ index, line }) => !approvedBuildkitHelperCommands.has(line) ||
+        (index > 0 && /\\\s*$/.test(runLines[index - 1])),
     );
     if (invalidHelperCall) {
       violations.push({
@@ -457,8 +596,7 @@ function workflowBuildkitLifecycleViolations(content, file) {
       });
     }
 
-    const checkedScript = run.script
-      .split(/\r?\n/)
+    const checkedScript = runLines
       .filter((line) => !approvedBuildkitHelperCommands.has(line.trim()))
       .join('\n');
     const mutationDetected = hasUnreviewedDockerCommand(checkedScript) ||

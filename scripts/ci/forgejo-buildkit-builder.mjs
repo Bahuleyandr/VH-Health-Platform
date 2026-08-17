@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 export const BUILDKIT_IMAGE =
   'moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8';
 const BUILDKIT_CONFIG = '.forgejo/buildkitd-dalekdefender.toml';
+const NODE_IMAGE =
+  'mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66';
 const expectedGcPolicy = {
   reservedSpace: 8000000000,
   maxUsedSpace: 30000000000,
@@ -72,14 +74,15 @@ function executeDocker(args) {
   };
 }
 
-function invoke(execute, args, { allowFailure = false } = {}) {
+function invoke(execute, args, { allowFailure = false, display } = {}) {
   const result = execute(args);
+  const command = display || `docker ${args.join(' ')}`;
   if (!result || !Number.isInteger(result.status)) {
-    throw new Error(`docker ${args.join(' ')} returned an invalid execution result`);
+    throw new Error(`${command} returned an invalid execution result`);
   }
   if (result.status !== 0 && !allowFailure) {
     throw new Error(
-      `docker ${args.join(' ')} failed (${result.status}): ${result.stderr.trim() || 'no stderr'}`,
+      `${command} failed (${result.status}): ${result.stderr.trim() || 'no stderr'}`,
     );
   }
   return result;
@@ -206,13 +209,170 @@ export function cleanupBuilder(
   retireMatching(plan, execute, { currentOnly: true });
 }
 
+function normalizedOwner(env) {
+  const owner = (env.GHCR_IMAGE_OWNER || 'bahuleyandr').toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(owner)) {
+    throw new Error('GHCR_IMAGE_OWNER is not a valid reviewed package owner');
+  }
+  return owner;
+}
+
+function requiredCommit(env) {
+  const commit = env.GITHUB_SHA || '';
+  if (!/^[0-9a-f]{40}$/i.test(commit)) throw new Error('GITHUB_SHA must be a full commit SHA');
+  return commit;
+}
+
+function requiredTag(value, label) {
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(value || '')) {
+    throw new Error(`${label} is not a valid container tag`);
+  }
+  return value;
+}
+
+function releasePlatforms(env, jobKey) {
+  if (jobKey === 'staff-web') return 'linux/amd64';
+  const platforms = env.RELEASE_PLATFORMS || 'linux/amd64';
+  if (!/^linux\/(?:amd64|arm64)(?:,linux\/(?:amd64|arm64))*$/.test(platforms)) {
+    throw new Error('RELEASE_PLATFORMS contains an unsupported platform');
+  }
+  return platforms;
+}
+
+function addOption(args, option, value) {
+  args.push(option, value);
+}
+
+function invokeBuild(execute, plan, spec) {
+  const args = [
+    'buildx',
+    'build',
+    '--pull',
+    '--platform',
+    spec.platforms,
+    '--metadata-file',
+    spec.metadataFile,
+    '--push',
+  ];
+  for (const tag of spec.tags) addOption(args, '-t', tag);
+  for (const context of spec.buildContexts || []) addOption(args, '--build-context', context);
+  for (const buildArg of spec.buildArgs || []) addOption(args, '--build-arg', buildArg);
+  for (const secret of spec.secrets || []) addOption(args, '--secret', secret);
+  args.push('--builder', plan.builderName, '-f', spec.dockerfile, spec.context);
+  invoke(execute, args, { display: 'docker buildx build' });
+}
+
+function dalekBuilds(plan, env, execute) {
+  const owner = normalizedOwner(env);
+  const commit = requiredCommit(env);
+  const tag = `dalek-${commit}`;
+  invokeBuild(execute, plan, {
+    platforms: 'linux/amd64',
+    metadataFile: 'output/dalekdefender/backend-metadata.json',
+    tags: [`ghcr.io/${owner}/vh-health-platform-backend:${tag}`],
+    buildArgs: [`NODE_IMAGE=${NODE_IMAGE}`],
+    dockerfile: 'apps/backend/Dockerfile',
+    context: 'apps/backend',
+  });
+  invokeBuild(execute, plan, {
+    platforms: 'linux/amd64',
+    metadataFile: 'output/dalekdefender/admin-metadata.json',
+    tags: [`ghcr.io/${owner}/vh-health-platform-adminportal:${tag}`],
+    buildContexts: ['backend=apps/backend'],
+    buildArgs: [
+      'NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444',
+      'NEXT_PUBLIC_APP_NAME=VH Health Admin',
+      'NEXT_PUBLIC_ALLOWED_ORIGIN=https://dalekdefender.hippocampus-monitor.ts.net',
+      `NEXT_PUBLIC_SENTRY_DSN=${env.NEXT_PUBLIC_SENTRY_DSN || ''}`,
+      'NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender',
+      `NEXT_PUBLIC_SENTRY_RELEASE=${commit}`,
+      'NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1',
+      'NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0',
+      'NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0',
+      'SENTRY_UPLOAD_SOURCE_MAPS=false',
+    ],
+    dockerfile: 'apps/admin/Dockerfile',
+    context: 'apps/admin',
+  });
+}
+
+function releaseBuild(plan, env, execute) {
+  const jobKey = env.VH_BUILDKIT_JOB_KEY;
+  const owner = normalizedOwner(env);
+  const commit = requiredCommit(env);
+  const app = {
+    backend: {
+      imageName: 'vh-health-platform-backend',
+      dockerfile: 'apps/backend/Dockerfile',
+      context: 'apps/backend',
+      buildArgs: [`NODE_IMAGE=${NODE_IMAGE}`],
+    },
+    admin: {
+      imageName: 'vh-health-platform-adminportal',
+      dockerfile: 'apps/admin/Dockerfile',
+      context: 'apps/admin',
+      buildContexts: ['backend=apps/backend'],
+      buildArgs: [
+        `NEXT_PUBLIC_API_URL=${env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app'}`,
+        `NEXT_PUBLIC_APP_NAME=${env.NEXT_PUBLIC_APP_NAME || 'VH Health Admin'}`,
+        `NEXT_PUBLIC_ALLOWED_ORIGIN=${env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'https://admin.vhhealth.app'}`,
+        `NEXT_PUBLIC_SENTRY_DSN=${env.NEXT_PUBLIC_SENTRY_DSN || ''}`,
+        `NEXT_PUBLIC_SENTRY_ENVIRONMENT=${env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || 'production'}`,
+        `NEXT_PUBLIC_SENTRY_RELEASE=${commit}`,
+        `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE || '0.1'}`,
+        `NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=${env.NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE || '0'}`,
+        `NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=${env.NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE || '0'}`,
+        'SENTRY_UPLOAD_SOURCE_MAPS=false',
+      ],
+      secrets: env.SENTRY_AUTH_TOKEN ? ['id=sentry_auth_token,env=SENTRY_AUTH_TOKEN'] : [],
+    },
+    'staff-web': {
+      imageName: 'vhhealth-staff-web',
+      dockerfile: 'apps/staff/Dockerfile.web',
+      context: '.',
+      buildArgs: [
+        `VH_BASE_URL=${env.STAFF_WEB_API_URL || 'https://api.vhhealth.app/api/v1'}`,
+        `VH_API_KEY=${env.STAFF_WEB_API_KEY || ''}`,
+        `APP_NAME=${env.STAFF_WEB_APP_NAME || 'VH Health Staff'}`,
+        `SENTRY_DSN=${env.SENTRY_DSN_STAFF || ''}`,
+        `SENTRY_ENVIRONMENT=${env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || 'production'}`,
+        `SENTRY_RELEASE=${commit}`,
+      ],
+    },
+  }[jobKey];
+  const image = `ghcr.io/${owner}/${app.imageName}`;
+  if (env.IMAGE !== image) throw new Error('IMAGE does not match the reviewed release target');
+  const tags = [`${image}:${requiredTag(env.PRIMARY_TAG, 'PRIMARY_TAG')}`];
+  if (env.LATEST_TAG) tags.push(`${image}:${requiredTag(env.LATEST_TAG, 'LATEST_TAG')}`);
+  invokeBuild(execute, plan, {
+    platforms: releasePlatforms(env, jobKey),
+    metadataFile: `output/release-images/${jobKey}/build-metadata.json`,
+    tags,
+    buildContexts: app.buildContexts,
+    buildArgs: app.buildArgs,
+    secrets: app.secrets,
+    dockerfile: app.dockerfile,
+    context: app.context,
+  });
+}
+
+export function buildImages(
+  profile,
+  { env = process.env, execute = executeDocker } = {},
+) {
+  const plan = builderPlan(profile, env);
+  if (profile === 'dalek') dalekBuilds(plan, env, execute);
+  else releaseBuild(plan, env, execute);
+}
+
 function main(argv) {
-  if (argv.length !== 2 || !['prepare', 'cleanup'].includes(argv[0])) {
+  if (argv.length !== 2 || !['prepare', 'build', 'cleanup'].includes(argv[0])) {
     throw new Error(
-      'Usage: node scripts/ci/forgejo-buildkit-builder.mjs <prepare|cleanup> <dalek|release>',
+      'Usage: node scripts/ci/forgejo-buildkit-builder.mjs <prepare|build|cleanup> <dalek|release>',
     );
   }
   if (argv[0] === 'prepare') console.log(prepareBuilder(argv[1]).builderName);
+  else if (argv[0] === 'build') buildImages(argv[1]);
   else cleanupBuilder(argv[1]);
 }
 
