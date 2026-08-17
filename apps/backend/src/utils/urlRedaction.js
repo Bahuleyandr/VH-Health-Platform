@@ -29,10 +29,15 @@ const SENSITIVE_QUERY_PARAMS = new Set([
 const REDACTED = '[REDACTED]';
 
 function redactSensitivePathSegments(url) {
-  return url.replace(
-    /(\/webhooks\/sms\/(?:dlr|twilio-status)\/)[^/?#]+/gi,
-    `$1${REDACTED}`,
-  );
+  return url
+    .replace(
+      /(\/webhooks\/sms\/(?:dlr|twilio-status)\/)[^/?#]+/gi,
+      `$1${REDACTED}`,
+    )
+    .replace(
+      /(\/webhooks\/payments\/)[^/?#]+/gi,
+      `$1${REDACTED}`,
+    );
 }
 
 export function isHl7ReceiveEndpoint(path) {

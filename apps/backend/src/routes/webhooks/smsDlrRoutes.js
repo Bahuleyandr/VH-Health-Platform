@@ -29,6 +29,7 @@ import {
   processTwilioStatusCallback,
 } from '../../services/notification/smsDeliveryStatusService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { setAuthenticatedCallbackAuditContext } from '../../utils/authenticatedCallbackAudit.js';
 
 const router = markRouterDomain(Router(), 'sms-gateway');
 
@@ -37,8 +38,14 @@ router.post('/dlr/:token', async (req, res) => {
     const result = await processMsg91Dlr({
       token: req.params.token,
       payload: req.body,
+      onAuthenticated: context => setAuthenticatedCallbackAuditContext(req, context),
     });
     if (!result.authorized) return error(res, 'Unauthorized', 401);
+    setAuthenticatedCallbackAuditContext(req, {
+      tenantId: result.tenantId,
+      provider: 'msg91',
+      externalActorId: 'msg91',
+    });
     return success(res, {
       received: true,
       results: result.results.map(entry => entry.handled),
@@ -69,8 +76,14 @@ router.post('/twilio-status/:token', async (req, res) => {
       params: req.body || {},
       signature: req.get('x-twilio-signature'),
       requestPath: req.originalUrl,
+      onAuthenticated: context => setAuthenticatedCallbackAuditContext(req, context),
     });
     if (!result.authorized) return error(res, 'Unauthorized', 401);
+    setAuthenticatedCallbackAuditContext(req, {
+      tenantId: result.tenantId,
+      provider: 'twilio',
+      externalActorId: 'twilio',
+    });
     return success(res, {
       received: true,
       results: result.results.map(entry => entry.handled),

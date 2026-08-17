@@ -201,10 +201,11 @@ function decodeMsg91DlrReports(payload) {
  * authentication. Accepts both the flat shape ({ requestId, status, ... })
  * and the batched report shape ([{ requestId, report: [{ status, desc }] }]).
  */
-export async function processMsg91Dlr({ token, payload }) {
+export async function processMsg91Dlr({ token, payload, onAuthenticated = null }) {
   const config = await resolveSmsConfigByCallbackToken(token, 'msg91');
   if (!config || config.provider !== 'msg91') return { authorized: false };
   const tenantId = String(config.tenant_id);
+  onAuthenticated?.({ tenantId, provider: 'msg91', externalActorId: 'msg91' });
 
   // MSG91 posts application/x-www-form-urlencoded with a `data` field whose
   // value is the JSON report array. JSON input remains accepted for backwards
@@ -243,7 +244,13 @@ export async function processMsg91Dlr({ token, payload }) {
  * Any missing verification input fails CLOSED (401): an unverifiable delivery
  * status must not become evidence.
  */
-export async function processTwilioStatusCallback({ token, params, signature, requestPath }) {
+export async function processTwilioStatusCallback({
+  token,
+  params,
+  signature,
+  requestPath,
+  onAuthenticated = null,
+}) {
   const envCallback = resolveEnvTwilioCallbackToken(token, {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
     authToken: process.env.TWILIO_AUTH_TOKEN,
@@ -284,6 +291,7 @@ export async function processTwilioStatusCallback({ token, params, signature, re
     logger.warn('sms-dlr: invalid twilio signature');
     return { authorized: false };
   }
+  onAuthenticated?.({ tenantId, provider: 'twilio', externalActorId: 'twilio' });
 
   const result = await processEntry({
     tenantId,

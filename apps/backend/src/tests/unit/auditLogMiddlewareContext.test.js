@@ -4,6 +4,7 @@ import request from 'supertest';
 
 const queryRawUnsafeMock = jest.fn();
 const warnMock = jest.fn();
+const errorMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -19,11 +20,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     warn: warnMock,
+    error: errorMock,
   },
 }));
 
 const { auditLogMiddleware, deriveAction, deriveModule, deriveAuditResourceContext, sanitizeBody } = await import(
   '../../middleware/auditLog.js'
+);
+const { setAuthenticatedCallbackAuditContext } = await import(
+  '../../utils/authenticatedCallbackAudit.js'
 );
 
 const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
@@ -41,6 +46,7 @@ async function waitForAuditWrite() {
 beforeEach(() => {
   queryRawUnsafeMock.mockReset().mockResolvedValue({});
   warnMock.mockReset();
+  errorMock.mockReset();
 });
 
 describe('auditLogMiddleware context enrichment', () => {
@@ -174,13 +180,15 @@ describe('auditLogMiddleware context enrichment', () => {
     const phone = '+919876543210';
     const app = express();
     app.use(express.json());
-    app.use((req, _res, next) => {
-      req.tenantId = TENANT_ID;
-      req.user = { uid: ACTOR_UID, role: 'SYSTEM' };
-      next();
-    });
     app.use(auditLogMiddleware);
-    app.post('/webhooks/sms/dlr/:token', (_req, res) => res.status(200).json({ ok: true }));
+    app.post('/webhooks/sms/dlr/:token', (req, res) => {
+      setAuthenticatedCallbackAuditContext(req, {
+        tenantId: TENANT_ID,
+        provider: 'msg91',
+        externalActorId: 'msg91',
+      });
+      res.status(200).json({ ok: true });
+    });
 
     await request(app)
       .post(`/webhooks/sms/dlr/${token}?To=${encodeURIComponent(phone)}`)
@@ -192,8 +200,134 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(call[7]).toBe('/webhooks/sms/dlr/[REDACTED]');
     expect(call[13]).toBeNull();
     expect(call[14]).toBeNull();
+    expect(call[23]).toBe(TENANT_ID);
     expect(JSON.stringify(call)).not.toContain(token);
     expect(JSON.stringify(call)).not.toContain('9876543210');
+  });
+
+  it.each([
+    ['/webhooks/payments/payment-bearer-audit-token?phone=%2B919876543210', '/webhooks/payments/[REDACTED]', 'razorpay'],
+    ['/api/v1/uhi/search?patient=tenant-a-patient', '/api/v1/uhi/search', 'uhi'],
+    ['/webhooks/sms/twilio-status/sms-bearer-audit-token?To=%2B919876543210', '/webhooks/sms/twilio-status/[REDACTED]', 'twilio'],
+  ])('writes authenticated %s callbacks to the resolved tenant with provider identity and no request PHI', async (
+    callbackUrl,
+    expectedPath,
+    provider,
+  ) => {
+    const app = express();
+    app.use(express.json());
+    app.use(auditLogMiddleware);
+    app.post(expectedPath.replace('/[REDACTED]', '/:token'), (req, res) => {
+      setAuthenticatedCallbackAuditContext(req, {
+        tenantId: TENANT_ID,
+        provider,
+        externalActorId: `${provider}.system`,
+      });
+      res.status(503).json({ success: false });
+    });
+
+    await request(app)
+      .post(callbackUrl)
+      .send({
+        tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        patient_name: 'Tenant A Patient',
+        phone: '+919876543210',
+      })
+      .expect(503);
+    await waitForAuditWrite();
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call[0]).toContain('device_type, tenant_id');
+    expect(call[3]).toBe(`${provider} callback`);
+    expect(call[4]).toBe('SYSTEM');
+    expect(call[7]).toBe(expectedPath);
+    expect(call[13]).toBeNull();
+    expect(call[14]).toBeNull();
+    expect(call[15]).toBe(503);
+    expect(call[19]).toBeNull();
+    expect(call[20]).toBeNull();
+    expect(call[23]).toBe(TENANT_ID);
+    expect(JSON.parse(call[12])).toEqual(expect.objectContaining({
+      tenant_id: TENANT_ID,
+      actor_role: 'SYSTEM',
+      actor_type: 'external_provider',
+      callback_provider: provider,
+      external_actor_id: `${provider}.system`,
+      authenticated_callback: true,
+    }));
+    expect(JSON.stringify(call)).not.toContain('Tenant A Patient');
+    expect(JSON.stringify(call)).not.toContain('9876543210');
+    expect(JSON.stringify(call)).not.toContain('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  });
+
+  it('preserves tenant and provider identity without PHI in the callback DB-failure fallback', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('audit database unavailable'));
+    const app = express();
+    app.use(express.json());
+    app.use(auditLogMiddleware);
+    app.post('/webhooks/payments/:token', (req, res) => {
+      setAuthenticatedCallbackAuditContext(req, {
+        tenantId: TENANT_ID,
+        provider: 'razorpay',
+        externalActorId: 'razorpay',
+      });
+      res.status(503).json({ success: false });
+    });
+
+    await request(app)
+      .post('/webhooks/payments/fallback-payment-bearer?phone=%2B919876543210')
+      .send({ patient_name: 'Tenant A Patient', phone: '+919876543210' })
+      .expect(503);
+    await waitForAuditWrite();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(errorMock).toHaveBeenCalledWith(
+      'Audit log DB write failed, writing to file fallback:',
+      expect.objectContaining({
+        userId: null,
+        userRole: 'SYSTEM',
+        path: '/webhooks/payments/[REDACTED]',
+        tenant_id: TENANT_ID,
+        callback_provider: 'razorpay',
+        external_actor_id: 'razorpay',
+        verification_state: 'verified',
+      }),
+    );
+    expect(JSON.stringify(errorMock.mock.calls)).not.toContain('Tenant A Patient');
+    expect(JSON.stringify(errorMock.mock.calls)).not.toContain('9876543210');
+    expect(JSON.stringify(errorMock.mock.calls)).not.toContain('fallback-payment-bearer');
+  });
+
+  it.each([
+    '/webhooks/payments',
+    '/webhooks/payments/untrusted-payment-token',
+    '/api/v1/uhi/search',
+    '/webhooks/sms',
+    '/webhooks/sms/dlr/untrusted-sms-token',
+  ])('does not create a universal PHI audit row for an unauthenticated callback at %s', async (path) => {
+    const app = express();
+    app.use(express.json());
+    app.use(auditLogMiddleware);
+    app.post(path, (_req, res) => res.status(401).json({ success: false }));
+
+    await request(app)
+      .post(path)
+      .send({ patient_name: 'Untrusted Patient', phone: '+919876543210' })
+      .expect(401);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(errorMock).toHaveBeenCalledWith(
+      'Audit log unattributed provider callback, writing to file fallback:',
+      expect.objectContaining({
+        action: 'provider_callback_rejected',
+        path: expect.not.stringContaining('untrusted-'),
+        verification_state: 'unverified',
+        tenant_id: null,
+      }),
+    );
+    expect(JSON.stringify(errorMock.mock.calls)).not.toContain('Untrusted Patient');
+    expect(JSON.stringify(errorMock.mock.calls)).not.toContain('9876543210');
   });
 
   it('uses workflow-specific audit action names for staff operations', () => {

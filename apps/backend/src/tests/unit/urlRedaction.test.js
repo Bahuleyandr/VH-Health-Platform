@@ -25,6 +25,12 @@ describe('redactSensitiveQueryParams', () => {
     )).toBe('https://api.vhhealth.app/webhooks/sms/dlr/[REDACTED]');
   });
 
+  it('redacts the payment callback bearer path', () => {
+    expect(redactSensitiveQueryParams(
+      '/webhooks/payments/payment-callback-bearer?event=payment.captured',
+    )).toBe('/webhooks/payments/[REDACTED]?event=payment.captured');
+  });
+
   it('redacts only sensitive params and preserves the rest', () => {
     expect(
       redactSensitiveQueryParams('/x?page=2&access_token=abc123&note_type=progress'),

@@ -47,6 +47,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const { default: router } = await import('../../routes/billing/paymentGatewayWebhookRoutes.js');
+const { getAuthenticatedCallbackAuditContext } = await import(
+  '../../utils/authenticatedCallbackAudit.js'
+);
+
+let observedAuditContext = null;
 
 function app() {
   const instance = express();
@@ -54,6 +59,10 @@ function app() {
   instance.use(express.json({
     verify: (req, _res, body) => { req.paymentGatewayRawBody = Buffer.from(body); },
   }));
+  instance.use((req, res, next) => {
+    res.on('finish', () => { observedAuditContext = getAuthenticatedCallbackAuditContext(req); });
+    next();
+  });
   instance.use('/webhooks/payments', router);
   return instance;
 }
@@ -89,6 +98,7 @@ function signedPost(body, { eventId = 'evt_1', secret = WEBHOOK_SECRET, signatur
 
 beforeEach(() => {
   jest.clearAllMocks();
+  observedAuditContext = null;
   decryptedWebhookSecrets.mockReturnValue([{ secret: WEBHOOK_SECRET, current: true }]);
   hasBoundNonterminalWebhookIntent.mockResolvedValue(true);
   resolveWebhookConfigByToken.mockResolvedValue(configRow());
@@ -169,6 +179,12 @@ describe('signature verification', () => {
     expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT, eventId: 10, status: 'processed', gatewayOrderId: 5,
     }));
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT,
+      provider: 'dry_run',
+      externalActorId: 'dry_run',
+      actorRole: 'SYSTEM',
+    }));
   });
 
   it('rejects a bad signature with 401 and records nothing', async () => {
@@ -176,6 +192,7 @@ describe('signature verification', () => {
     expect(res.status).toBe(401);
     expect(recordWebhookEvent).not.toHaveBeenCalled();
     expect(processWebhookEvent).not.toHaveBeenCalled();
+    expect(observedAuditContext).toBeNull();
   });
 
   it('rejects a body signed with a different secret', async () => {
@@ -250,6 +267,10 @@ describe('processing failure retry boundary', () => {
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
     expect(markWebhookEvent).not.toHaveBeenCalled();
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT,
+      provider: 'dry_run',
+    }));
   });
 
   it('preserves a retryable 503 AppError and leaves the event pending', async () => {

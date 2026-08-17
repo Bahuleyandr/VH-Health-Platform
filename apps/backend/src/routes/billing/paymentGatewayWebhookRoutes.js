@@ -29,6 +29,7 @@ import { assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { markRouterDomain } from '../../config/openapiDomain.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+import { setAuthenticatedCallbackAuditContext } from '../../utils/authenticatedCallbackAudit.js';
 
 const router = markRouterDomain(Router(), 'payment-gateway');
 
@@ -71,6 +72,11 @@ router.post('/:webhookToken', async (req, res) => {
       });
       return error(res, 'Invalid webhook signature', 401);
     }
+    setAuthenticatedCallbackAuditContext(req, {
+      tenantId,
+      provider: config.provider,
+      externalActorId: config.provider,
+    });
 
     const lateCredential = config.enabled !== true || matchedCredential.current !== true;
     if (lateCredential && !(await gateway.hasBoundNonterminalWebhookIntent({

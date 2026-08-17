@@ -40,6 +40,7 @@ import {
 import { verifyBecknSignature } from '../../utils/uhiSignature.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { ADMIN, SUPER_ADMIN } from '../../utils/roles.js';
+import { setAuthenticatedCallbackAuditContext } from '../../utils/authenticatedCallbackAudit.js';
 
 // Every path here must ALSO be present in the app.js raw-body capture list
 // (captureJsonRawBody → req.uhiRawBody) — the beckn signature is computed over
@@ -171,6 +172,12 @@ async function validateUhiRequest(req, res, next) {
     logger.warn('UHI callback rejected: signature verification failed', { code: err.code });
     return res.status(err.statusCode || 401).json(nack(err.code || 'UHI_SIGNATURE_INVALID', 'Signature verification failed'));
   }
+
+  setAuthenticatedCallbackAuditContext(req, {
+    tenantId,
+    provider: 'uhi',
+    externalActorId: context.consumerId,
+  });
 
   if (context.action !== action) {
     return error(res, 'Signed UHI context action does not match the request path', 400, {

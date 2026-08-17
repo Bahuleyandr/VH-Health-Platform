@@ -111,10 +111,15 @@ jest.unstable_mockModule('../../services/uhi/uhiAdapterService.js', () => ({
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 let callbackRouter;
+let observedAuditContext = null;
 
 beforeAll(async () => {
   ({ callbackRouter } = await import('../../routes/uhi/uhiRoutes.js'));
 });
+
+const { getAuthenticatedCallbackAuditContext } = await import(
+  '../../utils/authenticatedCallbackAudit.js'
+);
 
 function buildApp() {
   const app = express();
@@ -123,6 +128,10 @@ function buildApp() {
       req.uhiRawBody = Buffer.from(body);
     },
   }));
+  app.use((req, res, next) => {
+    res.on('finish', () => { observedAuditContext = getAuthenticatedCallbackAuditContext(req); });
+    next();
+  });
   app.use('/api/v1/uhi', callbackRouter);
   return app;
 }
@@ -149,6 +158,7 @@ beforeEach(() => {
   recordUhiLeg.mockReset();
   markUhiLeg.mockReset();
   handleUhiSearch.mockReset();
+  observedAuditContext = null;
 
   resolveInteropCredentialSnapshot.mockResolvedValue({
     tenant_id: TENANT_A,
@@ -182,6 +192,7 @@ describe('UHI webhook pipeline', () => {
     expect(res.status).toBe(401);
     expect(recordUhiLeg).not.toHaveBeenCalled();
     expect(verifyBecknSignature).not.toHaveBeenCalled();
+    expect(observedAuditContext).toBeNull();
   });
 
   it('rejects a signed search body replayed against the cancel path', async () => {
@@ -309,6 +320,12 @@ describe('UHI webhook pipeline', () => {
       status: 'processed',
       ack: 'ACK',
     }));
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT_A,
+      provider: 'uhi',
+      externalActorId: 'eua.example',
+      actorRole: 'SYSTEM',
+    }));
   });
 
   it('duplicate leg → replay-safe ACK without reprocessing', async () => {
@@ -337,6 +354,10 @@ describe('UHI webhook pipeline', () => {
     expect(markUhiLeg).toHaveBeenCalledWith(TENANT_A, 42, expect.objectContaining({
       status: 'failed',
       errorCode: 'UHI_ORDER_SLOT_REQUIRED',
+    }));
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT_A,
+      provider: 'uhi',
     }));
   });
 });

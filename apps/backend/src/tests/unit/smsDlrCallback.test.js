@@ -64,17 +64,27 @@ const { default: dlrRouter } = await import('../../routes/webhooks/smsDlrRoutes.
 const { __testing__: dlrInternals } = await import(
   '../../services/notification/smsDeliveryStatusService.js'
 );
+const { getAuthenticatedCallbackAuditContext } = await import(
+  '../../utils/authenticatedCallbackAudit.js'
+);
+
+let observedAuditContext = null;
 
 function app() {
   const instance = express();
   instance.use(express.json());
   instance.use(express.urlencoded({ extended: true }));
+  instance.use((req, res, next) => {
+    res.on('finish', () => { observedAuditContext = getAuthenticatedCallbackAuditContext(req); });
+    next();
+  });
   instance.use('/webhooks/sms', dlrRouter);
   return instance;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  observedAuditContext = null;
   delete process.env.PUBLIC_BASE_URL;
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
@@ -132,6 +142,7 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
     expect(res.status).toBe(401);
     expect(setTenantTxMock).not.toHaveBeenCalled();
     expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+    expect(observedAuditContext).toBeNull();
   });
 
   it('records a delivered report as an acknowledged provider_status_callback receipt', async () => {
@@ -152,6 +163,27 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
       receiptSource: 'provider_status_callback',
       providerReference: 'req-abc-123',
       providerCode: 'dlr_delivered',
+    }));
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT_ID,
+      provider: 'msg91',
+      externalActorId: 'msg91',
+      actorRole: 'SYSTEM',
+    }));
+  });
+
+  it('retains tenant-correct audit context when authenticated receipt processing fails', async () => {
+    txQueryRawUnsafeMock.mockRejectedValueOnce(new Error('receipt store unavailable'));
+
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .send({ requestId: 'req-authenticated-failure', status: 'delivered' });
+
+    expect(res.status).toBe(500);
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT_ID,
+      provider: 'msg91',
+      actorRole: 'SYSTEM',
     }));
   });
 
@@ -353,6 +385,7 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
     const res = await postTwilio();
     expect(res.status).toBe(401);
     expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+    expect(observedAuditContext).toBeNull();
   });
 
   it('provider-binds token resolution and rejects an MSG91 config on the Twilio path', async () => {
@@ -403,6 +436,12 @@ describe('Twilio status callback — token AND signature, fail-closed', () => {
       providerReference: 'SM900',
       providerCode: 'dlr_delivered',
       receiptSource: 'provider_status_callback',
+    }));
+    expect(observedAuditContext).toEqual(expect.objectContaining({
+      tenantId: TENANT_ID,
+      provider: 'twilio',
+      externalActorId: 'twilio',
+      actorRole: 'SYSTEM',
     }));
   });
 
