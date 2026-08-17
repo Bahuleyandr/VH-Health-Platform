@@ -83,10 +83,6 @@ CREATE TABLE IF NOT EXISTS facility_assets (
   status               VARCHAR(20) NOT NULL DEFAULT 'active'
     CONSTRAINT chk_facility_asset_status
       CHECK (status IN ('active', 'under_repair', 'condemned', 'disposed')),
-  -- Optimistic-concurrency token for full-form master edits. Status changes
-  -- also advance it so an edit opened before a lifecycle transition is stale.
-  version              INTEGER NOT NULL DEFAULT 1
-    CONSTRAINT chk_facility_asset_version CHECK (version > 0),
   -- Disposal evidence — required by, and exclusive to, the terminal state.
   disposal_reason      VARCHAR(500),
   disposed_at          TIMESTAMPTZ,
@@ -98,11 +94,6 @@ CREATE TABLE IF NOT EXISTS facility_assets (
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   -- Composite-tenant FK target (fk_referrals_appointment / 680 idiom).
   CONSTRAINT ux_facility_assets_tenant_id UNIQUE (tenant_id, id),
-  -- A custodian may only be a real user in the asset's own tenant. The
-  -- column-targeted action preserves tenant_id when that user is deleted.
-  CONSTRAINT fk_facility_assets_custodian
-    FOREIGN KEY (tenant_id, custodian_uid)
-    REFERENCES users (tenant_id, uid) ON DELETE SET NULL (custodian_uid),
   -- disposed ⇒ full evidence; not-disposed ⇒ no evidence (state machine pin).
   CONSTRAINT chk_facility_asset_disposal_evidence
     CHECK (

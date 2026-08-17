@@ -423,4 +423,25 @@ d('Facility asset register (migration 704)', () => {
       code: 'FACILITY_ASSET_INVALID',
     });
   });
+
+  it('reports totals truthfully on empty later pages and bounds integer offsets', async () => {
+    const assetsPage = await listFacilityAssets(TENANT_ID, {
+      limit: 1,
+      offset: 2_147_483_647,
+    });
+    expect(assetsPage.assets).toEqual([]);
+    expect(assetsPage.total).toBeGreaterThan(0);
+
+    const eventsPage = await listFacilityAssetEvents(TENANT_ID, assetId, {
+      limit: 1,
+      offset: 2_147_483_647,
+    });
+    expect(eventsPage.events).toEqual([]);
+    expect(eventsPage.total).toBeGreaterThan(0);
+
+    await expect(listFacilityAssets(TENANT_ID, { offset: 2_147_483_648 }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+    await expect(listFacilityAssetEvents(TENANT_ID, assetId, { offset: '1.5' }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+  });
 });

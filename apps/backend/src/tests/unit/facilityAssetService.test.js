@@ -394,3 +394,44 @@ describe('facilityAssetService — custodian picker', () => {
     expect(params).toEqual([TENANT_ID, 'maya', 50]);
   });
 });
+
+describe('facilityAssetService — pagination', () => {
+  it('keeps the filtered total when a later asset page is empty', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([{
+      id: null,
+      total_count: 23,
+    }]);
+
+    const result = await service.listFacilityAssets(TENANT_ID, {
+      limit: 10,
+      offset: 30,
+    });
+
+    expect(result).toEqual({ assets: [], total: 23, limit: 10, offset: 30 });
+    expect(mockPrisma.$queryRawUnsafe.mock.calls[0][0]).toContain('LEFT JOIN page ON TRUE');
+  });
+
+  it('keeps the filtered total when a later event page is empty', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([{
+      id: null,
+      total_count: 9,
+    }]);
+
+    const result = await service.listFacilityAssetEvents(TENANT_ID, 7, {
+      limit: 5,
+      offset: 10,
+    });
+
+    expect(result).toEqual({ events: [], total: 9, limit: 5, offset: 10 });
+  });
+
+  it('rejects non-integer and out-of-range pagination before querying Postgres', async () => {
+    await expect(service.listFacilityAssets(TENANT_ID, { offset: '12oops' }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+    await expect(service.listFacilityAssets(TENANT_ID, { offset: 2_147_483_648 }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+    await expect(service.listFacilityAssetEvents(TENANT_ID, 7, { limit: 201 }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+    expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});

@@ -22,7 +22,7 @@ import {
 } from "@/lib/api/facilityAssets";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Boxes, Pencil, Plus, Wrench, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 
 const QUERY_KEY = ["facility-assets"];
@@ -763,6 +763,18 @@ export default function FacilityAssetsPage() {
   const assets = assetsQuery.data?.assets ?? [];
   const total = assetsQuery.data?.total ?? 0;
 
+  useEffect(() => {
+    const page = assetsQuery.data;
+    if (!page || offset === 0 || page.offset !== offset || page.assets.length) {
+      return;
+    }
+    const lastValidOffset =
+      page.total === 0
+        ? 0
+        : Math.floor((page.total - 1) / PAGE_SIZE) * PAGE_SIZE;
+    if (lastValidOffset < offset) setOffset(lastValidOffset);
+  }, [assetsQuery.data, offset]);
+
   const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -891,6 +903,7 @@ export default function FacilityAssetsPage() {
 
       {openAssetId != null && (
         <AssetDrawer
+          key={openAssetId}
           assetId={openAssetId}
           onClose={() => setOpenAssetId(null)}
         />

@@ -13,13 +13,19 @@ const listFacilityAssetCustodiansMock = jest.fn(async () => ({
   custodians: [],
   limit: 50,
 }));
+const listFacilityAssetEventsMock = jest.fn(async () => ({
+  events: [],
+  total: 0,
+  limit: 50,
+  offset: 0,
+}));
 const logAuditMock = jest.fn();
 
 jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
   createFacilityAsset: createFacilityAssetMock,
   getFacilityAsset: jest.fn(),
   listFacilityAssetCustodians: listFacilityAssetCustodiansMock,
-  listFacilityAssetEvents: jest.fn(),
+  listFacilityAssetEvents: listFacilityAssetEventsMock,
   listFacilityAssets: jest.fn(),
   recordFacilityAssetMaintenance: jest.fn(),
   transitionFacilityAssetStatus: jest.fn(),
@@ -133,5 +139,25 @@ describe('facility asset route actor provenance', () => {
       expect.objectContaining({ path: 'expectedVersion' }),
     ]));
     expect(updateFacilityAssetMock).not.toHaveBeenCalled();
+  });
+
+  it('validates and bounds event pagination before calling the service', async () => {
+    const excessiveLimit = await request(app())
+      .get('/api/v1/facility/assets/7/events?limit=201');
+    const excessiveOffset = await request(app())
+      .get('/api/v1/facility/assets/7/events?offset=2147483648');
+
+    expect(excessiveLimit.status).toBe(400);
+    expect(excessiveOffset.status).toBe(400);
+    expect(listFacilityAssetEventsMock).not.toHaveBeenCalled();
+
+    const valid = await request(app())
+      .get('/api/v1/facility/assets/7/events?limit=200&offset=2147483647');
+    expect(valid.status).toBe(200);
+    expect(listFacilityAssetEventsMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      '7',
+      { limit: '200', offset: '2147483647' },
+    );
   });
 });

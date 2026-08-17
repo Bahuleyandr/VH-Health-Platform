@@ -12,6 +12,7 @@ const CATEGORIES = [
 ];
 const CONDITIONS = ['good', 'fair', 'poor'];
 const STATUSES = ['active', 'under_repair', 'condemned', 'disposed'];
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const EVENT_TYPES = [
   'created', 'updated', 'moved', 'custodian_assigned', 'condition_changed',
   'status_changed', 'repair_opened', 'repair_closed', 'maintenance',
@@ -110,19 +111,20 @@ export const schemas = {
     required: ['assets', 'total', 'limit', 'offset'],
     properties: {
       assets: { type: 'array', items: { $ref: '#/components/schemas/FacilityAsset' } },
-      total: { type: 'integer' },
-      limit: { type: 'integer' },
-      offset: { type: 'integer' },
+      total: { type: 'integer', minimum: 0 },
+      limit: { type: 'integer', minimum: 1, maximum: 500 },
+      offset: { type: 'integer', minimum: 0, maximum: POSTGRES_INTEGER_MAX },
     },
   },
 
   FacilityAssetEventListPayload: {
     type: 'object',
-    required: ['events', 'limit', 'offset'],
+    required: ['events', 'total', 'limit', 'offset'],
     properties: {
       events: { type: 'array', items: { $ref: '#/components/schemas/FacilityAssetEvent' } },
-      limit: { type: 'integer' },
-      offset: { type: 'integer' },
+      total: { type: 'integer', minimum: 0 },
+      limit: { type: 'integer', minimum: 1, maximum: 200 },
+      offset: { type: 'integer', minimum: 0, maximum: POSTGRES_INTEGER_MAX },
     },
   },
 
@@ -248,7 +250,9 @@ export const operations = {
       queryParameter('custodian_uid', { type: 'string', format: 'uuid' }),
       queryParameter('q', { type: 'string', maxLength: 200 }),
       queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 }),
-      queryParameter('offset', { type: 'integer', minimum: 0 }),
+      queryParameter('offset', {
+        type: 'integer', minimum: 0, maximum: POSTGRES_INTEGER_MAX,
+      }),
     ],
     response: 'FacilityAssetListResponse',
   },
@@ -291,6 +295,12 @@ export const operations = {
   },
   'GET /api/v1/facility/assets/{id}/events': {
     description: 'Pages through the asset\'s full append-only history (newest first).',
+    parameters: [
+      queryParameter('limit', { type: 'integer', minimum: 1, maximum: 200 }),
+      queryParameter('offset', {
+        type: 'integer', minimum: 0, maximum: POSTGRES_INTEGER_MAX,
+      }),
+    ],
     response: 'FacilityAssetEventListResponse',
   },
 };

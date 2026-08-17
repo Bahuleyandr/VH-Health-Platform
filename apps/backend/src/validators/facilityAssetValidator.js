@@ -13,6 +13,8 @@ import {
 } from '../services/facility/facilityAssetService.js';
 import { optionalString, requiredString } from './sharedValidators.js';
 
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
 const optionalUuid = (name) => body(name)
   .optional({ nullable: true })
   .isUUID().withMessage(`${name} must be a valid UUID`);
@@ -94,7 +96,14 @@ export const listFacilityAssetValidators = [
   query('custodian_uid').optional({ nullable: true })
     .isUUID().withMessage('custodian_uid must be a valid UUID'),
   query('limit').optional().isInt({ min: 1, max: 500 }).withMessage('limit must be 1-500').toInt(),
-  query('offset').optional().isInt({ min: 0 }).withMessage('offset must be >= 0').toInt(),
+  query('offset').optional().isInt({ min: 0, max: POSTGRES_INTEGER_MAX })
+    .withMessage(`offset must be 0-${POSTGRES_INTEGER_MAX}`).toInt(),
+];
+
+export const listFacilityAssetEventValidators = [
+  query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('limit must be 1-200').toInt(),
+  query('offset').optional().isInt({ min: 0, max: POSTGRES_INTEGER_MAX })
+    .withMessage(`offset must be 0-${POSTGRES_INTEGER_MAX}`).toInt(),
 ];
 
 export const listFacilityAssetCustodianValidators = [
@@ -110,5 +119,6 @@ export default {
   transitionFacilityAssetValidators,
   maintenanceFacilityAssetValidators,
   listFacilityAssetValidators,
+  listFacilityAssetEventValidators,
   listFacilityAssetCustodianValidators,
 };

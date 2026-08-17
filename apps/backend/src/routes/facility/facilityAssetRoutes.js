@@ -36,6 +36,7 @@ import {
 import {
   createFacilityAssetValidators,
   listFacilityAssetCustodianValidators,
+  listFacilityAssetEventValidators,
   listFacilityAssetValidators,
   maintenanceFacilityAssetValidators,
   transitionFacilityAssetValidators,
@@ -172,19 +173,26 @@ router.get('/:id', requireRead, paramId('id'), validate, async (req, res, next) 
 });
 
 /** GET /api/v1/facility/assets/:id/events — full history page. */
-router.get('/:id/events', requireRead, paramId('id'), validate, async (req, res, next) => {
-  try {
-    const events = await listFacilityAssetEvents(tenantOf(req), req.params.id, {
-      limit: req.query.limit,
-      offset: req.query.offset,
-    });
-    return success(res, events, 'Facility asset events retrieved');
-  } catch (err) {
-    if (err.isOperational) return relayAppError(res, err, 'Failed to fetch facility asset events');
-    logger.error('Failed to fetch facility asset events:', { error: err.message });
-    return next(err);
-  }
-});
+router.get(
+  '/:id/events',
+  requireRead,
+  paramId('id'),
+  listFacilityAssetEventValidators,
+  validate,
+  async (req, res, next) => {
+    try {
+      const events = await listFacilityAssetEvents(tenantOf(req), req.params.id, {
+        limit: req.query.limit,
+        offset: req.query.offset,
+      });
+      return success(res, events, 'Facility asset events retrieved');
+    } catch (err) {
+      if (err.isOperational) return relayAppError(res, err, 'Failed to fetch facility asset events');
+      logger.error('Failed to fetch facility asset events:', { error: err.message });
+      return next(err);
+    }
+  },
+);
 
 /** PATCH /api/v1/facility/assets/:id — master fields / move / custodian / condition. */
 router.patch('/:id', requireManage, paramId('id'), updateFacilityAssetValidators, validate, async (req, res, next) => {

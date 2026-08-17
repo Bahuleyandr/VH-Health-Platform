@@ -61,6 +61,13 @@ const ASSET: FacilityAsset = {
   updatedAt: "2026-08-16T10:00:00.000Z",
 };
 
+const ASSET_B: FacilityAsset = {
+  ...ASSET,
+  id: 8,
+  assetTag: "GEN-03",
+  name: "Standby generator",
+};
+
 function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -179,6 +186,29 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
     );
   });
 
+  it("returns to the last valid page when a later page becomes empty", async () => {
+    (listFacilityAssets as jest.Mock).mockImplementation(
+      async ({ offset: requestedOffset }: { offset: number }) =>
+        requestedOffset === 50
+          ? { assets: [], total: 49, limit: 50, offset: 50 }
+          : { assets: [ASSET], total: 49, limit: 50, offset: 0 },
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await waitFor(() =>
+      expect(listFacilityAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ offset: 50 }),
+      ),
+    );
+    await waitFor(() =>
+      expect(listFacilityAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 0 }),
+      ),
+    );
+    expect(await screen.findByText("GEN-02")).toBeInTheDocument();
+  });
+
   it("selects a tenant custodian in the asset form", async () => {
     (updateFacilityAsset as jest.Mock).mockResolvedValue({
       ...ASSET,
@@ -288,6 +318,52 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
         "Replaced coolant hose",
         4500.5,
         "Kirloskar Service",
+      ),
+    );
+  });
+
+  it("clears action drafts when the drawer switches to another asset", async () => {
+    (listFacilityAssets as jest.Mock).mockResolvedValue({
+      assets: [ASSET, ASSET_B],
+      total: 2,
+      limit: 50,
+      offset: 0,
+    });
+    (getFacilityAsset as jest.Mock).mockImplementation(async (id: number) => ({
+      ...(id === ASSET.id ? ASSET : ASSET_B),
+      events: [],
+    }));
+    (recordFacilityAssetMaintenance as jest.Mock).mockResolvedValue({
+      asset: ASSET_B,
+      event: { id: 9 },
+    });
+    renderPage();
+
+    fireEvent.click((await screen.findByText("GEN-02")).closest("tr")!);
+    fireEvent.change(await screen.findByLabelText("Maintenance notes"), {
+      target: { value: "Draft intended for GEN-02" },
+    });
+    fireEvent.click(screen.getByText("GEN-03").closest("tr")!);
+
+    expect(
+      await screen.findByText("GEN-03 — Standby generator"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Maintenance notes")).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Record maintenance" }),
+    ).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Maintenance notes"), {
+      target: { value: "Service standby generator" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record maintenance" }));
+
+    await waitFor(() =>
+      expect(recordFacilityAssetMaintenance).toHaveBeenCalledWith(
+        8,
+        "Service standby generator",
+        null,
+        null,
       ),
     );
   });

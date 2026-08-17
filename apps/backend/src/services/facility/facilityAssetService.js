@@ -57,6 +57,7 @@ const TRANSITION_EVENT_TYPES = Object.freeze({
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 function badRequest(message) {
   return AppError.badRequest(message, 'FACILITY_ASSET_INVALID');
@@ -120,17 +121,29 @@ function normalizeCost(value, field = 'purchaseCost') {
 }
 
 function assetId(value) {
-  const id = Number.parseInt(value, 10);
-  if (!Number.isSafeInteger(id) || id < 1) throw badRequest('assetId must be a positive integer');
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id < 1 || id > POSTGRES_INTEGER_MAX) {
+    throw badRequest('assetId must be a positive 32-bit integer');
+  }
   return id;
 }
 
 function normalizeExpectedVersion(value) {
   const version = Number(value);
-  if (!Number.isSafeInteger(version) || version < 1) {
-    throw badRequest('expectedVersion must be a positive integer');
+  if (!Number.isSafeInteger(version) || version < 1 || version > POSTGRES_INTEGER_MAX) {
+    throw badRequest('expectedVersion must be a positive 32-bit integer');
   }
   return version;
+}
+
+function paginationInteger(value, {
+  field, defaultValue, min, max,
+}) {
+  const parsed = value == null || value === '' ? defaultValue : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw badRequest(`${field} must be an integer between ${min} and ${max}`);
+  }
+  return parsed;
 }
 
 function normalizePayload(payload = {}, existing = null) {
@@ -269,7 +282,9 @@ async function assertCustodianInTenantTx(tx, tenantId, custodianUid) {
 export async function listFacilityAssetCustodians(tenantId, { q = '', limit = 500 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
   const query = String(q ?? '').trim().toLowerCase();
-  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 500, 500));
+  const safeLimit = paginationInteger(limit, {
+    field: 'limit', defaultValue: 500, min: 1, max: 500,
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, name, role
        FROM users
@@ -355,24 +370,37 @@ export async function listFacilityAssets(tenantId, {
     throw badRequest(`category must be one of: ${FACILITY_ASSET_CATEGORIES.join(', ')}`);
   }
   const custodian = normalizeUuid(custodianUid, 'custodianUid');
-  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 200, 500));
-  const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+  const safeLimit = paginationInteger(limit, {
+    field: 'limit', defaultValue: 200, min: 1, max: 500,
+  });
+  const safeOffset = paginationInteger(offset, {
+    field: 'offset', defaultValue: 0, min: 0, max: POSTGRES_INTEGER_MAX,
+  });
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${ASSET_COLUMNS}, COUNT(*) OVER()::int AS total_count
-       FROM facility_assets
-      WHERE tenant_id = $1::uuid
-        AND ($2::text = '' OR status = $2::text)
-        AND ($3::text = '' OR category = $3::text)
-        AND ($4::uuid IS NULL OR custodian_uid = $4::uuid)
-        AND (
-          $5::text = ''
-          OR LOWER(asset_tag) LIKE '%' || $5::text || '%'
-          OR LOWER(name) LIKE '%' || $5::text || '%'
-          OR LOWER(COALESCE(location_department, '')) LIKE '%' || $5::text || '%'
-          OR LOWER(COALESCE(location_room, '')) LIKE '%' || $5::text || '%'
-        )
-      ORDER BY status ASC, name ASC, id ASC
-      LIMIT $6::int OFFSET $7::int`,
+    `WITH filtered AS (
+       SELECT ${ASSET_COLUMNS}
+         FROM facility_assets
+        WHERE tenant_id = $1::uuid
+          AND ($2::text = '' OR status = $2::text)
+          AND ($3::text = '' OR category = $3::text)
+          AND ($4::uuid IS NULL OR custodian_uid = $4::uuid)
+          AND (
+            $5::text = ''
+            OR LOWER(asset_tag) LIKE '%' || $5::text || '%'
+            OR LOWER(name) LIKE '%' || $5::text || '%'
+            OR LOWER(COALESCE(location_department, '')) LIKE '%' || $5::text || '%'
+            OR LOWER(COALESCE(location_room, '')) LIKE '%' || $5::text || '%'
+          )
+     ), page AS (
+       SELECT *
+         FROM filtered
+        ORDER BY status ASC, name ASC, id ASC
+        LIMIT $6::int OFFSET $7::int
+     )
+     SELECT page.*, totals.total_count
+       FROM (SELECT COUNT(*)::int AS total_count FROM filtered) AS totals
+       LEFT JOIN page ON TRUE
+      ORDER BY page.status ASC NULLS LAST, page.name ASC NULLS LAST, page.id ASC NULLS LAST`,
     scopedTenantId,
     statusFilter,
     categoryFilter,
@@ -381,8 +409,9 @@ export async function listFacilityAssets(tenantId, {
     safeLimit,
     safeOffset,
   );
+  const assets = rows.filter((row) => row.id != null).map(toAsset);
   return {
-    assets: rows.map(toAsset),
+    assets,
     total: rows.length > 0 ? Number(rows[0].total_count) : 0,
     limit: safeLimit,
     offset: safeOffset,
@@ -409,20 +438,38 @@ export async function getFacilityAsset(tenantId, id, { eventLimit = 20 } = {}) {
 
 export async function listFacilityAssetEvents(tenantId, id, { limit = 50, offset = 0 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
-  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 200));
-  const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+  const safeLimit = paginationInteger(limit, {
+    field: 'limit', defaultValue: 50, min: 1, max: 200,
+  });
+  const safeOffset = paginationInteger(offset, {
+    field: 'offset', defaultValue: 0, min: 0, max: POSTGRES_INTEGER_MAX,
+  });
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${EVENT_COLUMNS}
-       FROM facility_asset_events
-      WHERE tenant_id = $1::uuid AND asset_id = $2::int
-      ORDER BY occurred_at DESC, id DESC
-      LIMIT $3::int OFFSET $4::int`,
+    `WITH filtered AS (
+       SELECT ${EVENT_COLUMNS}
+         FROM facility_asset_events
+        WHERE tenant_id = $1::uuid AND asset_id = $2::int
+     ), page AS (
+       SELECT *
+         FROM filtered
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT $3::int OFFSET $4::int
+     )
+     SELECT page.*, totals.total_count
+       FROM (SELECT COUNT(*)::int AS total_count FROM filtered) AS totals
+       LEFT JOIN page ON TRUE
+      ORDER BY page.occurred_at DESC NULLS LAST, page.id DESC NULLS LAST`,
     scopedTenantId,
     assetId(id),
     safeLimit,
     safeOffset,
   );
-  return { events: rows.map(toAssetEvent), limit: safeLimit, offset: safeOffset };
+  return {
+    events: rows.filter((row) => row.id != null).map(toAssetEvent),
+    total: rows.length > 0 ? Number(rows[0].total_count) : 0,
+    limit: safeLimit,
+    offset: safeOffset,
+  };
 }
 
 export async function createFacilityAsset(tenantId, payload = {}, {

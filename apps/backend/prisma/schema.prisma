@@ -28448,7 +28448,6 @@ model facility_assets {
   warranty_until        DateTime?               @db.Date
   condition             String                  @default("good") @db.VarChar(10)
   status                String                  @default("active") @db.VarChar(20)
-  version               Int                     @default(1)
   disposal_reason       String?                 @db.VarChar(500)
   disposed_at           DateTime?               @db.Timestamptz(6)
   disposed_by           String?                 @db.Uuid
@@ -28457,6 +28456,7 @@ model facility_assets {
   metadata              Json                    @default("{}")
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  version               Int                     @default(1)
   facility_asset_events facility_asset_events[]
   tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users                 users?                  @relation(fields: [tenant_id, custodian_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_facility_assets_custodian")

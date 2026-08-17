@@ -24042,6 +24042,7 @@
         "type": "object",
         "required": [
           "events",
+          "total",
           "limit",
           "offset"
         ],
@@ -24052,11 +24053,19 @@
               "$ref": "#/components/schemas/FacilityAssetEvent"
             }
           },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
           "limit": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
           },
           "offset": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
           }
         }
       },
@@ -24095,13 +24104,18 @@
             }
           },
           "total": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
           },
           "limit": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
           },
           "offset": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
           }
         }
       },
@@ -104441,7 +104455,8 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 2147483647
             }
           }
         ]
@@ -104614,6 +104629,26 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
             }
           }
         ]
