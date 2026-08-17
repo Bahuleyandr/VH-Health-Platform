@@ -94,7 +94,6 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/staff-messaging",
   "api/v1/stemi-pathway",
   "api/v1/stroke-pathway",
-  "api/v1/facility/assets",
   "api/v1/downtime/reconciliation/",
   "api/v1/debug/",
 ];
