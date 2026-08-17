@@ -541,6 +541,34 @@ describe('billing v2 front-office audit logging', () => {
     );
   });
 
+  it('does not forward public refund-pay body fields into gateway settlement authority', async () => {
+    markRefundPaidMock.mockResolvedValueOnce({
+      id: 21,
+      patient_uid: PATIENT_UID,
+      approval_status: 'PAID',
+      payout_rail: 'manual',
+      gateway_refund_id: null,
+      reference: 'MANUAL-21',
+    });
+
+    const response = await request(makeApp())
+      .post('/refunds/21/pay')
+      .set('Idempotency-Key', `fo-test-refundpay-attack-${Date.now()}-${Math.random()}`)
+      .send({
+        reference: 'MANUAL-21',
+        payout_rail: 'gateway',
+        gateway_refund_id: 9876,
+        paid_by: '33333333-3333-4333-8333-333333333333',
+      });
+
+    expect(response.status).toBe(200);
+    expect(markRefundPaidMock).toHaveBeenCalledWith('21', {
+      tenantId: TENANT_ID,
+      paid_by: ACTOR_UID,
+      reference: 'MANUAL-21',
+    });
+  });
+
   it('writes structured audit context for cash-drawer lifecycle actions', async () => {
     openCashDrawerSessionMock.mockResolvedValueOnce({
       id: 31,

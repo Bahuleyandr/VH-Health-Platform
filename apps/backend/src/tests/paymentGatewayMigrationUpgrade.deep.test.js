@@ -1,6 +1,6 @@
 // Retained-database proof for published migration 697 followed by additive
-// migrations 708, published 712, and forward-only 713. Runs in an isolated
-// schema inside the configured test DB.
+// migrations 708, published 712-713, and forward-only 715. Runs in an
+// isolated schema inside the configured test DB.
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -21,8 +21,11 @@ const upgrade712 = readFileSync(
 const upgrade713 = readFileSync(
   new URL('../migrations/713_payment_gateway_settlement_integrity.sql', import.meta.url), 'utf8',
 );
+const upgrade715 = readFileSync(
+  new URL('../migrations/715_payment_gateway_order_reconciliation_actor.sql', import.meta.url), 'utf8',
+);
 
-d('payment gateway retained migration 697 → 708 → published 712 → 713', () => {
+d('payment gateway retained migration 697 → 708 → published 712-713 → 715', () => {
   let client;
   let schema;
 
@@ -60,7 +63,12 @@ d('payment gateway retained migration 697 → 708 → published 712 → 713', ()
       CREATE TABLE payment_gateway_orders (
         id SERIAL PRIMARY KEY,
         tenant_id UUID NOT NULL,
-        provider_config_id INTEGER
+        provider_config_id INTEGER,
+        status VARCHAR(26) NOT NULL DEFAULT 'created',
+        reconciled_at TIMESTAMPTZ,
+        reconciliation_note VARCHAR(500),
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE FUNCTION app_current_tenant_id_uuid() RETURNS UUID
       LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
@@ -78,9 +86,13 @@ d('payment gateway retained migration 697 → 708 → published 712 → 713', ()
     await client.query(published697);
     const tenantId = randomUUID();
     const actorUid = randomUUID();
-    await client.query('INSERT INTO tenants (id) VALUES ($1)', [tenantId]);
+    const otherTenantId = randomUUID();
+    const otherTenantActorUid = randomUUID();
+    await client.query('INSERT INTO tenants (id) VALUES ($1), ($2)', [tenantId, otherTenantId]);
     await client.query(
-      'INSERT INTO users (tenant_id, uid) VALUES ($1, $2)', [tenantId, actorUid],
+      `INSERT INTO users (tenant_id, uid)
+       VALUES ($1, $2), ($3, $4)`,
+      [tenantId, actorUid, otherTenantId, otherTenantActorUid],
     );
     const config = await client.query(
       'INSERT INTO payment_gateway_provider_configs (tenant_id) VALUES ($1) RETURNING id',
@@ -137,6 +149,19 @@ d('payment gateway retained migration 697 → 708 → published 712 → 713', ()
 
     await client.query(upgrade713);
     await client.query(upgrade713);
+
+    // Published 694-713 allowed an order resolution stamp without an actor.
+    // 715 preserves that material in metadata and reopens the order.
+    await client.query(
+      `UPDATE payment_gateway_orders
+          SET status = 'requires_reconciliation',
+              reconciled_at = NOW(),
+              reconciliation_note = 'Legacy actorless retained order resolution'
+        WHERE id = $1`,
+      [order.rows[0].id],
+    );
+    await client.query(upgrade715);
+    await client.query(upgrade715);
 
     const rows = await client.query(
       `SELECT id, status, provider_idempotency_key, failure_code,
@@ -238,6 +263,56 @@ d('payment gateway retained migration 697 → 708 → published 712 → 713', ()
     }));
     expect(retainedManualAuthority.rows[0].payout_rail_claimed_at).not.toBeNull();
 
+    const retainedOrder = await client.query(
+      `SELECT status, reconciled_at, reconciliation_note, reconciled_by, metadata
+         FROM payment_gateway_orders WHERE id = $1`,
+      [order.rows[0].id],
+    );
+    expect(retainedOrder.rows[0]).toEqual(expect.objectContaining({
+      status: 'requires_reconciliation',
+      reconciled_at: null,
+      reconciliation_note: null,
+      reconciled_by: null,
+      metadata: expect.objectContaining({
+        legacy_actorless_reconciliation: expect.objectContaining({
+          reconciliation_note: 'Legacy actorless retained order resolution',
+        }),
+      }),
+    }));
+    await expect(client.query(
+      `UPDATE payment_gateway_orders
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Missing authenticated actor evidence'
+        WHERE id = $1`,
+      [order.rows[0].id],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(client.query(
+      `UPDATE payment_gateway_orders
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Cross-tenant authenticated actor evidence',
+              reconciled_by = $1::uuid
+        WHERE id = $2`,
+      [otherTenantActorUid, order.rows[0].id],
+    )).rejects.toMatchObject({ code: '23503' });
+    const resolvedOrder = await client.query(
+      `UPDATE payment_gateway_orders
+          SET reconciled_at = NOW(),
+              reconciliation_note = 'Verified retained gateway order manually',
+              reconciled_by = $1::uuid
+        WHERE id = $2
+        RETURNING reconciled_at, reconciliation_note, reconciled_by`,
+      [actorUid, order.rows[0].id],
+    );
+    expect(resolvedOrder.rows[0]).toEqual(expect.objectContaining({
+      reconciliation_note: 'Verified retained gateway order manually',
+      reconciled_by: actorUid,
+    }));
+    expect(resolvedOrder.rows[0].reconciled_at).not.toBeNull();
+    await expect(client.query(
+      `UPDATE payment_gateway_orders SET status = 'failed' WHERE id = $1`,
+      [order.rows[0].id],
+    )).rejects.toMatchObject({ code: '23514' });
+
     await expect(client.query(
       `UPDATE payment_gateway_refunds
           SET reconciled_at = NOW(),
@@ -251,7 +326,7 @@ d('payment gateway retained migration 697 → 708 → published 712 → 713', ()
               reconciliation_note = 'Unknown cross-tenant actor evidence',
               reconciled_by = $1::uuid
         WHERE id = $2`,
-      [randomUUID(), retained.rows[0].id],
+      [otherTenantActorUid, retained.rows[0].id],
     )).rejects.toMatchObject({ code: '23503' });
 
     const resolved = await client.query(

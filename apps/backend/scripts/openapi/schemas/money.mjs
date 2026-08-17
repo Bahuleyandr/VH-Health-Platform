@@ -16,8 +16,35 @@ const BIGINT_WIRE = {
     },
   ],
 };
+const billingErrorResponse = description => ({
+  description,
+  content: {
+    'application/json': { schema: { $ref: '#/components/schemas/BillingErrorResponse' } },
+  },
+});
+const idempotencyHeader = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  schema: {
+    type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_\\-:.]+$',
+  },
+  description: 'Required durable request identity; reuse is valid only for the exact same actor, path, and body.',
+};
+const authenticatedSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
 
 export const schemas = {
+  BillingErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
   // ---- GL ledger reports (read-only; ledgerReportsService.js) ----
   TrialBalanceAccount: {
     type: 'object', additionalProperties: false,
@@ -1011,8 +1038,8 @@ export const schemas = {
     properties: { rejection_reason: { type: 'string' } },
   },
   MarkRefundPaidRequest: {
-    type: 'object', additionalProperties: true,
-    description: 'Reverse-engineered from billingV2Service.markRefundPaid; not validator-backed. Requires X-Idempotency-Key header.',
+    type: 'object', additionalProperties: false,
+    description: 'Manual refund settlement only. The public route cannot select the gateway rail or supply provider execution evidence. Requires Idempotency-Key.',
     properties: { reference: { type: 'string' } },
   },
 
@@ -1588,7 +1615,24 @@ export const operations = {
   'GET /api/v1/billing/v2/refunds': { response: 'RefundsListResponse' },
   'POST /api/v1/billing/v2/refunds/{id}/approve': { response: 'RefundResponse' },
   'POST /api/v1/billing/v2/refunds/{id}/reject': { request: 'RejectRefundRequest', response: 'RefundResponse' },
-  'POST /api/v1/billing/v2/refunds/{id}/pay': { request: 'MarkRefundPaidRequest', response: 'RefundResponse' },
+  'POST /api/v1/billing/v2/refunds/{id}/pay': {
+    description:
+      'Manually settles an APPROVED billing refund. The authenticated actor and tenant come from the request context; payout_rail and gateway_refund_id are never accepted from this public body. Signed provider refund evidence uses the separate payment-gateway webhook path. Idempotency-Key is required.',
+    parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
+    request: 'MarkRefundPaidRequest',
+    response: 'RefundResponse',
+    additionalResponses: {
+      400: billingErrorResponse('The request or Idempotency-Key was malformed, or the payout exceeded available authority.'),
+      401: billingErrorResponse('API-key and bearer authentication are required.'),
+      403: billingErrorResponse('The caller lacks cash-out authority.'),
+      404: billingErrorResponse('The refund was not found or is not approved.'),
+      409: billingErrorResponse('The refund payout is already owned by the gateway rail.'),
+      422: billingErrorResponse('The Idempotency-Key was reused with a different request body.'),
+      500: billingErrorResponse('The manual settlement, ledger posting, or audit evidence could not be committed.'),
+      503: billingErrorResponse('Durable idempotency or persistence infrastructure was unavailable; retry is safe.'),
+    },
+  },
   'GET /api/v1/billing/v2/reports/daily-collection': { response: 'DailyCollectionV2Response' },
   'GET /api/v1/billing/v2/reports/outstanding': { response: 'OutstandingResponse' },
 

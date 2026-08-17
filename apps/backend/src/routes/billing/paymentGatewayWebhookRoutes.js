@@ -18,12 +18,9 @@
 //      reprocessing; a row a crash left 'pending' (or 'failed') is resumed —
 //      that redelivery-resume is what makes the two-phase refund/capture
 //      bookkeeping self-healing.
-//   4. Verified-but-unprocessable events (operational AppErrors — business
-//      failures automation can never book) are recorded 'failed' and still
-//      200-acked (with an ops alert) so the provider stops re-delivering.
-//      NON-operational failures (transient DB/infra, bugs) are answered 5xx
-//      with the event row left 'pending' so the provider's redelivery
-//      resumes processing — there is no cron that re-drives 'failed' events.
+//   4. Only an explicit handler outcome is terminal. Any thrown error leaves
+//      the event row pending and returns 5xx, including operational AppErrors:
+//      the route cannot safely infer that a ledger/config/DB error is final.
 
 import { Router } from 'express';
 import * as gateway from '../../services/billing/paymentGatewayService.js';
@@ -141,50 +138,17 @@ router.post('/:webhookToken', async (req, res) => {
       return success(res, { received: true, replay: true }, 'Event already processed');
     }
 
-    // 4. Process (first delivery, or resume of a pending/failed row). A
-    //    processing failure is captured — the event was VERIFIED and durably
-    //    recorded, so it is marked failed for manual reconciliation and the
-    //    delivery is still 2xx-acked (the provider must stop re-delivering
-    //    something automation can never book; ops own it from here).
-    let outcome = null;
-    let processingError = null;
-    try {
-      outcome = await gateway.processWebhookEvent({
-        tenantId,
-        config,
-        event: eventRow,
-        payload,
-      });
-    } catch (processErr) {
-      processingError = processErr;
-    }
-
-    if (processingError) {
-      if (processingError?.isOperational !== true) {
-        // Transient/infrastructure failure (DB outage, circuit breaker, a
-        // programming bug) — NOT a verified-unprocessable business outcome.
-        // Leave the event row pending and answer 5xx so the provider's free
-        // redelivery resumes it; a 200 here would end redelivery with no
-        // automated re-drive of 'failed' events.
-        logger.error('payment gateway webhook processing hit a non-operational failure — 5xx for provider redelivery', {
-          event_id: eventRow.id, error: processingError?.message,
-        });
-        return error(res, 'Webhook processing failed', 500);
-      }
-      // Verified-but-unprocessable business failure (AppError): automation
-      // can never book this — record failed, 200-ack so redelivery stops,
-      // ops own it from here.
-      await gateway.markWebhookEvent({
-        tenantId,
-        eventId: eventRow.id,
-        status: 'failed',
-        failureReason: processingError?.message,
-      });
-      logger.error('payment gateway webhook processing failed — recorded for reconciliation', {
-        event_id: eventRow.id, code: processingError?.code, error: processingError?.message,
-      });
-      return success(res, { received: true, outcome: 'failed' }, 'Event recorded; processing failed');
-    }
+    // 4. Process first delivery or resume a pending/failed row. Handlers turn
+    // validated terminal business outcomes into explicit return values
+    // (ignored, requires_reconciliation, failed_recorded, ...). A throw is
+    // never terminally acknowledged here; provider redelivery is the recovery
+    // mechanism for ledger/config/database failures and unexpected AppErrors.
+    const outcome = await gateway.processWebhookEvent({
+      tenantId,
+      config,
+      event: eventRow,
+      payload,
+    });
 
     const eventStatus = outcome.outcome === 'ignored' ? 'ignored' : 'processed';
     await gateway.markWebhookEvent({
@@ -201,10 +165,12 @@ router.post('/:webhookToken', async (req, res) => {
     if (err?.code === 'PAYMENT_GATEWAY_WEBHOOK_REPLAY_STORE_UNAVAILABLE') {
       return error(res, 'Replay store unavailable', 503);
     }
-    // Pre-verification / intake failures only reach here (processing errors
-    // are handled above) — reject honestly; the provider will redeliver.
+    const statusCode = Number.isInteger(err?.statusCode)
+      && err.statusCode >= 500 && err.statusCode <= 599
+      ? err.statusCode
+      : 500;
     logger.error('payment gateway webhook rejected', { code: err?.code, error: err?.message });
-    return error(res, 'Webhook processing failed', 500);
+    return error(res, 'Webhook processing failed', statusCode);
   }
 });
 

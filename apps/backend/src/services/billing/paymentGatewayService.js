@@ -31,7 +31,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 import { getPaymentGatewaySettings } from '../tenant/tenantSettingsService.js';
 import {
   collectPayment,
-  markRefundPaid,
+  markGatewayRefundPaid,
   deriveInvoicePaymentStateFromLedgerTx,
 } from './billingV2Service.js';
 import { postPaymentEntry } from './ledger/ledgerPostings.js';
@@ -632,7 +632,7 @@ function toGatewayOrderCheckout(order, config) {
 const ORDER_VIEW_COLUMNS = `
   id, provider, environment, patient_uid, invoice_id, payment_link_id, amount,
   currency, receipt, provider_order_id, provider_payment_id, method, status,
-  billing_payment_id, captured_at, reconciled_at, reconciliation_note,
+  billing_payment_id, captured_at, reconciled_at, reconciliation_note, reconciled_by,
   failure_code, failure_reason, expires_at, created_at, updated_at`;
 
 export async function getGatewayOrder({ tenantId, id, actor = {} }) {
@@ -714,16 +714,37 @@ export async function resolveGatewayOrderReconciliation({ tenantId, id, note, re
       'PAYMENT_GATEWAY_RECONCILIATION_NOTE_REQUIRED',
     );
   }
+  const resolvedBy = typeof resolved_by === 'string' ? resolved_by.trim() : '';
+  if (!resolvedBy) {
+    throw AppError.forbidden(
+      'An authenticated operator is required to resolve gateway order reconciliation',
+      'PAYMENT_GATEWAY_RECONCILIATION_ACTOR_REQUIRED',
+    );
+  }
+  const actorRows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid
+      LIMIT 1`,
+    tenant, resolvedBy,
+  );
+  if (!actorRows.length) {
+    throw AppError.forbidden(
+      'The reconciliation actor must belong to this tenant',
+      'PAYMENT_GATEWAY_RECONCILIATION_ACTOR_INVALID',
+    );
+  }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE payment_gateway_orders
         SET reconciled_at = NOW(),
             reconciliation_note = $1,
+            reconciled_by = $2::uuid,
             updated_at = NOW()
-      WHERE id = $2::int AND tenant_id = $3::uuid
+      WHERE id = $3::int AND tenant_id = $4::uuid
         AND status = 'requires_reconciliation'
         AND reconciled_at IS NULL
       RETURNING ${ORDER_VIEW_COLUMNS}`,
-    trimmedNote.slice(0, 500), Number(id), tenant,
+    trimmedNote.slice(0, 500), resolvedBy, Number(id), tenant,
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
@@ -742,7 +763,7 @@ export async function resolveGatewayOrderReconciliation({ tenantId, id, note, re
   }
   logger.info('payment gateway order manually reconciled', {
     gateway_order_id: Number(rows[0].id),
-    resolved_by: resolved_by ? String(resolved_by) : null,
+    resolved_by: resolvedBy,
   });
   return { ...rows[0], id: Number(rows[0].id), amount: Number(rows[0].amount) };
 }
@@ -977,6 +998,41 @@ async function setOrderRequiresReconciliation({ tenantId, orderId, providerPayme
   );
 }
 
+const TERMINAL_CAPTURE_RECONCILIATION_CODES = new Set([
+  'BAD_REQUEST',
+  'DUPLICATE_PAYMENT_REFERENCE',
+  'PAYMENT_GATEWAY_CAPTURE_EVIDENCE_MISMATCH',
+]);
+
+async function parkCaptureForReconciliation({
+  tenant, config, providerOrderId, providerPaymentId, error: captureError,
+}) {
+  const orderRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status FROM payment_gateway_orders
+      WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
+        AND provider_config_id = $4::int AND provider_order_id = $5
+      LIMIT 1`,
+    tenant, config.provider, config.environment, Number(config.id), String(providerOrderId),
+  );
+  if (!orderRows.length || orderRows[0].status === 'paid') return null;
+  await setOrderRequiresReconciliation({
+    tenantId: tenant,
+    orderId: orderRows[0].id,
+    providerPaymentId,
+    reason: `${captureError.code || 'BOOKING_FAILED'}: ${captureError.message}`,
+  });
+  logger.error('payment gateway capture requires manual reconciliation', {
+    gateway_order_id: Number(orderRows[0].id),
+    code: captureError.code,
+    error: captureError.message,
+  });
+  return {
+    outcome: 'requires_reconciliation',
+    orderId: Number(orderRows[0].id),
+    reason: captureError.code || captureError.message,
+  };
+}
+
 /**
  * Book a provider capture into the billing spine. ONE setTenantTx:
  * lock order → replay check → collectPayment({tx}) with reference =
@@ -1044,12 +1100,29 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
             'PAYMENT_GATEWAY_CAPTURE_REPLAY_MISMATCH',
           );
         }
+        let payment = null;
+        if (wiring.postCommit) {
+          const paymentRows = await tx.$queryRawUnsafe(
+            `SELECT * FROM billing_payments
+              WHERE id = $1::int AND tenant_id = $2::uuid
+              LIMIT 1`,
+            Number(order.billing_payment_id), tenant,
+          );
+          if (!paymentRows.length) {
+            throw new AppError(
+              'Booked gateway payment evidence is unavailable for ledger retry',
+              503,
+              'PAYMENT_GATEWAY_CAPTURE_LEDGER_EVIDENCE_UNAVAILABLE',
+            );
+          }
+          payment = paymentRows[0];
+        }
         // Replay (or a second event for the already-booked capture).
         return {
           outcome: 'replay',
           orderId: Number(order.id),
           billingPaymentId: order.billing_payment_id != null ? Number(order.billing_payment_id) : null,
-          payment: null,
+          payment,
         };
       }
       const payment = await collectPayment({
@@ -1115,52 +1188,31 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
       };
     });
   } catch (err) {
-    if (err instanceof AppError && err.code === 'DUPLICATE_PAYMENT_REFERENCE') {
-      // 317 backstop fired: the money row already exists for this provider
-      // payment id + mode. Collapse to replay semantics.
-      logger.warn('payment gateway capture collapsed onto existing payment row (317 backstop)', {
-        provider_order_id: String(providerOrderId),
-      });
-      return { outcome: 'replay', orderId: null, billingPaymentId: null, payment: null };
-    }
-    if (err instanceof AppError && err.statusCode >= 400 && err.statusCode < 500
-        && err.code !== 'PAYMENT_GATEWAY_ORDER_NOT_FOUND') {
+    if (err instanceof AppError && TERMINAL_CAPTURE_RECONCILIATION_CODES.has(err.code)) {
       // The provider captured money we could not book (voided invoice,
-      // amount drift...). Park for manual reconciliation + alert — the
-      // capture is real and must not be dropped.
-      const orderRows = await prisma.$queryRawUnsafe(
-        `SELECT id, status FROM payment_gateway_orders
-          WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
-            AND provider_config_id = $4::int AND provider_order_id = $5
-          LIMIT 1`,
-        tenant, config.provider, config.environment, Number(config.id), String(providerOrderId),
-      );
-      if (orderRows.length) {
-        if (orderRows[0].status === 'paid') throw err;
-        await setOrderRequiresReconciliation({
-          tenantId: tenant,
-          orderId: orderRows[0].id,
-          providerPaymentId,
-          reason: `${err.code || 'BOOKING_FAILED'}: ${err.message}`,
-        });
-        logger.error('payment gateway capture requires manual reconciliation', {
-          gateway_order_id: Number(orderRows[0].id),
-          code: err.code,
-          error: err.message,
-        });
-        return { outcome: 'requires_reconciliation', orderId: Number(orderRows[0].id), reason: err.code || err.message };
-      }
+      // amount drift, or a durable reference collision). Park only this
+      // explicit terminal allowlist. Ledger/config/DB AppErrors must escape so
+      // the webhook route returns non-2xx and the provider retries.
+      const parked = await parkCaptureForReconciliation({
+        tenant, config, providerOrderId, providerPaymentId, error: err,
+      });
+      if (parked) return parked;
     }
     throw err;
   }
 
-  if (result.outcome === 'captured' && wiring.postCommit) {
+  if ((result.outcome === 'captured' || result.outcome === 'replay')
+      && wiring.postCommit) {
     try {
       await postPaymentEntry({ payment: result.payment, tenantId: tenant });
     } catch (ledgerErr) {
-      logger.error('Ledger PAYMENT post (gateway capture) failed (non-blocking)', {
+      if (ledgerErr instanceof AppError && ledgerErr.code === 'LEDGER_DUPLICATE') {
+        return result;
+      }
+      logger.error('Ledger PAYMENT post (gateway capture) failed — provider retry required', {
         payment_id: result.billingPaymentId, error: ledgerErr.message,
       });
+      throw ledgerErr;
     }
   }
   return result;
@@ -1451,7 +1503,7 @@ async function claimGatewayPayoutRailTx(tx, {
  * Initiate the provider refund for an APPROVED billing_refunds row whose
  * invoice was gateway-collected. Execution/evidence only — the approval
  * authority and the ledger REFUND_PAID posting stay with billingV2
- * (markRefundPaid, driven by the refund.processed webhook).
+ * (markGatewayRefundPaid, driven by exact refund.processed evidence).
  */
 export async function initiateGatewayRefund({
   tenantId, billing_refund_id, gateway_order_id, initiated_by,
@@ -1777,7 +1829,7 @@ function gatewayRefundReceipt(row, order = {}) {
 
 /**
  * refund.processed webhook → mark the execution leg processed and drive
- * markRefundPaid (billingV2 authority; posts REFUND_PAID per ledger wiring)
+ * markGatewayRefundPaid (billingV2 authority; posts REFUND_PAID per ledger wiring)
  * with reference = provider_refund_id. Idempotent under redelivery: an
  * already-PAID billing refund is accepted as done, and an already-processed
  * execution row short-circuits to replay.
@@ -1815,12 +1867,10 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   // update self-heals on redelivery via the already-PAID acceptance below.
   if (gatewayRefund.billing_refund_id != null) {
     try {
-      await markRefundPaid(Number(gatewayRefund.billing_refund_id), {
+      await markGatewayRefundPaid(Number(gatewayRefund.billing_refund_id), {
         tenantId: tenant,
-        reference: String(providerRefundId),
-        paid_by: null,
-        payout_rail: 'gateway',
         gateway_refund_id: Number(gatewayRefund.id),
+        provider_refund_id: String(providerRefundId),
       });
     } catch (err) {
       const billingRows = await prisma.$queryRawUnsafe(

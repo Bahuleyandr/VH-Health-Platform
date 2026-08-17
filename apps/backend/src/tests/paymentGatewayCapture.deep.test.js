@@ -21,7 +21,9 @@ const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_U
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
-const cleanup = { invoiceIds: [], patientUids: [], orderIds: [], linkIds: [] };
+const cleanup = {
+  invoiceIds: [], patientUids: [], orderIds: [], linkIds: [], tenantIds: [],
+};
 let prevLedgerMode;
 let prevGatewayEnabled;
 
@@ -35,6 +37,29 @@ async function makePatient() {
   );
   cleanup.patientUids.push(uid);
   return uid;
+}
+
+async function makeStaffActor(tenantId = TENANT) {
+  const uid = randomUUID();
+  const phone = `8${Math.floor(100000000 + Math.random() * 899999999)}`;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users (uid, phone, name, role, tenant_id, updated_at)
+     VALUES ($1::uuid, $2, 'PG Reconciliation Actor', 'ADMIN', $3::uuid, NOW())`,
+    uid, phone, tenantId,
+  );
+  cleanup.patientUids.push(uid);
+  return uid;
+}
+
+async function makeOtherTenant() {
+  const id = randomUUID();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenants (id, slug, name)
+     VALUES ($1::uuid, $2, 'PG Cross Tenant')`,
+    id, `pg-cross-${randomUUID().slice(0, 12)}`,
+  );
+  cleanup.tenantIds.push(id);
+  return id;
 }
 
 async function makeIssuedInvoice(patientUid, total) {
@@ -132,6 +157,9 @@ afterAll(async () => {
     );
     if (cleanup.patientUids.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.patientUids);
+    }
+    if (cleanup.tenantIds.length) {
+      await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = ANY($1::uuid[])`, cleanup.tenantIds);
     }
   } catch { /* best-effort teardown */ }
   if (prevLedgerMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
@@ -460,14 +488,36 @@ d('payment gateway capture (deep)', () => {
     expect(queued.provider_payment_id).toBe(providerPaymentId);
     expect(queued.reconciled_at).toBeNull();
 
-    // …and an operator stamp records the manual resolution + drops it from
-    // the default listing (already-stamped and unknown orders are refused).
+    // A real actor from another tenant cannot stamp this tenant's order.
+    const sameTenantActor = await makeStaffActor();
+    const otherTenant = await makeOtherTenant();
+    const otherTenantActor = await makeStaffActor(otherTenant);
+    await expect(gateway.resolveGatewayOrderReconciliation({
+      tenantId: TENANT,
+      id: order.orderId,
+      note: 'Cross-tenant actor must never resolve this captured payment.',
+      resolved_by: otherTenantActor,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PAYMENT_GATEWAY_RECONCILIATION_ACTOR_INVALID',
+    });
+    const stillUnresolved = await prisma.$queryRawUnsafe(
+      `SELECT reconciled_at, reconciled_by
+         FROM payment_gateway_orders WHERE id = $1::int`,
+      order.orderId,
+    );
+    expect(stillUnresolved[0]).toEqual({ reconciled_at: null, reconciled_by: null });
+
+    // …and a same-tenant operator stamp records actor + manual resolution and
+    // drops it from the default listing (already-stamped orders are refused).
     const resolved = await gateway.resolveGatewayOrderReconciliation({
       tenantId: TENANT, id: order.orderId,
       note: 'Refunded at the provider dashboard; invoice was voided before capture.',
+      resolved_by: sameTenantActor,
     });
     expect(resolved.reconciled_at).not.toBeNull();
     expect(resolved.reconciliation_note).toContain('provider dashboard');
+    expect(resolved.reconciled_by).toBe(sameTenantActor);
     const after = await gateway.listReconciliationGatewayOrders({ tenantId: TENANT });
     expect(after.orders.find((o) => o.id === order.orderId)).toBeUndefined();
     const withResolved = await gateway.listReconciliationGatewayOrders({
@@ -476,6 +526,7 @@ d('payment gateway capture (deep)', () => {
     expect(withResolved.orders.find((o) => o.id === order.orderId)).toBeTruthy();
     await expect(gateway.resolveGatewayOrderReconciliation({
       tenantId: TENANT, id: order.orderId, note: 'second stamp attempt should conflict',
+      resolved_by: sameTenantActor,
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_ORDER_NOT_RECONCILABLE' });
   });
 

@@ -1984,23 +1984,40 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
   return rows[0];
 }
 
-export async function markRefundPaid(refundId, {
-  paid_by, reference, tenantId, payout_rail = 'manual', gateway_refund_id = null,
-} = {}) {
-  const payoutRail = String(payout_rail || '').trim().toLowerCase();
-  if (!['manual', 'gateway'].includes(payoutRail)) {
-    throw AppError.badRequest('Refund payout rail must be manual or gateway');
-  }
-  const gatewayRefundId = gateway_refund_id == null ? null : Number(gateway_refund_id);
-  if (payoutRail === 'gateway'
-      && (!Number.isInteger(gatewayRefundId) || gatewayRefundId <= 0)) {
-    throw AppError.badRequest(
-      'Gateway refund execution evidence is required for gateway payout',
-      'BILLING_REFUND_GATEWAY_EXECUTION_REQUIRED',
-    );
-  }
+async function settleRefundPaid(refundId, {
+  paid_by, reference, tenantId, payoutRail, gatewayRefundId = null,
+  providerRefundId = null,
+}) {
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    if (payoutRail === 'gateway') {
+      const evidenceRows = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM payment_gateway_refunds
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid
+            AND billing_refund_id = $3::int
+            AND status IN ('initiated', 'pending', 'requires_reconciliation')
+            AND reconciled_at IS NULL
+            AND (provider_refund_id IS NULL OR provider_refund_id = $4)
+          FOR UPDATE`,
+        gatewayRefundId, requireTenantId(tenantId), Number(refundId), providerRefundId,
+      );
+      if (!evidenceRows.length) {
+        throw AppError.conflict(
+          'Gateway refund execution evidence is not settlement-authoritative',
+          'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID',
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET provider_refund_id = COALESCE(provider_refund_id, $1),
+                updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid`,
+        providerRefundId, gatewayRefundId, requireTenantId(tenantId),
+      );
+    }
+
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
     // so the ledger-reducing writes below run exactly once.
@@ -2126,6 +2143,40 @@ export async function markRefundPaid(refundId, {
     }
   }
   return refund;
+}
+
+export async function markRefundPaid(refundId, {
+  paid_by, reference, tenantId,
+} = {}) {
+  return settleRefundPaid(refundId, {
+    paid_by,
+    reference,
+    tenantId,
+    payoutRail: 'manual',
+    gatewayRefundId: null,
+  });
+}
+
+export async function markGatewayRefundPaid(refundId, {
+  tenantId, gateway_refund_id, provider_refund_id,
+} = {}) {
+  const gatewayRefundId = Number(gateway_refund_id);
+  const providerRefundId = String(provider_refund_id || '').trim();
+  if (!Number.isInteger(gatewayRefundId) || gatewayRefundId <= 0
+      || !providerRefundId || providerRefundId.length > 120) {
+    throw AppError.badRequest(
+      'Exact gateway refund execution evidence is required for gateway payout',
+      'BILLING_REFUND_GATEWAY_EXECUTION_REQUIRED',
+    );
+  }
+  return settleRefundPaid(refundId, {
+    paid_by: null,
+    reference: providerRefundId,
+    tenantId,
+    payoutRail: 'gateway',
+    gatewayRefundId,
+    providerRefundId,
+  });
 }
 
 export async function listRefunds({ tenantId, approval_status, patient_uid } = {}) {

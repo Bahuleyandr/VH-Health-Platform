@@ -11896,6 +11896,7 @@ model users {
   overtime_requests_overtime_requests_staff_uidTousers                                                                             overtime_requests[]                                    @relation("overtime_requests_staff_uidTousers")
   patient_flow_checkins                                                                                                            patient_flow_checkins[]
   patient_records                                                                                                                  patient_records[]
+  payment_gateway_orders                                                                                                           payment_gateway_orders[]
   payment_gateway_refunds                                                                                                          payment_gateway_refunds[]
   payroll_run_staff_results                                                                                                        payroll_run_staff_results[]
   payroll_runs_payroll_runs_generated_byTousers                                                                                    payroll_runs[]                                         @relation("payroll_runs_generated_byTousers")
@@ -28259,6 +28260,8 @@ model payment_gateway_orders {
   created_at                       DateTime                          @default(now()) @db.Timestamptz(6)
   updated_at                       DateTime                          @default(now()) @db.Timestamptz(6)
   webhook_credential_version       Int
+  reconciled_by                    String?                           @db.Uuid
+  users                            users?                            @relation(fields: [tenant_id, reconciled_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_pg_order_reconciled_actor")
   billing_payments                 billing_payments?                 @relation(fields: [billing_payment_id], references: [id], onUpdate: NoAction)
   billing_invoices                 billing_invoices?                 @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
   billing_payment_links            billing_payment_links?            @relation(fields: [payment_link_id], references: [id], onUpdate: NoAction)

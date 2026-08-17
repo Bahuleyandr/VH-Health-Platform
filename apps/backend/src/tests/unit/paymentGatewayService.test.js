@@ -23,7 +23,7 @@ const tx = { $queryRawUnsafe: txQueryRawUnsafe, $executeRawUnsafe: txExecuteRawU
 const setTenantTx = jest.fn(async (_tenant, fn) => fn(tx));
 
 const collectPayment = jest.fn(async () => ({ id: 77, amount: 500, mode: 'UPI' }));
-const markRefundPaid = jest.fn(async () => ({ id: 9 }));
+const markGatewayRefundPaid = jest.fn(async () => ({ id: 9 }));
 const deriveInvoicePaymentStateFromLedgerTx = jest.fn(async () => {});
 const getPaymentGatewaySettings = jest.fn(async () => ({ enabled: true }));
 const resolveLedgerWiring = jest.fn(async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }));
@@ -37,7 +37,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectPayment,
-  markRefundPaid,
+  markGatewayRefundPaid,
   deriveInvoicePaymentStateFromLedgerTx,
 }));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
@@ -409,15 +409,21 @@ describe('capture booking (payment.captured)', () => {
   });
 
   it('replays are a no-op: an already-paid order never books a second payment', async () => {
-    txQueryRawUnsafe.mockResolvedValueOnce([{
-      ...orderRow, status: 'paid', billing_payment_id: 77, provider_payment_id: 'pay_dry_9',
-    }]);
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{
+        ...orderRow, status: 'paid', billing_payment_id: 77, provider_payment_id: 'pay_dry_9',
+      }])
+      .mockResolvedValueOnce([{
+        id: 77, patient_uid: orderRow.patient_uid, invoice_id: orderRow.invoice_id,
+        amount: '500.00', mode: 'UPI', reversed: false,
+      }]);
     const result = await gateway.handleCaptureEvent({
       tenantId: TENANT, config, event: { id: 11, event_type: 'payment.captured' }, payload: capturePayload,
     });
     expect(result.outcome).toBe('replay');
     expect(collectPayment).not.toHaveBeenCalled();
     expect(txExecuteRawUnsafe).not.toHaveBeenCalled();
+    expect(postPaymentEntry).toHaveBeenCalledTimes(1);
   });
 
   it('paise amount mismatch parks the order in requires_reconciliation, never paid', async () => {
@@ -458,6 +464,77 @@ describe('capture booking (payment.captured)', () => {
     expect(result.outcome).toBe('requires_reconciliation');
     const parked = executeRawUnsafe.mock.calls.find(([sql]) => sql.includes("'requires_reconciliation'"));
     expect(parked.slice(1)).toEqual(['pay_dry_9', expect.stringContaining('VOID'), 21, TENANT]);
+  });
+
+  it('does not terminally park an enforce-mode ledger AppError', async () => {
+    const { AppError } = await import('../../utils/AppError.js');
+    resolveLedgerWiring.mockResolvedValueOnce({
+      mode: 'enforce', sameTx: true, postCommit: false, skip: false,
+    });
+    txQueryRawUnsafe.mockResolvedValueOnce([orderRow]);
+    postPaymentEntry.mockRejectedValueOnce(
+      AppError.badRequest('Unknown ledger account code: BANK', 'LEDGER_BAD_ACCOUNT'),
+    );
+
+    await expect(gateway.handleCaptureEvent({
+      tenantId: TENANT, config, event: { id: 14, event_type: 'payment.captured' }, payload: capturePayload,
+    })).rejects.toMatchObject({ code: 'LEDGER_BAD_ACCOUNT' });
+    expect(queryRawUnsafe).not.toHaveBeenCalled();
+    expect(executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('returns a shadow-ledger failure for provider retry and re-drives it from the paid order', async () => {
+    const { AppError } = await import('../../utils/AppError.js');
+    txQueryRawUnsafe.mockResolvedValueOnce([orderRow]);
+    postPaymentEntry.mockRejectedValueOnce(
+      AppError.internal('Ledger persistence unavailable', 'LEDGER_WRITE_UNAVAILABLE'),
+    );
+
+    await expect(gateway.handleCaptureEvent({
+      tenantId: TENANT, config, event: { id: 15, event_type: 'payment.captured' }, payload: capturePayload,
+    })).rejects.toMatchObject({ code: 'LEDGER_WRITE_UNAVAILABLE' });
+
+    const bookedPayment = {
+      id: 77, patient_uid: orderRow.patient_uid, invoice_id: orderRow.invoice_id,
+      amount: '500.00', mode: 'UPI', reversed: false,
+    };
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{
+        ...orderRow, status: 'paid', billing_payment_id: 77, provider_payment_id: 'pay_dry_9',
+      }])
+      .mockResolvedValueOnce([bookedPayment]);
+    postPaymentEntry.mockResolvedValueOnce({ entryId: 31 });
+
+    const replay = await gateway.handleCaptureEvent({
+      tenantId: TENANT, config, event: { id: 16, event_type: 'payment.captured' }, payload: capturePayload,
+    });
+    expect(replay.outcome).toBe('replay');
+    expect(collectPayment).toHaveBeenCalledTimes(1);
+    expect(postPaymentEntry).toHaveBeenCalledTimes(2);
+    expect(postPaymentEntry).toHaveBeenLastCalledWith({
+      payment: bookedPayment, tenantId: TENANT,
+    });
+  });
+
+  it('parks a duplicate payment reference collision instead of falsely acknowledging replay', async () => {
+    const { AppError } = await import('../../utils/AppError.js');
+    txQueryRawUnsafe.mockResolvedValueOnce([orderRow]);
+    collectPayment.mockRejectedValueOnce(AppError.conflict(
+      'A payment with this reference already exists',
+      'DUPLICATE_PAYMENT_REFERENCE',
+    ));
+    queryRawUnsafe.mockResolvedValueOnce([{ id: 21, status: 'created' }]);
+
+    const result = await gateway.handleCaptureEvent({
+      tenantId: TENANT, config, event: { id: 17, event_type: 'payment.captured' }, payload: capturePayload,
+    });
+    expect(result).toMatchObject({
+      outcome: 'requires_reconciliation', orderId: 21, reason: 'DUPLICATE_PAYMENT_REFERENCE',
+    });
+    const parked = executeRawUnsafe.mock.calls.find(([sql]) => sql.includes("'requires_reconciliation'"));
+    expect(parked.slice(1)).toEqual([
+      'pay_dry_9', expect.stringContaining('DUPLICATE_PAYMENT_REFERENCE'), 21, TENANT,
+    ]);
   });
 });
 
@@ -759,9 +836,9 @@ describe('refund initiation (double-execution guard)', () => {
       tenantId: TENANT, billing_refund_id: 9, gateway_order_id: 21,
     });
     expect(result).toMatchObject({ status: 'processed', provider_refund_id: 'rfnd_Rprocessed' });
-    expect(markRefundPaid).toHaveBeenCalledWith(9, expect.objectContaining({
+    expect(markGatewayRefundPaid).toHaveBeenCalledWith(9, expect.objectContaining({
       tenantId: TENANT,
-      reference: 'rfnd_Rprocessed',
+      provider_refund_id: 'rfnd_Rprocessed',
     }));
     createRefundSpy.mockRestore();
   });
@@ -778,7 +855,7 @@ describe('refund.processed webhook', () => {
     });
     expect(result).toEqual({ outcome: 'ignored', reason: 'no matching gateway refund row' });
     expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
-    expect(markRefundPaid).not.toHaveBeenCalled();
+    expect(markGatewayRefundPaid).not.toHaveBeenCalled();
   });
 
   it('binds crash-window correlation to the billing refund note as well as payment id', async () => {
@@ -798,7 +875,7 @@ describe('refund.processed webhook', () => {
     ]);
   });
 
-  it('drives markRefundPaid with reference = provider_refund_id, then marks the leg processed', async () => {
+  it('drives the trusted gateway settlement path with exact provider evidence, then marks the leg processed', async () => {
     queryRawUnsafe
       .mockResolvedValueOnce([{ // gateway refund row by provider_refund_id
         id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
@@ -814,8 +891,8 @@ describe('refund.processed webhook', () => {
       } } } },
     });
     expect(result.outcome).toBe('refund_processed');
-    expect(markRefundPaid).toHaveBeenCalledWith(9, expect.objectContaining({
-      tenantId: TENANT, reference: 'rfnd_dry_pgr-9',
+    expect(markGatewayRefundPaid).toHaveBeenCalledWith(9, expect.objectContaining({
+      tenantId: TENANT, gateway_refund_id: 6, provider_refund_id: 'rfnd_dry_pgr-9',
     }));
   });
 
@@ -844,7 +921,7 @@ describe('refund.processed webhook', () => {
     });
 
     expect(result).toMatchObject({ outcome: 'requires_reconciliation', gatewayRefundId: 6 });
-    expect(markRefundPaid).not.toHaveBeenCalled();
+    expect(markGatewayRefundPaid).not.toHaveBeenCalled();
     expect(queryRawUnsafe.mock.calls[1][0]).toContain("status = 'requires_reconciliation'");
   });
 
@@ -857,7 +934,7 @@ describe('refund.processed webhook', () => {
       payload: { payload: { refund: { entity: { id: 'rfnd_dry_pgr-9' } } } },
     });
     expect(result.outcome).toBe('replay');
-    expect(markRefundPaid).not.toHaveBeenCalled();
+    expect(markGatewayRefundPaid).not.toHaveBeenCalled();
   });
 });
 
@@ -896,7 +973,7 @@ describe('refund.failed webhook', () => {
       TENANT, 'dry_run', 'sandbox', 3, 'pay_dry_9', 9,
     ]);
     expect(queryRawUnsafe.mock.calls[2][0]).toContain("status = 'failed'");
-    expect(markRefundPaid).not.toHaveBeenCalled();
+    expect(markGatewayRefundPaid).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -923,6 +1000,6 @@ describe('refund.failed webhook', () => {
 
     expect(result).toMatchObject({ outcome: 'requires_reconciliation', gatewayRefundId: 6 });
     expect(queryRawUnsafe.mock.calls[1][0]).toContain("status = 'requires_reconciliation'");
-    expect(markRefundPaid).not.toHaveBeenCalled();
+    expect(markGatewayRefundPaid).not.toHaveBeenCalled();
   });
 });

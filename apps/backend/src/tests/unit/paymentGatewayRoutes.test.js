@@ -209,6 +209,7 @@ describe('role gates', () => {
     expect(ok.body.data.reconciliation_note).toContain('collectPayment');
     expect(resolveGatewayOrderReconciliation).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'trusted-tenant', id: '21', note: 'Booked manually via collectPayment ref pay_x',
+      resolved_by: '11111111-1111-4111-8111-111111111111',
     }));
   });
 

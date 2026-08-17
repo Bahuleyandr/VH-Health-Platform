@@ -27,6 +27,8 @@ const idempotencyHeader = {
   description: 'Required durable request identity. Reuse is valid only for the exact same actor, scope, path, and body.',
 };
 
+const authenticatedSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+
 export const schemas = {
   PaymentGatewayErrorResponse: {
     type: 'object',
@@ -116,6 +118,12 @@ export const schemas = {
         description: 'When an operator stamped the manual resolution of a requires_reconciliation order.',
       },
       reconciliation_note: { type: 'string', nullable: true, maxLength: 500 },
+      reconciled_by: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Authenticated same-tenant operator who recorded the reconciliation.',
+      },
       failure_code: { type: 'string', nullable: true },
       failure_reason: { type: 'string', nullable: true },
       expires_at: { type: 'string', format: 'date-time', nullable: true },
@@ -286,74 +294,137 @@ export const operations = {
     description:
       'Creates a provider payment order (Razorpay order or deterministic dry_run order) tied to an invoice or an existing payment link, returning the checkout bootstrap (provider order id + publishable key id — never a secret). Requires Idempotency-Key (scope payment_gateway_order). The local intent survives a 5xx while the transport envelope is released, so an exact retry recovers by its provider receipt. 403 PAYMENT_GATEWAY_DISABLED until the tenant gateway is effectively enabled; a PATIENT caller may only pay their own bills.',
     parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
     request: 'PaymentGatewayOrderCreateRequest',
     response: 'PaymentGatewayOrderCheckoutResponse',
     additionalResponses: {
       400: errorResponse('Malformed request or missing/invalid Idempotency-Key.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
       403: errorResponse('The payment gateway is disabled or the caller does not own the payable subject.'),
       409: errorResponse('The idempotency key or provider order evidence conflicts with an existing intent.'),
       422: errorResponse('The Idempotency-Key was reused with a different request body.'),
       502: errorResponse('The provider response was unavailable or lacked exact order evidence.'),
       503: errorResponse('The durable payment order intent could not be stored or recovered.'),
+      500: errorResponse('An internal persistence or billing error prevented order creation.'),
     },
   },
   'GET /api/v1/billing/gateway/orders/{id}': {
     description:
       'Gateway order status poll (created → attempted → paid | failed | cancelled | expired | requires_reconciliation). A PATIENT caller sees only their own orders; a paid order carries the billing_payments id booked by collectPayment in the same transaction.',
     response: 'PaymentGatewayOrderResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      401: errorResponse('API-key and bearer authentication are required.'),
+      404: errorResponse('The order was not found or is not visible to this patient.'),
+      500: errorResponse('The order could not be read because of an internal persistence failure.'),
+    },
   },
   'POST /api/v1/billing/gateway/orders/{id}/cancel': {
     description:
       'Cancels a gateway order still in created/attempted. A capture webhook that arrives later still books the provider money (the provider capture is authoritative); cancel only stops the local checkout window.',
     response: 'PaymentGatewayOrderResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: errorResponse('The order is not cancellable in its current status.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      404: errorResponse('The order was not found or is not visible to this patient.'),
+      500: errorResponse('The cancellation could not be persisted.'),
+    },
   },
   'GET /api/v1/billing/gateway/reconciliation': {
     description:
       'Admin work queue of requires_reconciliation orders — captures the provider took that automation could not book (voided invoice, amount drift). Unresolved rows only by default; include_resolved=true also returns operator-stamped rows.',
     response: 'PaymentGatewayReconciliationListResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority is required.'),
+      500: errorResponse('The reconciliation queue could not be read.'),
+    },
   },
   'POST /api/v1/billing/gateway/orders/{id}/reconcile': {
     description:
-      'Admin resolution stamp for a requires_reconciliation order: records reconciled_at + a required note describing how the captured money was manually handled, and writes an audit row. The order status stays requires_reconciliation (694 has no reconciled status) — stamped rows drop out of the default work-queue listing.',
+      'Admin resolution stamp for a requires_reconciliation order: atomically records reconciled_at, a required note, and the authenticated same-tenant reconciled_by actor, then writes an audit row. The order status stays requires_reconciliation (694 has no reconciled status) — stamped rows drop out of the default work-queue listing.',
     request: 'PaymentGatewayOrderReconcileRequest',
     response: 'PaymentGatewayOrderResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: errorResponse('The reconciliation note was missing or outside 10-500 characters.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority or a same-tenant reconciliation actor was not verified.'),
+      404: errorResponse('The gateway order was not found.'),
+      409: errorResponse('The order is not awaiting reconciliation or was already reconciled.'),
+      500: errorResponse('The reconciliation stamp or its audit evidence could not be persisted.'),
+    },
   },
   'POST /api/v1/billing/gateway/refunds': {
     description:
-      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key and exclusive gateway payout claim are committed before the external refund request. The HTTP idempotency envelope is released on 5xx so an exact retry reaches that same durable provider intent and key. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund → markRefundPaid lifecycle, and markRefundPaid is driven by the refund.processed webhook with reference = provider refund id. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
+      'Executes an APPROVED billing_refunds row against the exact supplied paid gateway order after matching invoice, payer, payment mode, and original provider config. A durable provider idempotency key and exclusive gateway payout claim are committed before the external refund request. The HTTP idempotency envelope is released on 5xx so an exact retry reaches that same durable provider intent and key. Execution/evidence leg only: refund authority stays in the billingV2 raiseRefund → approveRefund lifecycle; the signed refund.processed webhook completes it through the trusted markGatewayRefundPaid path with exact provider refund evidence. Finance/cashier/admin roles; Idempotency-Key required (scope payment_gateway_refund).',
     parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
     request: 'PaymentGatewayRefundCreateRequest',
     response: 'PaymentGatewayRefundResponse',
     additionalResponses: {
       400: errorResponse('Malformed request, missing/invalid Idempotency-Key, or refund/payment evidence mismatch.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
       403: errorResponse('The payment gateway is disabled or the caller lacks refund execution authority.'),
       409: errorResponse('Another payout rail or gateway execution already owns this billing refund.'),
       422: errorResponse('The Idempotency-Key was reused with a different request body.'),
       502: errorResponse('The provider response was unavailable or lacked exact refund evidence.'),
       503: errorResponse('The durable gateway refund intent could not be stored or recovered.'),
+      500: errorResponse('An internal billing, ledger, or persistence failure prevented refund execution.'),
     },
   },
   'GET /api/v1/billing/gateway/refund-reconciliation': {
     description:
       'Admin work queue of provider refund legs parked in requires_reconciliation. Unresolved rows only by default; include_resolved=true includes operator-stamped history. Provider idempotency keys remain write-only.',
     response: 'PaymentGatewayRefundReconciliationListResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority is required.'),
+      500: errorResponse('The refund reconciliation queue could not be read.'),
+    },
   },
   'POST /api/v1/billing/gateway/refunds/{id}/reconcile': {
     description:
       'Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing.',
     request: 'PaymentGatewayRefundReconcileRequest',
     response: 'PaymentGatewayRefundResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: errorResponse('The reconciliation note was missing or outside 10-500 characters.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority or a same-tenant reconciliation actor was not verified.'),
+      404: errorResponse('The gateway refund was not found.'),
+      409: errorResponse('The refund is not awaiting reconciliation or was already reconciled.'),
+      500: errorResponse('The reconciliation stamp or its audit evidence could not be persisted.'),
+    },
   },
   'GET /api/v1/billing/gateway/config': {
     description:
       'Admin read of the tenant provider configs plus the env/tenant gate states. Secrets are write-only — reads expose has_key_secret / has_webhook_secret booleans and the tenant webhook path only.',
     response: 'PaymentGatewayConfigListResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority is required.'),
+      500: errorResponse('Gateway configuration could not be read.'),
+    },
   },
   'PUT /api/v1/billing/gateway/config': {
     description:
       'Admin upsert of the per-tenant provider config (one row per provider+environment; at most one enabled per tenant). key_secret / webhook_secret are write-only and stored as encryptField() ciphertext; enabling a non-dry_run provider without credentials is rejected. The webhook routing token is minted once and stays stable.',
     request: 'PaymentGatewayConfigUpsertRequest',
     response: 'PaymentGatewayConfigViewResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: errorResponse('Provider configuration or required live credentials were invalid.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Administrator authority is required.'),
+      409: errorResponse('Another provider configuration already owns the tenant live slot.'),
+      500: errorResponse('Gateway configuration could not be persisted.'),
+    },
   },
   'POST /webhooks/payments/{webhookToken}': {
     description:

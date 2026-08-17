@@ -8,7 +8,8 @@
 //   * replay dedupe — duplicate provider event id → 200 ack, no reprocess;
 //     a pending row a crash left behind IS resumed;
 //   * replay-store outage → 503 fail-closed;
-//   * verified-but-unprocessable → recorded failed, still 200-acked.
+//   * only explicit handler outcomes are terminally acknowledged; thrown
+//     AppErrors and infrastructure failures remain retryable via non-2xx.
 
 import crypto from 'node:crypto';
 import { jest } from '@jest/globals';
@@ -240,29 +241,38 @@ describe('replay dedupe', () => {
   });
 });
 
-describe('verified-but-unprocessable deliveries', () => {
-  it('records an operational (business) failure as failed and still 200-acks so the provider stops re-delivering', async () => {
+describe('processing failure retry boundary', () => {
+  it('does not terminal-ack an operational 4xx AppError that escaped the handler', async () => {
     processWebhookEvent.mockRejectedValue(Object.assign(new Error('invoice imploded'), {
       isOperational: true, statusCode: 400, code: 'PAYMENT_GATEWAY_AMOUNT_MISMATCH',
     }));
-    const res = await signedPost(payload);
-    expect(res.status).toBe(200);
-    expect(res.body.data.outcome).toBe('failed');
-    expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: TENANT, eventId: 10, status: 'failed', failureReason: 'invoice imploded',
-    }));
-  });
-
-  it('returns 5xx when the durable failed-status write fails so the provider retries', async () => {
-    processWebhookEvent.mockRejectedValue(Object.assign(new Error('invoice imploded'), {
-      isOperational: true, statusCode: 400, code: 'PAYMENT_GATEWAY_AMOUNT_MISMATCH',
-    }));
-    markWebhookEvent.mockRejectedValueOnce(new Error('status store unavailable'));
     const res = await signedPost(payload);
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
+    expect(markWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('preserves a retryable 503 AppError and leaves the event pending', async () => {
+    processWebhookEvent.mockRejectedValue(Object.assign(new Error('ledger unavailable'), {
+      isOperational: true, statusCode: 503, code: 'LEDGER_UNAVAILABLE',
+    }));
+    const res = await signedPost(payload);
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
+    expect(markWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('preserves 503 when the durable terminal-status write fails', async () => {
+    markWebhookEvent.mockRejectedValueOnce(Object.assign(new Error('status store unavailable'), {
+      isOperational: true,
+      statusCode: 503,
+      code: 'PAYMENT_GATEWAY_WEBHOOK_STATUS_UNAVAILABLE',
+    }));
+    const res = await signedPost(payload);
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
     expect(markWebhookEvent).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'failed',
+      status: 'processed',
     }));
   });
 

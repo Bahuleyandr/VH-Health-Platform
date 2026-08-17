@@ -377,6 +377,48 @@ describe('OpenAPI contract overlays (static gate)', () => {
     ]);
   });
 
+  it('documents authenticated payment operations and keeps the provider webhook public', () => {
+    const authenticated = [{ ApiKeyAuth: [], BearerAuth: [] }];
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      if (!path.startsWith('/api/v1/billing/gateway/')) continue;
+      for (const operation of Object.values(methods)) {
+        expect(operation.security).toEqual(authenticated);
+      }
+    }
+    expect(spec.paths['/webhooks/payments/{webhookToken}'].post.security).toEqual([]);
+  });
+
+  it('documents refund rail separation and retry-safe webhook failures exactly', () => {
+    const manualPay = spec.paths['/api/v1/billing/v2/refunds/{id}/pay'].post;
+    expect(manualPay.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+    expect(manualPay.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+    ]));
+    expect(spec.components.schemas.MarkRefundPaidRequest.additionalProperties).toBe(false);
+    expect(spec.components.schemas.MarkRefundPaidRequest.properties).not.toHaveProperty('payout_rail');
+    expect(spec.components.schemas.MarkRefundPaidRequest.properties).not.toHaveProperty('gateway_refund_id');
+    expect(Object.keys(manualPay.responses)).toEqual([
+      '200', '400', '401', '403', '404', '409', '422', '500', '503',
+    ]);
+
+    const webhook = spec.paths['/webhooks/payments/{webhookToken}'].post;
+    expect(Object.keys(webhook.responses)).toEqual(['200', '400', '401', '404', '500', '503']);
+    expect(webhook.responses['500'].description).toMatch(/provider must retry/i);
+    expect(webhook.responses['503'].description).toMatch(/provider must retry/i);
+  });
+
+  it('documents tenant-bound gateway-order reconciliation evidence and failures', () => {
+    const order = spec.components.schemas.PaymentGatewayOrder;
+    expect(order.properties.reconciled_by).toEqual(expect.objectContaining({
+      type: 'string', format: 'uuid', nullable: true,
+    }));
+    const reconcile = spec.paths['/api/v1/billing/gateway/orders/{id}/reconcile'].post;
+    expect(reconcile.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+    expect(Object.keys(reconcile.responses)).toEqual([
+      '200', '400', '401', '403', '404', '409', '500',
+    ]);
+  });
+
   it('publishes the existing HL7 receive path as a typed JSON request with raw ACK responses', () => {
     const operation = spec.paths['/api/v1/hl7/receive'].post;
     expect(operation.requestBody.content['application/json'].schema).toEqual({
