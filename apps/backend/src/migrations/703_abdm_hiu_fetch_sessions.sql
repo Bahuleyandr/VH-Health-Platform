@@ -70,12 +70,6 @@ CREATE TABLE IF NOT EXISTS abdm_hiu_fetch_sessions (
   parts_received                  INTEGER NOT NULL DEFAULT 0
     CONSTRAINT chk_abdm_hiu_fetch_parts_received
       CHECK (parts_received >= 0),
-  pages_expected                 INTEGER
-    CONSTRAINT chk_abdm_hiu_fetch_pages_expected
-      CHECK (pages_expected IS NULL OR pages_expected >= 1),
-  next_page_number               INTEGER NOT NULL DEFAULT 1
-    CONSTRAINT chk_abdm_hiu_fetch_next_page
-      CHECK (next_page_number >= 1),
   initiated_by_uid                UUID,
   requested_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   acknowledged_at                 TIMESTAMPTZ,
@@ -84,8 +78,6 @@ CREATE TABLE IF NOT EXISTS abdm_hiu_fetch_sessions (
   metadata                        JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_abdm_hiu_fetch_tenant_id
-    UNIQUE (tenant_id, id),
   CONSTRAINT uq_abdm_hiu_fetch_txn
     UNIQUE (tenant_id, transaction_id, environment)
 );
@@ -103,50 +95,15 @@ CREATE INDEX IF NOT EXISTS idx_abdm_hiu_fetch_key_expiry
   ON abdm_hiu_fetch_sessions (key_material_expires_at)
   WHERE status IN ('requested', 'acknowledged', 'receiving');
 
-CREATE TABLE IF NOT EXISTS abdm_hiu_fetch_pages (
-  id                       SERIAL PRIMARY KEY,
-  tenant_id                UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  fetch_session_id         INTEGER NOT NULL,
-  page_number              INTEGER NOT NULL
-    CONSTRAINT chk_abdm_hiu_page_number CHECK (page_number >= 1),
-  page_count               INTEGER NOT NULL
-    CONSTRAINT chk_abdm_hiu_page_count CHECK (page_count >= 1),
-  payload_sha256           CHAR(64) NOT NULL
-    CONSTRAINT chk_abdm_hiu_page_payload_sha CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
-  status                   VARCHAR(20) NOT NULL DEFAULT 'claimed'
-    CONSTRAINT chk_abdm_hiu_page_status CHECK (status IN ('claimed', 'completed', 'failed')),
-  claim_id                 UUID NOT NULL,
-  claimed_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  parts_count              INTEGER NOT NULL DEFAULT 0
-    CONSTRAINT chk_abdm_hiu_page_parts CHECK (parts_count >= 0),
-  failure_reason           VARCHAR(500),
-  completed_at             TIMESTAMPTZ,
-  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT fk_abdm_hiu_page_session
-    FOREIGN KEY (tenant_id, fetch_session_id)
-    REFERENCES abdm_hiu_fetch_sessions (tenant_id, id) ON DELETE CASCADE,
-  CONSTRAINT chk_abdm_hiu_page_bounds CHECK (page_number <= page_count),
-  CONSTRAINT uq_abdm_hiu_page_tenant_id
-    UNIQUE (tenant_id, fetch_session_id, id, page_number),
-  CONSTRAINT uq_abdm_hiu_fetch_page UNIQUE (tenant_id, fetch_session_id, page_number)
-);
-
-CREATE INDEX IF NOT EXISTS idx_abdm_hiu_fetch_page_claim
-  ON abdm_hiu_fetch_pages (status, claimed_at)
-  WHERE status = 'claimed';
-
 CREATE TABLE IF NOT EXISTS abdm_hiu_received_bundles (
   id                       SERIAL PRIMARY KEY,
   tenant_id                UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  fetch_session_id         INTEGER NOT NULL,
-  fetch_page_id            INTEGER NOT NULL,
-  page_number              INTEGER NOT NULL
-    CONSTRAINT chk_abdm_hiu_bundle_page CHECK (page_number >= 1),
+  fetch_session_id         INTEGER NOT NULL
+    REFERENCES abdm_hiu_fetch_sessions(id) ON DELETE CASCADE,
   care_context_reference   VARCHAR(120),
   hi_type                  VARCHAR(60),
-  part_number              INTEGER NOT NULL
-    CONSTRAINT chk_abdm_hiu_bundle_part CHECK (part_number >= 0),
+  part_number              INTEGER
+    CONSTRAINT chk_abdm_hiu_bundle_part CHECK (part_number IS NULL OR part_number >= 0),
   -- R2 object key of the DECRYPTED FHIR bundle — PHI bytes never land in
   -- this table.
   bundle_storage_key       VARCHAR(500) NOT NULL,
@@ -157,15 +114,9 @@ CREATE TABLE IF NOT EXISTS abdm_hiu_received_bundles (
   received_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   metadata                 JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT fk_abdm_hiu_bundle_session
-    FOREIGN KEY (tenant_id, fetch_session_id)
-    REFERENCES abdm_hiu_fetch_sessions (tenant_id, id) ON DELETE CASCADE,
-  CONSTRAINT fk_abdm_hiu_bundle_page
-    FOREIGN KEY (tenant_id, fetch_session_id, fetch_page_id, page_number)
-    REFERENCES abdm_hiu_fetch_pages
-      (tenant_id, fetch_session_id, id, page_number) ON DELETE CASCADE,
-  CONSTRAINT uq_abdm_hiu_bundle_page_part
-    UNIQUE (tenant_id, fetch_session_id, page_number, part_number)
+  -- The same decrypted bytes pushed twice collapse to one reference row.
+  CONSTRAINT uq_abdm_hiu_bundle_content
+    UNIQUE (tenant_id, fetch_session_id, bundle_sha256)
 );
 
 CREATE INDEX IF NOT EXISTS idx_abdm_hiu_bundle_session
@@ -177,7 +128,6 @@ DECLARE
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
     'abdm_hiu_fetch_sessions',
-    'abdm_hiu_fetch_pages',
     'abdm_hiu_received_bundles'
   ]
   LOOP
@@ -207,8 +157,6 @@ COMMENT ON TABLE abdm_hiu_fetch_sessions IS
   'HIU health-information fetch txn state machine, extending the 124 abdmFull layer (consent objects + abdm_data_transfers direction=in). Persists the receive-leg X25519 private key encryptField()-encrypted for the txn lifetime only — code NULLs it after decryption.';
 COMMENT ON COLUMN abdm_hiu_fetch_sessions.key_material_private_ciphertext IS
   'encryptField() ciphertext of the txn X25519 private key. Required across the async hi-request → data-push gap; NULLed by code immediately after all parts decrypt.';
-COMMENT ON TABLE abdm_hiu_fetch_pages IS
-  'Durable exact-payload page claims. A retry must carry the same raw-body SHA-256; its bundle references and fetch-session page/count advancement commit atomically.';
 COMMENT ON TABLE abdm_hiu_received_bundles IS
   'References to decrypted HIU-fetched FHIR bundles. PHI bytes live in R2 (bundle_storage_key); rendering to a clinician is PHI access (logPhiAccess), not a clinical write — importing into the local chart would be, and takes the timeline+audit same-tx rule.';
 
