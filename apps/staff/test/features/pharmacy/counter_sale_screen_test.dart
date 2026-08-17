@@ -81,6 +81,11 @@ Future<void> _addFirstResult(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _pumpWitnessDialog(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
 void main() {
   testWidgets('search shows FEFO batch, expiry, stock and price', (
     tester,
@@ -267,7 +272,7 @@ void main() {
       await tester.tap(
         find.byKey(const ValueKey('counter-sale-witness-request')),
       );
-      await tester.pumpAndSettle();
+      await _pumpWitnessDialog(tester);
       await tester.enterText(
         find.byKey(const ValueKey('counter-sale-witness-employee-id')),
         'nurse-002',
@@ -345,7 +350,7 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('counter-sale-witness-request')),
     );
-    await tester.pumpAndSettle();
+    await _pumpWitnessDialog(tester);
     await tester.enterText(
       find.byKey(const ValueKey('counter-sale-witness-employee-id')),
       'NURSE-002',
@@ -399,7 +404,7 @@ void main() {
       await tester.tap(witnessButton);
       await tester.pumpAndSettle();
       await tester.tap(witnessButton);
-      await tester.pumpAndSettle();
+      await _pumpWitnessDialog(tester);
 
       expect(requestKeys, hasLength(2));
       expect(requestKeys[1], requestKeys[0]);
@@ -457,7 +462,7 @@ void main() {
         await tester.tap(
           find.byKey(const ValueKey('counter-sale-witness-request')),
         );
-        await tester.pumpAndSettle();
+        await _pumpWitnessDialog(tester);
         await tester.enterText(
           find.byKey(const ValueKey('counter-sale-witness-employee-id')),
           'NURSE-002',

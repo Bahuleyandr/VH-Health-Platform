@@ -115986,15 +115986,6 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "BIGSERIAL witness approval id serialized as decimal text.",
-            "schema": {
               "type": "string",
               "pattern": "^[1-9][0-9]*$"
             }
@@ -116636,15 +116627,6 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "BIGSERIAL witness approval id serialized as decimal text.",
             "schema": {
               "type": "string",
               "pattern": "^[1-9][0-9]*$"
@@ -119348,15 +119330,6 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "BIGSERIAL witness approval id serialized as decimal text.",
-            "schema": {
               "type": "string",
               "pattern": "^[1-9][0-9]*$"
             }
@@ -119998,15 +119971,6 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "BIGSERIAL witness approval id serialized as decimal text.",
             "schema": {
               "type": "string",
               "pattern": "^[1-9][0-9]*$"

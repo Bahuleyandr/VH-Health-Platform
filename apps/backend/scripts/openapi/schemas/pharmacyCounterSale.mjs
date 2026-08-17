@@ -42,13 +42,7 @@ const idempotencyKeyParameter = {
     pattern: '^[A-Za-z0-9_\\-:.]+$',
   },
 };
-const approvalIdPathParameter = {
-  name: 'id',
-  in: 'path',
-  required: true,
-  description: 'BIGSERIAL witness approval id serialized as decimal text.',
-  schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
-};
+const approvalIdPathSchema = { type: 'string', pattern: '^[1-9][0-9]*$' };
 
 const counterSaleIntentProperties = {
   lines: {
@@ -498,7 +492,8 @@ function ops(prefix) {
       request: 'PharmacyCounterSaleWitnessApprovalDecisionRequest',
       response: 'PharmacyCounterSaleWitnessApprovalResponse',
       security: bearerSecurity,
-      parameters: [approvalIdPathParameter, idempotencyKeyParameter],
+      pathParameters: { id: approvalIdPathSchema },
+      parameters: [idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
@@ -524,7 +519,8 @@ function ops(prefix) {
       request: 'PharmacyInventoryWitnessApprovalDecisionRequest',
       response: 'PharmacyInventoryWitnessApprovalResponse',
       security: bearerSecurity,
-      parameters: [approvalIdPathParameter, idempotencyKeyParameter],
+      pathParameters: { id: approvalIdPathSchema },
+      parameters: [idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`GET ${prefix}/counter-sales`]: {

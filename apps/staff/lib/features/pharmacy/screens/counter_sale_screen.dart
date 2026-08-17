@@ -342,74 +342,71 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   }
 
   Future<_WitnessCredentials?> _collectWitnessCredentials(AppStrings s) async {
-    final employeeIdCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-    try {
-      return await showDialog<_WitnessCredentials>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: Text(s.lookup('s4.lib.counter_sale.witness_auth_title')),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(s.lookup('s4.lib.counter_sale.witness_review_hint')),
-                const SizedBox(height: 8),
-                ..._cart.map(
-                  (line) => Text(
-                    '${line.name} × ${line.quantity.toStringAsFixed(line.quantity == line.quantity.truncateToDouble() ? 0 : 2)}',
+    var employeeId = '';
+    var password = '';
+    return showDialog<_WitnessCredentials>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.lookup('s4.lib.counter_sale.witness_auth_title')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(s.lookup('s4.lib.counter_sale.witness_review_hint')),
+              const SizedBox(height: 8),
+              ..._cart.map(
+                (line) => Text(
+                  '${line.name} × ${line.quantity.toStringAsFixed(line.quantity == line.quantity.truncateToDouble() ? 0 : 2)}',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('counter-sale-witness-employee-id'),
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (value) => employeeId = value,
+                decoration: InputDecoration(
+                  labelText: s.lookup(
+                    's4.lib.counter_sale.witness_employee_id',
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey('counter-sale-witness-employee-id'),
-                  controller: employeeIdCtrl,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.characters,
-                  decoration: InputDecoration(
-                    labelText: s.lookup(
-                      's4.lib.counter_sale.witness_employee_id',
-                    ),
-                  ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('counter-sale-witness-password'),
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
+                onChanged: (value) => password = value,
+                decoration: InputDecoration(
+                  labelText: s.lookup('s4.lib.counter_sale.witness_password'),
                 ),
-                const SizedBox(height: 8),
-                TextField(
-                  key: const ValueKey('counter-sale-witness-password'),
-                  controller: passwordCtrl,
-                  obscureText: true,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: s.lookup('s4.lib.counter_sale.witness_password'),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(s.actionCancel),
-            ),
-            FilledButton(
-              key: const ValueKey('counter-sale-witness-approve-submit'),
-              onPressed: () {
-                final employeeId = employeeIdCtrl.text.trim().toUpperCase();
-                final password = passwordCtrl.text;
-                if (employeeId.isEmpty || password.isEmpty) return;
-                Navigator.pop(ctx, _WitnessCredentials(employeeId, password));
-              },
-              child: Text(s.lookup('s4.lib.counter_sale.witness_approve')),
-            ),
-          ],
         ),
-      );
-    } finally {
-      employeeIdCtrl.dispose();
-      passwordCtrl.dispose();
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(s.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('counter-sale-witness-approve-submit'),
+            onPressed: () {
+              final normalizedEmployeeId = employeeId.trim().toUpperCase();
+              if (normalizedEmployeeId.isEmpty || password.isEmpty) return;
+              Navigator.pop(
+                ctx,
+                _WitnessCredentials(normalizedEmployeeId, password),
+              );
+            },
+            child: Text(s.lookup('s4.lib.counter_sale.witness_approve')),
+          ),
+        ],
+      ),
+    );
   }
 
   String _safeWitnessError(Object error, AppStrings s) {

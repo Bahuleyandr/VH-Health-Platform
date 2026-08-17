@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -150,7 +148,7 @@ void main() {
           final attempt = (attemptsByPath[path] ?? 0) + 1;
           attemptsByPath[path] = attempt;
           if (attempt == 1) {
-            throw const SocketException('response lost after durable write');
+            throw http.ClientException('response lost after durable write');
           }
           final isApproval = path.endsWith('/approve');
           return http.Response(
