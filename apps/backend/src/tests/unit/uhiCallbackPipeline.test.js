@@ -184,6 +184,18 @@ describe('UHI webhook pipeline', () => {
     expect(verifyBecknSignature).not.toHaveBeenCalled();
   });
 
+  it('rejects a signed search body replayed against the cancel path', async () => {
+    const res = await request(buildApp())
+      .post('/api/v1/uhi/cancel')
+      .set('Authorization', 'Signature keyId="eua.example|key|ed25519",signature="valid"')
+      .send(envelope('search'));
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('UHI_ACTION_MISMATCH');
+    expect(verifyBecknSignature).toHaveBeenCalledTimes(1);
+    expect(recordUhiLeg).not.toHaveBeenCalled();
+    expect(handleUhiCancel).not.toHaveBeenCalled();
+  });
+
   it('env-subscriber fallback maps only the configured subscriber id to the default tenant', async () => {
     resolveInteropCredentialSnapshot.mockResolvedValue(null);
     const res = await request(buildApp())

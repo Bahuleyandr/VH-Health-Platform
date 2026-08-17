@@ -21,6 +21,15 @@ describe('ABDM/UHI security migration contract', () => {
     const sql = read('src/migrations/703_abdm_hiu_fetch_sessions.sql');
     expect(sql).toMatch(/pages_expected\s+INTEGER[\s\S]*?pages_expected >= 1/);
     expect(sql).toMatch(/next_page_number\s+INTEGER NOT NULL DEFAULT 1/);
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS abdm_hiu_fetch_pages/);
+    expect(sql).toMatch(/payload_sha256\s+CHAR\(64\) NOT NULL/);
+    expect(sql).toMatch(/UNIQUE \(tenant_id, fetch_session_id, page_number\)/);
+    expect(sql).toMatch(
+      /UNIQUE \(tenant_id, fetch_session_id, page_number, part_number\)/,
+    );
+    expect(sql).toMatch(
+      /FOREIGN KEY \(tenant_id, fetch_session_id, fetch_page_id, page_number\)[\s\S]*?\(tenant_id, fetch_session_id, id, page_number\)/,
+    );
   });
 
   it('binds UHI replay identity to sender, direction and signature outcome', () => {
@@ -35,6 +44,9 @@ describe('ABDM/UHI security migration contract', () => {
     const schema = read('prisma/schema.prisma');
     expect(schema).toMatch(/pages_expected\s+Int\?/);
     expect(schema).toMatch(/next_page_number\s+Int\s+@default\(1\)/);
+    expect(schema).toContain('model abdm_hiu_fetch_pages');
+    expect(schema).toContain('payload_sha256  String');
+    expect(schema).toContain('@@unique([tenant_id, fetch_session_id, page_number]');
     expect(schema).toContain('counterparty_subscriber_id  String        @db.VarChar(200)');
     expect(schema).toContain(
       '@@unique([tenant_id, environment, counterparty_subscriber_id, transaction_id, message_id, action, direction, signature_verified], map: "uq_uhi_txn_leg")',

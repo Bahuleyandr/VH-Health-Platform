@@ -152,7 +152,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     )).rejects.toThrow(/chk_abdm_share_intake_resolution_evidence/);
   });
 
-  test('703 constraints: txn unique, sha256 shape CHECK, per-session content unique', async () => {
+  test('703 constraints: txn unique, sha256 shape CHECK, per-page part unique', async () => {
     const sessionRows = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_hiu_fetch_sessions
          (tenant_id, environment, transaction_id, request_id, status)
@@ -169,28 +169,44 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       TENANT_ID,
     )).rejects.toThrow(/duplicate key value/);
 
+    const pageRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO abdm_hiu_fetch_pages
+         (tenant_id, fetch_session_id, page_number, page_count,
+          payload_sha256, status, claim_id)
+       VALUES ($1::uuid, $2::integer, 1, 1, $3::char(64), 'claimed', $4::uuid)
+       RETURNING id`,
+      TENANT_ID, sessionId, 'c'.repeat(64), '70300000-0000-4000-8000-00000000d703',
+    );
+    const pageId = pageRows[0].id;
+
     // sha256 shape CHECK refuses a non-hex digest.
     await expect(prisma.$executeRawUnsafe(
       `INSERT INTO abdm_hiu_received_bundles
-         (tenant_id, fetch_session_id, bundle_storage_key, bundle_sha256)
-       VALUES ($1::uuid, $2::integer, 'abdm-hiu/x/1.json', $3)`,
-      TENANT_ID, sessionId, 'Z'.repeat(64),
+         (tenant_id, fetch_session_id, fetch_page_id, page_number, part_number,
+          bundle_storage_key, bundle_sha256)
+       VALUES ($1::uuid, $2::integer, $3::integer, 1, 0,
+               'abdm-hiu/x/1.json', $4)`,
+      TENANT_ID, sessionId, pageId, 'Z'.repeat(64),
     )).rejects.toThrow(/chk_abdm_hiu_bundle_sha/);
 
-    // Same decrypted bytes twice collapse to one reference row.
+    // A page/part identity can commit only once, even if retry bytes differ.
     const sha = 'a'.repeat(64);
     await prisma.$executeRawUnsafe(
       `INSERT INTO abdm_hiu_received_bundles
-         (tenant_id, fetch_session_id, bundle_storage_key, bundle_sha256)
-       VALUES ($1::uuid, $2::integer, 'abdm-hiu/x/1.json', $3)`,
-      TENANT_ID, sessionId, sha,
+         (tenant_id, fetch_session_id, fetch_page_id, page_number, part_number,
+          bundle_storage_key, bundle_sha256)
+       VALUES ($1::uuid, $2::integer, $3::integer, 1, 0,
+               'abdm-hiu/x/1.json', $4)`,
+      TENANT_ID, sessionId, pageId, sha,
     );
     await expect(prisma.$executeRawUnsafe(
       `INSERT INTO abdm_hiu_received_bundles
-         (tenant_id, fetch_session_id, bundle_storage_key, bundle_sha256)
-       VALUES ($1::uuid, $2::integer, 'abdm-hiu/x/1-again.json', $3)`,
-      TENANT_ID, sessionId, sha,
-    )).rejects.toThrow(/uq_abdm_hiu_bundle_content/);
+         (tenant_id, fetch_session_id, fetch_page_id, page_number, part_number,
+          bundle_storage_key, bundle_sha256)
+       VALUES ($1::uuid, $2::integer, $3::integer, 1, 0,
+               'abdm-hiu/x/1-again.json', $4)`,
+      TENANT_ID, sessionId, pageId, 'd'.repeat(64),
+    )).rejects.toThrow(/uq_abdm_hiu_bundle_page_part/);
   });
 
   test('the HIU on-request ack stamps the CM transactionId and acknowledges the session', async () => {

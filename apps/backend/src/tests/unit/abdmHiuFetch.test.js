@@ -23,6 +23,9 @@ import crypto from 'crypto';
 
 const prismaQuery = jest.fn();
 const prismaExecute = jest.fn();
+const setTenantTx = jest.fn();
+const txQuery = jest.fn();
+const txExecute = jest.fn();
 const gatewayMock = {
   initHiuConsentRequest: jest.fn(),
   requestHealthInformation: jest.fn(),
@@ -58,7 +61,7 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: prismaQuery, $executeRawUnsafe: prismaExecute },
   setTenant: jest.fn(),
-  setTenantTx: jest.fn(),
+  setTenantTx,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/abdm/abdmGateway.js', () => ({ default: gatewayMock }));
@@ -114,6 +117,12 @@ beforeEach(() => {
   routes = [];
   prismaQuery.mockImplementation(async (sql, ...args) => dispatch(sql, args));
   prismaExecute.mockImplementation(async (sql, ...args) => dispatch(sql, args));
+  txQuery.mockImplementation(async (sql, ...args) => dispatch(sql, args));
+  txExecute.mockImplementation(async (sql, ...args) => dispatch(sql, args));
+  setTenantTx.mockImplementation(async (_tenantId, fn) => fn({
+    $queryRawUnsafe: txQuery,
+    $executeRawUnsafe: txExecute,
+  }));
   getAbdmHiuSettings.mockResolvedValue({ enabled: true });
   hipHiuMock.createDataTransfer.mockResolvedValue({ id: 51 });
   hipHiuMock.transitionDataTransfer.mockResolvedValue({ id: 51 });
@@ -227,33 +236,66 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
       key_material_nonce: receiver.nonce,
       key_material_expires_at: new Date(Date.now() + 10 * 60 * 1000),
     };
+    route('SELECT 1 FROM abdm_consent_artifacts', () => [{ active: true }]);
+    route('SELECT id, page_number, page_count', () => []);
+    route('INSERT INTO abdm_hiu_fetch_pages', (sql, args) => [{
+      id: 91,
+      page_number: args[2],
+      page_count: args[3],
+      payload_sha256: args[4],
+      status: 'claimed',
+      claim_id: args[5],
+      claimed_at: new Date(),
+      parts_count: 0,
+    }]);
+    route('SELECT id FROM abdm_hiu_fetch_pages', () => [{ id: 91 }]);
+    route('SELECT status, next_page_number', () => [session]);
+    route('UPDATE abdm_hiu_fetch_sessions', (sql, args) => [{
+      ...session,
+      status: args[2],
+      parts_received: Number(session.parts_received) + Number(args[3]),
+      pages_expected: Number(args[4]),
+      next_page_number: Number(args[6]) + 1,
+      key_material_private_ciphertext: args[5] ? null : session.key_material_private_ciphertext,
+    }]);
+    route("SET status = 'completed', parts_count", () => [{ id: 91 }]);
     return { session, encrypted };
+  }
+
+  function push(body, rawBody = Buffer.from(JSON.stringify(body))) {
+    return hiuService.handleHiuDataPush({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body,
+      rawBody,
+    });
   }
 
   it('decrypts, uploads to R2, records the reference row, completes, NULLs the key', async () => {
     const { session, encrypted } = buildSessionAndEntry();
     let sessionSelectSql;
+    let consentSelectSql;
     route('FROM abdm_hiu_fetch_sessions', (sql) => {
-      sessionSelectSql = sql;
+      if (sql.includes('FROM abdm_hiu_fetch_sessions s')) sessionSelectSql = sql;
       return [session];
+    });
+    route('SELECT 1 FROM abdm_consent_artifacts', (sql) => {
+      consentSelectSql = sql;
+      return [{ active: true }];
     });
     let bundleInsertArgs;
     route('INSERT INTO abdm_hiu_received_bundles', (sql, args) => {
       bundleInsertArgs = args;
-      expect(sql).toContain('ON CONFLICT (tenant_id, fetch_session_id, bundle_sha256) DO NOTHING');
       return [{ id: 81 }];
     });
     let completeSql;
-    route('completed_at = NOW()', (sql, args) => {
+    route('UPDATE abdm_hiu_fetch_sessions', (sql, args) => {
       completeSql = sql;
-      expect(args[2]).toBe(1);
+      expect(args[3]).toBe(1);
       return [{ ...session, status: 'completed', key_material_private_ciphertext: undefined }];
     });
 
-    const result = await hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID,
-      environment: 'sandbox',
-      body: {
+    const result = await push({
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
@@ -266,29 +308,32 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
           careContextReference: 'cc-1',
           hiType: 'Prescription',
         }],
-      },
     });
 
     expect(result.stored).toBe(1);
     expect(result.failed).toBe(0);
     expect(sessionSelectSql).toContain('key_material_expires_at');
-    expect(sessionSelectSql).toContain("u.abha_verification_status = 'verified'");
-    expect(sessionSelectSql).toContain('s.patient_uid = a.patient_uid');
+    expect(consentSelectSql).toContain("u.abha_verification_status = 'verified'");
+    expect(consentSelectSql).toContain('r.patient_uid = a.patient_uid');
     // The DECRYPTED bundle (and only the decrypted bundle) went to R2.
     expect(uploadFileToR2).toHaveBeenCalledTimes(1);
     const [bytes, storageKey, mime] = uploadFileToR2.mock.calls[0];
     expect(JSON.parse(bytes.toString('utf8'))).toEqual(FHIR_BUNDLE);
-    expect(storageKey).toMatch(new RegExp(`^abdm-hiu/${TENANT_ID}/71/1-0-[0-9a-f-]+\\.json$`));
+    expect(storageKey).toMatch(
+      new RegExp(`^abdm-hiu/${TENANT_ID}/71/page-1/[0-9a-f]{64}/0-[0-9a-f]{64}\\.json$`),
+    );
     expect(mime).toBe('application/fhir+json');
     // Reference row: explicit tenant + sha256 of the decrypted bytes.
     expect(bundleInsertArgs[0]).toBe(TENANT_ID);
-    expect(bundleInsertArgs[6]).toBe(
+    expect(bundleInsertArgs[8]).toBe(
       crypto.createHash('sha256').update(bytes).digest('hex'),
     );
     // PHI bytes never went into the row.
     expect(JSON.stringify(bundleInsertArgs)).not.toContain('OP Consultation');
     // Final page: key destroyed, transfer succeeded, HIU notify sent.
-    expect(completeSql).toContain('key_material_private_ciphertext = NULL');
+    expect(completeSql).toMatch(
+      /key_material_private_ciphertext = CASE[\s\S]*?WHEN \$6::boolean THEN NULL/,
+    );
     expect(hipHiuMock.transitionDataTransfer).toHaveBeenCalledWith(
       expect.objectContaining({ id: 51, nextStatus: 'succeeded' }),
     );
@@ -302,10 +347,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     route('FROM abdm_hiu_fetch_sessions', () => [session]);
     route('INSERT INTO abdm_hiu_received_bundles', () => { throw new Error('db unavailable'); });
 
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID,
-      environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
@@ -317,7 +359,6 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
           careContextReference: 'cc-1',
           hiType: 'Prescription',
         }],
-      },
     })).rejects.toThrow('db unavailable');
     expect(deleteObject).toHaveBeenCalledWith(uploadFileToR2.mock.calls[0][1]);
     expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(expect.objectContaining({
@@ -330,13 +371,9 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     route('FROM abdm_hiu_fetch_sessions', () => [{
       ...session, pages_expected: 3, next_page_number: 2,
     }]);
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID,
-      environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71', pageNumber: 3, pageCount: 4,
         consent: { id: 'cm-artifact-1' }, entries: [],
-      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_PAGE_OUT_OF_ORDER' });
     expect(uploadFileToR2).not.toHaveBeenCalled();
   });
@@ -344,10 +381,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
   it('rejects a checksum-failed page without advancing the session', async () => {
     const { session, encrypted } = buildSessionAndEntry();
     route('FROM abdm_hiu_fetch_sessions', () => [session]);
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID,
-      environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
@@ -359,7 +393,6 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
           careContextReference: 'cc-1',
           hiType: 'Prescription',
         }],
-      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_CHECKSUM_INVALID' });
 
     expect(uploadFileToR2).not.toHaveBeenCalled();
@@ -374,10 +407,7 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     tampered[tampered.length - 1] ^= 0xff;
     const tamperedB64 = tampered.toString('base64');
     route('FROM abdm_hiu_fetch_sessions', () => [session]);
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID,
-      environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71',
         pageNumber: 1,
         pageCount: 1,
@@ -389,36 +419,114 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
           careContextReference: 'cc-1',
           hiType: 'Prescription',
         }],
-      },
     })).rejects.toThrow();
 
     expect(uploadFileToR2).not.toHaveBeenCalled();
   });
 
-  it('replays of a page collapse on the webhook event dedupe', async () => {
+  it('replays of a completed page collapse only after exact payload identity is checked', async () => {
+    const { session } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' }, entries: [],
+    };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const payloadSha256 = crypto.createHash('sha256').update(rawBody).digest('hex');
     hipHiuMock.recordWebhookEvent.mockResolvedValue({
       event: { id: '61' }, duplicate: true,
     });
-    const result = await hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID, environment: 'sandbox',
-      body: {
-        transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
-        consent: { id: 'cm-artifact-1' }, entries: [],
-      },
-    });
+    route('FROM abdm_hiu_fetch_sessions s', () => [{ ...session, status: 'completed' }]);
+    route('SELECT id, page_number, page_count', () => [{
+      id: 91, page_number: 1, page_count: 1, payload_sha256: payloadSha256,
+      status: 'completed', parts_count: 1,
+    }]);
+    const result = await push(body, rawBody);
     expect(result.duplicate).toBe(true);
-    expect(prismaQuery).not.toHaveBeenCalled();
+    expect(result.stored).toBe(1);
+    expect(uploadFileToR2).not.toHaveBeenCalled();
+    expect(txQuery.mock.calls.some((c) => c[0].includes('INSERT INTO abdm_hiu_fetch_pages')))
+      .toBe(false);
+  });
+
+  it('rejects a retry whose exact signed payload bytes drift for the same page', async () => {
+    const { session } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' }, entries: [],
+    };
+    const originalRawBody = Buffer.from(JSON.stringify(body));
+    const originalHash = crypto.createHash('sha256').update(originalRawBody).digest('hex');
+    route('FROM abdm_hiu_fetch_sessions s', () => [session]);
+    route('SELECT id, page_number, page_count', () => [{
+      id: 91, page_number: 1, page_count: 1, payload_sha256: originalHash,
+      status: 'failed', claimed_at: new Date(0), parts_count: 0,
+    }]);
+
+    await expect(push(body, Buffer.from(JSON.stringify(body, null, 2))))
+      .rejects.toMatchObject({ code: 'ABDM_HIU_PAGE_IDENTITY_MISMATCH' });
+    expect(uploadFileToR2).not.toHaveBeenCalled();
+    expect(txQuery.mock.calls.some((c) => c[0].includes("SET status = 'claimed'")))
+      .toBe(false);
+  });
+
+  it('reclaims a failed page and commits bundles, session advance, and page completion atomically', async () => {
+    const { session, encrypted } = buildSessionAndEntry();
+    const body = {
+      transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' },
+      keyMaterial: encrypted.senderKeyMaterial,
+      entries: [{
+        content: encrypted.content,
+        checksum: encrypted.checksum,
+        careContextReference: 'cc-1',
+        hiType: 'Prescription',
+      }],
+    };
+    const payloadSha256 = crypto.createHash('sha256')
+      .update(Buffer.from(JSON.stringify(body))).digest('hex');
+    route('FROM abdm_hiu_fetch_sessions', () => [session]);
+    route('SELECT id, page_number, page_count', () => [{
+      id: 91, page_number: 1, page_count: 1, payload_sha256: payloadSha256,
+      status: 'failed', claimed_at: new Date(0), parts_count: 0,
+    }]);
+    route("SET status = 'claimed'", (sql, args) => [{
+      id: 91, page_number: 1, page_count: 1, payload_sha256: payloadSha256,
+      status: 'claimed', claim_id: args[3], claimed_at: new Date(), parts_count: 0,
+    }]);
+    route('INSERT INTO abdm_hiu_received_bundles', () => [{ id: 81 }]);
+
+    const result = await push(body);
+    expect(result).toMatchObject({ duplicate: false, stored: 1, failed: 0 });
+    expect(setTenantTx).toHaveBeenCalledTimes(2);
+    const statements = txQuery.mock.calls.map((call) => call[0]);
+    const bundleIndex = statements.findIndex((sql) => sql.includes('INSERT INTO abdm_hiu_received_bundles'));
+    const sessionIndex = statements.findIndex((sql) => sql.includes('UPDATE abdm_hiu_fetch_sessions'));
+    const pageIndex = statements.findIndex((sql) => sql.includes("SET status = 'completed'"));
+    expect(bundleIndex).toBeGreaterThan(-1);
+    expect(sessionIndex).toBeGreaterThan(bundleIndex);
+    expect(pageIndex).toBeGreaterThan(sessionIndex);
+    expect(prismaQuery.mock.calls.some(
+      (call) => call[0].includes('INSERT INTO abdm_hiu_received_bundles'),
+    )).toBe(false);
+  });
+
+  it('requires the exact raw request bytes before recording or processing a page', async () => {
+    const body = {
+      transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
+      consent: { id: 'cm-artifact-1' }, entries: [],
+    };
+    await expect(hiuService.handleHiuDataPush({
+      tenantId: TENANT_ID, environment: 'sandbox', body,
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_RAW_BODY_REQUIRED' });
+    expect(hipHiuMock.recordWebhookEvent).not.toHaveBeenCalled();
   });
 
   it('refuses a session whose key material is gone or expired', async () => {
     const { session } = buildSessionAndEntry();
     route('FROM abdm_hiu_fetch_sessions', () => [{ ...session, key_material_private_ciphertext: null }]);
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID, environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
         consent: { id: 'cm-artifact-1' }, entries: [],
-      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_KEY_UNAVAILABLE' });
 
     hipHiuMock.recordWebhookEvent.mockResolvedValue({
@@ -427,12 +535,9 @@ describe('handleHiuDataPush — decrypt round-trip against the REAL crypto', () 
     route('FROM abdm_hiu_fetch_sessions', () => [{
       ...session, key_material_expires_at: new Date(Date.now() - 1000),
     }]);
-    await expect(hiuService.handleHiuDataPush({
-      tenantId: TENANT_ID, environment: 'sandbox',
-      body: {
+    await expect(push({
         transactionId: 'txn-71', pageNumber: 1, pageCount: 1,
         consent: { id: 'cm-artifact-1' }, entries: [],
-      },
     })).rejects.toMatchObject({ code: 'ABDM_HIU_KEY_EXPIRED' });
   });
 });

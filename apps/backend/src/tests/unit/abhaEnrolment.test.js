@@ -82,6 +82,7 @@ const {
 
 const TENANT_ID = '70100000-0000-4000-8000-00000000b001';
 const PATIENT_UID = '70100000-0000-4000-8000-0000000007b1';
+const CLAIM_ID = '70100000-0000-4000-8000-00000000c1a1';
 
 // RSA pair for the enrolment certificate: the service must encrypt with the
 // PUBLIC key; the test holds the private key to prove the ciphertext decrypts
@@ -154,7 +155,13 @@ beforeEach(() => {
   }]);
   route('INSERT INTO abha_enrolment_sessions', () => [{ ...BASE_SESSION, status: 'initiated', txn_id: null }]);
   route("status = 'otp_sent', otp_sent_at", () => [BASE_SESSION]);
-  route('otp_attempts = otp_attempts + 1', () => [{ otp_attempts: 1 }]);
+  route("SET status = 'otp_verifying'", () => [{
+    ...BASE_SESSION,
+    status: 'otp_verifying',
+    otp_attempts: 1,
+    verification_claim_id: CLAIM_ID,
+    verification_claimed_at: new Date(),
+  }]);
   route('SELECT id, tenant_id, patient_uid, flow', () => [BASE_SESSION]);
   route("SET abha_number = $1", () => [{ uid: PATIENT_UID }]);
   route("status = 'linked'", () => [{
@@ -385,13 +392,18 @@ describe('verifyEnrolmentOtp — happy path to linked', () => {
 
 describe('verifyEnrolmentOtp — failure modes', () => {
   it('caps OTP attempts at 3 and fails the session', async () => {
-    route('otp_attempts = otp_attempts + 1', () => []); // cap reached — no row updatable
+    let loads = 0;
+    route('SELECT id, tenant_id, patient_uid, flow', () => {
+      loads += 1;
+      return [{ ...BASE_SESSION, otp_attempts: loads > 1 ? 3 : 0 }];
+    });
+    route("SET status = 'otp_verifying'", () => []);
 
     await expect(enrolmentService.verifyEnrolmentOtp({
       tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_OTP_ATTEMPTS_EXCEEDED', statusCode: 429 });
     const failCall = prismaExecute.mock.calls.find((c) => c[0].includes("status = 'failed'"));
-    expect(failCall.slice(1)).toContain('otp_attempts_exceeded');
+    expect(failCall[0]).toContain("error_code = 'otp_attempts_exceeded'");
     expect(enrolByAadhaar).not.toHaveBeenCalled();
   });
 
@@ -412,13 +424,15 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     enrolByAadhaar.mockRejectedValue(Object.assign(new Error('OTP mismatch'), {
       isOperational: true, statusCode: 500,
     }));
+    route('SET status = $4::text', (sql, args) => [{
+      ...BASE_SESSION, status: args[3], otp_attempts: 1,
+    }]);
 
     await expect(enrolmentService.verifyEnrolmentOtp({
       tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
     })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_OTP_REJECTED', statusCode: 400 });
-    // No failed-marking below the cap: the patient can retry.
-    const failCall = prismaExecute.mock.calls.find((c) => c[0].includes("status = 'failed'"));
-    expect(failCall).toBeUndefined();
+    const releaseCall = prismaQuery.mock.calls.find((c) => c[0].includes('verification_claim_id = NULL'));
+    expect(releaseCall[4]).toBe('otp_sent');
   });
 
   it('maps the 653 canonical-unique conflict to 409 and fails the session as abha_already_linked', async () => {
@@ -438,13 +452,45 @@ describe('verifyEnrolmentOtp — failure modes', () => {
     expect(failCall[0]).toContain('abha_number = $3');
   });
 
-  it('rejects a non-otp_sent session with an invalid-transition error', async () => {
+  it('returns a linked session as a replay-safe terminal result', async () => {
     route('SELECT id, tenant_id, patient_uid, flow', () => [{ ...BASE_SESSION, status: 'linked' }]);
 
     await expect(enrolmentService.verifyEnrolmentOtp({
       tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
-    })).rejects.toMatchObject({ statusCode: 400 });
+    })).resolves.toMatchObject({ status: 'linked' });
     expect(enrolByAadhaar).not.toHaveBeenCalled();
+  });
+
+  it('returns the linked terminal row when a concurrent verifier wins before claim', async () => {
+    let loads = 0;
+    route('SELECT id, tenant_id, patient_uid, flow', () => {
+      loads += 1;
+      return [{
+        ...BASE_SESSION,
+        status: loads > 1 ? 'linked' : 'otp_sent',
+        abha_number: loads > 1 ? '91-1234-5678-9012' : null,
+        enrolled_at: loads > 1 ? new Date() : null,
+      }];
+    });
+    route("SET status = 'otp_verifying'", () => []);
+
+    const result = await enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
+    });
+    expect(result.status).toBe('linked');
+    expect(enrolByAadhaar).not.toHaveBeenCalled();
+    expect(prismaExecute.mock.calls.some((call) => call[0].includes("status = 'failed'"))).toBe(false);
+  });
+
+  it('does not update the patient when a stale verification claim loses its terminal CAS', async () => {
+    route("status = 'linked'", () => []);
+    await expect(enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID, otp: '123456',
+    })).rejects.toMatchObject({ code: 'ABHA_ENROLMENT_VERIFY_SUPERSEDED' });
+    const usersUpdate = prismaQuery.mock.calls.find(
+      (call) => call[0].includes("abha_verification_status = 'verified'"),
+    );
+    expect(usersUpdate).toBeUndefined();
   });
 });
 

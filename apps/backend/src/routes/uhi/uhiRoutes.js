@@ -91,7 +91,6 @@ async function validateUhiRequest(req, res, next) {
   if (!UHI_ACTIONS.includes(action)) {
     return error(res, 'Unsupported UHI action', 400, { topLevel: { code: 'UHI_ACTION_INVALID' } });
   }
-
   if (!context.providerId) {
     logger.warn('UHI callback rejected: missing provider id in context');
     return error(res, 'Invalid provider id', 401, { topLevel: { code: 'UHI_PROVIDER_INVALID' } });
@@ -171,6 +170,12 @@ async function validateUhiRequest(req, res, next) {
     }
     logger.warn('UHI callback rejected: signature verification failed', { code: err.code });
     return res.status(err.statusCode || 401).json(nack(err.code || 'UHI_SIGNATURE_INVALID', 'Signature verification failed'));
+  }
+
+  if (context.action !== action) {
+    return error(res, 'Signed UHI context action does not match the request path', 400, {
+      topLevel: { code: 'UHI_ACTION_MISMATCH' },
+    });
   }
 
   req.uhiContext = context;

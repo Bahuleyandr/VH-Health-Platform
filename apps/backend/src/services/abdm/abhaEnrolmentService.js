@@ -6,7 +6,7 @@
 // LINK an ABHA a patient already held but could not CREATE one. This service
 // drives the enrolment session state machine in abha_enrolment_sessions:
 //
-//   initiated → otp_sent → otp_verified → enrolled → linked
+//   initiated → otp_sent → otp_verifying → linked
 //                                       → failed | expired | cancelled
 //
 // PRIVACY CONTRACT (zero tolerance, migration 701 header):
@@ -39,11 +39,12 @@ import { getAbdmEnrolmentSettings } from '../tenant/tenantSettingsService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import abdmGateway from './abdmGateway.js';
 
-const LIVE_STATUSES = ['initiated', 'otp_sent', 'otp_verified'];
+const LIVE_STATUSES = ['initiated', 'otp_sent', 'otp_verifying', 'otp_verified'];
 const MAX_OTP_ATTEMPTS = 3;
 const MAX_OTP_RESENDS = 3;
 const OTP_TTL_MINUTES = 10;
 const SESSION_TTL_MINUTES = 30;
+const OTP_VERIFY_CLAIM_TTL_MINUTES = 5;
 
 // ---------------------------------------------------------------------------
 // Aadhaar validation — Verhoeff checksum (UIDAI standard). The value never
@@ -306,6 +307,65 @@ async function markSessionFailed(tenantId, sessionId, errorCode, failureReason =
   }));
 }
 
+async function claimOtpVerification(tenantId, sessionId) {
+  const claimId = crypto.randomUUID();
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE abha_enrolment_sessions
+        SET status = 'otp_verifying',
+            otp_attempts = CASE
+              WHEN status = 'otp_sent' THEN otp_attempts + 1
+              ELSE otp_attempts
+            END,
+            verification_claim_id = $4::uuid,
+            verification_claimed_at = NOW(),
+            updated_at = NOW()
+      WHERE id = $1::integer AND tenant_id = $2::uuid
+        AND (expires_at IS NULL OR expires_at >= NOW())
+        AND (
+          (status = 'otp_sent' AND otp_attempts < $3::int)
+          OR (
+            status = 'otp_verifying'
+            AND verification_claimed_at <= NOW() - ($5::int * INTERVAL '1 minute')
+          )
+        )
+      RETURNING ${SESSION_RETURNING}, txn_id, metadata,
+                verification_claim_id, verification_claimed_at`,
+    Number(sessionId), tenantId, MAX_OTP_ATTEMPTS, claimId,
+    OTP_VERIFY_CLAIM_TTL_MINUTES,
+  );
+  return rows[0] ?? null;
+}
+
+async function releaseOtpVerificationClaim({
+  tenantId, sessionId, claimId, attempts, errorCode = null, failureReason = null,
+}) {
+  const terminal = Number(attempts) >= MAX_OTP_ATTEMPTS;
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE abha_enrolment_sessions
+        SET status = $4::text,
+            error_code = $5::text,
+            failure_reason = $6::text,
+            verification_claim_id = NULL,
+            verification_claimed_at = NULL,
+            updated_at = NOW()
+      WHERE id = $1::integer AND tenant_id = $2::uuid
+        AND status = 'otp_verifying' AND verification_claim_id = $3::uuid
+      RETURNING ${SESSION_RETURNING}`,
+    Number(sessionId), tenantId, claimId,
+    terminal ? 'failed' : 'otp_sent',
+    terminal ? (errorCode || 'otp_attempts_exceeded') : null,
+    terminal && failureReason ? String(failureReason).slice(0, 500) : null,
+  );
+  return rows[0] ?? null;
+}
+
+function verificationClaimLost() {
+  return AppError.conflict(
+    'OTP verification was completed or reclaimed by another request',
+    'ABHA_ENROLMENT_VERIFY_SUPERSEDED',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Flows
 // ---------------------------------------------------------------------------
@@ -479,10 +539,12 @@ export async function verifyEnrolmentOtp({
   const cleanOtp = requireValidOtp(otp);
   const session = await loadSession(tid, sessionId, patientUid);
 
-  if (session.status !== 'otp_sent') {
+  if (session.status === 'linked') return publicSession(session);
+  if (!['otp_sent', 'otp_verifying'].includes(session.status)) {
     throw AppError.invalidTransition(session.status, 'otp_verified', ['otp_sent']);
   }
-  if (session.expires_at && new Date(session.expires_at).getTime() < Date.now()) {
+  if (session.status === 'otp_sent'
+      && session.expires_at && new Date(session.expires_at).getTime() < Date.now()) {
     await prisma.$executeRawUnsafe(
       `UPDATE abha_enrolment_sessions SET status = 'expired', updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid AND status = 'otp_sent'`,
@@ -491,77 +553,97 @@ export async function verifyEnrolmentOtp({
     throw AppError.badRequest('The enrolment OTP has expired', 'ABHA_ENROLMENT_EXPIRED');
   }
 
-  // Count the attempt BEFORE the gateway call; cap at MAX_OTP_ATTEMPTS.
-  const attemptRows = await prisma.$queryRawUnsafe(
-    `UPDATE abha_enrolment_sessions
-        SET otp_attempts = otp_attempts + 1, updated_at = NOW()
-      WHERE id = $1::integer AND tenant_id = $2::uuid AND status = 'otp_sent'
-        AND otp_attempts < $3::int
-      RETURNING otp_attempts`,
-    session.id, tid, MAX_OTP_ATTEMPTS,
-  );
-  if (!attemptRows[0]) {
-    await markSessionFailed(tid, session.id, 'otp_attempts_exceeded');
-    throw new AppError(
-      'Too many OTP attempts for this enrolment session',
-      429,
-      'ABHA_ENROLMENT_OTP_ATTEMPTS_EXCEEDED',
-    );
+  // Claim the gateway verification leg before leaving the database. Only one
+  // request may own the claim; a crashed worker can be reclaimed after the
+  // bounded timeout, and its stale claim token can never finalize the row.
+  const claimed = await claimOtpVerification(tid, session.id);
+  if (!claimed) {
+    const current = await loadSession(tid, session.id, patientUid);
+    if (current.status === 'linked') return publicSession(current);
+    if (current.status === 'otp_verifying') {
+      throw AppError.conflict(
+        'OTP verification is already in progress',
+        'ABHA_ENROLMENT_VERIFY_IN_PROGRESS',
+      );
+    }
+    if (current.status === 'otp_sent' && Number(current.otp_attempts) >= MAX_OTP_ATTEMPTS) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE abha_enrolment_sessions
+            SET status = 'failed', error_code = 'otp_attempts_exceeded', updated_at = NOW()
+          WHERE id = $1::integer AND tenant_id = $2::uuid
+            AND status = 'otp_sent' AND otp_attempts >= $3::int`,
+        session.id, tid, MAX_OTP_ATTEMPTS,
+      );
+      throw new AppError(
+        'Too many OTP attempts for this enrolment session',
+        429,
+        'ABHA_ENROLMENT_OTP_ATTEMPTS_EXCEEDED',
+      );
+    }
+    throw verificationClaimLost();
   }
-  const attempts = Number(attemptRows[0].otp_attempts);
+  const attempts = Number(claimed.otp_attempts);
+  const claimId = claimed.verification_claim_id;
 
   let gatewayResponse;
   try {
     const encryptedOtp = await encryptForEnrolment(cleanOtp);
-    gatewayResponse = session.flow === 'aadhaar_otp'
-      ? await abdmGateway.enrolByAadhaar({ txnId: session.txn_id, encryptedOtp })
-      : await abdmGateway.verifyMobileOtp({ txnId: session.txn_id, encryptedOtp });
+    gatewayResponse = claimed.flow === 'aadhaar_otp'
+      ? await abdmGateway.enrolByAadhaar({ txnId: claimed.txn_id, encryptedOtp })
+      : await abdmGateway.verifyMobileOtp({ txnId: claimed.txn_id, encryptedOtp });
   } catch (_err) {
-    if (attempts >= MAX_OTP_ATTEMPTS) {
-      await markSessionFailed(tid, session.id, 'otp_attempts_exceeded');
-    }
-    // The session stays otp_sent (attempts already counted) so the patient can
-    // retry with the correct OTP.
+    const released = await releaseOtpVerificationClaim({
+      tenantId: tid,
+      sessionId: claimed.id,
+      claimId,
+      attempts,
+      errorCode: 'otp_attempts_exceeded',
+    });
+    if (!released) throw verificationClaimLost();
     throw AppError.badRequest(
       'The ABDM gateway rejected the OTP',
       'ABHA_ENROLMENT_OTP_REJECTED',
     );
   }
 
-  if (session.flow === 'mobile_otp') {
+  if (claimed.flow === 'mobile_otp') {
     // Mobile leg completion. The session's ABHA columns echo the ALREADY
     // linked ABHA so the 701 evidence CHECK holds ('linked' requires them).
     const linked = await setTenantTx(tid, async (tx) => {
       const users = await tx.$queryRawUnsafe(
         `SELECT abha_number, abha_address FROM users
           WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
-        session.patient_uid, tid,
+        claimed.patient_uid, tid,
       );
       const rows = await tx.$queryRawUnsafe(
         `UPDATE abha_enrolment_sessions
             SET status = 'linked', otp_verified_at = NOW(), enrolled_at = NOW(),
                 linked_at = NOW(), abha_number = $3::text, abha_address = $4::text,
+                verification_claim_id = NULL, verification_claimed_at = NULL,
                 updated_at = NOW()
           WHERE id = $1::integer AND tenant_id = $2::uuid
+            AND status = 'otp_verifying' AND verification_claim_id = $5::uuid
           RETURNING ${SESSION_RETURNING}`,
-        session.id, tid,
+        claimed.id, tid,
         users[0]?.abha_number || null, users[0]?.abha_address || null,
+        claimId,
       );
+      if (!rows[0]) throw verificationClaimLost();
       await recordClinicalAuditEvent({
         tenantId: tid,
-        patientUid: session.patient_uid,
+        patientUid: claimed.patient_uid,
         action: 'ABHA_MOBILE_VERIFIED',
         actionStatus: 'success',
-        actorUid: actorUid || session.patient_uid,
+        actorUid: actorUid || claimed.patient_uid,
         actorRole,
         resourceType: 'ABHA_ENROLMENT',
         resourceTable: 'abha_enrolment_sessions',
-        resourceId: String(session.id),
+        resourceId: String(claimed.id),
         requestId,
         ipAddress: ip,
         userAgent,
-        metadata: { flow: 'mobile_otp', environment: session.environment },
-        idempotencyKey: `abha-enrol:${session.id}:mobile_verified`,
+        metadata: { flow: 'mobile_otp', environment: claimed.environment },
+        idempotencyKey: `abha-enrol:${claimed.id}:mobile_verified`,
       }, { db: tx });
       return rows[0];
     });
@@ -570,7 +652,14 @@ export async function verifyEnrolmentOtp({
 
   const result = extractEnrolmentResult(gatewayResponse);
   if (!result.abhaNumberClean) {
-    await markSessionFailed(tid, session.id, 'enrolment_no_abha');
+    const released = await releaseOtpVerificationClaim({
+      tenantId: tid,
+      sessionId: claimed.id,
+      claimId,
+      attempts: MAX_OTP_ATTEMPTS,
+      errorCode: 'enrolment_no_abha',
+    });
+    if (!released) throw verificationClaimLost();
     throw AppError.internal(
       'The ABDM gateway completed enrolment without returning an ABHA number',
       'ABHA_ENROLMENT_NO_ABHA',
@@ -582,7 +671,22 @@ export async function verifyEnrolmentOtp({
   // linked, all in ONE transaction. Gateway-issued ⇒ verified by construction.
   try {
     const linked = await setTenantTx(tid, async (tx) => {
-      await tx.$queryRawUnsafe(
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE abha_enrolment_sessions
+            SET status = 'linked', otp_verified_at = NOW(), enrolled_at = NOW(),
+                linked_at = NOW(), abha_number = $3::text, abha_address = $4::text,
+                profile_snapshot = $5::jsonb,
+                verification_claim_id = NULL, verification_claimed_at = NULL,
+                updated_at = NOW()
+          WHERE id = $1::integer AND tenant_id = $2::uuid
+            AND status = 'otp_verifying' AND verification_claim_id = $6::uuid
+          RETURNING ${SESSION_RETURNING}`,
+        claimed.id, tid, normalizedAbha, result.abhaAddress,
+        JSON.stringify(result.profileSnapshot),
+        claimId,
+      );
+      if (!rows[0]) throw verificationClaimLost();
+      const users = await tx.$queryRawUnsafe(
         `UPDATE users
             SET abha_number = $1, abha_address = $2,
                 abha_verification_status = 'verified',
@@ -590,46 +694,39 @@ export async function verifyEnrolmentOtp({
                 updated_at = NOW()
           WHERE uid = $3::uuid AND tenant_id = $4::uuid
           RETURNING uid`,
-        normalizedAbha, result.abhaAddress, session.patient_uid, tid,
+        normalizedAbha, result.abhaAddress, claimed.patient_uid, tid,
       );
-      const rows = await tx.$queryRawUnsafe(
-        `UPDATE abha_enrolment_sessions
-            SET status = 'linked', otp_verified_at = NOW(), enrolled_at = NOW(),
-                linked_at = NOW(), abha_number = $3::text, abha_address = $4::text,
-                profile_snapshot = $5::jsonb, updated_at = NOW()
-          WHERE id = $1::integer AND tenant_id = $2::uuid
-          RETURNING ${SESSION_RETURNING}`,
-        session.id, tid, normalizedAbha, result.abhaAddress,
-        JSON.stringify(result.profileSnapshot),
-      );
+      if (!users[0]) {
+        throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
+      }
       await recordClinicalAuditEvent({
         tenantId: tid,
-        patientUid: session.patient_uid,
+        patientUid: claimed.patient_uid,
         action: 'ABHA_ENROLLED',
         actionStatus: 'success',
-        actorUid: actorUid || session.patient_uid,
+        actorUid: actorUid || claimed.patient_uid,
         actorRole,
         resourceType: 'ABHA_LINKAGE',
         resourceTable: 'users',
-        resourceId: String(session.patient_uid),
+        resourceId: String(claimed.patient_uid),
         requestId,
         ipAddress: ip,
         userAgent,
         metadata: {
           verification_status: 'verified',
           gateway_issued: true,
-          enrolment_session_id: session.id,
-          environment: session.environment,
+          enrolment_session_id: claimed.id,
+          environment: claimed.environment,
           is_new_abha: result.isNew,
         },
-        idempotencyKey: `abha-enrol:${session.id}:linked`,
+        idempotencyKey: `abha-enrol:${claimed.id}:linked`,
       }, { db: tx });
       return rows[0];
     });
 
     logger.info('ABHA enrolled and linked', {
-      sessionId: session.id,
-      patientUid: session.patient_uid,
+      sessionId: claimed.id,
+      patientUid: claimed.patient_uid,
       abhaNumber: maskGeneric(normalizedAbha),
     });
     return publicSession(linked);
@@ -643,12 +740,16 @@ export async function verifyEnrolmentOtp({
             SET status = 'failed', error_code = 'abha_already_linked',
                 otp_verified_at = NOW(), enrolled_at = NOW(),
                 abha_number = $3::text, abha_address = $4::text,
-                profile_snapshot = $5::jsonb, updated_at = NOW()
-          WHERE id = $1::integer AND tenant_id = $2::uuid`,
-        session.id, tid, normalizedAbha, result.abhaAddress,
+                profile_snapshot = $5::jsonb,
+                verification_claim_id = NULL, verification_claimed_at = NULL,
+                updated_at = NOW()
+          WHERE id = $1::integer AND tenant_id = $2::uuid
+            AND status = 'otp_verifying' AND verification_claim_id = $6::uuid`,
+        claimed.id, tid, normalizedAbha, result.abhaAddress,
         JSON.stringify(result.profileSnapshot),
+        claimId,
       ).catch((markErr) => logger.error('Failed to record enrolment conflict', {
-        sessionId: session.id, error: markErr.message,
+        sessionId: claimed.id, error: markErr.message,
       }));
       throw AppError.conflict(
         'This ABHA number is already linked to another patient',
@@ -756,7 +857,8 @@ export async function getEnrolmentStatus({ tenantId = null, patientUid } = {}) {
 export async function sweepExpiredEnrolmentSessions() {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE abha_enrolment_sessions
-        SET status = 'expired', updated_at = NOW()
+        SET status = 'expired', verification_claim_id = NULL,
+            verification_claimed_at = NULL, updated_at = NOW()
       WHERE status IN ('${LIVE_STATUSES.join("', '")}')
         AND expires_at IS NOT NULL AND expires_at < NOW()
       RETURNING id`,

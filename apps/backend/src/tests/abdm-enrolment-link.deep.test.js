@@ -58,8 +58,10 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_A = '70100000-0000-4000-8000-00000000000a';
 const PATIENT_B = '70100000-0000-4000-8000-00000000000b';
+const PATIENT_C = '70100000-0000-4000-8000-00000000000c';
 const PHONE_A = '+919000701001';
 const PHONE_B = '+919000701002';
+const PHONE_C = '+919000701003';
 // The ABHA the mocked gateway "issues" — both patients race for it.
 const ISSUED_ABHA_CLEAN = '70100000000001';
 const ISSUED_ABHA = '70-1000-0000-0001';
@@ -83,12 +85,13 @@ let savedSettings = null;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
-    `DELETE FROM abha_enrolment_sessions WHERE tenant_id = $1::uuid AND patient_uid IN ($2::uuid, $3::uuid)`,
-    TENANT_ID, PATIENT_A, PATIENT_B,
+    `DELETE FROM abha_enrolment_sessions
+      WHERE tenant_id = $1::uuid AND patient_uid IN ($2::uuid, $3::uuid, $4::uuid)`,
+    TENANT_ID, PATIENT_A, PATIENT_B, PATIENT_C,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
-    PATIENT_A, PATIENT_B,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+    PATIENT_A, PATIENT_B, PATIENT_C,
   ).catch(() => {});
 }
 
@@ -108,6 +111,7 @@ d('ABHA enrolment deep (701 + 653 verified gate)', () => {
     for (const [uid, phone, name] of [
       [PATIENT_A, PHONE_A, 'Enrol Patient A'],
       [PATIENT_B, PHONE_B, 'Enrol Patient B'],
+      [PATIENT_C, PHONE_C, 'Enrol Patient C'],
     ]) {
       await prisma.$executeRawUnsafe(
         `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
@@ -233,6 +237,53 @@ d('ABHA enrolment deep (701 + 653 verified gate)', () => {
     const byUid = Object.fromEntries(users.map((r) => [r.uid, r]));
     expect(byUid[PATIENT_A].abha_verification_status).toBe('verified');
     expect(byUid[PATIENT_B].abha_number).toBeNull();
+  });
+
+  test('concurrent OTP verification has one durable owner and cannot overwrite linked terminality', async () => {
+    const started = await enrolmentService.startEnrolment({
+      tenantId: TENANT_ID, patientUid: PATIENT_C, aadhaarNumber: VALID_AADHAAR,
+    });
+    let releaseGateway;
+    let gatewayEntered;
+    const entered = new Promise((resolve) => { gatewayEntered = resolve; });
+    const release = new Promise((resolve) => { releaseGateway = resolve; });
+    enrolByAadhaar.mockImplementationOnce(async () => {
+      gatewayEntered();
+      await release;
+      return {
+        isNew: true,
+        ABHAProfile: {
+          ABHANumber: '70-1000-0000-0002',
+          phrAddress: ['concurrent@sbx'],
+          firstName: 'Concurrent', lastName: 'Patient', gender: 'F',
+          yearOfBirth: '1992', mobile: '9111222444',
+        },
+      };
+    });
+
+    const owner = enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: started.id, patientUid: PATIENT_C, otp: '123456',
+    });
+    await entered;
+    await expect(enrolmentService.verifyEnrolmentOtp({
+      tenantId: TENANT_ID, sessionId: started.id, patientUid: PATIENT_C, otp: '123456',
+    })).rejects.toMatchObject({
+      code: 'ABHA_ENROLMENT_VERIFY_IN_PROGRESS', statusCode: 409,
+    });
+    expect(enrolByAadhaar).toHaveBeenCalledTimes(1);
+    releaseGateway();
+
+    const linked = await owner;
+    expect(linked.status).toBe('linked');
+    const sessions = await prisma.$queryRawUnsafe(
+      `SELECT status, error_code, verification_claim_id
+         FROM abha_enrolment_sessions
+        WHERE id = $1::integer AND tenant_id = $2::uuid`,
+      started.id, TENANT_ID,
+    );
+    expect(sessions[0]).toMatchObject({
+      status: 'linked', error_code: null, verification_claim_id: null,
+    });
   });
 
   test('701 constraints are live: result-evidence CHECK, txn-presence CHECK, txn unique', async () => {

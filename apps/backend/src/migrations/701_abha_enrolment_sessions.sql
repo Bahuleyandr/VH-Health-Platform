@@ -9,7 +9,7 @@
 -- verify/update leg, driven against the ABHA sandbox by default.
 --
 -- One row per enrolment attempt = the txn state machine:
---   initiated → otp_sent → otp_verified → enrolled → linked
+--   initiated → otp_sent → otp_verifying → linked
 --                                       → failed | expired | cancelled
 -- txn_id is the ABDM transaction id returned by request-otp; UNIQUE
 -- (tenant_id, txn_id, environment) makes OTP-verify replays and duplicate
@@ -46,11 +46,13 @@ CREATE TABLE IF NOT EXISTS abha_enrolment_sessions (
   status             VARCHAR(24) NOT NULL DEFAULT 'initiated'
     CONSTRAINT chk_abha_enrolment_status
       CHECK (status IN (
-        'initiated', 'otp_sent', 'otp_verified', 'enrolled', 'linked',
+        'initiated', 'otp_sent', 'otp_verifying', 'otp_verified', 'enrolled', 'linked',
         'failed', 'expired', 'cancelled'
       )),
   otp_attempts       INTEGER NOT NULL DEFAULT 0
     CONSTRAINT chk_abha_enrolment_otp_attempts CHECK (otp_attempts >= 0),
+  verification_claim_id UUID,
+  verification_claimed_at TIMESTAMPTZ,
   -- Last 4 digits of the OTP-target mobile — the only demographic echo kept.
   mobile_last4       VARCHAR(4),
   -- Result of a successful enrolment.
@@ -99,7 +101,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_abha_enrolment_tenant_txn
 -- One live (non-terminal) enrolment session per patient.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_abha_enrolment_patient_live
   ON abha_enrolment_sessions (tenant_id, patient_uid)
-  WHERE status IN ('initiated', 'otp_sent', 'otp_verified');
+  WHERE status IN ('initiated', 'otp_sent', 'otp_verifying', 'otp_verified');
 
 CREATE INDEX IF NOT EXISTS idx_abha_enrolment_tenant_status
   ON abha_enrolment_sessions (tenant_id, status, created_at DESC);
@@ -108,7 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_abha_enrolment_patient
 -- Expiry sweep.
 CREATE INDEX IF NOT EXISTS idx_abha_enrolment_expiry
   ON abha_enrolment_sessions (expires_at)
-  WHERE status IN ('initiated', 'otp_sent', 'otp_verified');
+  WHERE status IN ('initiated', 'otp_sent', 'otp_verifying', 'otp_verified');
 
 ALTER TABLE abha_enrolment_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE abha_enrolment_sessions FORCE ROW LEVEL SECURITY;
@@ -132,6 +134,6 @@ COMMENT ON TABLE abha_enrolment_sessions IS
 COMMENT ON COLUMN abha_enrolment_sessions.txn_id IS
   'ABDM gateway transaction id from request-otp; UNIQUE per (tenant, environment) so verify replays and duplicate submissions collapse.';
 COMMENT ON COLUMN abha_enrolment_sessions.status IS
-  'initiated → otp_sent → otp_verified → enrolled → linked | failed | expired | cancelled.';
+  'initiated → otp_sent → otp_verifying → linked | failed | expired | cancelled.';
 
 COMMIT;
