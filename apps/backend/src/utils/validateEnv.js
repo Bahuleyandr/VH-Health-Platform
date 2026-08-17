@@ -626,6 +626,15 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('TWILIO_AUTH_TOKEN'),
+  PUBLIC_BASE_URL: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().uri({ scheme: ['https'] }).required(),
+      otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).required(),
+    }),
+    otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).allow('').optional(),
+  }).label('PUBLIC_BASE_URL'),
 
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {

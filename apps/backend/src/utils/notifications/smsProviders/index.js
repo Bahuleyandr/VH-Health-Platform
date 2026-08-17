@@ -63,7 +63,24 @@ function envMsg91Complete() {
 function envTwilioSmsComplete() {
   return Boolean(process.env.TWILIO_ACCOUNT_SID
     && process.env.TWILIO_AUTH_TOKEN
-    && process.env.TWILIO_SMS_FROM);
+    && process.env.TWILIO_SMS_FROM
+    && usablePublicBaseUrl());
+}
+
+function usablePublicBaseUrl() {
+  const value = String(process.env.PUBLIC_BASE_URL || '').trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (!['https:', 'http:'].includes(parsed.protocol)
+        || parsed.username || parsed.password || parsed.search || parsed.hash
+        || (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:')) {
+      return null;
+    }
+    return value.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
 }
 
 /** The tenant's single enabled provider config row (full row — never return
@@ -198,18 +215,8 @@ function envCredentials(provider, tenantId) {
 
 function twilioStatusCallbackUrl(token) {
   const callbackToken = String(token || '').trim();
-  const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  const publicBaseUrl = usablePublicBaseUrl();
   if (!CALLBACK_TOKEN_RE.test(callbackToken) || !publicBaseUrl) return null;
-  try {
-    const parsed = new URL(publicBaseUrl);
-    if (!['https:', 'http:'].includes(parsed.protocol)
-        || parsed.username || parsed.password || parsed.search || parsed.hash
-        || (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:')) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
   return `${publicBaseUrl}/webhooks/sms/twilio-status/${callbackToken}`;
 }
 
@@ -285,6 +292,7 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       return await sendViaMsg91({
         authKey: credentials.authKey,
         senderId: credentials.senderId,
+        dltEntityId: credentials.dltEntityId,
         dltTemplateId: registration.dlt_template_id,
         providerTemplateId: registration.provider_template_id,
         phone: normalizedPhone,
@@ -308,4 +316,5 @@ export const __testing__ = Object.freeze({
   envMsg91Complete,
   envTwilioSmsComplete,
   getEnabledSmsConfigRow,
+  usablePublicBaseUrl,
 });

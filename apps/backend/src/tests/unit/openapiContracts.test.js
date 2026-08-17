@@ -117,6 +117,7 @@ describe('OpenAPI contract overlays (static gate)', () => {
     const refs = [];
     for (const ov of Object.values(allOperations)) {
       if (ov.request) refs.push(ov.request);
+      if (ov.requestContent) refs.push(...Object.values(ov.requestContent));
       if (ov.response) refs.push(ov.response);
     }
     const dangling = refs.filter(n => !names.has(n));
@@ -130,6 +131,35 @@ describe('OpenAPI contract overlays (static gate)', () => {
     for (const name of Object.keys(spec.components.schemas)) {
       expect(ajv.getSchema(`openapi.json#/components/schemas/${name}`)).toBeTruthy();
     }
+  });
+
+  it('documents exact SMS callback forms and write-only credential handling', () => {
+    const msg91 = spec.paths['/webhooks/sms/dlr/{token}'].post;
+    expect(msg91.security).toEqual([]);
+    expect(msg91.requestBody.content).toEqual({
+      'application/x-www-form-urlencoded': {
+        schema: { $ref: '#/components/schemas/Msg91DlrFormRequest' },
+      },
+      'application/json': {
+        schema: { $ref: '#/components/schemas/Msg91DlrJsonRequest' },
+      },
+    });
+    expect(Object.keys(msg91.responses)).toEqual(['200', '400', '401', '413', '429', '500']);
+
+    const twilio = spec.paths['/webhooks/sms/twilio-status/{token}'].post;
+    expect(twilio.security).toEqual([]);
+    expect(twilio.requestBody.content).toEqual({
+      'application/x-www-form-urlencoded': {
+        schema: { $ref: '#/components/schemas/TwilioSmsStatusFormRequest' },
+      },
+    });
+    expect(twilio.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'X-Twilio-Signature', in: 'header', required: true }),
+    ]));
+    expect(spec.components.schemas.SmsProviderConfigUpsertRequest.properties.auth_key)
+      .toMatchObject({ writeOnly: true });
+    expect(spec.components.schemas.SmsProviderConfigView.properties.callback_token)
+      .toMatchObject({ readOnly: true });
   });
 
   it('documents notification-authority validation as a bearer-authenticated fail-closed request', () => {

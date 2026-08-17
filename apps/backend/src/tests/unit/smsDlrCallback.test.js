@@ -216,6 +216,59 @@ describe('MSG91 DLR — token auth is the whole authentication', () => {
     }));
   });
 
+  it('decodes the real MSG91 form data field and processes every report', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .type('form')
+      .send({
+        data: JSON.stringify([{
+          requestId: 'req-form-1',
+          report: [{ status: 'delivered' }, { status: 'failed', code: 'DND' }],
+        }]),
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.results).toEqual(['recorded', 'recorded']);
+    expect(recordProviderReceiptTxMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects malformed authenticated form data instead of silently ACKing it', async () => {
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .type('form')
+      .send({ data: '[{"requestId":' });
+    expect(res.status).toBe(400);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an authenticated batch over 50 before writing any partial receipt', async () => {
+    const entries = Array.from({ length: 51 }, (_, i) => ({
+      requestId: `req-overflow-${i}`,
+      status: 'delivered',
+    }));
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .type('form')
+      .send({ data: JSON.stringify(entries) });
+    expect(res.status).toBe(413);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptTxMock).not.toHaveBeenCalled();
+  });
+
+  it('authenticates before decoding an oversized batch', async () => {
+    resolveSmsConfigByCallbackTokenMock.mockResolvedValue(null);
+    const entries = Array.from({ length: 51 }, (_, i) => ({
+      requestId: `req-unknown-${i}`,
+      status: 'delivered',
+    }));
+    const res = await request(app())
+      .post(`/webhooks/sms/dlr/${TOKEN}`)
+      .type('form')
+      .send({ data: JSON.stringify(entries) });
+    expect(res.status).toBe(401);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
   it('never persists the recipient MSISDN into receipt evidence (allowlisted fields only)', async () => {
     const res = await request(app())
       .post(`/webhooks/sms/dlr/${TOKEN}`)

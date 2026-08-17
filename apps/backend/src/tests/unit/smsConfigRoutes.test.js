@@ -78,6 +78,19 @@ describe('provider config surface', () => {
     expect(upsertSmsProviderConfig).not.toHaveBeenCalled();
   });
 
+  it('never echoes a rejected write-only auth_key value in validator errors', async () => {
+    const credential = `credential-${'s'.repeat(220)}`;
+    const res = await request(app())
+      .put('/api/v1/admin/notifications/sms/config')
+      .send({ provider: 'msg91', enabled: true, auth_key: credential });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain(credential);
+    expect(res.body.errors).toEqual(expect.arrayContaining([
+      expect.not.objectContaining({ value: expect.anything() }),
+    ]));
+    expect(upsertSmsProviderConfig).not.toHaveBeenCalled();
+  });
+
   it('PUT /config forwards the write-only secret and passes the one-time token through', async () => {
     upsertSmsProviderConfig.mockResolvedValue({
       id: 7, provider: 'msg91', enabled: true, sender_id: 'VHHLTH',

@@ -47,6 +47,15 @@ router.post('/dlr/:token', async (req, res) => {
     logger.error('sms-dlr: msg91 callback processing failed', {
       code: err?.code, error: err?.message,
     });
+    if (err?.code === 'SMS_DLR_DATA_INVALID' || err?.code === 'SMS_DLR_BATCH_TOO_LARGE') {
+      return error(
+        res,
+        err.code === 'SMS_DLR_BATCH_TOO_LARGE'
+          ? 'Delivery status batch is too large'
+          : 'Invalid delivery status payload',
+        err.statusCode,
+      );
+    }
     // Honest 500: the delivery was authenticated but not recorded — the
     // provider will re-deliver and the receipt unique keeps that safe.
     return error(res, 'Delivery status processing failed', 500);

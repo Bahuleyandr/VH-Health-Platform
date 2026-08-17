@@ -138,6 +138,48 @@ describe('validateEnv signed integration secrets', () => {
   });
 });
 
+describe('validateEnv Twilio SMS callback contract', () => {
+  const twilioEnv = {
+    SMS_PROVIDER: 'twilio',
+    TWILIO_ACCOUNT_SID: 'AC-test-account',
+    TWILIO_AUTH_TOKEN: 'test-twilio-auth-token',
+    TWILIO_SMS_FROM: '+15005550006',
+  };
+
+  it('requires PUBLIC_BASE_URL when the environment enables Twilio SMS', () => {
+    const result = runValidateEnv(twilioEnv);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('PUBLIC_BASE_URL');
+  });
+
+  it('requires TWILIO_ACCOUNT_SID when the environment enables Twilio SMS', () => {
+    const { TWILIO_ACCOUNT_SID: _omitted, ...withoutSid } = twilioEnv;
+    const result = runValidateEnv({
+      ...withoutSid,
+      PUBLIC_BASE_URL: 'https://api.vhhealth.app',
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('TWILIO_ACCOUNT_SID');
+  });
+
+  it('accepts a complete production Twilio SMS callback configuration', () => {
+    const result = runValidateEnv({
+      ...twilioEnv,
+      PUBLIC_BASE_URL: 'https://api.vhhealth.app',
+    });
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects an HTTP PUBLIC_BASE_URL in production', () => {
+    const result = runValidateEnv({
+      ...twilioEnv,
+      PUBLIC_BASE_URL: 'http://api.vhhealth.app',
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('PUBLIC_BASE_URL');
+  });
+});
+
 describe('validateEnv Redis Sentinel production contract', () => {
   it('fails closed when Sentinel is required without explicit hosts and credentials', () => {
     const result = runValidateEnv({ REDIS_REQUIRE_SENTINEL: 'true' });

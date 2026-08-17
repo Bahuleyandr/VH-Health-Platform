@@ -187,7 +187,7 @@ export async function upsertSmsProviderConfig({
     }
     if (isCheckViolation(err)) {
       throw AppError.badRequest(
-        'An enabled non-dry_run config requires sender_id, dlt_entity_id, and auth_key.',
+        'An enabled real SMS config requires sender_id, dlt_entity_id, and auth_key; Twilio also requires account_sid.',
         'SMS_CONFIG_CREDENTIALS_REQUIRED',
       );
     }

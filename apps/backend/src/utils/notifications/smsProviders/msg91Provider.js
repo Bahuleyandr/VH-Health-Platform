@@ -47,10 +47,10 @@ function evidenceFrom(status, body) {
 }
 
 export async function sendViaMsg91({
-  authKey, senderId, dltTemplateId, providerTemplateId, phone, message,
+  authKey, senderId, dltEntityId, dltTemplateId, providerTemplateId, phone, message,
   requestTimeoutMs = MSG91_REQUEST_TIMEOUT_MS,
 }) {
-  if (!authKey || !senderId || !dltTemplateId) {
+  if (!authKey || !senderId || !dltEntityId || !dltTemplateId) {
     return {
       outcome: 'rejected',
       providerReference: null,
@@ -60,6 +60,7 @@ export async function sendViaMsg91({
         missing: [
           !authKey && 'auth_key',
           !senderId && 'sender_id',
+          !dltEntityId && 'dlt_entity_id',
           !dltTemplateId && 'dlt_template_id',
         ].filter(Boolean),
       },
@@ -79,6 +80,7 @@ export async function sendViaMsg91({
     sender: senderId,
     route: '4', // transactional
     country: '91',
+    PE_ID: String(dltEntityId),
     DLT_TE_ID: String(dltTemplateId),
     ...(providerTemplateId ? { flow_id: String(providerTemplateId) } : {}),
     sms: [{ message: String(message), to: [normalizedPhone] }],

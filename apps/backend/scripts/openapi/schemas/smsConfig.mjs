@@ -8,6 +8,15 @@
 // SMS_PROVIDER=logger is the deployment-wide kill switch.
 import { envelope } from './_helpers.mjs';
 
+const errorResponse = description => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/SmsDlrErrorResponse' },
+    },
+  },
+});
+
 export const schemas = {
   SmsProviderConfigView: {
     type: 'object',
@@ -35,12 +44,14 @@ export const schemas = {
       callback_token: {
         type: 'string',
         nullable: true,
-        description: 'Present ONLY on the upsert response that minted/rotated it — the bearer token for the tenant DLR callback URL. Only its SHA-256 is stored.',
+        readOnly: true,
+        description: 'Present ONLY on the upsert response that minted/rotated it — the bearer token for the tenant DLR callback URL. The database stores its SHA-256 lookup hash plus an encryptField() ciphertext used only to construct signed Twilio callback URLs; later reads never return either token form.',
       },
       dlr_path: {
         type: 'string',
         nullable: true,
-        description: 'Tenant-specific delivery-status webhook path (/webhooks/sms/dlr/<token> or /webhooks/sms/twilio-status/<token>) to configure at the provider dashboard. Present only alongside callback_token.',
+        readOnly: true,
+        description: 'Tenant-specific delivery-status webhook path (/webhooks/sms/dlr/<token> or /webhooks/sms/twilio-status/<token>) to configure at the provider dashboard. Present only alongside callback_token; this location is excluded from ingress access logs because the path segment is a credential.',
       },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
@@ -74,9 +85,13 @@ export const schemas = {
         type: 'string',
         nullable: true,
         maxLength: 200,
-        description: 'MSG91 authkey / Twilio auth token. Write-only: stored as encryptField() ciphertext, never echoed.',
+        writeOnly: true,
+        description: 'MSG91 authkey / Twilio auth token. Write-only: stored as tenant-bound encryptField() ciphertext; validation errors and every response omit the submitted value.',
       },
-      account_sid: { type: 'string', nullable: true, maxLength: 64 },
+      account_sid: {
+        type: 'string', nullable: true, maxLength: 64,
+        description: 'Required by the database whenever a Twilio config is enabled.',
+      },
       rotate_callback_token: {
         type: 'boolean',
         description: 'Mint a fresh DLR callback token (invalidates the previous callback URL).',
@@ -150,6 +165,84 @@ export const schemas = {
     },
   },
 
+  Msg91DlrReport: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      status: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
+      code: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
+      desc: { type: 'string', nullable: true },
+    },
+  },
+
+  Msg91DlrEntry: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      requestId: { type: 'string' },
+      request_id: { type: 'string' },
+      status: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
+      code: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
+      report: {
+        type: 'array',
+        maxItems: 50,
+        items: { $ref: '#/components/schemas/Msg91DlrReport' },
+      },
+    },
+  },
+
+  Msg91DlrJsonRequest: {
+    description: 'Legacy/operator JSON replay shape. Across all entry.report arrays, at most 50 reports are accepted atomically.',
+    oneOf: [
+      { $ref: '#/components/schemas/Msg91DlrEntry' },
+      {
+        type: 'array',
+        maxItems: 50,
+        items: { $ref: '#/components/schemas/Msg91DlrEntry' },
+      },
+    ],
+  },
+
+  Msg91DlrFormRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['data'],
+    properties: {
+      data: {
+        type: 'string',
+        description: 'JSON-encoded MSG91 report object/array. The decoded aggregate may contain at most 50 reports; larger authenticated batches receive 413 before any receipt is written.',
+      },
+    },
+  },
+
+  TwilioSmsStatusFormRequest: {
+    type: 'object',
+    additionalProperties: true,
+    anyOf: [
+      { required: ['MessageSid', 'MessageStatus'] },
+      { required: ['SmsSid', 'SmsStatus'] },
+    ],
+    properties: {
+      MessageSid: { type: 'string' },
+      SmsSid: { type: 'string' },
+      MessageStatus: { type: 'string' },
+      SmsStatus: { type: 'string' },
+      ErrorCode: { type: 'string', nullable: true },
+    },
+  },
+
+  SmsDlrErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      error: { type: 'string' },
+      code: { type: 'string' },
+    },
+  },
+
   SmsProviderConfigListResponse: envelope('SmsProviderConfigList'),
   SmsProviderConfigViewResponse: envelope('SmsProviderConfigView'),
   SmsTemplateRegistrationListResponse: envelope('SmsTemplateRegistrationList'),
@@ -165,7 +258,7 @@ export const operations = {
   },
   'PUT /api/v1/admin/notifications/sms/config': {
     description:
-      'Admin upsert of the per-tenant SMS provider config (one row per provider; at most one enabled per tenant). auth_key is write-only encryptField() ciphertext; enabling a non-dry_run provider without sender_id + dlt_entity_id + auth_key is rejected (699 CHECK). When the row has no DLR callback token (or rotation is requested) a fresh bearer token is minted and returned EXACTLY ONCE as callback_token + dlr_path — only its SHA-256 is stored.',
+      'Admin upsert of the per-tenant SMS provider config (one row per provider; at most one enabled per tenant). auth_key is write-only tenant-bound encryptField() ciphertext and validator failures never echo it; enabling a non-dry_run provider without sender_id + dlt_entity_id + auth_key is rejected, and enabled Twilio additionally requires account_sid (699 + 711 checks). When the row has no DLR callback token (or rotation is requested) a fresh bearer token is minted and returned EXACTLY ONCE as callback_token + dlr_path; only its SHA-256 lookup hash and encryptField() ciphertext are retained.',
     request: 'SmsProviderConfigUpsertRequest',
     response: 'SmsProviderConfigViewResponse',
   },
@@ -189,11 +282,46 @@ export const operations = {
   'POST /webhooks/sms/dlr/{token}': {
     description:
       'Public MSG91 delivery-status (DLR) intake (pre-auth mount). MSG91 does not sign callbacks, so the URL bearer token IS the authentication: SHA-256(token) must match a tenant config callback_token_hash — unknown token 401s and writes nothing (fail-closed, never a default tenant). Only terminal statuses are persisted (delivered → acknowledged receipt; failed/undelivered/rejected/expired → rejected receipt with the operator code), as append-only provider_status_callback evidence correlated by the send-time request id; intermediate statuses, unknown references, and replayed terminal reports are 200-acked without a write. Outbox status is never changed by a DLR.',
+    security: [],
+    pathParameters: {
+      token: { type: 'string', pattern: '^[A-Za-z0-9_.-]{20,160}$' },
+    },
+    requestContent: {
+      'application/x-www-form-urlencoded': 'Msg91DlrFormRequest',
+      'application/json': 'Msg91DlrJsonRequest',
+    },
     response: 'SmsDlrAckResponse',
+    additionalResponses: {
+      400: errorResponse('The authenticated MSG91 data field was not valid JSON report data.'),
+      401: errorResponse('The callback path token was missing, malformed, or unknown.'),
+      413: errorResponse('The authenticated decoded batch exceeded 50 reports; no report was processed.'),
+      429: errorResponse('The callback source exceeded the public webhook rate limit.'),
+      500: errorResponse('The authenticated report could not be recorded; the provider may retry.'),
+    },
   },
   'POST /webhooks/sms/twilio-status/{token}': {
     description:
       'Public Twilio message status callback intake (pre-auth mount). The URL bearer token resolves the tenant fail-closed AND the delivery must carry a valid X-Twilio-Signature (HMAC of the exact public callback URL + sorted form params, verified against the tenant auth token). Terminal statuses (delivered / undelivered / failed) land as append-only provider_status_callback receipts correlated by MessageSid; everything else is 200-acked without a write. Outbox status is never changed by a DLR.',
+    security: [],
+    pathParameters: {
+      token: { type: 'string', pattern: '^[A-Za-z0-9_.-]{20,160}$' },
+    },
+    parameters: [{
+      name: 'X-Twilio-Signature',
+      in: 'header',
+      required: true,
+      schema: { type: 'string' },
+      description: 'Twilio signature over the exact PUBLIC_BASE_URL callback URL and form fields.',
+    }],
+    requestContent: {
+      'application/x-www-form-urlencoded': 'TwilioSmsStatusFormRequest',
+    },
     response: 'SmsDlrAckResponse',
+    additionalResponses: {
+      400: errorResponse('The callback form body was malformed.'),
+      401: errorResponse('The callback token, account-bound auth token, PUBLIC_BASE_URL, or Twilio signature could not be verified.'),
+      429: errorResponse('The callback source exceeded the public webhook rate limit.'),
+      500: errorResponse('The authenticated status could not be recorded; Twilio may retry.'),
+    },
   },
 };

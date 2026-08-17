@@ -29,6 +29,7 @@
 
 import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { recordProviderReceiptTx } from './notificationDeliveryLedgerService.js';
 import { resolveSmsConfigByCallbackToken } from './smsProviderConfigService.js';
@@ -56,6 +57,7 @@ const TERMINAL_REJECT_STATUSES = new Set([
 const INTERMEDIATE_STATUSES = new Set([
   'queued', 'accepted', 'sending', 'sent', 'submitted', 'scheduled',
 ]);
+const MAX_MSG91_DLR_REPORTS = 50;
 
 function boundedProviderToken(value) {
   const candidate = String(value ?? '').trim();
@@ -152,6 +154,48 @@ async function processEntry({ tenantId, provider, providerReference, statusRaw, 
   });
 }
 
+function decodeMsg91DlrReports(payload) {
+  let decoded = payload;
+  if (decoded && !Array.isArray(decoded) && typeof decoded === 'object'
+      && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
+    if (typeof decoded.data !== 'string') {
+      throw AppError.badRequest(
+        'MSG91 DLR data must be a JSON-encoded report array',
+        'SMS_DLR_DATA_INVALID',
+      );
+    }
+    try {
+      decoded = JSON.parse(decoded.data);
+    } catch {
+      throw AppError.badRequest(
+        'MSG91 DLR data must be valid JSON',
+        'SMS_DLR_DATA_INVALID',
+      );
+    }
+  }
+
+  const entries = Array.isArray(decoded) ? decoded : [decoded ?? {}];
+  const reports = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw AppError.badRequest('MSG91 DLR entries must be objects', 'SMS_DLR_DATA_INVALID');
+    }
+    if (Array.isArray(entry.report) && entry.report.length > 0) {
+      for (const report of entry.report) reports.push({ entry, report });
+    } else {
+      reports.push({ entry, report: null });
+    }
+  }
+  if (reports.length > MAX_MSG91_DLR_REPORTS) {
+    throw new AppError(
+      `MSG91 DLR batches may contain at most ${MAX_MSG91_DLR_REPORTS} reports`,
+      413,
+      'SMS_DLR_BATCH_TOO_LARGE',
+    );
+  }
+  return reports;
+}
+
 /**
  * MSG91 DLR intake. MSG91 does not sign callbacks — the URL token IS the
  * authentication. Accepts both the flat shape ({ requestId, status, ... })
@@ -162,10 +206,14 @@ export async function processMsg91Dlr({ token, payload }) {
   if (!config || config.provider !== 'msg91') return { authorized: false };
   const tenantId = String(config.tenant_id);
 
-  const entries = Array.isArray(payload) ? payload : [payload ?? {}];
+  // MSG91 posts application/x-www-form-urlencoded with a `data` field whose
+  // value is the JSON report array. JSON input remains accepted for backwards
+  // compatibility and test/operator replay. Decode and enforce the complete
+  // batch bound BEFORE the first receipt write so an oversized authenticated
+  // delivery fails atomically instead of being partially ACKed.
+  const entries = decodeMsg91DlrReports(payload);
   const results = [];
-  for (const entry of entries.slice(0, 50)) {
-    const report = Array.isArray(entry?.report) ? entry.report[0] : null;
+  for (const { entry, report } of entries) {
     results.push(await processEntry({
       tenantId,
       provider: 'msg91',
@@ -254,5 +302,6 @@ export async function processTwilioStatusCallback({ token, params, signature, re
 
 export const __testing__ = Object.freeze({
   classifyDlrStatus,
+  decodeMsg91DlrReports,
   providerCodeFor,
 });

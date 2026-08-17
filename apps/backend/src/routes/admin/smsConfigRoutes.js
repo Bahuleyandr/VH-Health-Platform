@@ -34,7 +34,15 @@ const router = markRouterDomain(express.Router(), 'sms-gateway');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  if (!errors.isEmpty()) {
+    // express-validator includes the rejected input as `value` by default.
+    // This surface validates write-only auth material, so return only the
+    // structural error fields and never reflect a credential-shaped value.
+    const safeErrors = errors.array().map(({ type, msg, path, location }) => ({
+      type, msg, path, location,
+    }));
+    return res.status(400).json({ success: false, errors: safeErrors });
+  }
   next();
 };
 

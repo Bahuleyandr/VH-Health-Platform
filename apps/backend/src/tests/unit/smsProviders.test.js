@@ -170,6 +170,18 @@ describe('provider resolution (config-gated DEFAULT OFF)', () => {
     expect(resolved).toMatchObject({ provider: 'twilio', source: 'env', config: null });
   });
 
+  it('keeps env Twilio in dry_run without a verifiable public callback origin', async () => {
+    process.env.SMS_PROVIDER = 'twilio';
+    process.env.TWILIO_ACCOUNT_SID = 'AC-env';
+    process.env.TWILIO_AUTH_TOKEN = 'env-auth';
+    process.env.TWILIO_SMS_FROM = 'VHHLTH';
+    delete process.env.PUBLIC_BASE_URL;
+    const resolved = await resolveSmsProviderContext(TENANT_ID);
+    expect(resolved).toMatchObject({
+      provider: 'dry_run', reason: 'env_credentials_incomplete',
+    });
+  });
+
   it('an env provider with incomplete credentials stays dry_run', async () => {
     process.env.SMS_PROVIDER = 'msg91';
     process.env.MSG91_AUTH_KEY = 'env-key';
@@ -214,7 +226,7 @@ describe('dry-run default through the seam', () => {
 
   it('keeps the provider adapters fail-closed when invoked directly with foreign E.164', async () => {
     await expect(sendViaMsg91({
-      authKey: 'key', senderId: 'VHHLTH', dltTemplateId: 'dlt-1',
+      authKey: 'key', senderId: 'VHHLTH', dltEntityId: 'pe-1', dltTemplateId: 'dlt-1',
       phone: '+14155552671', message: 'Hello',
     })).resolves.toMatchObject({ outcome: 'rejected', providerCode: 'phone_missing' });
     await expect(sendViaTwilioSms({
@@ -308,6 +320,7 @@ describe('MSG91 adapter classification', () => {
     expect(body).toMatchObject({
       sender: 'VHHLTH',
       route: '4',
+      PE_ID: '110100001234567890',
       DLT_TE_ID: '1107100000000012345',
     });
     expect(body.sms).toEqual([{ message: 'Your booking is confirmed.', to: ['919876543210'] }]);
@@ -327,6 +340,19 @@ describe('MSG91 adapter classification', () => {
     expect(result).toMatchObject({ outcome: 'rejected', providerCode: 'msg91_311' });
     expect(JSON.stringify(result.evidence)).not.toContain('9876543210');
     expect(JSON.stringify(result.evidence)).not.toContain('Patient Alice');
+  });
+
+  it('refuses a direct MSG91 send without the DLT principal entity id', async () => {
+    const result = await sendViaMsg91({
+      authKey: 'key', senderId: 'VHHLTH', dltTemplateId: 'dlt-1',
+      phone: '919876543210', message: 'Hello',
+    });
+    expect(result).toMatchObject({
+      outcome: 'rejected',
+      providerCode: 'sms_config_credentials_unreadable',
+      evidence: { missing: ['dlt_entity_id'] },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('classifies an HTTP 401 as rejected (retrying the same credentials cannot succeed)', async () => {
@@ -385,6 +411,23 @@ describe('Twilio adapter classification', () => {
       to: '+919876543210',
       statusCallback: 'https://api.vhhealth.app/webhooks/sms/twilio-status/tok_abcdefghijklmnopqrstuvwxyz01',
     }));
+  });
+
+  it('refuses a Twilio send without account_sid before invoking the SDK', async () => {
+    const result = await sendViaTwilioSms({
+      accountSid: null,
+      authToken: 'auth-token',
+      from: 'VHHLTH',
+      phone: '919876543210',
+      message: 'Hello',
+      statusCallback: 'https://api.vhhealth.app/webhooks/sms/twilio-status/test_token_abcdefghijklmnop',
+    });
+    expect(result).toMatchObject({
+      outcome: 'rejected',
+      providerCode: 'sms_config_credentials_unreadable',
+      evidence: { missing: expect.arrayContaining(['account_sid']) },
+    });
+    expect(twilioCreateMock).not.toHaveBeenCalled();
   });
 
   it('mints the env callback from the exact env account/auth source, never a disabled DB token', async () => {

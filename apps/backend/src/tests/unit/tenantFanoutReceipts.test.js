@@ -118,6 +118,7 @@ describe('tenant fan-out receipt failure accounting', () => {
         sendViaMsg91({
           authKey: tenantId === TENANT_A ? 'tenant-a-key' : 'tenant-b-key',
           senderId: 'VHHLTH',
+          dltEntityId: '110100001234567890',
           dltTemplateId: '1107100000000012345',
           phone: '919876543210',
           message: 'Template-safe message',
