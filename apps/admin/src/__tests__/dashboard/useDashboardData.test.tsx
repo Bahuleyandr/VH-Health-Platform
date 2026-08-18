@@ -63,7 +63,11 @@ type DashboardFixture = {
     inProgress?: number;
     completed: number;
   };
-  moduleHealth: Array<{ name: string; status: string }>;
+  // The live /admin/health/modules contract is a name→status record
+  // (backend getModuleHealth()); the array form is the legacy envelope the
+  // hook still tolerates.
+  moduleHealth:
+    Array<{ name: string; status: string }> | Record<string, string>;
 };
 
 function queueDashboardFetches(
@@ -155,10 +159,8 @@ describe("useDashboardData", () => {
         errorRate: 0.2,
       },
       appointmentStats: { waiting: 4, in_progress: 3, completed: 17 },
-      moduleHealth: [
-        { name: "Database", status: "healthy" },
-        { name: "Messaging", status: "degraded" },
-      ],
+      // Real backend shape: a name→status record, not an array.
+      moduleHealth: { Database: "healthy", Messaging: "degraded" },
     });
 
     const { result } = renderHook(() => useDashboardData());
