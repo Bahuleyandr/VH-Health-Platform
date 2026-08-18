@@ -132,6 +132,19 @@ jobs:
 
       - run: npm ci
 
+      # PR #878: npm 11.14.1 regenerated package-lock.json and silently stripped
+      # `"libc"` from all 26 platform-specific optional packages (@img/sharp-*,
+      # @unrs/resolver-binding-*). The prod image is node:26.5.0-alpine (musl)
+      # and apps/backend/Dockerfile runs `npm ci`, so without `libc` a musl
+      # install also pulls glibc binaries into the image — and NO job here could
+      # see it, because these runners are ubuntu-latest (glibc) and the Alpine
+      # image is built post-merge by release-images.yml. Its own step rather
+      # than a link in the `npm run lint` && chain: it is a lockfile-integrity
+      # gate, not a source-lint one, and an earlier lint failure must not mask
+      # it. Costs milliseconds — a JSON parse.
+      - name: Lockfile libc guard (musl/glibc platform constraints intact)
+        run: npm run check:lockfile-libc
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

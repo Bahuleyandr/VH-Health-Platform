@@ -56,6 +56,21 @@ jobs:
 
       - run: npm ci
 
+      # PR #878-class regression: npm 11.14.1 strips `"libc"` from platform
+      # packages when it regenerates a lockfile — and this app's lockfile WAS
+      # stripped on main until 2026-08-18 (68 entries repaired from registry
+      # manifests). The prod image is node:26.5.0-alpine (musl) and the
+      # Dockerfile runs `npm ci`, so without `libc` a musl install also pulls
+      # glibc binaries into the image; nothing else here can see that because
+      # this runner is ubuntu-latest (glibc) and the Alpine image is built
+      # post-merge by release-images.yml. Its own step rather than a link in a
+      # composite chain: it is a lockfile-integrity gate, and an earlier lint
+      # failure must not mask it. Costs milliseconds — a JSON parse. Both
+      # quick_admin and full_admin call this job, so one step covers both
+      # tiers. Same engine as the backend guard: scripts/check-lockfile-libc.mjs.
+      - name: Lockfile libc guard (musl/glibc platform constraints intact)
+        run: npm run check:lockfile-libc
+
       - name: Security audit
         run: npm audit --audit-level=high
 
