@@ -1838,6 +1838,186 @@ function substitutionAllowed(orig, sub) {
   return true;
 }
 
+// Schedule classes whose shelf decrement must go through the statutory
+// pharmacy_schedule_register path (mirrors inventoryV2Service.dispenseControlledTx
+// and counterSaleService.isControlled — no parallel controlled mechanism).
+const SUBSTITUTION_CONTROLLED_SCHEDULE_CLASSES = ['H', 'H1', 'X'];
+
+/**
+ * Canonical projection of a dispense-substitution intent for witness
+ * fingerprinting: exactly the client-known request fields (witness_approval_id
+ * and any credential material excluded), so an approval binds to this precise
+ * dispense and any change to it invalidates the approval. Mirrors
+ * counterSaleWitnessPayload — witness passwords or approval ids never enter
+ * the fingerprint or persisted idempotency hashes.
+ */
+function substitutionWitnessPayload(body = {}) {
+  return {
+    patient_uid: body.patient_uid ? String(body.patient_uid) : null,
+    encounter_id: body.encounter_id == null ? null : String(body.encounter_id),
+    inventory_item_id: Number(body.inventory_item_id),
+    inventory_batch_id: Number(body.inventory_batch_id),
+    quantity: Math.abs(Number(body.quantity)),
+    original_catalog_id: Number(body.original_catalog_id),
+    final_catalog_id: Number(body.final_catalog_id),
+    reason: body.reason ? String(body.reason).trim() : null,
+  };
+}
+
+/**
+ * Phase 0 of a dispense-substitution (reads only, shared by the dispense
+ * handler and the witness request/approve endpoints): parse + validate the
+ * ids, server-resolve BOTH catalog identities tenant-scoped, confirm the swap
+ * is genuinely equivalent, and read the dispensed item's controlled-substance
+ * classification. The schedule check keys off the CONCRETE inventory item
+ * being decremented — never a client-supplied brand string.
+ */
+async function resolveSubstitutionPhase0(tenantId, body = {}) {
+  const {
+    patient_uid, encounter_id, inventory_item_id, inventory_batch_id,
+    quantity, original_catalog_id, final_catalog_id, reason,
+  } = body;
+
+  const qty = Math.abs(Number(quantity));
+  const origId = Number(original_catalog_id);
+  const finalId = Number(final_catalog_id);
+  const itemId = Number(inventory_item_id);
+  const batchId = Number(inventory_batch_id);
+
+  if (origId === finalId) {
+    throw AppError.badRequest('Substitute must differ from the original brand', 'SUBSTITUTE_SAME_AS_ORIGINAL');
+  }
+  if (
+    !Number.isInteger(itemId) || itemId <= 0
+    || !Number.isInteger(batchId) || batchId <= 0
+    || !Number.isFinite(qty) || qty <= 0
+    || !Number.isInteger(origId) || origId <= 0
+    || !Number.isInteger(finalId) || finalId <= 0
+  ) {
+    throw AppError.badRequest(
+      'Valid inventory_item_id, inventory_batch_id, quantity, original_catalog_id and final_catalog_id are required',
+    );
+  }
+  if (!patient_uid) {
+    throw AppError.badRequest('Valid patient UID required');
+  }
+
+  const ids = await resolveCompositionIdentitiesByCatalogIds(tenantId, [origId, finalId]);
+  const orig = ids.get(origId);
+  const sub = ids.get(finalId);
+  if (!orig || !sub) throw AppError.badRequest('Unresolvable catalog id', 'CATALOG_ID_UNRESOLVED');
+  if (!substitutionAllowed(orig, sub)) {
+    throw AppError.badRequest('Selected brand is not an equivalent substitute', 'SUBSTITUTE_NOT_EQUIVALENT');
+  }
+
+  const items = await prisma.$queryRawUnsafe(
+    `SELECT id, schedule_class, is_narcotic
+       FROM pharmacy_inventory_items
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    itemId, tenantId,
+  );
+  if (!items.length) throw AppError.notFound('Inventory item not found');
+  const item = items[0];
+  const controlled = SUBSTITUTION_CONTROLLED_SCHEDULE_CLASSES.includes(item.schedule_class)
+    || item.is_narcotic === true;
+  const needsWitness = item.schedule_class === 'X' || item.is_narcotic === true;
+
+  return {
+    patient_uid, encounter_id, reason,
+    qty, origId, finalId, itemId, batchId,
+    orig, sub, item, controlled, needsWitness,
+  };
+}
+
+/**
+ * POST /pharmacy-orders/dispense-substitution/witness-approvals
+ *
+ * Dispensing pharmacist creates a short-lived pending witness approval bound
+ * to the authenticated dispenser and the exact prospective substitution
+ * payload. Only available when the concrete inventory item is Schedule X /
+ * narcotic (the only substitutions that statutorily need a witness); the
+ * same equivalence gate as the dispense runs first so an approval can never
+ * exist for an inequivalent swap.
+ */
+export async function requestSubstitutionWitnessApproval({ tenantId, requested_by, ...body }) {
+  if (Object.hasOwn(body, 'witness_approval_id')) {
+    throw AppError.badRequest(
+      'witness_approval_id is not accepted before witness approval',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_PRESELECTED',
+    );
+  }
+  const ctx = await resolveSubstitutionPhase0(tenantId, body);
+  if (!ctx.needsWitness) {
+    throw AppError.badRequest(
+      'A witness approval is only available for Schedule X / narcotic substitution',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+  // Advisory usable-batch check (the dispense revalidates under FOR UPDATE).
+  const batches = await prisma.$queryRawUnsafe(
+    `SELECT id, remaining_quantity, status,
+            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+       FROM pharmacy_inventory_batches
+      WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int`,
+    ctx.batchId, tenantId, ctx.itemId,
+  );
+  if (!batches.length) throw AppError.notFound('Inventory batch not found');
+  if (batches[0].status !== 'in_stock') {
+    throw AppError.badRequest(
+      `Batch not available for issue (status: ${batches[0].status})`,
+      'INVENTORY_BATCH_UNAVAILABLE',
+    );
+  }
+  if (batches[0].is_expired) {
+    throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
+  }
+  if (Number(batches[0].remaining_quantity) < ctx.qty) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${batches[0].remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  const {
+    CONTROLLED_DISPENSE_APPROVAL_SCOPES, createControlledDispenseWitnessApproval,
+  } = await import('../../services/pharmacy/controlledDispenseWitnessService.js');
+  return createControlledDispenseWitnessApproval({
+    tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.dispenseSubstitution,
+    payload: substitutionWitnessPayload(body),
+    requestedBy: requested_by,
+  });
+}
+
+/**
+ * POST /pharmacy-orders/dispense-substitution/witness-approvals/:id/approve
+ *
+ * A separately authenticated eligible witness approves the unchanged
+ * substitution payload. Self-witness, tenant mismatch, expiry, replay, and
+ * payload changes fail closed inside controlledDispenseWitnessService.
+ */
+export async function approveSubstitutionWitnessApproval({
+  approvalId, actorUid, requesterUid = null, substitution,
+}) {
+  const { tenantId, ...body } = substitution || {};
+  const ctx = await resolveSubstitutionPhase0(tenantId, body);
+  if (!ctx.needsWitness) {
+    throw AppError.badRequest(
+      'A witness approval is only available for Schedule X / narcotic substitution',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+  const {
+    approveControlledDispenseWitnessApproval,
+  } = await import('../../services/pharmacy/controlledDispenseWitnessService.js');
+  return approveControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId,
+    actorUid,
+    payload: substitutionWitnessPayload(body),
+    requesterUid,
+  });
+}
+
 /**
  * POST /pharmacy-orders/dispense-substitution
  *
@@ -1847,36 +2027,79 @@ function substitutionAllowed(orig, sub) {
  * (hard-fail — rolls back the decrement if either event cannot be recorded). A best-
  * effort brand-substitution audit follows post-commit. Both catalog ids are re-resolved
  * server-side and the swap is re-checked for equivalence; client brand strings are never
- * trusted. The batch decrement mirrors inventoryV2Service.recordMovement's core (inlined
+ * trusted.
+ *
+ * Controlled substitutes (Schedule H/H1/X or narcotic inventory items) never take the
+ * inline decrement: they route through inventoryV2Service.dispenseControlledTx inside
+ * the SAME transaction, so the statutory pharmacy_schedule_register row (and, for
+ * Schedule X / narcotics, the consumed independent witness approval) commits or rolls
+ * back atomically with the stock decrement and the canonical pair — the same invariant
+ * the controlled-dispense and counter-sale paths enforce. A Schedule X / narcotic
+ * substitution without a valid witness_approval_id fails closed with
+ * SUBSTITUTION_WITNESS_REQUIRED. For non-controlled items the original inline batch
+ * decrement is unchanged (it mirrors inventoryV2Service.recordMovement's core, inlined
  * because that function opens its own transaction and cannot be composed with the
  * canonical write).
  */
 export const dispenseSubstitution = async (req, res) => {
   try {
     const tenantId = req.tenantId;
+    const ctx = await resolveSubstitutionPhase0(tenantId, req.body ?? {});
     const {
-      patient_uid, encounter_id, inventory_item_id, inventory_batch_id,
-      quantity, original_catalog_id, final_catalog_id, reason,
-    } = req.body ?? {};
+      patient_uid, encounter_id, reason, qty, origId, finalId, itemId, batchId,
+      orig, sub, item,
+    } = ctx;
 
-    const qty = Math.abs(Number(quantity));
-    const origId = Number(original_catalog_id);
-    const finalId = Number(final_catalog_id);
-    const itemId = Number(inventory_item_id);
-    const batchId = Number(inventory_batch_id);
-
-    if (origId === finalId) {
-      throw AppError.badRequest('Substitute must differ from the original brand', 'SUBSTITUTE_SAME_AS_ORIGINAL');
+    const witnessApprovalId = req.body?.witness_approval_id;
+    if (ctx.needsWitness && witnessApprovalId == null) {
+      // Fail closed: a Schedule X / narcotic substitute can never be dispensed
+      // without the independently approved witness — same contract as
+      // COUNTER_SALE_WITNESS_REQUIRED on the walk-in POS path.
+      throw AppError.badRequest(
+        'Schedule X / narcotic substitution requires an independently approved witness (witness_approval_id)',
+        'SUBSTITUTION_WITNESS_REQUIRED',
+      );
     }
 
-    // Phase 0 (outside tx): server-resolve BOTH catalog identities, tenant-scoped, and
-    // confirm the swap is genuinely equivalent before touching stock.
-    const ids = await resolveCompositionIdentitiesByCatalogIds(tenantId, [origId, finalId]);
-    const orig = ids.get(origId);
-    const sub = ids.get(finalId);
-    if (!orig || !sub) throw AppError.badRequest('Unresolvable catalog id', 'CATALOG_ID_UNRESOLVED');
-    if (!substitutionAllowed(orig, sub)) {
-      throw AppError.badRequest('Selected brand is not an equivalent substitute', 'SUBSTITUTE_NOT_EQUIVALENT');
+    // Phase 0.5 (controlled only, reads): the statutory register row must name
+    // the patient and the performing pharmacist.
+    let registerPatient = null;
+    let performedByName = null;
+    if (ctx.controlled) {
+      const patients = await prisma.$queryRawUnsafe(
+        `SELECT uid, name, phone FROM users
+          WHERE uid = $1::uuid AND tenant_id = $2::uuid
+            AND COALESCE(is_deleted, false) = false
+          LIMIT 1`,
+        String(patient_uid), tenantId,
+      );
+      if (!patients.length) {
+        throw AppError.notFound(
+          'Patient not found for the statutory register',
+          'SUBSTITUTION_PATIENT_NOT_FOUND',
+        );
+      }
+      registerPatient = patients[0];
+      performedByName = (req.body?.performed_by_name && String(req.body.performed_by_name).trim())
+        || (req.user?.name && String(req.user.name).trim())
+        || null;
+      if (!performedByName && req.user?.uid) {
+        const performers = await prisma.$queryRawUnsafe(
+          `SELECT COALESCE(NULLIF(BTRIM(s.name), ''), u.name) AS name
+             FROM users u
+             LEFT JOIN staff s ON s.tenant_id = u.tenant_id AND s.user_id = u.uid
+            WHERE u.uid = $1::uuid AND u.tenant_id = $2::uuid
+            LIMIT 1`,
+          String(req.user.uid), tenantId,
+        );
+        performedByName = performers[0]?.name ? String(performers[0].name).trim() : null;
+      }
+      if (!performedByName) {
+        throw AppError.badRequest(
+          'performed_by_name is required for a controlled substitution register entry',
+          'SUBSTITUTION_PERFORMER_NAME_REQUIRED',
+        );
+      }
     }
 
     // Lazy-load the canonical-clinical + substitution-audit chain at dispense time only.
@@ -1889,48 +2112,92 @@ export const dispenseSubstitution = async (req, res) => {
     const { recordBrandSubstitutionAudit } = await import(
       '../../services/pharmacy/compositionSubstitutionAudit.js'
     );
+    // Controlled machinery is likewise lazy-loaded to keep the route load
+    // graph unchanged for the ordinary (non-controlled) substitution path.
+    const controlledMachinery = ctx.controlled
+      ? {
+        inventory: await import('../../services/pharmacy/inventoryV2Service.js'),
+        witness: await import('../../services/pharmacy/controlledDispenseWitnessService.js'),
+      }
+      : null;
 
     const result = await setTenantTx(tenantId, async (tx) => {
-      // 1. DETAIL — lock the batch, validate availability, insert the movement, decrement.
-      const batches = await tx.$queryRawUnsafe(
-        `SELECT id, remaining_quantity, status,
-                (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
-           FROM pharmacy_inventory_batches
-          WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int
-          FOR UPDATE`,
-        batchId, tenantId, itemId,
-      );
-      if (!batches.length) throw AppError.notFound('Inventory batch not found');
-      const batch = batches[0];
-      if (batch.status !== 'in_stock') {
-        throw AppError.badRequest(`Batch not available for issue (status: ${batch.status})`, 'INVENTORY_BATCH_UNAVAILABLE');
-      }
-      if (batch.is_expired) {
-        throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
-      }
-      if (Number(batch.remaining_quantity) - qty < 0) {
-        throw AppError.badRequest(`Insufficient stock. Available: ${batch.remaining_quantity}`, 'INVENTORY_INSUFFICIENT_STOCK');
-      }
+      let movement;
+      let registerEntry = null;
 
-      const movement = (await tx.$queryRawUnsafe(
-        `INSERT INTO pharmacy_stock_movements
-           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-            quantity_delta, reference_type, reference_id, performed_by, notes)
-         VALUES ($1::uuid, $2::int, $3::int, 'issue', $4::numeric, 'dispense_substitution', $5, $6::uuid, $7)
-         RETURNING id`,
-        tenantId, itemId, batchId, -qty, String(finalId),
-        req.user?.uid ? String(req.user.uid) : null,
-        `Substitute for catalog ${origId}${reason ? `: ${reason}` : ''}`,
-      ))[0];
+      if (ctx.controlled) {
+        // 1a. CONTROLLED DETAIL — consume the witness approval (Schedule X /
+        //     narcotic) and route the decrement through dispenseControlledTx:
+        //     batch FOR UPDATE + stock guards + movement + statutory register
+        //     row, all inside THIS tx. No parallel controlled mechanism.
+        const witnessEvidence = ctx.needsWitness
+          ? await controlledMachinery.witness.consumeControlledDispenseWitnessApproval({
+            tx,
+            tenantId,
+            approvalId: witnessApprovalId,
+            scope: controlledMachinery.witness.CONTROLLED_DISPENSE_APPROVAL_SCOPES.dispenseSubstitution,
+            payload: substitutionWitnessPayload(req.body),
+            requestedBy: req.user?.uid,
+          })
+          : null;
+        const controlledResult = await controlledMachinery.inventory.dispenseControlledTx(tx, {
+          tenantId,
+          inventory_item_id: itemId,
+          inventory_batch_id: batchId,
+          quantity: qty,
+          patient_uid,
+          patient_name: registerPatient.name || null,
+          patient_phone: registerPatient.phone || null,
+          performed_by: req.user?.uid,
+          performed_by_name: performedByName,
+          witness_evidence: witnessEvidence,
+          notes: `Substitute for catalog ${origId}${reason ? `: ${reason}` : ''}`,
+          reference_id: `dispense-substitution-${finalId}`,
+        });
+        movement = controlledResult.movement;
+        registerEntry = controlledResult.register_entry;
+      } else {
+        // 1b. DETAIL — lock the batch, validate availability, insert the movement, decrement.
+        const batches = await tx.$queryRawUnsafe(
+          `SELECT id, remaining_quantity, status,
+                  (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+             FROM pharmacy_inventory_batches
+            WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int
+            FOR UPDATE`,
+          batchId, tenantId, itemId,
+        );
+        if (!batches.length) throw AppError.notFound('Inventory batch not found');
+        const batch = batches[0];
+        if (batch.status !== 'in_stock') {
+          throw AppError.badRequest(`Batch not available for issue (status: ${batch.status})`, 'INVENTORY_BATCH_UNAVAILABLE');
+        }
+        if (batch.is_expired) {
+          throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
+        }
+        if (Number(batch.remaining_quantity) - qty < 0) {
+          throw AppError.badRequest(`Insufficient stock. Available: ${batch.remaining_quantity}`, 'INVENTORY_INSUFFICIENT_STOCK');
+        }
 
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_inventory_batches
-            SET remaining_quantity = remaining_quantity - $1::numeric,
-                status = CASE WHEN remaining_quantity - $1::numeric <= 0 THEN 'depleted' ELSE status END,
-                updated_at = NOW()
-          WHERE id = $2::int AND tenant_id = $3::uuid AND inventory_item_id = $4::int`,
-        qty, batchId, tenantId, itemId,
-      );
+        movement = (await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_stock_movements
+             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+              quantity_delta, reference_type, reference_id, performed_by, notes)
+           VALUES ($1::uuid, $2::int, $3::int, 'issue', $4::numeric, 'dispense_substitution', $5, $6::uuid, $7)
+           RETURNING id`,
+          tenantId, itemId, batchId, -qty, String(finalId),
+          req.user?.uid ? String(req.user.uid) : null,
+          `Substitute for catalog ${origId}${reason ? `: ${reason}` : ''}`,
+        ))[0];
+
+        await tx.$executeRawUnsafe(
+          `UPDATE pharmacy_inventory_batches
+              SET remaining_quantity = remaining_quantity - $1::numeric,
+                  status = CASE WHEN remaining_quantity - $1::numeric <= 0 THEN 'depleted' ELSE status END,
+                  updated_at = NOW()
+            WHERE id = $2::int AND tenant_id = $3::uuid AND inventory_item_id = $4::int`,
+          qty, batchId, tenantId, itemId,
+        );
+      }
 
       // 2. CANONICAL PAIR (same tx, hard-fail): { db: tx } + patientUid ⇒ throws
       //    CANONICAL_TIMELINE/AUDIT_REQUIRED if either row fails ⇒ decrement rolls back.
@@ -1949,12 +2216,29 @@ export const dispenseSubstitution = async (req, res) => {
         summary: `Dispensed ${sub.name} as a substitute for ${orig.name}`,
         beforeState: { catalog_id: orig.catalog_id, brand_name: orig.name },
         afterState: { catalog_id: sub.catalog_id, brand_name: sub.name },
-        payload: { quantity: qty, inventory_item_id: itemId, inventory_batch_id: batchId, reason: reason ?? null },
+        payload: {
+          quantity: qty, inventory_item_id: itemId, inventory_batch_id: batchId, reason: reason ?? null,
+          ...(ctx.controlled ? {
+            schedule_class: item.schedule_class ?? null,
+            is_narcotic: item.is_narcotic === true,
+            register_entry_id: registerEntry?.id != null ? Number(registerEntry.id) : null,
+          } : {}),
+        },
         timelineIdempotencyKey: `dispense_sub:${movement.id}`,
         auditIdempotencyKey: `dispense_sub_audit:${movement.id}`,
       }, { db: tx });
 
-      return { movement_id: movement.id, original_catalog_id: origId, final_catalog_id: finalId, quantity: qty };
+      return {
+        movement_id: movement.id,
+        original_catalog_id: origId,
+        final_catalog_id: finalId,
+        quantity: qty,
+        ...(ctx.controlled ? {
+          schedule_class: item.schedule_class ?? null,
+          is_narcotic: item.is_narcotic === true,
+          register_entry_id: registerEntry?.id != null ? Number(registerEntry.id) : null,
+        } : {}),
+      };
     });
 
     // Phase 1.5 (post-commit, best-effort): the dedicated brand-substitution audit.
@@ -2039,7 +2323,8 @@ export const getCatalogDispensableBatches = async (req, res) => {
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT b.inventory_item_id, b.id AS inventory_batch_id, b.batch_number,
-              b.remaining_quantity, b.expiry_date
+              b.remaining_quantity, b.expiry_date,
+              i.schedule_class, i.is_narcotic
          FROM pharmacy_inventory_batches b
          JOIN pharmacy_inventory_items i ON i.id = b.inventory_item_id
         WHERE i.tenant_id = $1::uuid AND i.catalog_id = $2
@@ -2057,6 +2342,10 @@ export const getCatalogDispensableBatches = async (req, res) => {
         batch_number: r.batch_number ?? null,
         remaining_quantity: Number(r.remaining_quantity),
         expiry_date: r.expiry_date,
+        // Controlled-substance flags so the substitution UI can run the
+        // Schedule X / narcotic witness flow before attempting the dispense.
+        schedule_class: r.schedule_class ?? null,
+        is_narcotic: r.is_narcotic === true,
       })),
     }, 'Dispensable batches');
   } catch (err) {
