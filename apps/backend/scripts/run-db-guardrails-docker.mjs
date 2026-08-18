@@ -7,7 +7,7 @@ import pg from 'pg';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
-const image = process.env.VH_DB_GUARDRAILS_IMAGE || 'pgvector/pgvector:pg18';
+const image = process.env.VH_DB_GUARDRAILS_IMAGE || 'pgvector/pgvector:pg17';
 const keepContainer = process.env.VH_KEEP_DOCKER_TEST_DB === 'true';
 const portStart = Number(process.env.VH_DB_GUARDRAILS_PORT || 55433);
 const isWindows = process.platform === 'win32';
