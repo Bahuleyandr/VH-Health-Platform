@@ -7,13 +7,15 @@
 // ledger read) is tenant-scoped.
 import { getCheckInStreak, hasCheckedInToday } from '../services/gamification/wellnessService.js';
 import prisma from '../lib/prisma.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const USER = 'c0de0a19-00b0-4000-8000-0000000000b1';
-const TODAY = new Date().toISOString().split('T')[0];
+// P7: check-in day keys are the IST (Asia/Kolkata) calendar day.
+const TODAY = istDateString();
 
 async function clean() {
   await prisma.$executeRawUnsafe(`DELETE FROM health_point_ledger WHERE user_uid = $1::uuid`, USER).catch(() => {});

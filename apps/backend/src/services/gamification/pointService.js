@@ -4,6 +4,16 @@
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { istDateString } from '../../utils/dateUtils.js';
+
+// P7 fix (2026-08-18): every "daily" award key below is the user-facing IST
+// (Asia/Kolkata) calendar day via istDateString(), not the UTC day — the UTC
+// key put the day boundary at 05:30 IST, so two vitals logs in one IST day
+// could double-award (pre/post 05:30) and step "today" totals split across
+// that boundary. DB-side day extraction converts explicitly per expression
+// (never by re-pinning the session timezone — sessions stay UTC, see
+// src/lib/prisma.js). Historical ledger keys were UTC days; a one-time
+// boundary skew for late-evening historical entries is accepted.
 
 // ── Core idempotent point award ───────────────────────────────────────────────
 
@@ -183,7 +193,7 @@ export async function checkAppointmentStreak(userUid, tenantId = null) {
 
 export async function awardVitalsPoints(userUid, tenantId = null) {
   try {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = istDateString(); // YYYY-MM-DD, IST calendar day
     const activityRefId = `${userUid}:${today}`;
 
     const result = await awardPoints(userUid, {
@@ -205,9 +215,11 @@ export async function awardVitalsPoints(userUid, tenantId = null) {
 
 async function checkVitalsStreak(userUid, tenantId = null) {
   try {
-    // Count distinct days with VITALS_LOG in last 7 calendar days (CAN-012: tenant-scoped).
+    // Count distinct IST days with VITALS_LOG in last 7 calendar days
+    // (CAN-012: tenant-scoped). earned_at is timestamptz; the session is
+    // pinned UTC, so convert explicitly to the IST wall clock for the day.
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(DISTINCT DATE(earned_at))::int AS day_count
+      `SELECT COUNT(DISTINCT DATE(earned_at AT TIME ZONE 'Asia/Kolkata'))::int AS day_count
        FROM health_point_ledger
        WHERE user_uid = $1::uuid
          AND activity_type = 'VITALS_LOG'
@@ -217,7 +229,7 @@ async function checkVitalsStreak(userUid, tenantId = null) {
 
     const dayCount = rows[0]?.day_count || 0;
     if (dayCount >= 7) {
-      const weekId = new Date().toISOString().split('T')[0]; // use today as ref
+      const weekId = istDateString(); // use today (IST) as ref
       await awardPoints(userUid, {
         activityType: 'VITALS_STREAK_7',
         activityRefId: `${userUid}:week:${weekId}`,
@@ -234,7 +246,7 @@ async function checkVitalsStreak(userUid, tenantId = null) {
 
 export async function awardStepPoints(userUid, dailyGoal, tenantId = null) {
   try {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = istDateString(); // YYYY-MM-DD, IST calendar day
 
     // Get today's total steps (CAN-012: tenant-scoped when resolvable).
     // ATTESTATION: only reward_eligible rows count toward the reward, so a
@@ -244,13 +256,19 @@ export async function awardStepPoints(userUid, dailyGoal, tenantId = null) {
     // health-platform sync (/steps/health-sync) — NOT keyed off `source` (the
     // in-app pedometer legitimately uses source='manual', which also drives the
     // hasSyncedSource UX). See migration 348.
+    // started_at is timestamp WITHOUT time zone holding UTC wall time on the
+    // pedometer path (Prisma serialises Date as UTC) and IST-calendar-day
+    // midnight on the health-sync path (source_day::timestamp). Interpreting
+    // as UTC then converting to IST keys the pedometer rows to the IST day
+    // and leaves health-sync midnight rows on their own calendar day
+    // (midnight +05:30 stays inside the same day).
     const stepRows = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(SUM(steps), 0)::int AS total_steps
        FROM step_sessions
        WHERE user_uid = $1::uuid
          AND is_active = false
          AND reward_eligible = true
-         AND DATE(started_at AT TIME ZONE 'UTC') = $2::date${tenantId ? ' AND tenant_id = $3::uuid' : ''}`,
+         AND DATE((started_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata') = $2::date${tenantId ? ' AND tenant_id = $3::uuid' : ''}`,
       ...(tenantId ? [userUid, today, tenantId] : [userUid, today])
     );
 
@@ -288,7 +306,7 @@ async function checkStepStreaks(userUid, tenantId = null) {
     );
 
     if ((rows7[0]?.day_count || 0) >= 7) {
-      const weekId = new Date().toISOString().split('T')[0];
+      const weekId = istDateString();
       await awardPoints(userUid, {
         activityType: 'STEP_STREAK_7',
         activityRefId: `week:${weekId}`,
@@ -308,7 +326,7 @@ async function checkStepStreaks(userUid, tenantId = null) {
     );
 
     if ((rows30[0]?.day_count || 0) >= 30) {
-      const monthId = new Date().toISOString().substring(0, 7); // YYYY-MM
+      const monthId = istDateString().substring(0, 7); // YYYY-MM, IST month
       await awardPoints(userUid, {
         activityType: 'STEP_STREAK_30',
         activityRefId: `month:${monthId}`,
