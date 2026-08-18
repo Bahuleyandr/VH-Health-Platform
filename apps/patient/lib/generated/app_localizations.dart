@@ -1106,6 +1106,12 @@ abstract class AppLocalizations {
   /// **'Could not pick a file. Please try again.'**
   String get investigationsFilePickerError;
 
+  /// Banner + snackbar shown on the investigations Upload tab while a guardian is viewing a dependent profile — uploads only file against the guardian's own record
+  ///
+  /// In en, this message translates to:
+  /// **'Report uploads aren\'t available while viewing {name}\'s profile. Switch back to your own profile to upload a report.'**
+  String investigationsUploadNotAvailableForDependent(String name);
+
   /// App-bar title for trivia screen
   ///
   /// In en, this message translates to:

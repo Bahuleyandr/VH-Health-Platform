@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -65,19 +67,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _loadBackendEvents() async {
+    if (!mounted) return;
     final loc = AppLocalizations.of(context)!;
     final dbId = _patientDbId;
     if (dbId == null || dbId.isEmpty) {
-      if (!mounted) return;
       setState(() => _loadError = loc.calendarLoadFailed);
       return;
     }
+    // The appointment feed must key off the ACTIVE profile: the active
+    // dependent's DB id when a guardian is viewing a dependent (the request
+    // also carries X-Acting-As-Uid, so the backend authorizes the guardian
+    // link — same pattern as appointments_list_tab), the guardian's stored
+    // id otherwise. Using the stored guardian id under acting-as 403'd and
+    // silently emptied the calendar (P4, 2026-08-18).
+    final activeDep = context.read<DependentsProvider>().activeDependent;
+    final effectiveId = activeDep?.id.toString() ?? dbId;
     try {
-      // Self feeds: /appointments/patient/:dbId is keyed by the numeric users.uid;
-      // investigations + pharmacy derive the patient from the JWT (req.user).
+      // Self feeds: /appointments/patient/:id is keyed by the numeric users.id;
+      // investigations + pharmacy derive the patient from the JWT (req.user,
+      // which the acting-as hop rewrites to the active dependent).
       // The old /uid/:phone routes UUID-rejected the phone and returned nothing.
       final responses = await Future.wait([
-        ApiClient.get('/appointments/patient/$dbId'),
+        ApiClient.get('/appointments/patient/$effectiveId'),
         ApiClient.get('/investigations/bookings/my'),
         ApiClient.get('/pharmacy-orders/orders/my'),
       ]);
