@@ -174,6 +174,7 @@ describe("R10 — nav gating exactly mirrors ROUTE_POLICY", () => {
   test.each([
     ["/dashboard/appointments", "appointmentManagement"],
     ["/dashboard/beds", "departmentManagement"],
+    ["/dashboard/facility-assets", "departmentManagement"],
     ["/dashboard/consent", "userManagement"],
     ["/dashboard/notifications", "notificationManagement"],
   ])("%s remains hidden from a scoped ADMIN missing %s", (href, permission) => {

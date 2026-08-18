@@ -190,6 +190,11 @@ export const updatePermissions = async (req, res) => {
     return success(res, result, 'Permissions updated successfully');
   } catch (err) {
     logger.error('[UpdatePermissions]:', err);
+    // Vocabulary-allowlist rejections (adminPermissionsCatalog) are client
+    // errors — relay them instead of masking as a 500.
+    if (err?.statusCode && err.statusCode < 500) {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     return error(res, 'Failed to update permissions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
