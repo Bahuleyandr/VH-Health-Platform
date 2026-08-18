@@ -22,10 +22,45 @@
  *     (EXTRACT(EPOCH FROM some_at) * 1000)::bigint AS some_at_epoch_ms
  *
  *     const expiry = epochMsOrNull(row.some_at_epoch_ms);
- *     if (expiry != null && expiry < Date.now()) { ... }
  *
- * Guard `!= null`, never a bare `Number.isFinite`: `Number(null)` is 0, which is
- * finite and reads as "long ago", turning a NULL expiry into an expired one.
+ * THEN CHOOSE THE NULL BRANCH DELIBERATELY. No single idiom is right for every
+ * column, and the docblock on src/utils/dbInstant.js is the arbiter. Two cases,
+ * opposite answers:
+ *
+ *   1. AUTHORIZATION / EXPIRY GATE (consent, credential, approval, token) —
+ *      absence must DENY, because you cannot establish the grant is still live:
+ *
+ *          if (expiry == null || expiry < Date.now()) { ... }   // treat as expired
+ *
+ *      as in the two ABDM consent gates in src/services/abdm/abdmService.js.
+ *
+ *   2. CAPABILITY / TTL FIELD, where NULL legitimately means "no expiry was
+ *      configured" — absence is permissive:
+ *
+ *          if (expiry != null && expiry < Date.now()) { ... }
+ *
+ *      as in the key-material expiry in src/services/abdm/abdmHiuService.js.
+ *
+ * READING THE LEGACY LINE YOU ARE REPLACING (the practical tell): if it carried
+ * an explicit truthiness guard, e.g.
+ *
+ *     if (row.expires_at && new Date(row.expires_at) < new Date())
+ *
+ * it was ALREADY permissive, and `!= null &&` preserves it faithfully. If it was
+ * UNGUARDED it was fail-CLOSED, and only `== null ||` preserves it. That is the
+ * exact line PR #881 crossed: every site it converted that had the guard stayed
+ * faithful; the two UNGUARDED ABDM consent gates are the ones that flipped open.
+ *
+ * Never a bare `Number.isFinite`: `Number(null)` is 0 — finite, and reading as
+ * 1970, i.e. "long ago". That fact cuts BOTH ways, which is exactly what makes
+ * this easy to get wrong. It is why an unguarded legacy comparison such as
+ * `new Date(row.expiry_date) < new Date()` was accidentally FAIL-CLOSED (a NULL
+ * arrived as the epoch and compared as already expired, so the gate denied) —
+ * and therefore why rewriting one to `expiry != null && ...` silently INVERTS it
+ * into a fail-open. Preserving a gate's behaviour means `== null ||`, never
+ * `!= null &&`. PR #881 made that slip on the nullable
+ * `abdm_consents.expiry_date`, letting a consent with no expiry authorise a HIP
+ * data export forever; PR #882 restored the deny branch.
  *
  * WHY IT IS CI-ONLY-DETECTABLE AS A *SHAPE*
  * CI runs a UTC database, so every one of these defects is behaviourally
@@ -244,7 +279,27 @@ if (invokedDirectly) {
       + '\nSelect an absolute-instant twin and read it with epochMsOrNull:'
       + '\n    (EXTRACT(EPOCH FROM <col>) * 1000)::bigint AS <col>_epoch_ms'
       + '\n    const t = epochMsOrNull(row.<col>_epoch_ms);'
-      + '\n    if (t != null && t < Date.now()) { ... }   // != null, never bare isFinite'
+      + '\n'
+      + '\nThen pick the NULL branch on purpose. src/utils/dbInstant.js is the'
+      + '\narbiter; there is no one right idiom:'
+      + '\n  * AUTHORIZATION / EXPIRY GATE (consent, credential, approval, token)'
+      + '\n    -- absence must DENY:'
+      + '\n        if (t == null || t < Date.now()) { /* treat as expired */ }'
+      + '\n  * CAPABILITY / TTL field, where NULL means "no expiry configured"'
+      + '\n    -- absence is permissive:'
+      + '\n        if (t != null && t < Date.now()) { ... }'
+      + '\n'
+      + '\nTell, when converting a legacy line: if it had a truthiness guard, as in'
+      + '\n"if (row.col && new Date(row.col) < ...)", it was already permissive, so'
+      + '\n"!= null &&" is faithful. If it was UNGUARDED it was fail-CLOSED, and only'
+      + '\n"== null ||" preserves that.'
+      + '\n'
+      + '\nNever a bare isFinite: Number(null) is 0, which reads as 1970. That cuts'
+      + '\nBOTH ways -- it is why the unguarded legacy comparison you are replacing'
+      + '\nwas accidentally FAIL-CLOSED, and so why a naive rewrite to "!= null &&"'
+      + '\nsilently flips a gate OPEN. That was PR #881 on the nullable'
+      + '\nabdm_consents.expiry_date; PR #882 restored the deny branch.'
+      + '\n'
       + '\nIf the row comes from a Prisma model delegate a twin is impossible — add a'
       + '\nreviewed entry to ALLOWLIST in this script explaining why.\n',
     );

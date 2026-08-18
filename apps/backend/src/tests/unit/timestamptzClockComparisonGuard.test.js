@@ -32,7 +32,16 @@ describe('timestamptz clock-comparison guard — detects the defect', () => {
 });
 
 describe('timestamptz clock-comparison guard — ignores benign shapes', () => {
-  it('ignores the fixed idiom it steers you towards', () => {
+  it('ignores both fixed idioms it steers you towards', () => {
+    // The guard blesses two null branches, not one: an authorization gate must
+    // fail CLOSED ("== null ||"), while a capability/TTL field whose NULL means
+    // "no expiry configured" may fail open ("!= null &&"). Pinning only the
+    // permissive form is what let it read as the single blessed recipe, which
+    // is how PR #881 converted two ABDM consent gates into a fail-open. Both
+    // shapes must stay invisible to the detector.
+    expect(scan(
+      'const t = epochMsOrNull(row.expires_at_epoch_ms);\nif (t == null || t < Date.now()) throw x;',
+    )).toEqual([]);
     expect(scan(
       'const t = epochMsOrNull(row.expires_at_epoch_ms);\nif (t != null && t < Date.now()) throw x;',
     )).toEqual([]);

@@ -43,7 +43,19 @@ const { runSosAlertAgeEscalationSweep, DEFAULT_ESCALATION_WINDOW_MINUTES } = awa
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
+// The sweep reads the absolute-instant twin `raised_at_epoch_ms`, NOT `raised_at`
+// (PR #881; see scripts/check-timestamptz-clock-comparisons.mjs). Both are derived
+// from ONE instant so the row stays self-consistent, and the twin is a BigInt
+// because that is what the pg driver returns for an `::bigint` select.
+//
+// This fixture omitted the twin between #881 and now, so the service read
+// `undefined` -> `epochMsOrNull` -> null -> `ageMinutes = 0`, and every
+// assertion below still passed. The age assertions exist so that regression
+// cannot recur silently.
+const ALERT_AGE_MINUTES = 11;
+
 function overdueRow(overrides = {}) {
+  const raisedAt = new Date(Date.now() - ALERT_AGE_MINUTES * 60000);
   return {
     id: 42,
     uid: null,
@@ -52,7 +64,8 @@ function overdueRow(overrides = {}) {
     message: 'help',
     latitude: 13.0,
     longitude: 80.2,
-    raised_at: new Date(Date.now() - 11 * 60000).toISOString(),
+    raised_at: raisedAt.toISOString(),
+    raised_at_epoch_ms: BigInt(raisedAt.getTime()),
     last_escalated_at: null,
     ...overrides,
   };
@@ -91,6 +104,9 @@ test('overdue HIGH alert: claims, ladder-escalates, re-fans-out, emits sos.escal
   expect(selectSql).toContain("sa.status = 'ACTIVE'");
   expect(selectSql).toContain('sa.responded_at IS NULL');
   expect(selectSql).toContain('COALESCE(sa.last_escalated_at, sa.raised_at)');
+  // The age is computed from this twin, never from the driver-materialised
+  // sa.raised_at. Drop it and ageMinutes silently becomes 0.
+  expect(selectSql).toContain('(EXTRACT(EPOCH FROM sa.raised_at) * 1000)::bigint AS raised_at_epoch_ms');
   expect(selectTenant).toBe(TENANT);
   expect(selectWindow).toBe(5);
 
@@ -101,7 +117,7 @@ test('overdue HIGH alert: claims, ladder-escalates, re-fans-out, emits sos.escal
   expect(escalateAlertMock).toHaveBeenCalledWith(expect.objectContaining({
     tenantId: TENANT,
     alertId: 42,
-    reason: expect.stringContaining('unacknowledged'),
+    reason: `sos-alert-age-escalation: unacknowledged for ${ALERT_AGE_MINUTES} min`,
   }));
   expect(notifyEmergencyTeamMock).toHaveBeenCalledWith(
     expect.objectContaining({ id: 42, severity: 'CRITICAL' }),
@@ -110,10 +126,12 @@ test('overdue HIGH alert: claims, ladder-escalates, re-fans-out, emits sos.escal
   expect(emitCanonicalMock).toHaveBeenCalledWith(expect.objectContaining({
     eventType: 'sos.escalated',
     alertId: 42,
+    summary: `SOS alert #42 auto-escalated after ${ALERT_AGE_MINUTES} min without acknowledgement`,
     payload: expect.objectContaining({
       previous_severity: 'HIGH',
       severity: 'CRITICAL',
       trigger: 'sos-alert-age-escalation',
+      unacknowledged_minutes: ALERT_AGE_MINUTES,
     }),
   }));
   // Not a critical stall: no ops page.
@@ -140,7 +158,9 @@ test('stalled CRITICAL alert: no ladder, marks SLA escalated, pages ops, still r
 
   expect(logSecurityEventMock).toHaveBeenCalledWith(
     'SOS_ALERT_UNACKNOWLEDGED',
-    expect.objectContaining({ reason: expect.stringContaining('42') }),
+    expect.objectContaining({
+      reason: `SOS alert 42: CRITICAL and unacknowledged for ${ALERT_AGE_MINUTES} min`,
+    }),
   );
   expect(sendSecurityWebhookMock).toHaveBeenCalled();
   expect(notifyEmergencyTeamMock).toHaveBeenCalled();
