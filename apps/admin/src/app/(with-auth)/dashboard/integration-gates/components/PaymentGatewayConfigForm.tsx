@@ -1,12 +1,12 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import toast from "react-hot-toast";
 import {
   upsertPaymentGatewayConfig,
   type PaymentGatewayConfigView,
 } from "@/lib/api/integrationGates";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import toast from "react-hot-toast";
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground";
@@ -94,6 +94,7 @@ export function PaymentGatewayConfigForm({
         <label className="block text-sm">
           <span className="mb-1 block text-muted-foreground">Display name</span>
           <input
+            aria-label="Display name"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             className={inputClass}
@@ -103,6 +104,7 @@ export function PaymentGatewayConfigForm({
         <label className="block text-sm">
           <span className="mb-1 block text-muted-foreground">Key ID</span>
           <input
+            aria-label="Key ID"
             value={keyId}
             onChange={(e) => setKeyId(e.target.value)}
             className={inputClass}
@@ -115,6 +117,7 @@ export function PaymentGatewayConfigForm({
             {existing?.has_key_secret ? "; one is stored" : ""})
           </span>
           <input
+            aria-label="Key secret"
             type="password"
             value={keySecret}
             onChange={(e) => setKeySecret(e.target.value)}
@@ -129,6 +132,7 @@ export function PaymentGatewayConfigForm({
             {existing?.has_webhook_secret ? "; one is stored" : ""})
           </span>
           <input
+            aria-label="Webhook secret"
             type="password"
             value={webhookSecret}
             onChange={(e) => setWebhookSecret(e.target.value)}
@@ -140,6 +144,7 @@ export function PaymentGatewayConfigForm({
       </div>
       <label className="flex items-center gap-2 text-sm text-foreground">
         <input
+          aria-label="Config row enabled"
           type="checkbox"
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}

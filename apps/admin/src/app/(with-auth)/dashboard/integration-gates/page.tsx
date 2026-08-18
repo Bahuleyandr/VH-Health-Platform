@@ -6,8 +6,7 @@
 // mutation endpoints. Secrets are write-only end to end.
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useActingTenant } from "@/contexts/ActingTenantContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -15,7 +14,9 @@ import {
   type PaymentGatewayConfigView,
   type SmsProviderConfigView,
 } from "@/lib/api/integrationGates";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+
 import EnvFactsCard from "./components/EnvFactsCard";
 import PaymentGatewayConfigForm from "./components/PaymentGatewayConfigForm";
 import SmsConfigForm from "./components/SmsConfigForm";

@@ -1,14 +1,15 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import toast from "react-hot-toast";
 import {
   setTenantGateFlag,
   type GateKey,
   type IntegrationGateTenantEntry,
   type TenantGateSettingKey,
 } from "@/lib/api/integrationGates";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import toast from "react-hot-toast";
+
 import GateStateBadge from "./GateStateBadge";
 
 // Gate → the tenants.settings key its flag lives under. `abdm_scan_share`

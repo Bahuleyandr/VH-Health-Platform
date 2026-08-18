@@ -1,14 +1,14 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import toast from "react-hot-toast";
 import {
   listSmsTemplates,
   registerSmsTemplate,
   upsertSmsConfig,
   type SmsProviderConfigView,
 } from "@/lib/api/integrationGates";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import toast from "react-hot-toast";
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground";
@@ -122,6 +122,7 @@ export function SmsConfigForm({
               Sender ID (DLT header)
             </span>
             <input
+              aria-label="Sender ID (DLT header)"
               value={senderId}
               onChange={(e) => setSenderId(e.target.value)}
               className={inputClass}
@@ -133,6 +134,7 @@ export function SmsConfigForm({
               DLT entity ID
             </span>
             <input
+              aria-label="DLT entity ID"
               value={dltEntityId}
               onChange={(e) => setDltEntityId(e.target.value)}
               className={inputClass}
@@ -144,6 +146,7 @@ export function SmsConfigForm({
               Account SID (Twilio only)
             </span>
             <input
+              aria-label="Account SID (Twilio only)"
               value={accountSid}
               onChange={(e) => setAccountSid(e.target.value)}
               className={inputClass}
@@ -156,6 +159,7 @@ export function SmsConfigForm({
               {existing?.has_auth_key ? "; one is stored" : ""})
             </span>
             <input
+              aria-label="Auth key"
               type="password"
               value={authKey}
               onChange={(e) => setAuthKey(e.target.value)}
@@ -167,6 +171,7 @@ export function SmsConfigForm({
         </div>
         <label className="flex items-center gap-2 text-sm text-foreground">
           <input
+            aria-label="Config row enabled"
             type="checkbox"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
@@ -224,6 +229,7 @@ export function SmsConfigForm({
           className="grid grid-cols-1 gap-3 md:grid-cols-4"
         >
           <input
+            aria-label="Template key (outbox)"
             value={templateKey}
             onChange={(e) => setTemplateKey(e.target.value)}
             className={inputClass}
@@ -231,6 +237,7 @@ export function SmsConfigForm({
             required
           />
           <input
+            aria-label="DLT content template id"
             value={dltTemplateId}
             onChange={(e) => setDltTemplateId(e.target.value)}
             className={inputClass}
@@ -238,6 +245,7 @@ export function SmsConfigForm({
             required
           />
           <input
+            aria-label="Provider template id (optional)"
             value={providerTemplateId}
             onChange={(e) => setProviderTemplateId(e.target.value)}
             className={inputClass}

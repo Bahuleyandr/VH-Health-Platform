@@ -5,7 +5,6 @@
 import IntegrationGatesPage from "@/app/(with-auth)/dashboard/integration-gates/page";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
 
 let allowed = true;
 
