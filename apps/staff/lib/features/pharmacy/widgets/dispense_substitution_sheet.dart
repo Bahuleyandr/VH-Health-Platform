@@ -1,4 +1,8 @@
+import 'dart:collection';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 import '../../../core/models/composition_alternatives.dart';
@@ -20,7 +24,43 @@ typedef SubstitutionDispenser = Future<void> Function({
   required int originalCatalogId,
   required int finalCatalogId,
   String? reason,
+  String? witnessApprovalId,
 });
+typedef SubstitutionWitnessApprovalRequester =
+    Future<Map<String, dynamic>> Function({
+      required Map<String, dynamic> substitution,
+      required String idempotencyKey,
+    });
+typedef SubstitutionWitnessApprovalApprover =
+    Future<Map<String, dynamic>> Function({
+      required String approvalId,
+      required Map<String, dynamic> substitution,
+      required String employeeId,
+      required String password,
+      required String idempotencyKey,
+    });
+
+dynamic _canonicalJsonValue(dynamic value) {
+  if (value is Map) {
+    final sorted = SplayTreeMap<String, dynamic>();
+    for (final entry in value.entries) {
+      sorted[entry.key.toString()] = _canonicalJsonValue(entry.value);
+    }
+    return sorted;
+  }
+  if (value is List) return value.map(_canonicalJsonValue).toList();
+  return value;
+}
+
+String _substitutionFingerprint(Map<String, dynamic> substitution) =>
+    jsonEncode(_canonicalJsonValue(substitution));
+
+class _WitnessCredentials {
+  const _WitnessCredentials(this.employeeId, this.password);
+
+  final String employeeId;
+  final String password;
+}
 
 /// Bottom sheet where a pharmacist dispenses an in-stock, same-formulation alternative
 /// for a prescribed brand on a pharmacy order.
@@ -38,6 +78,8 @@ class DispenseSubstitutionSheet extends StatefulWidget {
     this.batchLoader,
     this.dispenser,
     this.alternativesLoader,
+    this.requestWitnessApproval,
+    this.approveWitnessApproval,
   });
 
   final int orderId;
@@ -48,6 +90,8 @@ class DispenseSubstitutionSheet extends StatefulWidget {
   final DispensableBatchLoader? batchLoader;
   final SubstitutionDispenser? dispenser;
   final CompositionAlternativesLoader? alternativesLoader;
+  final SubstitutionWitnessApprovalRequester? requestWitnessApproval;
+  final SubstitutionWitnessApprovalApprover? approveWitnessApproval;
 
   static Future<void> show(
     BuildContext context, {
@@ -73,9 +117,13 @@ class DispenseSubstitutionSheet extends StatefulWidget {
 }
 
 class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
+  static const String _kSubstitutionReason =
+      'Prescribed brand unavailable; same-formulation substitute';
+
   bool _loading = true;
   bool _loadingBatches = false;
   bool _dispensing = false;
+  bool _witnessBusy = false;
   String? _error;
 
   String? _patientUid;
@@ -85,6 +133,20 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   List<Map<String, dynamic>> _batches = const [];
   Map<String, dynamic>? _selectedBatch;
   final TextEditingController _qtyCtrl = TextEditingController();
+
+  // Schedule X / narcotic witness approval state — mirrors the counter-sale
+  // two-person flow: the approval is bound server-side to the EXACT
+  // substitution payload, so any local change invalidates it.
+  String? _witnessApprovalId;
+  String? _witnessApprovalFingerprint;
+  String? _approvedWitnessName;
+  bool _witnessApproved = false;
+  final _witnessRequestAttempt = IdempotencyAttempt(
+    'substitution-witness-request',
+  );
+  final _witnessApprovalAttempt = IdempotencyAttempt(
+    'substitution-witness-approval',
+  );
 
   @override
   void initState() {
@@ -103,6 +165,55 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
 
   String get _selectedLabel =>
       (_selectedLine?['name'] as String?) ?? 'Prescribed brand';
+
+  /// The dispensable-batches endpoint returns the item's controlled-substance
+  /// flags; Schedule X / narcotic substitutes need the independent witness.
+  bool get _needsWitness =>
+      _selectedBatch?['schedule_class']?.toString() == 'X' ||
+      _selectedBatch?['is_narcotic'] == true;
+
+  Map<String, dynamic>? _currentSubstitutionPayload() {
+    final patient = _patientUid;
+    final orig = _originalCatalogId;
+    final chosen = _chosen;
+    final batch = _selectedBatch;
+    final qty = num.tryParse(_qtyCtrl.text.trim());
+    if (patient == null ||
+        orig == null ||
+        chosen == null ||
+        batch == null ||
+        qty == null ||
+        qty <= 0) {
+      return null;
+    }
+    // Must stay byte-identical to the eventual dispense body (minus
+    // witness_approval_id) — the server fingerprints these exact fields.
+    return {
+      'patient_uid': patient,
+      'inventory_item_id': (batch['inventory_item_id'] as num).toInt(),
+      'inventory_batch_id': (batch['inventory_batch_id'] as num).toInt(),
+      'quantity': qty,
+      'original_catalog_id': orig,
+      'final_catalog_id': chosen.catalogId,
+      'reason': _kSubstitutionReason,
+    };
+  }
+
+  bool get _hasCurrentWitnessApproval {
+    if (!_witnessApproved || _witnessApprovalId == null) return false;
+    final payload = _currentSubstitutionPayload();
+    return payload != null &&
+        _witnessApprovalFingerprint == _substitutionFingerprint(payload);
+  }
+
+  void _clearWitnessApprovalState() {
+    _witnessApprovalId = null;
+    _witnessApprovalFingerprint = null;
+    _approvedWitnessName = null;
+    _witnessApproved = false;
+    _witnessRequestAttempt.reset();
+    _witnessApprovalAttempt.reset();
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -139,6 +250,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _chosen = null;
       _batches = const [];
       _selectedBatch = null;
+      _clearWitnessApprovalState();
     });
   }
 
@@ -149,6 +261,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _selectedBatch = null;
       _loadingBatches = true;
       _error = null;
+      _clearWitnessApprovalState();
     });
     try {
       final batches =
@@ -172,21 +285,21 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
 
   Future<void> _dispense() async {
     final s = AppStrings.of(context);
-    final patient = _patientUid;
-    final orig = _originalCatalogId;
     final chosen = _chosen;
-    final batch = _selectedBatch;
-    final qty = num.tryParse(_qtyCtrl.text.trim());
-    if (patient == null ||
-        orig == null ||
-        chosen == null ||
-        batch == null ||
-        qty == null ||
-        qty <= 0) {
+    final payload = _currentSubstitutionPayload();
+    if (chosen == null || payload == null) {
       setState(
         () => _error = s.lookup(
           's4.lib.pharmacy.select_substitute_batch_quantity',
         ),
+      );
+      return;
+    }
+    if (_needsWitness && !_hasCurrentWitnessApproval) {
+      // Fail closed client-side too: Schedule X / narcotic substitutes need
+      // the approved second-staff witness before the dispense is attempted.
+      setState(
+        () => _error = s.lookup('s4.lib.pharmacy.substitution_witness_required'),
       );
       return;
     }
@@ -198,13 +311,14 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       final SubstitutionDispenser dispenser =
           widget.dispenser ?? PharmacyApiService.dispenseSubstitution;
       await dispenser(
-        patientUid: patient,
-        inventoryItemId: (batch['inventory_item_id'] as num).toInt(),
-        inventoryBatchId: (batch['inventory_batch_id'] as num).toInt(),
-        quantity: qty,
-        originalCatalogId: orig,
-        finalCatalogId: chosen.catalogId,
-        reason: 'Prescribed brand unavailable; same-formulation substitute',
+        patientUid: payload['patient_uid'] as String,
+        inventoryItemId: payload['inventory_item_id'] as int,
+        inventoryBatchId: payload['inventory_batch_id'] as int,
+        quantity: payload['quantity'] as num,
+        originalCatalogId: payload['original_catalog_id'] as int,
+        finalCatalogId: payload['final_catalog_id'] as int,
+        reason: _kSubstitutionReason,
+        witnessApprovalId: _needsWitness ? _witnessApprovalId : null,
       );
       if (!mounted) return;
       widget.onDispensed?.call();
@@ -221,8 +335,172 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     } catch (e) {
       setState(() {
         _dispensing = false;
+        final message = e.toString().toLowerCase();
+        if (_needsWitness &&
+            (message.contains('witness') || message.contains('approval'))) {
+          // A consumed/expired/mismatched approval cannot be retried — the
+          // pharmacist must run the witness flow again.
+          _clearWitnessApprovalState();
+        }
         _error = e.toString();
       });
+    }
+  }
+
+  Future<_WitnessCredentials?> _collectWitnessCredentials(AppStrings s) async {
+    var employeeId = '';
+    var password = '';
+    final chosen = _chosen;
+    final qty = _qtyCtrl.text.trim();
+    return showDialog<_WitnessCredentials>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.lookup('s4.lib.counter_sale.witness_auth_title')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(s.lookup('s4.lib.counter_sale.witness_review_hint')),
+              const SizedBox(height: 8),
+              if (chosen != null) Text('${chosen.displayName} × $qty'),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('substitution-witness-employee-id'),
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (value) => employeeId = value,
+                decoration: InputDecoration(
+                  labelText: s.lookup(
+                    's4.lib.counter_sale.witness_employee_id',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('substitution-witness-password'),
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
+                onChanged: (value) => password = value,
+                decoration: InputDecoration(
+                  labelText: s.lookup('s4.lib.counter_sale.witness_password'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(s.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('substitution-witness-approve-submit'),
+            onPressed: () {
+              final normalizedEmployeeId = employeeId.trim().toUpperCase();
+              if (normalizedEmployeeId.isEmpty || password.isEmpty) return;
+              Navigator.pop(
+                ctx,
+                _WitnessCredentials(normalizedEmployeeId, password),
+              );
+            },
+            child: Text(s.lookup('s4.lib.counter_sale.witness_approve')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _requestOrApproveWitness() async {
+    final s = AppStrings.of(context);
+    if (_witnessBusy || !_needsWitness) return;
+    final substitution = _currentSubstitutionPayload();
+    if (substitution == null) {
+      setState(
+        () => _error = s.lookup(
+          's4.lib.pharmacy.select_substitute_batch_quantity',
+        ),
+      );
+      return;
+    }
+    final fingerprint = _substitutionFingerprint(substitution);
+    setState(() {
+      _witnessBusy = true;
+      _error = null;
+    });
+    try {
+      var approvalId = _witnessApprovalFingerprint == fingerprint
+          ? _witnessApprovalId
+          : null;
+      if (approvalId == null) {
+        final requester =
+            widget.requestWitnessApproval ??
+            PharmacyApiService.requestSubstitutionWitnessApproval;
+        final pending = await requester(
+          substitution: substitution,
+          idempotencyKey: _witnessRequestAttempt.keyFor(substitution),
+        );
+        final returnedApprovalId = pending['id']?.toString().trim() ?? '';
+        if (!RegExp(r'^[1-9][0-9]*$').hasMatch(returnedApprovalId)) {
+          throw StateError('Witness approval id missing');
+        }
+        approvalId = returnedApprovalId;
+        if (!mounted) return;
+        _witnessRequestAttempt.reset();
+        setState(() {
+          _witnessApprovalId = approvalId;
+          _witnessApprovalFingerprint = fingerprint;
+          _witnessApproved = false;
+          _approvedWitnessName = null;
+        });
+      }
+
+      final credentials = await _collectWitnessCredentials(s);
+      if (credentials == null || !mounted) return;
+      final approver =
+          widget.approveWitnessApproval ??
+          PharmacyApiService.approveSubstitutionWitnessApproval;
+      final approved = await approver(
+        approvalId: approvalId,
+        substitution: substitution,
+        employeeId: credentials.employeeId,
+        password: credentials.password,
+        idempotencyKey: _witnessApprovalAttempt.keyFor({
+          'approvalId': approvalId,
+          'substitution': substitution,
+          'employeeId': credentials.employeeId,
+        }),
+      );
+      if (!mounted) return;
+      _witnessApprovalAttempt.reset();
+      final witness = approved['witness'];
+      final witnessName = witness is Map ? witness['name']?.toString() : null;
+      setState(() {
+        _witnessApprovalId = approvalId;
+        _witnessApprovalFingerprint = fingerprint;
+        _witnessApproved = true;
+        _approvedWitnessName = witnessName;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().toLowerCase();
+      setState(() {
+        if (message.contains('expired') ||
+            message.contains('consumed') ||
+            message.contains('already') ||
+            message.contains('match') ||
+            message.contains('different')) {
+          _clearWitnessApprovalState();
+        } else {
+          _witnessApproved = false;
+          _approvedWitnessName = null;
+        }
+        _error = s.lookup('s4.lib.counter_sale.witness_auth_failed');
+      });
+    } finally {
+      if (mounted) setState(() => _witnessBusy = false);
     }
   }
 
@@ -354,7 +632,10 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                             ),
                           )
                           .toList(),
-                      onChanged: (b) => setState(() => _selectedBatch = b),
+                      onChanged: (b) => setState(() {
+                        _selectedBatch = b;
+                        _clearWitnessApprovalState();
+                      }),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -366,7 +647,88 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                         labelText: s.lookup('s4.lib.pharmacy.quantity'),
                         border: const OutlineInputBorder(),
                       ),
+                      // Approval is fingerprint-bound to the exact quantity —
+                      // rebuild so the witness status chip tracks edits.
+                      onChanged: (_) => setState(() {}),
                     ),
+                    if (_needsWitness) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s.lookup('s4.lib.counter_sale.witness_section'),
+                              style: theme.textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              s.lookup(
+                                's4.lib.counter_sale.witness_two_person_hint',
+                              ),
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _hasCurrentWitnessApproval
+                                  ? (_approvedWitnessName != null
+                                        ? s.format(
+                                            's4.lib.counter_sale.witness_approved_by',
+                                            {'name': _approvedWitnessName},
+                                          )
+                                        : s.lookup(
+                                            's4.lib.counter_sale.witness_approved',
+                                          ))
+                                  : (_witnessApprovalId != null &&
+                                            !_witnessApproved
+                                        ? s.lookup(
+                                            's4.lib.counter_sale.witness_pending',
+                                          )
+                                        : s.lookup(
+                                            's4.lib.counter_sale.witness_not_requested',
+                                          )),
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              key: const ValueKey(
+                                'substitution-witness-request',
+                              ),
+                              icon: _witnessBusy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.verified_user_outlined),
+                              label: Text(
+                                _hasCurrentWitnessApproval
+                                    ? s.lookup(
+                                        's4.lib.counter_sale.witness_approved',
+                                      )
+                                    : s.lookup(
+                                        's4.lib.counter_sale.witness_request',
+                                      ),
+                              ),
+                              onPressed:
+                                  (_witnessBusy || _hasCurrentWitnessApproval)
+                                  ? null
+                                  : _requestOrApproveWitness,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ],
@@ -385,7 +747,10 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                     : const Icon(Icons.check),
                 label: Text(s.lookup('s4.lib.pharmacy.dispense_substitute')),
                 onPressed:
-                    (_dispensing || _chosen == null || _selectedBatch == null)
+                    (_dispensing ||
+                        _chosen == null ||
+                        _selectedBatch == null ||
+                        (_needsWitness && !_hasCurrentWitnessApproval))
                     ? null
                     : _dispense,
               ),

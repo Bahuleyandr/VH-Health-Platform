@@ -85,6 +85,7 @@ void main() {
                   required originalCatalogId,
                   required finalCatalogId,
                   reason,
+                  witnessApprovalId,
                 }) async {
                   captured = {
                     'patientUid': patientUid,
@@ -93,6 +94,7 @@ void main() {
                     'quantity': quantity,
                     'originalCatalogId': originalCatalogId,
                     'finalCatalogId': finalCatalogId,
+                    'witnessApprovalId': witnessApprovalId,
                   };
                 },
           ),
@@ -130,6 +132,143 @@ void main() {
       expect(captured!['inventoryItemId'], 55);
       expect(captured!['inventoryBatchId'], 900);
       expect(captured!['quantity'], 10); // defaulted from the prescribed line
+      // Non-controlled batch: no witness approval attached.
+      expect(captured!['witnessApprovalId'], isNull);
+    },
+  );
+
+  testWidgets(
+    'Schedule X batch: dispense stays disabled until the two-person witness '
+    'flow completes, then sends the approval id',
+    (tester) async {
+      Map<String, dynamic>? captured;
+      Map<String, dynamic>? requestedSubstitution;
+      Map<String, dynamic>? approvedSubstitution;
+      String? approvedEmployeeId;
+      await tester.pumpWidget(
+        _host(
+          DispenseSubstitutionSheet(
+            orderId: 9,
+            contextLoader: (id) async => {
+              'order_id': id,
+              'patient_uid': 'p-uid-2',
+              'lines': [
+                {'catalog_id': 101, 'name': 'Augmentin 625', 'quantity': 5},
+              ],
+            },
+            alternativesLoader: (catalogId) async => _alts(),
+            batchLoader: (catalogId) async => [
+              {
+                'inventory_item_id': 66,
+                'inventory_batch_id': 901,
+                'batch_number': 'B-X',
+                'remaining_quantity': 30,
+                'expiry_date': '2027-01-01',
+                'schedule_class': 'X',
+                'is_narcotic': true,
+              },
+            ],
+            requestWitnessApproval:
+                ({required substitution, required idempotencyKey}) async {
+                  requestedSubstitution = substitution;
+                  return {'id': '41', 'status': 'pending'};
+                },
+            approveWitnessApproval:
+                ({
+                  required approvalId,
+                  required substitution,
+                  required employeeId,
+                  required password,
+                  required idempotencyKey,
+                }) async {
+                  approvedSubstitution = substitution;
+                  approvedEmployeeId = employeeId;
+                  return {
+                    'id': approvalId,
+                    'status': 'approved',
+                    'witness': {'name': 'Roster Witness'},
+                  };
+                },
+            dispenser:
+                ({
+                  required patientUid,
+                  encounterId,
+                  required inventoryItemId,
+                  required inventoryBatchId,
+                  required quantity,
+                  required originalCatalogId,
+                  required finalCatalogId,
+                  reason,
+                  witnessApprovalId,
+                }) async {
+                  captured = {
+                    'inventoryItemId': inventoryItemId,
+                    'witnessApprovalId': witnessApprovalId,
+                  };
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Composition alternatives'));
+      await tester.pumpAndSettle();
+      final swapBtn = find.widgetWithText(TextButton, 'Swap').first;
+      await tester.ensureVisible(swapBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(swapBtn);
+      await tester.pumpAndSettle();
+
+      // Controlled batch → the dispense button is disabled pre-witness.
+      final dispenseBtn = find.widgetWithText(
+        FilledButton,
+        'Dispense substitute',
+      );
+      await tester.ensureVisible(dispenseBtn);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<FilledButton>(dispenseBtn).onPressed,
+        isNull,
+        reason: 'Schedule X substitute must not be dispensable pre-witness',
+      );
+
+      // Run the witness flow: request, then sign in as the second staff.
+      final witnessBtn = find.byKey(const ValueKey('substitution-witness-request'));
+      await tester.ensureVisible(witnessBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(witnessBtn);
+      await tester.pumpAndSettle();
+      expect(requestedSubstitution, isNotNull);
+      expect(requestedSubstitution!['inventory_item_id'], 66);
+      expect(requestedSubstitution!['final_catalog_id'], 202);
+      expect(
+        requestedSubstitution!.containsKey('witness_approval_id'),
+        isFalse,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('substitution-witness-employee-id')),
+        'emp-9',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('substitution-witness-password')),
+        'secret',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('substitution-witness-approve-submit')),
+      );
+      await tester.pumpAndSettle();
+      expect(approvedEmployeeId, 'EMP-9');
+      expect(approvedSubstitution, equals(requestedSubstitution));
+      expect(find.textContaining('Roster Witness'), findsOneWidget);
+
+      // Now the dispense goes through and carries the approval id.
+      await tester.ensureVisible(dispenseBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(dispenseBtn);
+      await tester.pumpAndSettle();
+      expect(captured, isNotNull);
+      expect(captured!['witnessApprovalId'], '41');
     },
   );
 
