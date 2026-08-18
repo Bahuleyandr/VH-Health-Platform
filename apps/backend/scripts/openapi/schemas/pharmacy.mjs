@@ -158,26 +158,9 @@ export const schemas = {
   // =========================================================================
   // POST /dispense-substitution (+ its Schedule X / narcotic witness flow)
   // =========================================================================
-  // The substitution intent — exactly the client-known fields the witness
-  // fingerprint binds to (witness_approval_id / credentials excluded).
-  PharmacyDispenseSubstitutionIntent: {
-    type: 'object',
-    required: [
-      'patient_uid', 'inventory_item_id', 'inventory_batch_id',
-      'quantity', 'original_catalog_id', 'final_catalog_id',
-    ],
-    properties: {
-      patient_uid: { type: 'string', format: 'uuid' },
-      encounter_id: { type: 'string', nullable: true },
-      inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1 },
-      quantity: { type: 'number', minimum: 0.0001 },
-      original_catalog_id: { type: 'integer', minimum: 1 },
-      final_catalog_id: { type: 'integer', minimum: 1 },
-      reason: { type: 'string', nullable: true, maxLength: 500 },
-    },
-  },
-
+  // The witness fingerprint binds to exactly the client-known substitution
+  // fields (witness_approval_id / credentials excluded) — see
+  // PharmacySubstitutionWitnessApprovalRequest, which carries that shape.
   PharmacyDispenseSubstitutionRequest: {
     type: 'object',
     additionalProperties: false,
