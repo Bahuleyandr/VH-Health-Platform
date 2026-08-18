@@ -945,6 +945,83 @@ void main() {
     );
   });
 
+  test('Dietary kitchen copy has entries in all five staff locales', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    final kitchenKeys = localeKeys['en']!
+        .where((key) => key.startsWith('s4.lib.kitchen.'))
+        .toSet();
+
+    // The full board/tray surface from the #875 dietary kitchen build.
+    expect(kitchenKeys.length, greaterThanOrEqualTo(30));
+    expect(kitchenKeys, contains('s4.lib.kitchen.recalled_banner'));
+    expect(kitchenKeys, contains('s4.lib.kitchen.allergy_screen_degraded'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final missing = kitchenKeys.difference(localeKeys[locale]!);
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'Kitchen keys missing from $locale: ${missing.toList()..sort()}',
+      );
+    }
+
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      // Interpolation placeholders must survive translation.
+      expect(
+        strings.format('s4.lib.kitchen.generated', {'count': 937}),
+        contains('937'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.kitchen.mark_as', {'status': '__STATUS__'}),
+        contains('__STATUS__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.kitchen.transition_done', {
+          'status': '__STATUS__',
+        }),
+        contains('__STATUS__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.kitchen.allergies', {'list': '__LIST__'}),
+        contains('__LIST__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.kitchen.recalled_banner', {
+          'reason': '__REASON__',
+        }),
+        contains('__REASON__'),
+        reason: locale.languageCode,
+      );
+      if (locale.languageCode != 'en') {
+        // A translated locale must not hide a missing key behind the
+        // English fallback for the safety-critical banners.
+        for (final key in const [
+          's4.lib.kitchen.title',
+          's4.lib.kitchen.recalled_banner',
+          's4.lib.kitchen.allergy_screen_degraded',
+        ]) {
+          expect(
+            strings.lookup(key),
+            isNot(english.lookup(key)),
+            reason:
+                '${locale.languageCode} must not hide a missing $key behind '
+                'English',
+          );
+        }
+      }
+    }
+  });
+
   test('S4 OP AI Assist copy stores keys with required locale entries', () {
     final file = File(
       'lib/features/clinical_ai/screens/op_ai_assist_screen.dart',

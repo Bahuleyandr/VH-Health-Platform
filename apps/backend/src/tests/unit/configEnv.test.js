@@ -74,6 +74,35 @@ describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
   });
 });
 
+describe('validateEnv MIN_STAFF_VERSION_CODE', () => {
+  it('defaults the staff hard-upgrade gate to disabled', () => {
+    const { error, value } = validate();
+
+    expect(error).toBeUndefined();
+    expect(value.MIN_STAFF_VERSION_CODE).toBe(0);
+  });
+
+  // Unlike MIN_PATIENT_VERSION_CODE, a bare non-zero staff code is valid on
+  // its own: there is no staff signed-policy scheme, and every staff build
+  // implements the unsigned legacy comparison (failing open on an unusable
+  // /config), so no deployed client bricks on a bare code.
+  it('accepts a bare non-negative integer build code', () => {
+    const { error, value } = validate({ MIN_STAFF_VERSION_CODE: '7' });
+
+    expect(error).toBeUndefined();
+    expect(value.MIN_STAFF_VERSION_CODE).toBe(7);
+  });
+
+  it('rejects negative or fractional build codes', () => {
+    expect(validate({ MIN_STAFF_VERSION_CODE: '-1' }).error?.details[0].message).toContain(
+      'MIN_STAFF_VERSION_CODE'
+    );
+    expect(validate({ MIN_STAFF_VERSION_CODE: '1.5' }).error?.details[0].message).toContain(
+      'MIN_STAFF_VERSION_CODE'
+    );
+  });
+});
+
 describe('validateEnv PATIENT_OUTAGE_COMMUNICATION_JSON', () => {
   it('is optional and accepts a bounded operator JSON string', () => {
     expect(validate().error).toBeUndefined();

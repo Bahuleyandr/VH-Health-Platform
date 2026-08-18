@@ -76,8 +76,18 @@ export function minPatientVersionCodeFromEnv(value = process.env.MIN_PATIENT_VER
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+// Staff hard-upgrade gate. Same fail-safe coercion as the patient projection:
+// anything unusable reads as 0 = gate disabled. Unlike the patient gate there
+// is no signed-policy envelope for staff — the staff client implements the
+// unsigned legacy comparison (and fails open on an unusable /config) from its
+// first gated build, so a bare code is not a bricking configuration.
+export function minStaffVersionCodeFromEnv(value = process.env.MIN_STAFF_VERSION_CODE) {
+  const parsed = Number(value ?? 0);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 // GET /api/v1/config
-// Public, non-PHI patient app boot configuration.
+// Public, non-PHI app boot configuration (patient + staff minimum versions).
 router.get('/', async (req, res, next) => {
   try {
     const expectedTenantId = req.tenantId ?? await resolveTenantForRequest(req);
@@ -89,7 +99,8 @@ router.get('/', async (req, res, next) => {
     const data = {
       min_patient_version_code:
         minimumVersionPolicy?.policy.min_patient_version_code
-        ?? minPatientVersionCodeFromEnv()
+        ?? minPatientVersionCodeFromEnv(),
+      min_staff_version_code: minStaffVersionCodeFromEnv()
     };
     if (minimumVersionPolicy !== null) {
       data.minimum_version_policy = minimumVersionPolicy;
