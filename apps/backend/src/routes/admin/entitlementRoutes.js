@@ -52,7 +52,12 @@ router.get('/current', async (req, res) => {
   }
 });
 
-router.get('/tenants/:tenantId', async (req, res) => {
+// Reading an arbitrary tenant's entitlement state is a platform control like
+// the PUT below (#883 gated only the mutation): a tenant ADMIN may read their
+// OWN summary via /current, but cross-tenant reads are SUPER_ADMIN-only. The
+// portal proxy already enforces the same boundary via its PLATFORM_SUPER_ADMIN
+// sentinel gate; this closes the direct-API asymmetry.
+router.get('/tenants/:tenantId', requireRole('SUPER_ADMIN'), async (req, res) => {
   const tenantId = normalizeTenantId(req.params.tenantId);
   if (!tenantId) return error(res, 'Valid tenantId is required', 400);
 
@@ -98,7 +103,9 @@ router.put('/tenants/:tenantId', requireRole('SUPER_ADMIN'), async (req, res) =>
   }
 });
 
-router.get('/tenants/:tenantId/audit', async (req, res) => {
+// Cross-tenant audit reads are SUPER_ADMIN-only for the same reason as the
+// summary GET above.
+router.get('/tenants/:tenantId/audit', requireRole('SUPER_ADMIN'), async (req, res) => {
   const tenantId = normalizeTenantId(req.params.tenantId);
   if (!tenantId) return error(res, 'Valid tenantId is required', 400);
 

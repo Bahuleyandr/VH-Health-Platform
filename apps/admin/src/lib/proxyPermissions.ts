@@ -130,6 +130,12 @@ const PERMISSION_GATES: PermissionGate[] = [
     permission: PLATFORM_SUPER_ADMIN,
     prefixes: ["api/v1/admin/entitlements"],
   },
+  {
+    // Dark-gate console (Integrations & Gates) is SUPER_ADMIN-only, same
+    // sentinel pattern as entitlements: no per-admin flag can satisfy it.
+    permission: PLATFORM_SUPER_ADMIN,
+    prefixes: ["api/v1/admin/integration-gates"],
+  },
 ];
 
 // Staff self-service ("My Work") endpoints that every portal tier — including

@@ -60,6 +60,7 @@ import * as abdmCompletion from './openapi/schemas/abdmCompletion.mjs';
 import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
 import * as facilityAssets from './openapi/schemas/facilityAssets.mjs';
+import * as integrationGates from './openapi/schemas/integrationGates.mjs';
 import * as uhi from './openapi/schemas/uhi.mjs';
 
 const SCHEMA_MODULES = [
@@ -110,6 +111,7 @@ const SCHEMA_MODULES = [
   smsConfig,
   abdmCompletion,
   facilityAssets,
+  integrationGates,
   uhi
 ];
 

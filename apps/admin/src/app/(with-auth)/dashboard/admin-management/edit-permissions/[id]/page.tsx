@@ -9,8 +9,11 @@ import { getJSON, putJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import { usePermissions } from "@/hooks/usePermissions";
 
+// Grantable vocabulary — keep in sync with PERMISSION_CATEGORIES in
+// ../../components/permissionsConfig.ts and the backend allowlist in
+// apps/backend/src/config/adminPermissionsCatalog.js. `adminManagement` was
+// removed post-#883 (everything it gated is backend SUPER_ADMIN-only now).
 const ALL_PERMISSIONS = [
-  { value: "adminManagement", label: "Admin Management" },
   { value: "userManagement", label: "User Management" },
   { value: "doctorManagement", label: "Doctor Management" },
   { value: "departmentManagement", label: "Department Management" },
@@ -19,6 +22,14 @@ const ALL_PERMISSIONS = [
   { value: "notificationManagement", label: "Notification Management" },
   { value: "viewAuditLogs", label: "View Audit Logs" },
 ];
+
+// The backend rejects unknown permission strings fail-closed. Keep the '*'
+// wildcard (legitimate, carried invisibly by most ADMIN accounts) and drop
+// legacy/vestigial flags such as `adminManagement` so a save prunes them.
+const KNOWN_PERMISSION_VALUES = new Set([
+  "*",
+  ...ALL_PERMISSIONS.map((p) => p.value),
+]);
 
 export default function EditPermissionsPage() {
   const router = useRouter();
@@ -51,7 +62,11 @@ export default function EditPermissionsPage() {
         setAdmin(null);
       } else {
         setAdmin(target);
-        setSelectedPermissions(target.permissions ?? []);
+        setSelectedPermissions(
+          (target.permissions ?? []).filter((p) =>
+            KNOWN_PERMISSION_VALUES.has(p),
+          ),
+        );
       }
     } catch (e) {
       setError(

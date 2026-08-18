@@ -27,6 +27,7 @@ import externalRecoveryOperabilityRoutes from './externalRecoveryOperabilityRout
 import carePathwayReconciliationRoutes from './carePathwayReconciliationRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import entitlementRoutes from './entitlementRoutes.js';
+import integrationGateRoutes from './integrationGateRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
 import identitySsoRoutes from './identitySsoRoutes.js';
 import interfaceEngineRoutes from './interfaceEngineRoutes.js';
@@ -226,6 +227,8 @@ router.use('/investigations', adminInvestigationRoutes);
 router.use('/pharmacy', adminPharmacyRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/entitlements', entitlementRoutes);
+// SUPER_ADMIN-only dark-gate console read (route-level requireRole inside).
+router.use('/integration-gates', integrationGateRoutes);
 router.use('/feature-flags', requireEntitlement(ENTITLEMENT_FEATURE_KEYS.adminFeatureFlags), featureFlagRoutes);
 router.use('/executive-kpi', executiveKpiRoutes);
 router.use('/patient-identifiers', patientIdentifierRoutes);
