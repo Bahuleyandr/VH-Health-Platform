@@ -15,6 +15,7 @@ import {
   detectPayerFromReference,
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
+  getPreauth,
   insurerMatchesPolicyPayer,
   recordPreauthResponse,
   submitClaim,
@@ -273,6 +274,79 @@ describe('extractPreauthCaps', () => {
       pharmacy_cap: 99999,
     });
     expect(out).toEqual({ pharmacy: { max_amount: 20000, currency: 'INR' } });
+  });
+});
+
+// `isSubmitOverdue` reads the absolute-instant twin `submit_due_at_epoch_ms`,
+// not the driver-materialised `submit_due_at` (PR #881). Every fixture in this
+// file leaves the deadline null, so the overdue branch was never exercised with
+// a real date — and a dropped twin would not have shown up, because
+// `epochMsOrNull(undefined)` is null and an overdue pre-auth then reads as
+// on-time. All four combinations of (status, deadline) are pinned here.
+describe('getPreauth submit_overdue', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const HOUR_MS = 3600000;
+  let originalQueryRaw;
+  let preauth;
+
+  beforeEach(() => {
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    preauth = {
+      id: 77,
+      status: 'draft',
+      expected_cost: 40000,
+      query_text: null,
+      submit_due_at: null,
+      submit_due_at_epoch_ms: null,
+    };
+    prisma.$queryRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('FROM insurance_preauth pre')) return [{ ...preauth, payer_name: null }];
+      if (text.includes('WITH RECURSIVE root')) return [{ id: preauth.id }];
+      if (text.includes('SUM(CASE WHEN status')) {
+        return [{ approved_total: 0, requested_total: preauth.expected_cost, chain_length: 1 }];
+      }
+      if (text.includes('FROM insurance_preauth_responses')) return [];
+      throw new Error(`Unexpected query in getPreauth unit test: ${text}`);
+    };
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+  });
+
+  // Deadline and twin are derived from ONE instant so the row stays
+  // self-consistent; the twin is a BigInt because that is what the pg driver
+  // returns for an `::bigint` select.
+  const withDeadline = (msFromNow) => {
+    const due = new Date(Date.now() + msFromNow);
+    preauth.submit_due_at = due.toISOString();
+    preauth.submit_due_at_epoch_ms = BigInt(due.getTime());
+  };
+
+  it('flags a draft whose submission deadline has passed', async () => {
+    withDeadline(-2 * HOUR_MS);
+    await expect(getPreauth({ tenantId, id: preauth.id }))
+      .resolves.toMatchObject({ submit_overdue: true });
+  });
+
+  it('does not flag a draft whose deadline is still ahead', async () => {
+    withDeadline(2 * HOUR_MS);
+    await expect(getPreauth({ tenantId, id: preauth.id }))
+      .resolves.toMatchObject({ submit_overdue: false });
+  });
+
+  it('does not flag a submitted pre-auth, even long past its deadline', async () => {
+    // submit_due_at survives as a historical SLA record once submitted.
+    withDeadline(-48 * HOUR_MS);
+    preauth.status = 'submitted';
+    await expect(getPreauth({ tenantId, id: preauth.id }))
+      .resolves.toMatchObject({ submit_overdue: false });
+  });
+
+  it('does not flag a draft with no deadline set', async () => {
+    await expect(getPreauth({ tenantId, id: preauth.id }))
+      .resolves.toMatchObject({ submit_overdue: false });
   });
 });
 
