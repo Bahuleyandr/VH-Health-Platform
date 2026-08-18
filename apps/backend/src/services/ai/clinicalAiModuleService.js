@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
@@ -2242,7 +2243,8 @@ async function readApprovedModuleChangeApproval({ tenantId, approvalId, moduleKe
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, approval_type, module_key, status, requested_by, approved_by,
-              rejected_by, reason, payload, expires_at, decided_at, created_at
+              rejected_by, reason, payload, expires_at, decided_at, created_at,
+              (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
        FROM clinical_ai_approvals
        WHERE id = $1
          AND tenant_id = $2::uuid
@@ -2262,7 +2264,8 @@ async function readApprovedModuleChangeApproval({ tenantId, approvalId, moduleKe
     if (approval.approval_type !== MODULE_APPROVAL_TYPE) {
       throw AppError.forbidden('Clinical AI approval type does not match module governance change', 'CLINICAL_AI_APPROVAL_MISMATCH');
     }
-    if (approval.expires_at && new Date(approval.expires_at).getTime() < Date.now()) {
+    const approvalExpiry = epochMsOrNull(approval.expires_at_epoch_ms);
+    if (approvalExpiry != null && approvalExpiry < Date.now()) {
       throw AppError.forbidden('Clinical AI module-change approval has expired', 'CLINICAL_AI_APPROVAL_EXPIRED');
     }
     if (approval.requested_by && approval.approved_by && approval.requested_by === approval.approved_by) {

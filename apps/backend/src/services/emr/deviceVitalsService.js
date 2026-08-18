@@ -26,6 +26,7 @@ import {
   readExternalRecoveryResumeState,
 } from '../integrations/externalInterfaceRecoveryService.js';
 import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecoveryService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
@@ -399,7 +400,8 @@ async function countSuppressed({ tenantId, deviceId, reason, db = prisma, strict
 
 async function latestDeviceVitals({ tenantId, patientUid, sourceDevice }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2, respiratory_rate, recorded_at
+    `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2, respiratory_rate, recorded_at,
+            (EXTRACT(EPOCH FROM recorded_at) * 1000)::bigint AS recorded_at_epoch_ms
        FROM vitals_chart
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
@@ -427,8 +429,9 @@ function hasNews2RelevantDelta(vitals = {}, latest = null) {
 }
 
 function withinChartingInterval(latest = null, intervalMinutes = 5) {
-  if (!latest?.recorded_at) return false;
-  const ageMs = Date.now() - new Date(latest.recorded_at).getTime();
+  const recordedAt = epochMsOrNull(latest?.recorded_at_epoch_ms);
+  if (recordedAt == null) return false;
+  const ageMs = Date.now() - recordedAt;
   return ageMs >= 0 && ageMs < intervalMinutes * 60 * 1000;
 }
 

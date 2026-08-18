@@ -29,6 +29,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import appointmentService from '../appointment/appointmentService.js';
 import { transitionAppointment } from '../appointment/appointmentLifecycleService.js';
 import { sendUhiCallback } from './uhiGatewayClient.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 export const UHI_ACTIONS = Object.freeze([
   'search', 'on_search', 'init', 'on_init', 'confirm', 'on_confirm',
@@ -38,7 +39,8 @@ export const UHI_ACTIONS = Object.freeze([
 const TXN_COLUMNS = `id, tenant_id, environment, transaction_id, message_id, action,
        direction, counterparty_subscriber_id, payload, signature_verified,
        verification_failure_reason, status, ack, error_code, error_message,
-       appointment_id, booking_snapshot, received_at, processed_at, created_at, updated_at`;
+       appointment_id, booking_snapshot, received_at, processed_at, created_at, updated_at,
+       (EXTRACT(EPOCH FROM updated_at) * 1000)::bigint AS updated_at_epoch_ms`;
 const LEG_RECLAIM_INTERVAL = '5 minutes';
 
 function clean(value, max) {
@@ -158,7 +160,7 @@ export async function recordUhiLeg({
   if (!prior) return { row: null, duplicate: true };
   if (prior.status === 'failed' || (
     prior.status === 'received'
-    && new Date(prior.updated_at).getTime() <= Date.now() - 5 * 60 * 1000
+    && (epochMsOrNull(prior.updated_at_epoch_ms) ?? Infinity) <= Date.now() - 5 * 60 * 1000
   )) {
     const reclaimed = await prisma.$queryRawUnsafe(
       `UPDATE uhi_transactions

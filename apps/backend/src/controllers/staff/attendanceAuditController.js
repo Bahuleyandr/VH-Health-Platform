@@ -7,6 +7,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // ─── SLA thresholds (hours) ──────────────────────────────────────────────────
@@ -294,7 +295,9 @@ export const getLeaveAuditTrail = async (req, res) => {
     const leave = await prisma.$queryRawUnsafe(`
       SELECT lr.*, u.name as staff_name, s.department,
              u2.name as reviewed_by_name,
-             rr.status as replacement_status, u3.name as replacement_name
+             rr.status as replacement_status, u3.name as replacement_name,
+             (EXTRACT(EPOCH FROM lr.created_at) * 1000)::bigint AS created_at_epoch_ms,
+             (EXTRACT(EPOCH FROM lr.reviewed_at) * 1000)::bigint AS reviewed_at_epoch_ms
       FROM leave_applications lr
       JOIN users u ON lr.staff_id = u.id
       LEFT JOIN staff s ON u.uid = s.user_id
@@ -306,8 +309,16 @@ export const getLeaveAuditTrail = async (req, res) => {
 
     if (leave.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
 
-    const hoursToAction = leave[0].reviewed_at && leave[0].status !== 'pending'
-      ? (new Date(leave[0].reviewed_at).getTime() - new Date(leave[0].created_at).getTime()) / 3600000
+    // `created_at` is NOT NULL on leave_applications, but the old code read a
+    // SQL NULL as `new Date(null).getTime()` === 0 — finite, not NaN — so keep
+    // that fallback rather than letting absence change the arithmetic.
+    const createdMs = epochMsOrNull(leave[0].created_at_epoch_ms) ?? 0;
+    // `reviewed_at` IS nullable, and the old guard was a truthiness test on the
+    // driver's Date object, which is truthy even at epoch 0 — so it only ever
+    // meant "not NULL". `!= null` reproduces that; `reviewedMs &&` would not.
+    const reviewedMs = epochMsOrNull(leave[0].reviewed_at_epoch_ms);
+    const hoursToAction = reviewedMs != null && leave[0].status !== 'pending'
+      ? (reviewedMs - createdMs) / 3600000
       : null;
 
     success(res, {
@@ -318,7 +329,7 @@ export const getLeaveAuditTrail = async (req, res) => {
         within_sla: hoursToAction ? hoursToAction <= ATTENDANCE_SLA.leave_approval.action : null,
         still_pending: leave[0].status === 'pending',
         hours_pending: leave[0].status === 'pending'
-          ? Math.round((Date.now() - new Date(leave[0].created_at).getTime()) / 360000) / 10
+          ? Math.round((Date.now() - createdMs) / 360000) / 10
           : null,
       },
     }, 'Leave audit trail fetched');

@@ -71,6 +71,7 @@ import {
   validateOpTransferAdmissionSourceTx,
 } from './inpatientAdmissionSourceValidation.js';
 import { recordEmergencyAdmissionClosureEvidenceTx } from '../ed/edPathwayDomainService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -2046,7 +2047,8 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
 
   return setTenantTx(requireTenantId(tenantId), async (tx) => {
     const admRows = await tx.$queryRaw`
-      SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
+      SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since,
+             (EXTRACT(EPOCH FROM bed_pending_since) * 1000)::bigint AS bed_pending_since_epoch_ms
       FROM admissions
       WHERE id = ${admissionId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -2193,8 +2195,8 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
           bed_number: bedRows[0].bed_number,
           bed_type: bedRows[0].bed_type,
           bed_pending_since: admission.bed_pending_since,
-          door_to_bed_minutes: admission.bed_pending_since
-            ? Math.round((Date.now() - new Date(admission.bed_pending_since).getTime()) / 60000)
+          door_to_bed_minutes: epochMsOrNull(admission.bed_pending_since_epoch_ms) != null
+            ? Math.round((Date.now() - epochMsOrNull(admission.bed_pending_since_epoch_ms)) / 60000)
             : null,
         },
         ip_address: null,

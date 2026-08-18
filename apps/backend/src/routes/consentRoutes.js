@@ -17,6 +17,7 @@ import { logAudit } from '../utils/logAudit.js';
 import { getFileFromR2, uploadFileToR2 } from '../utils/r2Storage.js';
 import { success, error } from '../utils/responseHelper.js';
 import { requiredUUID, requiredString, consentValidator } from '../validators/sharedValidators.js';
+import { epochMsOrNull } from '../utils/dbInstant.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -92,7 +93,8 @@ function isAdminOrClinicalStaff(req) {
 
 function normalizeConsentStatus(row) {
   if (row.revoked_at || row.granted === false || row.status === 'revoked') return 'revoked';
-  if (row.expires_at && new Date(row.expires_at) < new Date()) return 'expired';
+  const consentExpiry = epochMsOrNull(row.expires_at_epoch_ms);
+  if (consentExpiry != null && consentExpiry < Date.now()) return 'expired';
   if (row.granted === true || row.status === 'active') return 'granted';
   return row.status || 'pending';
 }
@@ -136,6 +138,7 @@ async function getConsentById(consentId, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, consent_type, granted, status, granted_at, revoked_at,
             expires_at, granted_by, notes, purpose, data_categories, version,
+            (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms,
             source, consent_method, witness_name, witness_uid, form_language,
             tenant_id, created_at
        FROM patient_consents
@@ -267,6 +270,7 @@ router.get('/', async (req, res, next) => {
       `SELECT pc.id, pc.patient_uid, u.name AS patient_name, u.phone AS patient_phone,
               pc.consent_type, pc.granted, pc.status, pc.granted_at, pc.revoked_at,
               pc.expires_at, pc.granted_by, pc.revoked_by, pc.notes, pc.purpose,
+              (EXTRACT(EPOCH FROM pc.expires_at) * 1000)::bigint AS expires_at_epoch_ms,
               pc.data_categories, pc.version, pc.source, pc.created_at, pc.updated_at
        FROM patient_consents pc
        LEFT JOIN users u ON u.uid = pc.patient_uid

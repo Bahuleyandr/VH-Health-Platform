@@ -25,6 +25,7 @@ import { randomBytes } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
 import { toPaise } from '../../utils/money.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -393,7 +394,8 @@ function decryptedKeySecret(config) {
 async function resolveOrderSubject({ tenantId, invoice_id, payment_link_token }) {
   if (payment_link_token) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, invoice_id, patient_uid, amount, status, expires_at
+      `SELECT id, invoice_id, patient_uid, amount, status, expires_at,
+              (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
          FROM billing_payment_links
         WHERE link_token = $1 AND tenant_id = $2::uuid
         LIMIT 1`,
@@ -401,7 +403,8 @@ async function resolveOrderSubject({ tenantId, invoice_id, payment_link_token })
     );
     if (!rows.length) throw AppError.notFound('Payment link not found');
     const link = rows[0];
-    const expired = link.expires_at && new Date(link.expires_at).getTime() <= Date.now();
+    const linkExpiry = epochMsOrNull(link.expires_at_epoch_ms);
+    const expired = linkExpiry != null && linkExpiry <= Date.now();
     if (!['created', 'sent'].includes(String(link.status)) || expired) {
       throw AppError.badRequest(
         `Payment link is not payable (${expired ? 'expired' : link.status})`,

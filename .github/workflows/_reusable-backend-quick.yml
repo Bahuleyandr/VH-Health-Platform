@@ -78,6 +78,16 @@ jobs:
       - name: Lockfile libc guard (musl/glibc platform constraints intact)
         run: npm run check:lockfile-libc
 
+      # Second layer behind the UTC session pin in src/lib/prisma.js. A
+      # timestamptz read back through the pg driver is materialised in the
+      # DATABASE SESSION timezone, so comparing one against the process clock is
+      # only correct on a UTC session — two such sites shipped FAIL-OPEN. CI runs
+      # a UTC database, so a relapse is behaviourally invisible here and only the
+      # source shape can be checked. Its own step rather than a link in the
+      # `npm run lint` && chain, so a lint failure cannot mask it.
+      - name: Timestamptz clock-comparison guard (no driver Date vs process clock)
+        run: npm run check:timestamptz-clock
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

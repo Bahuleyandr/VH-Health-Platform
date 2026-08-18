@@ -7,6 +7,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const router = Router();
 
@@ -134,6 +135,7 @@ router.post('/vouchers/:code/redeem', async (req, res) => {
     // Find the voucher
     const existing = await prisma.$queryRawUnsafe(
       `SELECT hmc.id, hmc.user_uid, hmc.voucher_code, hmc.is_redeemed, hmc.expires_at,
+              (EXTRACT(EPOCH FROM hmc.expires_at) * 1000)::bigint AS expires_at_epoch_ms,
               hm.name AS milestone_name, hm.reward_description
        FROM health_milestone_claims hmc
        JOIN health_milestones hm ON hm.id = hmc.milestone_id
@@ -153,7 +155,8 @@ router.post('/vouchers/:code/redeem', async (req, res) => {
       return error(res, 'Voucher has already been redeemed', HTTP_STATUS.CONFLICT);
     }
 
-    if (new Date(voucher.expires_at) < new Date()) {
+    const voucherExpiry = epochMsOrNull(voucher.expires_at_epoch_ms);
+    if (voucherExpiry != null && voucherExpiry < Date.now()) {
       return error(res, 'Voucher has expired', HTTP_STATUS.BAD_REQUEST);
     }
 

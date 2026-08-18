@@ -83,7 +83,16 @@ describe('buildEncounterStartAlerts', () => {
     ]); // allergies (service-level)
     queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
     queryUnsafeMock.mockResolvedValueOnce([
-      { id: 5, origin_kind: 'discharge', due_at: new Date(Date.now() - 86400000).toISOString(), reason: '6w post-op' },
+      {
+        id: 5,
+        origin_kind: 'discharge',
+        due_at: new Date(Date.now() - 86400000).toISOString(),
+        // The query selects an epoch twin beside due_at: a timestamptz read back
+        // through the driver is shifted by the database session timezone, so the
+        // overdue comparison reads the epoch instead.
+        due_at_epoch_ms: BigInt(Date.now() - 86400000),
+        reason: '6w post-op',
+      },
     ]); // follow-ups (overdue)
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 7, title: 'Review labs', priority: 'critical', due_at: null, task_kind: 'review' },
