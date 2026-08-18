@@ -25,6 +25,8 @@ describe('drug-return disposal witness validation', () => {
   let batchId;
 
   async function cleanup() {
+    // Deliberate single array bind for ANY($1::uuid[]) — hoisted per house style.
+    const fixtureUids = [RECORDER, WITNESS, CLERK, INACTIVE];
     await prisma.$executeRawUnsafe(
       `DELETE FROM drug_return_lines WHERE batch_id IN
          (SELECT id FROM drug_return_batches WHERE tenant_id=$1::uuid)`,
@@ -38,11 +40,11 @@ describe('drug-return disposal witness validation', () => {
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`,
-      [RECORDER, WITNESS, CLERK, INACTIVE],
+      fixtureUids,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
-      [RECORDER, WITNESS, CLERK, INACTIVE],
+      fixtureUids,
     ).catch(() => {});
   }
 

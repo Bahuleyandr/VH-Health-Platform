@@ -68,11 +68,14 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     ]) await prisma.$executeRawUnsafe(sql, TENANT).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'DSUBTEST %'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM drug_compositions WHERE composition_key=$1`, COMP_KEY).catch(() => {});
+    // Deliberate single array binds for ANY($1::uuid[]) — hoisted per house style.
+    const staffFixtureUids = [ACTOR, WITNESS, CLERK];
+    const userFixtureUids = [ACTOR, WITNESS, CLERK, PATIENT];
     await prisma.$executeRawUnsafe(
-      `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, [ACTOR, WITNESS, CLERK],
+      `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, staffFixtureUids,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid = ANY($1::uuid[])`, [ACTOR, WITNESS, CLERK, PATIENT],
+      `DELETE FROM users WHERE uid = ANY($1::uuid[])`, userFixtureUids,
     ).catch(() => {});
   }
 
