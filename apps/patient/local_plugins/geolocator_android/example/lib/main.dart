@@ -9,8 +9,8 @@ import 'package:geolocator_platform_interface/geolocator_platform_interface.dart
 /// Defines the main theme color.
 final MaterialColor themeMaterialColor =
     BaseflowPluginExample.createMaterialColor(
-      const Color.fromRGBO(48, 49, 60, 1),
-    );
+  const Color.fromRGBO(48, 49, 60, 1),
+);
 
 void main() {
   runApp(const GeolocatorWidget());
@@ -145,11 +145,10 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
                   tooltip: (_positionStreamSubscription == null)
                       ? 'Start position updates'
                       : _positionStreamSubscription!.isPaused
-                      ? 'Resume'
-                      : 'Pause',
+                          ? 'Resume'
+                          : 'Pause',
                   backgroundColor: _determineButtonColor(),
-                  child:
-                      (_positionStreamSubscription == null ||
+                  child: (_positionStreamSubscription == null ||
                           _positionStreamSubscription!.isPaused)
                       ? const Icon(Icons.play_arrow)
                       : const Icon(Icons.pause),
@@ -237,9 +236,8 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     setState(() {});
   }
 
-  bool _isListening() =>
-      !(_positionStreamSubscription == null ||
-          _positionStreamSubscription!.isPaused);
+  bool _isListening() => !(_positionStreamSubscription == null ||
+      _positionStreamSubscription!.isPaused);
 
   Color _determineButtonColor() {
     return _isListening() ? Colors.green : Colors.red;
@@ -248,23 +246,22 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
   void _toggleServiceStatusStream() {
     if (_serviceStatusStreamSubscription == null) {
       final serviceStatusStream = geolocatorAndroid.getServiceStatusStream();
-      _serviceStatusStreamSubscription = serviceStatusStream
-          .handleError((error) {
-            _serviceStatusStreamSubscription?.cancel();
-            _serviceStatusStreamSubscription = null;
-          })
-          .listen((serviceStatus) {
-            String serviceStatusValue;
-            if (serviceStatus == ServiceStatus.enabled) {
-              serviceStatusValue = 'enabled';
-            } else {
-              serviceStatusValue = 'disabled';
-            }
-            _updatePositionList(
-              _PositionItemType.log,
-              'Location service has been $serviceStatusValue',
-            );
-          });
+      _serviceStatusStreamSubscription =
+          serviceStatusStream.handleError((error) {
+        _serviceStatusStreamSubscription?.cancel();
+        _serviceStatusStreamSubscription = null;
+      }).listen((serviceStatus) {
+        String serviceStatusValue;
+        if (serviceStatus == ServiceStatus.enabled) {
+          serviceStatusValue = 'enabled';
+        } else {
+          serviceStatusValue = 'disabled';
+        }
+        _updatePositionList(
+          _PositionItemType.log,
+          'Location service has been $serviceStatusValue',
+        );
+      });
     }
   }
 
@@ -284,7 +281,8 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
         useMSLAltitude: true,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           // Explain to the user why we are showing this notification.
-          notificationText: "Example app will continue to receive your location even when you aren't using it",
+          notificationText:
+              "Example app will continue to receive your location even when you aren't using it",
           // Tell the user what we are doing.
           notificationTitle: "Running in Background",
           // Keep the system awake to receive background location information.
@@ -296,18 +294,16 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
       final positionStream = geolocatorAndroid.getPositionStream(
         locationSettings: androidSettings,
       );
-      _positionStreamSubscription = positionStream
-          .handleError((error) {
-            _positionStreamSubscription?.cancel();
-            _positionStreamSubscription = null;
-          })
-          .listen((position) {
-            debugPrint(position.altitude.toString());
-            _updatePositionList(
-              _PositionItemType.position,
-              position.toString(),
-            );
-          });
+      _positionStreamSubscription = positionStream.handleError((error) {
+        _positionStreamSubscription?.cancel();
+        _positionStreamSubscription = null;
+      }).listen((position) {
+        debugPrint(position.altitude.toString());
+        _updatePositionList(
+          _PositionItemType.position,
+          position.toString(),
+        );
+      });
       _positionStreamSubscription?.pause();
     }
 
