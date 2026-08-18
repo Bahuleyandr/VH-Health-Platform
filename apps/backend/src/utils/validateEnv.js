@@ -182,6 +182,18 @@ export const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('PATIENT_OUTAGE_COMMUNICATION_JSON'),
+  // Staff hard-upgrade gate, also served by public GET /api/v1/config as
+  // `min_staff_version_code`. 0 disables the gate; otherwise the minimum
+  // accepted staff build number. There is deliberately no signed-envelope
+  // counterpart (the patient coupling above exists because fielded patient
+  // builds fail closed on an unverifiable policy); every staff build
+  // implements the unsigned legacy comparison and fails open on an unusable
+  // /config, so a bare code is safe.
+  MIN_STAFF_VERSION_CODE: Joi.number()
+    .integer()
+    .min(0)
+    .default(0)
+    .label('MIN_STAFF_VERSION_CODE'),
 
   // HTTP server timeouts (REL-4 / B2.4). Defaults: requestTimeout=60s,
   // keepAliveTimeout=61s, headersTimeout=65s. keepAlive < headers is required

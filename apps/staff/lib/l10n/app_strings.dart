@@ -3097,6 +3097,11 @@ class AppStrings {
       _t('splash.device_unsupported_title');
   String splashDeviceUnsupportedBody(String reasons) =>
       '${_t('splash.device_unsupported_body')} $reasons. ${_t('splash.device_unsupported_use_hospital_device')}';
+  String get splashUpdateRequiredTitle => _t('splash.update_required.title');
+  String get splashUpdateRequiredBody => _t('splash.update_required.body');
+  String get splashUpdateRequiredButton => _t('splash.update_required.button');
+  String get splashUpdateRequiredNoUrlBody =>
+      _t('splash.update_required.no_url_body');
 
   // ── Housekeeping tasks ─────────────────────────────────────────────
   String get housekeepingTasksTitle => _t('housekeeping.tasks_title');
@@ -6415,6 +6420,14 @@ class AppStrings {
       'splash.device_unsupported_body': 'For patient data safety, VHHealth Staff cannot run on this device. Reason:',
       'splash.device_unsupported_use_hospital_device':
           'Please use a hospital-issued, unmodified device.',
+      'splash.update_required.title': 'Update required',
+      'splash.update_required.body':
+          'This version of VHHealth Staff has been retired and can no longer '
+          'be used. Install the latest release to continue.',
+      'splash.update_required.button': 'Get the latest release',
+      'splash.update_required.no_url_body':
+          'Contact your IT administrator to install the latest release on '
+          'this device.',
       // Housekeeping tasks
       'housekeeping.tasks_title': 'My Tasks',
       'housekeeping.sample_notice': 'Live tasks from housekeeping queue.',
@@ -13111,6 +13124,14 @@ class AppStrings {
       'splash.device_unsupported_body': 'रोगी डेटा सुरक्षा के लिए, VHHealth स्टाफ इस डिवाइस पर नहीं चल सकता। कारण:',
       'splash.device_unsupported_use_hospital_device':
           'कृपया अस्पताल द्वारा जारी, अनसंशोधित डिवाइस का उपयोग करें।',
+      'splash.update_required.title': 'अपडेट आवश्यक',
+      'splash.update_required.body':
+          'VHHealth स्टाफ का यह संस्करण सेवा से हटा दिया गया है और अब उपयोग '
+          'नहीं किया जा सकता। जारी रखने के लिए नवीनतम रिलीज़ इंस्टॉल करें।',
+      'splash.update_required.button': 'नवीनतम रिलीज़ प्राप्त करें',
+      'splash.update_required.no_url_body':
+          'इस डिवाइस पर नवीनतम रिलीज़ इंस्टॉल करने के लिए अपने IT प्रशासक से '
+          'संपर्क करें।',
       // Housekeeping tasks
       'housekeeping.tasks_title': 'मेरे कार्य',
       'housekeeping.sample_notice': 'हाउसकीपिंग कतार से लाइव कार्य।',
@@ -15290,6 +15311,41 @@ class AppStrings {
       's4.lib.pharmacy.metric_unit': "यूनिट",
       's4.lib.pharmacy.metric_unit_price': "यूनिट मूल्य",
       's4.lib.pharmacy.new_order': "नया ऑर्डर",
+      's4.lib.kitchen.title': "रसोई",
+      's4.lib.kitchen.open': "रसोई बोर्ड",
+      's4.lib.kitchen.board_tab': "रसोई बोर्ड",
+      's4.lib.kitchen.trays_tab': "ट्रे ट्रैकिंग",
+      's4.lib.kitchen.production_summary': "उत्पादन सारांश",
+      's4.lib.kitchen.generate': "आज के टिकट बनाएँ",
+      's4.lib.kitchen.generated': "निर्माण पूर्ण — {count} नए टिकट",
+      's4.lib.kitchen.all_meals': "सभी भोजन",
+      's4.lib.kitchen.meal_breakfast': "नाश्ता",
+      's4.lib.kitchen.meal_lunch': "दोपहर का भोजन",
+      's4.lib.kitchen.meal_dinner': "रात का भोजन",
+      's4.lib.kitchen.meal_snack': "स्नैक",
+      's4.lib.kitchen.status_pending': "लंबित",
+      's4.lib.kitchen.status_preparing': "तैयार हो रहा है",
+      's4.lib.kitchen.status_ready': "तैयार",
+      's4.lib.kitchen.status_dispatched': "भेजा गया",
+      's4.lib.kitchen.status_delivered': "पहुँचाया गया",
+      's4.lib.kitchen.status_collected': "ट्रे एकत्र की गई",
+      's4.lib.kitchen.status_cancelled': "रद्द",
+      's4.lib.kitchen.mark_as': "{status} चिह्नित करें",
+      's4.lib.kitchen.transition_done': "टिकट {status} चिह्नित किया गया",
+      's4.lib.kitchen.allergies': "एलर्जी: {list}",
+      's4.lib.kitchen.recalled_banner':
+          "वापस मंगाया गया — परोसें नहीं। {reason}",
+      's4.lib.kitchen.allergy_screen_degraded':
+          "एलर्जी जाँच अधूरी — यह ट्रे चुनते समय एक एलर्जी स्रोत उपलब्ध नहीं "
+          "था। परोसने से पहले वार्ड से एलर्जी की पुष्टि करें।",
+      's4.lib.kitchen.cancel_ticket': "टिकट रद्द करें",
+      's4.lib.kitchen.cancel_reason': "रद्द करने का कारण",
+      's4.lib.kitchen.cancel_reason_required': "रद्द करने का कारण आवश्यक है",
+      's4.lib.kitchen.cancel_confirm': "टिकट रद्द करें",
+      's4.lib.kitchen.board_empty':
+          "इस भोजन के लिए कोई रसोई टिकट नहीं — आज के टिकट बनाएँ या सुबह की "
+          "कट-ऑफ के बाद फिर देखें",
+      's4.lib.kitchen.trays_empty': "अभी वार्डों में कोई ट्रे बाहर नहीं है",
       's4.lib.pharmacy.no_formulary_drugs_found': "कोई फॉर्मूलरी दवा नहीं मिली",
       's4.lib.pharmacy.no_inventory_items_found':
           "कोई इन्वेंट्री आइटम नहीं मिला",
@@ -18550,6 +18606,14 @@ class AppStrings {
       // REVIEW:
       'splash.device_unsupported_use_hospital_device':
           'மருத்துவமனை வழங்கிய, மாற்றப்படாத சாதனத்தைப் பயன்படுத்தவும்.',
+      'splash.update_required.title': 'புதுப்பிப்பு தேவை',
+      'splash.update_required.body':
+          'VHHealth பணியாளர் செயலியின் இந்தப் பதிப்பு நிறுத்தப்பட்டுவிட்டது; '
+          'இனி பயன்படுத்த முடியாது. தொடர, சமீபத்திய வெளியீட்டை நிறுவவும்.',
+      'splash.update_required.button': 'சமீபத்திய வெளியீட்டைப் பெறுக',
+      'splash.update_required.no_url_body':
+          'இந்தச் சாதனத்தில் சமீபத்திய வெளியீட்டை நிறுவ உங்கள் IT '
+          'நிர்வாகியைத் தொடர்பு கொள்ளவும்.',
       // Housekeeping
       // REVIEW:
       'housekeeping.tasks_title': 'என் பணிகள்',
@@ -22144,6 +22208,46 @@ class AppStrings {
       's4.lib.pharmacy.metric_unit': "அலகு",
       's4.lib.pharmacy.metric_unit_price': "அலகு விலை",
       's4.lib.pharmacy.new_order': "புதிய ஆர்டர்",
+      's4.lib.kitchen.title': "சமையலறை",
+      's4.lib.kitchen.open': "சமையலறை பலகை",
+      's4.lib.kitchen.board_tab': "சமையலறை பலகை",
+      's4.lib.kitchen.trays_tab': "தட்டு கண்காணிப்பு",
+      's4.lib.kitchen.production_summary': "உற்பத்தி சுருக்கம்",
+      's4.lib.kitchen.generate': "இன்றைய டிக்கெட்டுகளை உருவாக்கு",
+      's4.lib.kitchen.generated':
+          "உருவாக்கம் முடிந்தது — {count} புதிய டிக்கெட்(கள்)",
+      's4.lib.kitchen.all_meals': "அனைத்து உணவுகள்",
+      's4.lib.kitchen.meal_breakfast': "காலை உணவு",
+      's4.lib.kitchen.meal_lunch': "மதிய உணவு",
+      's4.lib.kitchen.meal_dinner': "இரவு உணவு",
+      's4.lib.kitchen.meal_snack': "சிற்றுண்டி",
+      's4.lib.kitchen.status_pending': "நிலுவையில்",
+      's4.lib.kitchen.status_preparing': "தயாராகிறது",
+      's4.lib.kitchen.status_ready': "தயார்",
+      's4.lib.kitchen.status_dispatched': "அனுப்பப்பட்டது",
+      's4.lib.kitchen.status_delivered': "வழங்கப்பட்டது",
+      's4.lib.kitchen.status_collected': "தட்டு திரும்பப் பெறப்பட்டது",
+      's4.lib.kitchen.status_cancelled': "ரத்து செய்யப்பட்டது",
+      's4.lib.kitchen.mark_as': "{status} எனக் குறிக்கவும்",
+      's4.lib.kitchen.transition_done':
+          "டிக்கெட் {status} எனக் குறிக்கப்பட்டது",
+      's4.lib.kitchen.allergies': "ஒவ்வாமைகள்: {list}",
+      's4.lib.kitchen.recalled_banner':
+          "திரும்பப் பெறப்பட்டது — பரிமாற வேண்டாம். {reason}",
+      's4.lib.kitchen.allergy_screen_degraded':
+          "ஒவ்வாமை சரிபார்ப்பு முழுமையடையவில்லை — இந்தத் தட்டு "
+          "தேர்ந்தெடுக்கப்பட்டபோது ஒரு ஒவ்வாமை தரவு மூலம் கிடைக்கவில்லை. "
+          "பரிமாறும் முன் வார்டுடன் ஒவ்வாமைகளை உறுதிப்படுத்தவும்.",
+      's4.lib.kitchen.cancel_ticket': "டிக்கெட்டை ரத்து செய்",
+      's4.lib.kitchen.cancel_reason': "ரத்து காரணம்",
+      's4.lib.kitchen.cancel_reason_required': "ரத்து செய்யக் காரணம் தேவை",
+      's4.lib.kitchen.cancel_confirm': "டிக்கெட்டை ரத்து செய்",
+      's4.lib.kitchen.board_empty':
+          "இந்த உணவுக்கு சமையலறை டிக்கெட்டுகள் இல்லை — இன்றைய "
+          "டிக்கெட்டுகளை உருவாக்கவும் அல்லது காலை நிறுத்த நேரத்திற்குப் "
+          "பிறகு மீண்டும் பார்க்கவும்",
+      's4.lib.kitchen.trays_empty':
+          "இப்போது வார்டுகளில் தட்டுகள் எதுவும் வெளியே இல்லை",
       's4.lib.pharmacy.no_formulary_drugs_found':
           "ஃபார்முலரி மருந்துகள் எதுவும் கண்டுபிடிக்கப்படவில்லை",
       's4.lib.pharmacy.no_inventory_items_found':
@@ -25412,6 +25516,14 @@ class AppStrings {
       // REVIEW:
       'splash.device_unsupported_use_hospital_device':
           'దయచేసి హాస్పిటల్ జారీ చేసిన, మార్చబడని పరికరాన్ని ఉపయోగించండి.',
+      'splash.update_required.title': 'నవీకరణ అవసరం',
+      'splash.update_required.body':
+          'VHHealth సిబ్బంది యాప్ యొక్క ఈ వెర్షన్ నిలిపివేయబడింది; ఇకపై '
+          'ఉపయోగించలేరు. కొనసాగించడానికి తాజా విడుదలను ఇన్‌స్టాల్ చేయండి.',
+      'splash.update_required.button': 'తాజా విడుదలను పొందండి',
+      'splash.update_required.no_url_body':
+          'ఈ పరికరంలో తాజా విడుదలను ఇన్‌స్టాల్ చేయడానికి మీ IT '
+          'నిర్వాహకుడిని సంప్రదించండి.',
       // Housekeeping
       // REVIEW:
       'housekeeping.tasks_title': 'నా పనులు',
@@ -28972,6 +29084,43 @@ class AppStrings {
       's4.lib.pharmacy.metric_unit': "యూనిట్",
       's4.lib.pharmacy.metric_unit_price': "యూనిట్ ధర",
       's4.lib.pharmacy.new_order': "కొత్త ఆర్డర్",
+      's4.lib.kitchen.title': "వంటగది",
+      's4.lib.kitchen.open': "వంటగది బోర్డు",
+      's4.lib.kitchen.board_tab': "వంటగది బోర్డు",
+      's4.lib.kitchen.trays_tab': "ట్రే ట్రాకింగ్",
+      's4.lib.kitchen.production_summary': "ఉత్పత్తి సారాంశం",
+      's4.lib.kitchen.generate': "నేటి టికెట్లను సృష్టించండి",
+      's4.lib.kitchen.generated':
+          "సృష్టి పూర్తయింది — {count} కొత్త టికెట్(లు)",
+      's4.lib.kitchen.all_meals': "అన్ని భోజనాలు",
+      's4.lib.kitchen.meal_breakfast': "అల్పాహారం",
+      's4.lib.kitchen.meal_lunch': "మధ్యాహ్న భోజనం",
+      's4.lib.kitchen.meal_dinner': "రాత్రి భోజనం",
+      's4.lib.kitchen.meal_snack': "స్నాక్",
+      's4.lib.kitchen.status_pending': "పెండింగ్",
+      's4.lib.kitchen.status_preparing': "తయారవుతోంది",
+      's4.lib.kitchen.status_ready': "సిద్ధం",
+      's4.lib.kitchen.status_dispatched': "పంపబడింది",
+      's4.lib.kitchen.status_delivered': "అందించబడింది",
+      's4.lib.kitchen.status_collected': "ట్రే సేకరించబడింది",
+      's4.lib.kitchen.status_cancelled': "రద్దు చేయబడింది",
+      's4.lib.kitchen.mark_as': "{status} గా గుర్తించండి",
+      's4.lib.kitchen.transition_done': "టికెట్ {status} గా గుర్తించబడింది",
+      's4.lib.kitchen.allergies': "అలర్జీలు: {list}",
+      's4.lib.kitchen.recalled_banner':
+          "వెనక్కి పిలవబడింది — వడ్డించవద్దు. {reason}",
+      's4.lib.kitchen.allergy_screen_degraded':
+          "అలర్జీ తనిఖీ అసంపూర్ణం — ఈ ట్రే ఎంపిక చేసినప్పుడు ఒక అలర్జీ "
+          "సమాచార మూలం అందుబాటులో లేదు. వడ్డించే ముందు వార్డుతో "
+          "అలర్జీలను నిర్ధారించండి.",
+      's4.lib.kitchen.cancel_ticket': "టికెట్ రద్దు చేయండి",
+      's4.lib.kitchen.cancel_reason': "రద్దు కారణం",
+      's4.lib.kitchen.cancel_reason_required': "రద్దు కారణం తప్పనిసరి",
+      's4.lib.kitchen.cancel_confirm': "టికెట్ రద్దు చేయండి",
+      's4.lib.kitchen.board_empty':
+          "ఈ భోజనానికి వంటగది టికెట్లు లేవు — నేటి టికెట్లను సృష్టించండి "
+          "లేదా ఉదయపు కటాఫ్ తర్వాత మళ్లీ చూడండి",
+      's4.lib.kitchen.trays_empty': "ప్రస్తుతం వార్డులలో ఏ ట్రేలు బయట లేవు",
       's4.lib.pharmacy.no_formulary_drugs_found':
           "ఫార్ములారీ మందులు కనుగొనబడలేదు",
       's4.lib.pharmacy.no_inventory_items_found':
@@ -31487,6 +31636,54 @@ class AppStrings {
       'splash.device_unsupported_body': 'രോഗി ഡാറ്റ സുരക്ഷയ്ക്കായി, ഈ ഉപകരണത്തിൽ VHHealth Staff പ്രവർത്തിക്കില്ല. കാരണം:',
       'splash.device_unsupported_use_hospital_device':
           'ആശുപത്രി നൽകിയ, മാറ്റം വരുത്താത്ത ഉപകരണം ഉപയോഗിക്കുക.',
+      'splash.update_required.title': 'അപ്ഡേറ്റ് ആവശ്യമാണ്',
+      'splash.update_required.body':
+          'VHHealth Staff-ന്റെ ഈ പതിപ്പ് പിൻവലിച്ചിരിക്കുന്നു; ഇനി '
+          'ഉപയോഗിക്കാനാവില്ല. തുടരാൻ ഏറ്റവും പുതിയ റിലീസ് ഇൻസ്റ്റാൾ ചെയ്യുക.',
+      'splash.update_required.button': 'ഏറ്റവും പുതിയ റിലീസ് നേടുക',
+      'splash.update_required.no_url_body':
+          'ഈ ഉപകരണത്തിൽ ഏറ്റവും പുതിയ റിലീസ് ഇൻസ്റ്റാൾ ചെയ്യാൻ നിങ്ങളുടെ IT '
+          'അഡ്മിനിസ്ട്രേറ്ററെ ബന്ധപ്പെടുക.',
+      's4.lib.kitchen.title': 'അടുക്കള',
+      's4.lib.kitchen.open': 'അടുക്കള ബോർഡ്',
+      's4.lib.kitchen.board_tab': 'അടുക്കള ബോർഡ്',
+      's4.lib.kitchen.trays_tab': 'ട്രേ ട്രാക്കിംഗ്',
+      's4.lib.kitchen.production_summary': 'ഉത്പാദന സംഗ്രഹം',
+      's4.lib.kitchen.generate': 'ഇന്നത്തെ ടിക്കറ്റുകൾ സൃഷ്ടിക്കുക',
+      's4.lib.kitchen.generated':
+          'സൃഷ്ടി പൂർത്തിയായി — {count} പുതിയ ടിക്കറ്റ്(കൾ)',
+      's4.lib.kitchen.all_meals': 'എല്ലാ ഭക്ഷണങ്ങളും',
+      's4.lib.kitchen.meal_breakfast': 'പ്രഭാതഭക്ഷണം',
+      's4.lib.kitchen.meal_lunch': 'ഉച്ചഭക്ഷണം',
+      's4.lib.kitchen.meal_dinner': 'അത്താഴം',
+      's4.lib.kitchen.meal_snack': 'ലഘുഭക്ഷണം',
+      's4.lib.kitchen.status_pending': 'തീർപ്പാക്കാത്തത്',
+      's4.lib.kitchen.status_preparing': 'തയ്യാറാക്കുന്നു',
+      's4.lib.kitchen.status_ready': 'തയ്യാർ',
+      's4.lib.kitchen.status_dispatched': 'അയച്ചു',
+      's4.lib.kitchen.status_delivered': 'എത്തിച്ചു',
+      's4.lib.kitchen.status_collected': 'ട്രേ തിരികെ ശേഖരിച്ചു',
+      's4.lib.kitchen.status_cancelled': 'റദ്ദാക്കി',
+      's4.lib.kitchen.mark_as': '{status} ആയി അടയാളപ്പെടുത്തുക',
+      's4.lib.kitchen.transition_done':
+          'ടിക്കറ്റ് {status} ആയി അടയാളപ്പെടുത്തി',
+      's4.lib.kitchen.allergies': 'അലർജികൾ: {list}',
+      's4.lib.kitchen.recalled_banner':
+          'തിരിച്ചുവിളിച്ചു — വിളമ്പരുത്. {reason}',
+      's4.lib.kitchen.allergy_screen_degraded':
+          'അലർജി പരിശോധന അപൂർണ്ണം — ഈ ട്രേ തിരഞ്ഞെടുത്തപ്പോൾ ഒരു അലർജി '
+          'വിവര സ്രോതസ്സ് ലഭ്യമായിരുന്നില്ല. വിളമ്പുന്നതിന് മുമ്പ് '
+          'വാർഡുമായി അലർജികൾ സ്ഥിരീകരിക്കുക.',
+      's4.lib.kitchen.cancel_ticket': 'ടിക്കറ്റ് റദ്ദാക്കുക',
+      's4.lib.kitchen.cancel_reason': 'റദ്ദാക്കാനുള്ള കാരണം',
+      's4.lib.kitchen.cancel_reason_required':
+          'റദ്ദാക്കാനുള്ള കാരണം നിർബന്ധമാണ്',
+      's4.lib.kitchen.cancel_confirm': 'ടിക്കറ്റ് റദ്ദാക്കുക',
+      's4.lib.kitchen.board_empty':
+          'ഈ ഭക്ഷണത്തിന് അടുക്കള ടിക്കറ്റുകളില്ല — ഇന്നത്തെ ടിക്കറ്റുകൾ '
+          'സൃഷ്ടിക്കുക അല്ലെങ്കിൽ രാവിലത്തെ കട്ട്-ഓഫിന് ശേഷം വീണ്ടും '
+          'നോക്കുക',
+      's4.lib.kitchen.trays_empty': 'ഇപ്പോൾ വാർഡുകളിൽ ട്രേകളൊന്നും പുറത്തില്ല',
       'logout.dialog_title': 'ലോഗൗട്ട്?',
       'logout.dialog_body': 'നിങ്ങളുടെ എംപ്ലോയീ ഐഡിയും പാസ്‌വേഡും ഉപയോഗിച്ച് വീണ്ടും സൈൻ ഇൻ ചെയ്യേണ്ടിവരും.',
       'logout.tooltip': 'ലോഗൗട്ട്',

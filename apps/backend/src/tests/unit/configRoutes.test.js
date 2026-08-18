@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import configRoutes, {
   minPatientVersionCodeFromEnv,
+  minStaffVersionCodeFromEnv,
   patientMinimumVersionPolicyFromEnv,
   patientOutageCommunicationFromEnv
 } from '../../routes/configRoutes.js';
@@ -48,11 +49,13 @@ function makeApp({ tenantId } = {}) {
 
 describe('configRoutes patient app config', () => {
   const originalMinVersionCode = process.env.MIN_PATIENT_VERSION_CODE;
+  const originalMinStaffVersionCode = process.env.MIN_STAFF_VERSION_CODE;
   const originalOutageCommunication = process.env.PATIENT_OUTAGE_COMMUNICATION_JSON;
   const originalMinimumVersionPolicy = process.env.PATIENT_MINIMUM_VERSION_POLICY_JSON;
 
   beforeEach(() => {
     delete process.env.MIN_PATIENT_VERSION_CODE;
+    delete process.env.MIN_STAFF_VERSION_CODE;
     delete process.env.PATIENT_OUTAGE_COMMUNICATION_JSON;
     delete process.env.PATIENT_MINIMUM_VERSION_POLICY_JSON;
   });
@@ -62,6 +65,11 @@ describe('configRoutes patient app config', () => {
       delete process.env.MIN_PATIENT_VERSION_CODE;
     } else {
       process.env.MIN_PATIENT_VERSION_CODE = originalMinVersionCode;
+    }
+    if (originalMinStaffVersionCode === undefined) {
+      delete process.env.MIN_STAFF_VERSION_CODE;
+    } else {
+      process.env.MIN_STAFF_VERSION_CODE = originalMinStaffVersionCode;
     }
     if (originalOutageCommunication === undefined) {
       delete process.env.PATIENT_OUTAGE_COMMUNICATION_JSON;
@@ -84,7 +92,7 @@ describe('configRoutes patient app config', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       success: true,
-      data: { min_patient_version_code: 0 }
+      data: { min_patient_version_code: 0, min_staff_version_code: 0 }
     });
   });
 
@@ -97,6 +105,18 @@ describe('configRoutes patient app config', () => {
     expect(res.body.data.min_patient_version_code).toBe(42);
   });
 
+  it('returns the configured minimum staff version code independently', async () => {
+    process.env.MIN_STAFF_VERSION_CODE = '17';
+
+    const res = await request(makeApp()).get('/api/v1/config');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      min_patient_version_code: 0,
+      min_staff_version_code: 17
+    });
+  });
+
   it('forwards a bounded pre-signed policy and derives the legacy projection', async () => {
     process.env.MIN_PATIENT_VERSION_CODE = '7';
     process.env.PATIENT_MINIMUM_VERSION_POLICY_JSON = JSON.stringify(minimumVersionPolicy);
@@ -106,6 +126,7 @@ describe('configRoutes patient app config', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({
       min_patient_version_code: 42,
+      min_staff_version_code: 0,
       minimum_version_policy: minimumVersionPolicy
     });
   });
@@ -123,7 +144,10 @@ describe('configRoutes patient app config', () => {
     const res = await request(makeApp()).get('/api/v1/config');
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ min_patient_version_code: 7 });
+    expect(res.body.data).toEqual({
+      min_patient_version_code: 7,
+      min_staff_version_code: 0
+    });
   });
 
   it('binds a resolved API client tenant before forwarding the policy', async () => {
@@ -166,7 +190,10 @@ describe('configRoutes patient app config', () => {
     const res = await request(makeApp()).get('/api/v1/config');
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ min_patient_version_code: 0 });
+    expect(res.body.data).toEqual({
+      min_patient_version_code: 0,
+      min_staff_version_code: 0
+    });
   });
 
   it('rejects a signed policy for a different resolved tenant', () => {
@@ -208,7 +235,10 @@ describe('configRoutes patient app config', () => {
     const res = await request(makeApp()).get('/api/v1/config');
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ min_patient_version_code: 0 });
+    expect(res.body.data).toEqual({
+      min_patient_version_code: 0,
+      min_staff_version_code: 0
+    });
   });
 
   it('parses a valid operator record without adding defaults', () => {
@@ -223,5 +253,12 @@ describe('configRoutes patient app config', () => {
     expect(minPatientVersionCodeFromEnv('-1')).toBe(0);
     expect(minPatientVersionCodeFromEnv('1.5')).toBe(0);
     expect(minPatientVersionCodeFromEnv('3')).toBe(3);
+  });
+
+  it('fails safe to disabled for malformed staff runtime values', () => {
+    expect(minStaffVersionCodeFromEnv('not-a-number')).toBe(0);
+    expect(minStaffVersionCodeFromEnv('-1')).toBe(0);
+    expect(minStaffVersionCodeFromEnv('1.5')).toBe(0);
+    expect(minStaffVersionCodeFromEnv('3')).toBe(3);
   });
 });
