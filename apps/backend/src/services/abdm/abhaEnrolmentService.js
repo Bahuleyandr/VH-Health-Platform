@@ -33,6 +33,7 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { maskGeneric } from '../../utils/piiMask.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { getAbdmEnrolmentSettings } from '../tenant/tenantSettingsService.js';
@@ -283,7 +284,8 @@ function extractEnrolmentResult(gatewayResponse) {
 async function loadSession(tenantId, sessionId, patientUid) {
   const expectedPatientUid = requirePatientUid(patientUid);
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${SESSION_RETURNING}, txn_id, metadata
+    `SELECT ${SESSION_RETURNING}, txn_id, metadata,
+            (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
        FROM abha_enrolment_sessions
       WHERE id = $1::integer AND tenant_id = $2::uuid AND patient_uid = $3::uuid
       LIMIT 1`,
@@ -580,8 +582,9 @@ export async function verifyEnrolmentOtp({
   if (!['otp_sent', 'otp_verifying'].includes(session.status)) {
     throw AppError.invalidTransition(session.status, 'otp_verified', ['otp_sent']);
   }
+  const sessionExpiry = epochMsOrNull(session.expires_at_epoch_ms);
   if (session.status === 'otp_sent'
-      && session.expires_at && new Date(session.expires_at).getTime() < Date.now()) {
+      && sessionExpiry != null && sessionExpiry < Date.now()) {
     await prisma.$executeRawUnsafe(
       `UPDATE abha_enrolment_sessions SET status = 'expired', updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid AND status = 'otp_sent'`,

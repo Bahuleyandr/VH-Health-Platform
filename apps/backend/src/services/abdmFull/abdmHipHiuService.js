@@ -22,6 +22,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -946,16 +947,19 @@ export async function recordWebhookEvent({
   // Idempotency check first.
   try {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT ${WEBHOOK_RETURNING} FROM abdm_webhook_events
+      `SELECT ${WEBHOOK_RETURNING},
+              (EXTRACT(EPOCH FROM received_at) * 1000)::bigint AS received_at_epoch_ms
+         FROM abdm_webhook_events
        WHERE tenant_id = $1::uuid AND external_event_id = $2 AND environment = $3
        LIMIT 1`,
       tid, cleanExt, env,
     );
     if (existing[0]) {
+      const receivedAt = epochMsOrNull(existing[0].received_at_epoch_ms);
       if (retryFailed && (
         existing[0].status === 'failed'
         || (existing[0].status === 'pending'
-          && new Date(existing[0].received_at).getTime() <= Date.now() - 5 * 60 * 1000)
+          && receivedAt != null && receivedAt <= Date.now() - 5 * 60 * 1000)
       )) {
         const reclaimed = await prisma.$queryRawUnsafe(
           `UPDATE abdm_webhook_events
