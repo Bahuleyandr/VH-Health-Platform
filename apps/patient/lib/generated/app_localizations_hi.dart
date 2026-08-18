@@ -2772,6 +2772,15 @@ class AppLocalizationsHi extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'रिमाइंडर हटाएँ';
 
   @override
+  String get medicationReminderUpdateFailed => 'रिमाइंडर अपडेट नहीं हो सका';
+
+  @override
+  String get medicationReminderDeleteFailed => 'रिमाइंडर हटाया नहीं जा सका';
+
+  @override
+  String get medicationReminderPausedLabel => 'रोका गया';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'खुराक: $dosage';
   }

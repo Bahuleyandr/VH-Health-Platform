@@ -2798,6 +2798,18 @@
   "@medicationReminderDeleteTooltip": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
+  "medicationReminderUpdateFailed": "Unable to update reminder",
+  "@medicationReminderUpdateFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderDeleteFailed": "Unable to delete reminder",
+  "@medicationReminderDeleteFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderPausedLabel": "Paused",
+  "@medicationReminderPausedLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
   "medicationReminderDosageLine": "Dosage: {dosage}",
   "@medicationReminderDosageLine": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",

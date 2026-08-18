@@ -2764,6 +2764,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'Delete reminder';
 
   @override
+  String get medicationReminderUpdateFailed => 'Unable to update reminder';
+
+  @override
+  String get medicationReminderDeleteFailed => 'Unable to delete reminder';
+
+  @override
+  String get medicationReminderPausedLabel => 'Paused';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'Dosage: $dosage';
   }

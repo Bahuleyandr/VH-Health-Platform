@@ -2800,6 +2800,15 @@ class AppLocalizationsTe extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'రిమైండర్ తొలగించండి';
 
   @override
+  String get medicationReminderUpdateFailed => 'రిమైండర్‌ను నవీకరించలేకపోయాము';
+
+  @override
+  String get medicationReminderDeleteFailed => 'రిమైండర్‌ను తొలగించలేకపోయాము';
+
+  @override
+  String get medicationReminderPausedLabel => 'పాజ్ చేయబడింది';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'మోతాదు: $dosage';
   }

@@ -5297,6 +5297,24 @@ abstract class AppLocalizations {
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
+  /// **'Unable to update reminder'**
+  String get medicationReminderUpdateFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to delete reminder'**
+  String get medicationReminderDeleteFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get medicationReminderPausedLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
   /// **'Dosage: {dosage}'**
   String medicationReminderDosageLine(String dosage);
 
