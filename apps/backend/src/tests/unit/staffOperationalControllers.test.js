@@ -1,6 +1,18 @@
 import { jest } from '@jest/globals';
 
 const queryRawUnsafe = jest.fn();
+
+// getReportAuditTrail builds its SLA block from `created_at_epoch_ms` — the
+// absolute-instant twin — not from `created_at` (PR #881). Both are derived
+// from ONE instant below so the row stays self-consistent, and the twin is a
+// BigInt because that is what the pg driver returns for an `::bigint` select.
+//
+// Omitting the twin made `epochMsOrNull` return null, the `?? 0` fallback
+// dated the report to 1970, and the response carried hours_open ≈ 496000 with
+// BOTH breach flags flipped true — silently, because these tests only asserted
+// on the redaction fields. The SLA assertions below exist so that cannot recur.
+const REPORT_AGE_HOURS = 2;
+const reportCreatedAt = new Date(Date.now() - REPORT_AGE_HOURS * 3600000);
 const usersFindUnique = jest.fn();
 const usersFindMany = jest.fn();
 const staffFindMany = jest.fn();
@@ -564,7 +576,8 @@ describe('staff operational endpoint drift guards', () => {
           is_anonymous: true,
           severity: 'moderate',
           status: 'submitted',
-          created_at: new Date().toISOString(),
+          created_at: reportCreatedAt.toISOString(),
+          created_at_epoch_ms: BigInt(reportCreatedAt.getTime()),
           resolved_at: null,
         },
       ])
@@ -575,6 +588,13 @@ describe('staff operational endpoint drift guards', () => {
       { params: { type: 'incident', id: '1' }, user: { role: 'HR_STAFF' } },
       res
     );
+
+    // Pins the epoch-twin wiring: without the twin this read 496000 hours open
+    // and breached. moderate incident SLA is 24h ack / 72h resolve.
+    const sla = res.json.mock.calls[0][0].data.sla;
+    expect(sla.hours_open).toBe(REPORT_AGE_HOURS);
+    expect(sla.acknowledge_breached).toBe(false);
+    expect(sla.resolve_breached).toBe(false);
 
     const report = res.json.mock.calls[0][0].data.report;
     expect(report.reporter_name).toBe('Anonymous');
@@ -599,7 +619,8 @@ describe('staff operational endpoint drift guards', () => {
           is_anonymous: true,
           priority: 'normal',
           status: 'submitted',
-          created_at: new Date().toISOString(),
+          created_at: reportCreatedAt.toISOString(),
+          created_at_epoch_ms: BigInt(reportCreatedAt.getTime()),
           resolved_at: null,
         },
       ])
@@ -610,6 +631,12 @@ describe('staff operational endpoint drift guards', () => {
       { params: { type: 'grievance', id: '1' }, user: { role: 'ADMIN' } },
       res
     );
+
+    // Same twin wiring on the grievance path: normal SLA is 48h ack / 336h resolve.
+    const sla = res.json.mock.calls[0][0].data.sla;
+    expect(sla.hours_open).toBe(REPORT_AGE_HOURS);
+    expect(sla.acknowledge_breached).toBe(false);
+    expect(sla.resolve_breached).toBe(false);
 
     const report = res.json.mock.calls[0][0].data.report;
     expect(report.reporter_name).toBe('Anonymous');
