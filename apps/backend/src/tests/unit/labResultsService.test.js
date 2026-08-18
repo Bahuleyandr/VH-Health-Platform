@@ -913,6 +913,7 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       generation_signoff_id: null,
       test_name: 'Troponin I',
       fired_at: new Date('2026-07-19T03:00:00.000Z'),
+      fired_at_epoch_ms: BigInt(new Date('2026-07-19T03:00:00.000Z').getTime()),
     };
     const linkedTask = { id: 82, status: 'open', workflow_sla_instance_id: 'sla-82' };
     const acknowledgedTask = {
@@ -936,7 +937,7 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([linkedTask])
       .mockResolvedValueOnce([{
-        id: 'sla-82', status: 'active', completed_at: null, metadata: {},
+        id: 'sla-82', status: 'active', completed_at: null, completed_at_epoch_ms: null, metadata: {},
       }])
       .mockResolvedValueOnce([acknowledgedAlert])
       .mockResolvedValueOnce([{ recorded: true }]);
@@ -1067,6 +1068,7 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       acknowledged_at: null,
       generation_signoff_id: 6,
       fired_at: new Date('2026-07-19T03:00:00.000Z'),
+      fired_at_epoch_ms: BigInt(new Date('2026-07-19T03:00:00.000Z').getTime()),
     };
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ result_id: 37 }])
@@ -1103,6 +1105,7 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       acknowledged_at: null,
       acknowledgement_task_id: 82,
       fired_at: new Date('2026-07-19T03:00:00.000Z'),
+      fired_at_epoch_ms: BigInt(new Date('2026-07-19T03:00:00.000Z').getTime()),
     };
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ result_id: 37 }])

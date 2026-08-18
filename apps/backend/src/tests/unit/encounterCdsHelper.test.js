@@ -95,7 +95,7 @@ describe('buildEncounterStartAlerts', () => {
       },
     ]); // follow-ups (overdue)
     queryUnsafeMock.mockResolvedValueOnce([
-      { id: 7, title: 'Review labs', priority: 'critical', due_at: null, task_kind: 'review' },
+      { id: 7, title: 'Review labs', priority: 'critical', due_at: null, due_at_epoch_ms: null, task_kind: 'review' },
     ]); // tasks
 
     const alerts = await buildEncounterStartAlerts({ patientUid: PATIENT, encounterId: 42 });
@@ -142,9 +142,13 @@ describe('buildEncounterStartAlerts', () => {
     getActiveAlertsMock.mockResolvedValueOnce([]);
     getProtocolRemindersMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
-    const future = new Date(Date.now() + 7 * 86400000).toISOString();
+    const futureMs = Date.now() + 7 * 86400000;
+    const future = new Date(futureMs).toISOString();
     queryUnsafeMock.mockResolvedValueOnce([
-      { id: 5, origin_kind: 'consultation', due_at: future, reason: 'follow-up' },
+      // Twin supplied so 'info' is proven for a genuinely-future instant —
+      // without it the overdue check reads null and this assertion would stay
+      // green even if the window logic broke.
+      { id: 5, origin_kind: 'consultation', due_at: future, due_at_epoch_ms: BigInt(futureMs), reason: 'follow-up' },
     ]);
     queryUnsafeMock.mockResolvedValueOnce([]); // tasks
     const alerts = await buildEncounterStartAlerts({ patientUid: PATIENT });
