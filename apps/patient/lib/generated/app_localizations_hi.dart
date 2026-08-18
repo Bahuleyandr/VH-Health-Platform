@@ -535,6 +535,11 @@ class AppLocalizationsHi extends AppLocalizations {
       'एक फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'स्वास्थ्य रोचक तथ्य';
 
   @override

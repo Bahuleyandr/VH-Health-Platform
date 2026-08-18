@@ -546,6 +546,11 @@ class AppLocalizationsMl extends AppLocalizations {
       'ഒരു ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'ആരോഗ്യ അറിവുകൾ';
 
   @override

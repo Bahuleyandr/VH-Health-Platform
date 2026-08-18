@@ -4,11 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 
 typedef DashboardUidProvider = String? Function();
+typedef DashboardActiveDependentIdProvider = String? Function();
 typedef DashboardRealtimeReady = bool Function();
 typedef DashboardCacheInvalidator = Future<void> Function(String path);
 typedef DashboardTimerFactory = Timer Function(
@@ -29,6 +31,7 @@ class DashboardProvider extends ChangeNotifier {
   DashboardProvider({
     required bool isGuestSession,
     DashboardUidProvider? uidProvider,
+    DashboardActiveDependentIdProvider? activeDependentIdProvider,
     DashboardCachedGet? cachedGet,
     DashboardGet? get,
     DashboardCacheInvalidator? invalidateCache,
@@ -38,6 +41,8 @@ class DashboardProvider extends ChangeNotifier {
     this.smartPollBase = const Duration(seconds: 60),
   }) : _isGuestSession = isGuestSession,
        _uidProvider = uidProvider ?? _noInjectedPatientId,
+       _activeDependentIdProvider =
+           activeDependentIdProvider ?? _defaultActiveDependentId,
        _cachedGet = cachedGet ?? _defaultCachedGet,
        _get = get ?? _defaultGet,
        _invalidateCache = invalidateCache ?? ApiCacheManager.invalidate,
@@ -46,6 +51,7 @@ class DashboardProvider extends ChangeNotifier {
 
   final bool _isGuestSession;
   final DashboardUidProvider _uidProvider;
+  final DashboardActiveDependentIdProvider _activeDependentIdProvider;
   final DashboardCachedGet _cachedGet;
   final DashboardGet _get;
   final DashboardCacheInvalidator _invalidateCache;
@@ -355,11 +361,22 @@ class DashboardProvider extends ChangeNotifier {
   // Default id source: none injected, so resolve from secure storage.
   static String? _noInjectedPatientId() => null;
 
-  /// Resolve the DB user id used to key the appointment feed. An injected
-  /// [_uidProvider] (tests / overrides) wins; otherwise read the login-time
-  /// `user_id` from secure storage and cache it. The old poller used the
-  /// FirebaseAuth uid, which the backend (needing users.uid) rejected with 400.
+  // Default acting-as source: the live roster provider's active dependent.
+  static String? _defaultActiveDependentId() =>
+      DependentsProvider.instance?.activeDependent?.id.toString();
+
+  /// Resolve the DB user id used to key the appointment feed. The ACTIVE
+  /// dependent's id wins when a guardian is viewing a dependent profile —
+  /// the request also carries X-Acting-As-Uid, so the backend authorizes the
+  /// guardian link (same pattern as appointments_list_tab; using the stored
+  /// guardian id under acting-as 403'd and left the feed silently empty —
+  /// P4, 2026-08-18). Otherwise an injected [_uidProvider] (tests /
+  /// overrides) wins; else read the login-time `user_id` from secure storage
+  /// and cache it. The old poller used the FirebaseAuth uid, which the
+  /// backend (needing users.id) rejected with 400.
   Future<String?> _resolvePatientId() async {
+    final dependentId = _activeDependentIdProvider();
+    if (dependentId != null && dependentId.isNotEmpty) return dependentId;
     final injected = _uidProvider();
     if (injected != null && injected.isNotEmpty) return injected;
     return _patientDbId ??= await VHSecureStorage.instance.read(key: 'user_id');

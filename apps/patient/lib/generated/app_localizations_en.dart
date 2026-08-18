@@ -536,6 +536,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not pick a file. Please try again.';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'Health Trivia';
 
   @override
