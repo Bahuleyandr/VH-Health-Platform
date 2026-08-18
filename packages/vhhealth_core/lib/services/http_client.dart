@@ -106,6 +106,11 @@ class VHHttpClient {
   @visibleForTesting
   static void resetClientForTesting() {
     _client = createPinnedHttpClient();
+    // Reset the session-expiry guard so it does not leak across tests. A
+    // prior test that ended on a genuine expiry leaves the flag latched;
+    // without clearing it here, the next test's first expiry would be
+    // silently suppressed and onSessionExpired would never fire.
+    _sessionExpiredNotified = false;
   }
 
   // ── Convenience HTTP methods ──────────────────────────────────────────
