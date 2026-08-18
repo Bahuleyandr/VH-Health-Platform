@@ -13,9 +13,13 @@
 //     the scanned specimen, run through critical detection AND the
 //     rules-authoritative delta/critical-band verdicts at ingestion time.
 //
-// Physical analyzer transports (serial/MLLP listeners) are owner-side
-// deployment work; middleware-capable analyzers POST the same payloads to
-// the HTTP bridge endpoint.
+// Physical analyzer transports now live in-repo: apps/device-gateway's LIS
+// listener profiles (DEVICE_GATEWAY_LIS_LISTENERS, ships dark) terminate
+// ASTM E1381-framed E1394 and MLLP HL7 ORU over TCP, durably spool, and
+// forward to these same HTTP bridge endpoints (/api/v1/lab/interface/ingest
+// and /api/v1/lab/oru/ingest) — see apps/device-gateway/README.md. Serial
+// analyzers attach via a serial-to-TCP adapter. Middleware-capable analyzers
+// can still POST the same payloads to the bridge directly.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';

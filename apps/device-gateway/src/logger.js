@@ -17,6 +17,7 @@ const ALLOWED_FIELDS = new Set([
   'listener',
   'partition_ref',
   'port',
+  'protocol',
   'reason',
   'scope',
   'source_ref',

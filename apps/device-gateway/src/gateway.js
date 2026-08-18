@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { ack, extractMeta, messageText } from './hl7.js';
 import { errorFields, logEvent } from './logger.js';
 import { MllpFrameReader, frameMessage } from './mllpFrameReader.js';
+import { startLisListeners } from './lisTransport.js';
 import {
   I09_GATEWAY_SEQUENCE_CONTRACT,
   NdjsonSpool,
@@ -934,6 +935,8 @@ export async function startGateway({
   metricsPort = 9108,
   coldChainIngestPort = null,
   socketIdleTimeoutMs = socketIdleTimeoutMsFromEnv(),
+  lisListeners = [],
+  lisRuntime = null,
 }) {
   await runtime.initialize();
   const servers = [];
@@ -1042,6 +1045,20 @@ export async function startGateway({
       ? guardServer(createColdChainServer(runtime), 'cold-chain')
       : null;
     if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
+    // LIS analyzer transport (ships dark: zero configured listeners means
+    // zero open ports and zero timers). Its sockets share the same
+    // openSockets/socketWork shutdown bookkeeping as the MLLP servers.
+    if (lisRuntime && lisListeners.length > 0) {
+      const lisServers = await startLisListeners({
+        listeners: lisListeners,
+        runtime: lisRuntime,
+        socketIdleTimeoutMs,
+        openSockets,
+        socketWork,
+      });
+      servers.push(...lisServers);
+      lisRuntime.startSupervisedDrains(Number(process.env.DEVICE_GATEWAY_DRAIN_INTERVAL_MS || 5000));
+    }
     runtime.startSupervisedDrains(Number(process.env.DEVICE_GATEWAY_DRAIN_INTERVAL_MS || 5000));
     // Graceful shutdown (SIGTERM from Kubernetes, SIGINT from an operator):
     // stop the drain timer, stop accepting new connections, let in-flight
@@ -1053,6 +1070,7 @@ export async function startGateway({
       if (shutdownPromise) return shutdownPromise;
       shutdownPromise = (async () => {
         runtime.stopSupervisedDrains?.();
+        lisRuntime?.stopSupervisedDrains?.();
         const closing = [...servers, metricsServer, coldChainServer]
           .filter(Boolean)
           .map((server) => closeListeningServer(server));
@@ -1076,6 +1094,7 @@ export async function startGateway({
     return { servers, metricsServer, coldChainServer, shutdown };
   } catch (err) {
     runtime.stopSupervisedDrains?.();
+    lisRuntime?.stopSupervisedDrains?.();
     await Promise.allSettled([
       ...servers,
       metricsServer,
