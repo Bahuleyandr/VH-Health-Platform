@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
@@ -142,8 +143,15 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         '';
 
     try {
+      // Derive the patient from the JWT (req.user) rather than the guardian's
+      // phone-in-URL: under acting-as the backend rewrites req.user to the
+      // dependent, so `/my` returns the dependent's records while a
+      // guardian-phone URL would 403 / return empty. For the guardian's own
+      // view it resolves to the guardian, unchanged. (A dependent minor with
+      // no phone in their token still 400s here — the records-by-phone surface
+      // has no id form; the id-based Summary/Vitals tabs cover that case.)
       final response = await ApiClient.get(
-        '/records/health-records/$_phone',
+        '/records/health-records/my',
         queryParameters: queryParams.isNotEmpty ? queryParams : null,
       );
       if (!mounted) return;
@@ -454,6 +462,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                 ],
               ),
             ),
+            _buildActingAsBanner(theme),
             WhatsNextSection(repository: widget.whatsNextRepository),
             TabBar(
               controller: _tabController,
@@ -500,6 +509,39 @@ class _YourHealthScreenState extends State<YourHealthScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// "Viewing: <dependent>" indicator shown on the hub while acting as a
+  /// dependent, so the guardian knows whose health data the tabs display.
+  /// Mirrors the appointments-tab acting-as banner style.
+  Widget _buildActingAsBanner(ThemeData theme) {
+    final active = context.watch<DependentsProvider>().activeDependent;
+    if (active == null) return const SizedBox.shrink();
+    final cs = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.tertiary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.escalator_warning, size: 18, color: cs.tertiary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Viewing: ${active.name}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.tertiary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

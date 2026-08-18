@@ -51,6 +51,12 @@ class NotificationScheduler {
 
   static Future<void> _doInitialize() async {
     tz.initializeTimeZones();
+    // Anchor tz.local to the clinic timezone. Without this, tz.local stays UTC
+    // and scheduled reminders fire at the wrong wall-clock time (IST is UTC+5:30,
+    // so reminders would fire ~5.5h late). The whole platform assumes IST
+    // (APP_TIMEZONE, offset-less = IST) and the hospital is in Chennai. If the
+    // app ever serves multiple regions, source this from the device timezone.
+    tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
 
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',

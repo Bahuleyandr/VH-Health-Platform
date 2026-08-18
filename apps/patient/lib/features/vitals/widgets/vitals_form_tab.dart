@@ -74,6 +74,11 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
       }
       if (_temperatureCtrl.text.isNotEmpty) {
         body['temperature'] = double.parse(_temperatureCtrl.text);
+        // The field collects °F; declare the unit so the backend converts to
+        // canonical °C. A unitless payload is treated as °C and a real °F
+        // reading (e.g. 98.6) fails the 30–45 °C plausibility band, losing the
+        // record. Mirrors the staff vitals-chart contract.
+        body['temperature_unit'] = 'F';
       }
       if (_bloodSugarCtrl.text.isNotEmpty) {
         body['bloodSugar'] = int.parse(_bloodSugarCtrl.text);
@@ -110,7 +115,13 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             heartRate: body['heartRate'] as int?,
             spO2: body['spO2'] as int?,
             weight: body['weight'] as double?,
-            temperature: body['temperature'] as double?,
+            // HealthKit / Health Connect BODY_TEMPERATURE is canonical °C; the
+            // form collects °F, so convert for the mirror. The backend POST
+            // above still receives °F + the temperature_unit hint. Single
+            // explicit conversion here — no double-convert downstream.
+            temperature: body['temperature'] is num
+                ? ((body['temperature'] as num).toDouble() - 32) * 5 / 9
+                : null,
             systolic: body['bloodPressure'] is Map
                 ? (body['bloodPressure'] as Map)['systolic'] as int?
                 : null,

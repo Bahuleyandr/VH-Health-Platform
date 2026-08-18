@@ -23,18 +23,22 @@ void main() {
   });
 
   testWidgets('profile edit validates email before submitting', (tester) async {
-    var putCalls = 0;
+    var writeCalls = 0;
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
         if (request.method == 'GET') {
-          expect(request.url.path, endsWith('/users/5551234567'));
+          // Self-service route: PATIENT is forbidden on the directory
+          // /users/:phone, so the screen loads via /users/me.
+          expect(request.url.path, endsWith('/users/me'));
           return http.Response(
             '{"data":{"user":{"name":"Test Patient","email":""}}}',
             200,
           );
         }
-        if (request.method == 'PUT') {
-          putCalls++;
+        if (request.method == 'POST') {
+          // Save goes to the self-service POST /users/profile.
+          expect(request.url.path, endsWith('/users/profile'));
+          writeCalls++;
           return http.Response('{"success":true}', 200);
         }
         return http.Response('Not found', 404);
@@ -63,7 +67,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Enter a valid email address'), findsOneWidget);
-    expect(putCalls, 0);
+    expect(writeCalls, 0);
   });
 
   testWidgets('pharmacy upload validation renders inline instead of snackbar', (
