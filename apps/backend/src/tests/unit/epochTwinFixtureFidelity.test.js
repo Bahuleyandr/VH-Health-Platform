@@ -105,10 +105,26 @@ const suppliesBase = (src, col) =>
 const mocksProducer = (src, producerBase) =>
   new RegExp('unstable_mockModule[(][^)]*' + producerBase + '[.]js').test(src);
 
+// Line comments must count for NEITHER side of the match: a base column named
+// in prose is not a fixture field (this flagged a `// hours_pending comes off
+// created_at: ~96h` comment as an orphan), and a twin named in a docblock
+// must not satisfy proximity for a real orphan next to it. The '//' is
+// treated as a comment start only when not immediately preceded by ':' so
+// URLs (https://…) survive. The #881 script guard does this properly with a
+// parser; a line-level strip is enough for fixture files.
+function stripLineComment(line) {
+  for (let i = 0; i < line.length - 1; i += 1) {
+    if (line[i] === '/' && line[i + 1] === '/' && line[i - 1] !== ':') {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
 // True when some base-column line has no twin line within PROXIMITY_LINES —
 // i.e., at least one fixture supplies the column without its twin.
 function hasOrphanBase(src, col, twin) {
-  const lines = src.split(NEWLINES);
+  const lines = src.split(NEWLINES).map(stripLineComment);
   const re = baseColRegex(col);
   const twinLines = [];
   lines.forEach((l, i) => { if (l.includes(twin)) twinLines.push(i); });
@@ -155,6 +171,13 @@ describe('epoch-twin fixture fidelity', () => {
     expect(hasOrphanBase(adjacent, 'raised_at', 'raised_at_epoch_ms')).toBe(false);
     // the twin's own line must never count as a base-column occurrence
     expect(suppliesBase('  raised_at_epoch_ms: BigInt(1),', 'raised_at')).toBe(false);
+    // comments count for NEITHER side: prose naming the column is not a
+    // fixture field, and a twin in a docblock must not satisfy proximity
+    const prose = 'x({\n  raised_at: new Date(),\n  other: 1,\n});\n// raised_at_epoch_ms is read by the sweep\n';
+    expect(hasOrphanBase(prose, 'raised_at', 'raised_at_epoch_ms')).toBe(true);
+    const commentBase = '// hours_pending comes off created_at: ~96h, must not read as ~1970.\n';
+    expect(hasOrphanBase(commentBase, 'created_at', 'created_at_epoch_ms')).toBe(false);
+    expect(stripLineComment('const u = "https://x.test/a"; // note')).toBe('const u = "https://x.test/a"; ');
     expect(mocksProducer("jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({", 'vitalsChartService')).toBe(true);
   });
 
