@@ -115,6 +115,28 @@ Production database readiness is tracked in `docs/PRODUCTION_DB_HARDENING.md`.
 The DB is not considered production-safe until a restore drill and alert checks
 have been completed for the target environment.
 
+## Rollout Sequencing Notes
+
+Backend deploys (ArgoCD sync) and mobile app updates (Play Store / App
+Distribution) are decoupled, so contract changes can strand in-field builds.
+Known live case:
+
+- **Patient vitals temperature unit (2026-08-18 canonical-unit wave).**
+  `POST /health/patient/vitals` now treats a unitless `temperature` as
+  Celsius by deliberate contract (unitless = °C; °F senders must declare
+  `temperature_unit: 'F'`) and rejects values outside the 12–45 °C
+  plausibility band. Patient app builds older than the 2026-08-18 fix still
+  send unitless Fahrenheit (e.g. 98.6), so after the backend syncs those
+  builds get a **400 for the entire vitals submission** (BP/HR/SpO2 included)
+  with the message "temperature must be between 12 and 45 °C". This is the
+  intended fail-closed behaviour, not a backend bug: accepting unitless °F
+  again would re-corrupt the canonical column. Sequence a patient app release
+  (and in-app update nudge) with or ahead of the backend sync, and brief
+  support that "can't log vitals / temperature error at 98.6" from an
+  un-updated app is resolved by updating the app or omitting the temperature
+  field. Legacy stored raw-°F rows are corrected by backend migration
+  `718_patient_vitals_legacy_fahrenheit_backfill.sql`.
+
 ## Tagging
 
 Use separate monorepo tags so the workflows do not collide:
