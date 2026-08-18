@@ -33,7 +33,7 @@ first two variables blank for `test:db:setup`. The bootstrap intentionally uses
 `127.0.0.1:55432/vhhealth_test` when those variables are absent.
 
 The Prisma schema includes a pgvector-backed `Unsupported("vector")` column.
-Local Postgres must provide the `vector` extension for the raw SQL migrations to succeed (the baseline SQL creates the vector extension). `npm run test:db:setup` checks this before resetting the schema. If local Postgres does not have pgvector, use the Docker-backed guardrail runner. It starts a disposable `pgvector/pgvector:pg18` container on a free local port, applies raw SQL migrations (via `ci-setup-db.mjs`), seeds comprehensive QA data, runs the contract checks, then removes the container:
+Local Postgres must provide the `vector` extension for the raw SQL migrations to succeed (the baseline SQL creates the vector extension). `npm run test:db:setup` checks this before resetting the schema. If local Postgres does not have pgvector, use the Docker-backed guardrail runner. It starts a disposable `pgvector/pgvector:pg17` container on a free local port, applies raw SQL migrations (via `ci-setup-db.mjs`), seeds comprehensive QA data, runs the contract checks, then removes the container:
 
 ```powershell
 cd apps/backend
@@ -54,7 +54,7 @@ docker run --rm -p 55433:5432 `
   -e POSTGRES_USER=postgres `
   -e POSTGRES_PASSWORD=postgres `
   -e POSTGRES_DB=vhhealth_test `
-  pgvector/pgvector:pg18
+  pgvector/pgvector:pg17
 
 $env:PGPASSWORD='postgres'
 $env:DATABASE_URL="postgresql://postgres:$($env:PGPASSWORD)@127.0.0.1:55433/vhhealth_test"
@@ -68,7 +68,7 @@ npm run ci:db-guardrails
 
 ## CI Checks
 
-The backend reusable workflow uses the `pgvector/pgvector:pg18` service image
+The backend reusable workflow uses the `pgvector/pgvector:pg17` service image
 and now runs:
 
 - `npm run db:ensure-pgvector`

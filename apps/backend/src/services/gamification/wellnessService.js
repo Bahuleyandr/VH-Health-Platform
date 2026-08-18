@@ -7,6 +7,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { istDateString } from '../../utils/dateUtils.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const DIMENSION_MAX = 20;
@@ -359,7 +360,9 @@ export async function computeHealthInsights(userUid, limit = 3, tenantId = null)
  * the dashboard to decide whether to show the check-in prompt.
  */
 export async function hasCheckedInToday(userUid, tenantId = null) {
-  const today = new Date().toISOString().split('T')[0];
+  // P7 fix: the check-in day key is the IST (Asia/Kolkata) calendar day —
+  // must match recordCheckIn's activity_ref_id key (gamificationController).
+  const today = istDateString();
   const rows = await prisma.$queryRawUnsafe(
     `SELECT 1 FROM health_point_ledger
       WHERE user_uid = $1::uuid
@@ -386,13 +389,16 @@ export async function getCheckInStreak(userUid, tenantId = null) {
   );
   if (rows.length === 0) return 0;
 
+  // P7 fix: walk consecutive IST (Asia/Kolkata) calendar days, matching the
+  // IST activity_ref_id day keys. IST has no DST, so stepping back in exact
+  // 24h increments and re-deriving the IST date string is always correct.
+  // Historical (pre-fix) keys were UTC days; for entries written between
+  // 00:00 and 05:29 IST that is the previous calendar day, so one legacy
+  // early-morning entry can read as a one-day gap — accepted one-time skew.
   let streak = 0;
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  const nowMs = Date.now();
   for (let i = 0; i < rows.length; i++) {
-    const expected = new Date(today);
-    expected.setUTCDate(today.getUTCDate() - i);
-    const expectedStr = expected.toISOString().split('T')[0];
+    const expectedStr = istDateString(new Date(nowMs - i * 86400000));
     if (rows[i].day === expectedStr) {
       streak++;
     } else {

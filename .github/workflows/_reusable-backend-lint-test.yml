@@ -26,6 +26,18 @@ on:
         required: false
         type: string
         default: Backend CI
+      # Prod parity (2026-08-18): production CNPG pins PostgreSQL 17.10
+      # (infra/kubernetes/base/cnpg/cluster.yaml), so the default CI service
+      # image is pg17 — CI previously ran pg18 and a real SQLSTATE-class
+      # behavioral difference (23001 vs 23503 on ON DELETE RESTRICT) bit
+      # during #878. The PG18 cutover is a held, operator-gated ladder
+      # (docs/CNPG_POSTGRES_18_QUALIFICATION.md); until it lands, only the
+      # non-required pg18-canary.yml dispatch overrides this input.
+      postgres_image:
+        description: Postgres service container image for DB-backed jobs.
+        required: false
+        type: string
+        default: pgvector/pgvector:pg17
     secrets:
       DISCORD_WEBHOOK_URL:
         required: false
@@ -94,7 +106,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: ${{ inputs.postgres_image }}
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -275,7 +287,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: ${{ inputs.postgres_image }}
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}

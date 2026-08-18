@@ -26,7 +26,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18@sha256:691673308c99d2161ba298736f3147f1f22d79de2fb7ec93ae9b4afcab870b62
+        image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}

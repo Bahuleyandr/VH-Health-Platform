@@ -10,6 +10,7 @@
 // source. RLS is OFF in the test env (the tenantId arg drives the tenant scope).
 import { awardStepPoints } from '../services/gamification/pointService.js';
 import prisma from '../lib/prisma.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -17,8 +18,11 @@ const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const DEVICE_USER = 'c0de0a48-00a0-4000-8000-0000000000a1'; // attested in-app pedometer
 const TYPED_USER = 'c0de0a48-00b0-4000-8000-0000000000b1';  // future self-declared entry
 const MIXED_USER = 'c0de0a48-00c0-4000-8000-0000000000c1';  // both kinds in one day
-const TODAY = new Date().toISOString().split('T')[0];
-const STARTED_AT = `${TODAY} 12:00:00`; // noon-UTC today → in awardStepPoints' day window
+// P7: awardStepPoints keys "today" on the IST (Asia/Kolkata) calendar day.
+const TODAY = istDateString();
+// 06:30 UTC = 12:00 IST → mid-window of awardStepPoints' IST day regardless
+// of run time (started_at is a tz-naive column holding UTC wall time).
+const STARTED_AT = `${TODAY} 06:30:00`;
 const USERS = [DEVICE_USER, TYPED_USER, MIXED_USER];
 
 async function clean() {

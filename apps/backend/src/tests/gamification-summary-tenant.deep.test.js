@@ -8,6 +8,7 @@
 // RLS is OFF in the test env, so the explicit predicates are what scope these.
 import { getUserPointSummary, awardStepPoints } from '../services/gamification/pointService.js';
 import prisma from '../lib/prisma.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -15,7 +16,8 @@ const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const LEDGER_USER = 'c0de0a12-00b0-4000-8000-0000000000b1';
 const STEP_USER = 'c0de0a12-00c0-4000-8000-0000000000c1';
-const TODAY = new Date().toISOString().split('T')[0];
+// P7: daily award keys are the IST (Asia/Kolkata) calendar day.
+const TODAY = istDateString();
 
 async function clean() {
   await prisma.$executeRawUnsafe(`DELETE FROM health_point_ledger WHERE user_uid IN ($1::uuid,$2::uuid)`, LEDGER_USER, STEP_USER).catch(() => {});
@@ -47,10 +49,11 @@ d('Health-point summary tenant scope + step attestation (CAN-012)', () => {
   });
 
   it('awardStepPoints scopes the step sum by tenant', async () => {
-    // started_at is a tz-naive timestamp; awardStepPoints matches on
-    // DATE(started_at AT TIME ZONE 'UTC') = <JS-UTC-today>, so seed noon-UTC on
-    // today's date to land in-window regardless of the server timezone.
-    const startedAt = `${TODAY} 12:00:00`;
+    // started_at is a tz-naive timestamp holding UTC wall time; awardStepPoints
+    // (P7) matches on DATE((started_at AT TIME ZONE 'UTC') AT TIME ZONE
+    // 'Asia/Kolkata') = <IST-today>, so seed 06:30 UTC (= 12:00 IST) on the IST
+    // date to land mid-window regardless of the server timezone or run time.
+    const startedAt = `${TODAY} 06:30:00`;
 
     // A goal-meeting session in tenant B (in-app pedometer rows are source='manual').
     await prisma.$executeRawUnsafe(
