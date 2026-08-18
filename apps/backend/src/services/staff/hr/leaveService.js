@@ -1,6 +1,7 @@
 // src/services/staff/hr/leaveService.js
 import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
+import { requireTenantId } from '../../tenant/tenantService.js';
 
 const APPROVED_LEAVE_STATUSES = ['approved', 'APPROVED'];
 const DEFAULT_LEAVE_ENTITLEMENTS = {
@@ -62,6 +63,7 @@ async function fetchStaffInfo(staffId) {
       id: true,
       uid: true,
       name: true,
+      tenant_id: true,
       staff: {
         select: {
           employee_id: true,
@@ -79,6 +81,7 @@ async function fetchStaffInfo(staffId) {
     id: user.id,
     uid: user.uid,
     name: user.name,
+    tenant_id: user.tenant_id,
     employee_id: staff.employee_id,
     department: staff.department,
     hire_date: staff.hire_date,
@@ -276,11 +279,18 @@ export const applyForLeave = async (leaveData) => {
 
   const requestedReplacementId = replacement_staff_id ?? replacementStaffId;
 
+  // Stamp tenant_id explicitly from the resolved staff row. Both tables carry a
+  // GUC-reading DEFAULT, but a bare prisma.$transaction never sets
+  // app.current_tenant_id, so the default would misfile every row on the
+  // default tenant (862b78de pattern).
+  const tenantId = requireTenantId(staff.tenant_id);
+
   // Create leave application and optional replacement request atomically,
   // so roster coverage can see both sides of the same leave event.
   const { application, replacementRequest } = await prisma.$transaction(async tx => {
     const createdApplication = await tx.leave_applications.create({
       data: {
+        tenant_id: tenantId,
         staff_id: staff.id,
         leave_type,
         start_date: startDate,
@@ -318,7 +328,7 @@ export const applyForLeave = async (leaveData) => {
       }
 
       const replacementUser = await tx.users.findFirst({
-        where: { id: replacementUserId, is_active: true },
+        where: { id: replacementUserId, is_active: true, tenant_id: tenantId },
         select: { id: true },
       });
       if (!replacementUser) {
@@ -327,6 +337,7 @@ export const applyForLeave = async (leaveData) => {
 
       createdReplacement = await tx.replacement_requests.create({
         data: {
+          tenant_id: tenantId,
           leave_request_id: createdApplication.id,
           requester_id: staff.id,
           replacement_staff_id: replacementUser.id,

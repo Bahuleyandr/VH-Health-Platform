@@ -136,6 +136,7 @@ function installMock(module) {
         requested_by: ACTOR,
         payload: {},
         expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        expires_at_epoch_ms: BigInt(Date.now() + 86_400_000),
         created_at: new Date().toISOString(),
       }];
     }

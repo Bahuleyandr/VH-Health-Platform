@@ -287,17 +287,24 @@ export async function resolveHousekeepingRecipientsForTarget({
 export async function ensureHousekeepingRequestRecipients({
   requestId,
   recipients = [],
+  tenantId = null,
   db = prisma,
 } = {}) {
   const id = Number.parseInt(String(requestId || ''), 10);
   if (!Number.isInteger(id) || id <= 0) return [];
 
+  // Stamp tenant_id explicitly rather than trusting the column DEFAULT: this
+  // runs under a bare prisma.$transaction on the service path (GUC unset), so
+  // the default would land recipients on the default tenant. Fails closed on a
+  // missing tenant (W1 no-default-fallback rule).
+  const stampTenant = requireTenantId(tenantId);
+
   const saved = [];
   for (const recipient of uniqueRecipients(recipients)) {
     const rows = await db.$queryRawUnsafe(
       `INSERT INTO housekeeping_request_recipients
-         (request_id, staff_id, staff_uid, recipient_kind, source, updated_at)
-       VALUES ($1::int,$2::int,$3::uuid,$4,$5,NOW())
+         (tenant_id, request_id, staff_id, staff_uid, recipient_kind, source, updated_at)
+       VALUES ($6::uuid,$1::int,$2::int,$3::uuid,$4,$5,NOW())
        ON CONFLICT (request_id, staff_id)
        DO UPDATE SET
          staff_uid = EXCLUDED.staff_uid,
@@ -309,7 +316,8 @@ export async function ensureHousekeepingRequestRecipients({
       recipient.id,
       recipient.uid || null,
       recipient.recipient_kind || 'assignee',
-      recipient.source || 'manual'
+      recipient.source || 'manual',
+      stampTenant
     );
     saved.push(rows[0]);
   }
@@ -463,15 +471,23 @@ export async function fanOutHousekeepingRequest({
   // Durable rows (recipient set + system update) land atomically; the staff
   // notification send stays outside the transaction — it calls external
   // providers and must never hold a DB transaction open.
+  const stampTenant = requireTenantId(tenantId);
   const savedRecipients = await prisma.$transaction(async (tx) => {
-    const saved = await ensureHousekeepingRequestRecipients({ requestId, recipients, db: tx });
+    const saved = await ensureHousekeepingRequestRecipients({
+      requestId,
+      recipients,
+      tenantId: stampTenant,
+      db: tx,
+    });
     if (updateMessage) {
       await tx.$executeRawUnsafe(
+        // tenant_id stamped explicitly — bare $transaction leaves the GUC unset.
         `INSERT INTO housekeeping_request_updates
-           (request_id, author_role, message, is_internal)
-         VALUES ($1::int, 'system', $2, false)`,
+           (tenant_id, request_id, author_role, message, is_internal)
+         VALUES ($3::uuid, $1::int, 'system', $2, false)`,
         requestId,
-        updateMessage
+        updateMessage,
+        stampTenant
       );
     }
     return saved;

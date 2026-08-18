@@ -68,6 +68,15 @@ function valueWithUnit(value, unit) {
   return `${valueText} ${unit}`;
 }
 
+// vitals_chart.temperature is canonical °C; the discharge summary labels
+// temperature in "deg F" (house convention, matching the case-sheet vitals).
+// Convert the canonical value so the printed number matches its label.
+function celsiusToFahrenheitText(celsius) {
+  const num = Number(celsius);
+  if (!Number.isFinite(num)) return '';
+  return String(Number(((num * 9) / 5 + 32).toFixed(1)));
+}
+
 function formatDate(value) {
   if (!value) return 'not documented';
   return new Date(value).toISOString().slice(0, 10);
@@ -453,7 +462,7 @@ function buildExaminationText(context, latestVitals) {
       vitals.systolic_bp || vitals.diastolic_bp
         ? `BP- ${valueWithUnit(`${vitals.systolic_bp ?? '-'}/${vitals.diastolic_bp ?? '-'}`, 'mm Hg')}`
         : null,
-      vitals.temperature ? `Temp- ${valueWithUnit(vitals.temperature, 'deg F')}` : null,
+      vitals.temperature ? `Temp- ${valueWithUnit(celsiusToFahrenheitText(vitals.temperature), 'deg F')}` : null,
       vitals.spo2 ? `SpO2- ${valueWithUnit(vitals.spo2, '%')}` : null,
       vitals.blood_glucose ? `CBG- ${valueWithUnit(vitals.blood_glucose, 'mg/dl')}` : null,
     ].filter(Boolean).join('    '));

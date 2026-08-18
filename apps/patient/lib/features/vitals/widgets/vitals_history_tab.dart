@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -33,6 +34,12 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
 
   Future<void> _fetchHistory() async {
     final l = AppLocalizations.of(context)!;
+    // When acting as a dependent the backend rewrites req.user to it, so query
+    // with the dependent's id; the guardian's stored id would 403 / be empty.
+    // Read the live provider statically (context-free, null-safe) — mirrors
+    // how the acting-as HTTP header resolver is registered.
+    final dependentId = DependentsProvider.instance?.activeDependent?.id
+        .toString();
     setState(() {
       _loading = true;
       _error = null;
@@ -42,6 +49,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
       // Falls back to firebase_uid, then phone number as last resort.
       final storage = VHSecureStorage.instance;
       final patientId =
+          dependentId ??
           await storage.read(key: 'patient_id') ??
           await storage.read(key: 'firebase_uid') ??
           widget.phone;
@@ -136,15 +144,21 @@ class _VitalsTrendSummary extends StatelessWidget {
       String unit,
       String key, {
       bool higherIsBad = true,
+      double Function(double)? transform,
     }) {
-      final cur = _toDouble(latest[key]);
-      final prev = _toDouble(previous[key]);
+      var cur = _toDouble(latest[key]);
+      var prev = _toDouble(previous[key]);
       if (cur == null || prev == null) return;
+      if (transform != null) {
+        cur = transform(cur);
+        prev = transform(prev);
+      }
       trends.add(_TrendItem(label, cur, prev, unit, higherIsBad));
     }
 
     addTrend('HR', 'bpm', 'heartRate');
-    addTrend('Temp', '°F', 'temperature');
+    // Stored °C → °F so the value and unit label are consistent.
+    addTrend('Temp', '°F', 'temperature', transform: _celsiusToFahrenheit);
     addTrend('Sugar', 'mg/dL', 'bloodSugar');
     addTrend('Weight', 'kg', 'weight', higherIsBad: false);
     addTrend('SpO2', '%', 'spO2', higherIsBad: false);
@@ -252,6 +266,17 @@ class _VitalsTrendSummary extends StatelessWidget {
   }
 }
 
+/// Stored temperatures are canonical °C — the backend converts the °F the
+/// patient enters on the log form. Convert back to °F for display so the unit
+/// label matches what the patient typed. Mirrors the staff vitals-chart read
+/// path.
+double _celsiusToFahrenheit(double celsius) => celsius * 9 / 5 + 32;
+
+double? _celsiusToFahrenheitOrNull(dynamic celsius) {
+  final c = celsius is num ? celsius.toDouble() : double.tryParse('$celsius');
+  return c == null ? null : _celsiusToFahrenheit(c);
+}
+
 class _TrendItem {
   final String label;
   final double current;
@@ -295,7 +320,11 @@ class _VitalEntryCard extends StatelessWidget {
       items.add(_VitalItem('HR', '${entry['heartRate']}', 'bpm'));
     }
     if (entry['temperature'] != null) {
-      items.add(_VitalItem('Temp', '${entry['temperature']}', '°F'));
+      // Stored value is canonical °C; convert back to °F for display.
+      final tempF = _celsiusToFahrenheitOrNull(entry['temperature']);
+      if (tempF != null) {
+        items.add(_VitalItem('Temp', tempF.toStringAsFixed(1), '°F'));
+      }
     }
     if (entry['bloodSugar'] != null) {
       items.add(_VitalItem('Sugar', '${entry['bloodSugar']}', 'mg/dL'));

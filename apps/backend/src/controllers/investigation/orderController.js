@@ -7,6 +7,7 @@ import { sendPushNotification } from '../../utils/notifications/sendPushNotifica
 import { resolveStaffPushRecipients } from '../../services/notification/staffPushRecipientService.js';
 import { recordStaffPushFanoutFailure } from '../../observability/staffPushFanoutMetrics.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { isPatient } from '../../utils/roleHelpers.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Roles alerted for an URGENT/STAT investigation order.
@@ -167,6 +168,20 @@ export const legacyInvestigationRequest = async (req, res) => {
 
     if (!phone || !test_name) {
       return error(res, 'Phone and test name are required.', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // IDOR-write guard: the target patient is resolved purely from the body
+    // phone, so a PATIENT actor must be filing against their OWN chart. Staff
+    // and clinical roles legitimately specify an arbitrary patient's phone.
+    if (isPatient(req.user?.role)) {
+      const callerPhone = normalizePhone(req.user?.phone || '');
+      if (!callerPhone || callerPhone !== phone) {
+        return error(
+          res,
+          'Can only upload investigations to your own record',
+          HTTP_STATUS.FORBIDDEN,
+        );
+      }
     }
 
     const result = await orderService.createLegacyInvestigation({

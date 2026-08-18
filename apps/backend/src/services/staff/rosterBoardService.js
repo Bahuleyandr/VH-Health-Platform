@@ -156,12 +156,12 @@ function normalizeSnapshot(value) {
 }
 
 async function resolveActor(user) {
-  if (!user?.uid) return { id: Number(user?.id) || null, uid: null };
+  if (!user?.uid) return { id: Number(user?.id) || null, uid: null, tenant_id: null };
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid FROM users WHERE uid = $1::uuid LIMIT 1`,
+    `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
     user.uid
   );
-  return rows[0] || { id: Number(user?.id) || null, uid: user.uid };
+  return rows[0] || { id: Number(user?.id) || null, uid: user.uid, tenant_id: null };
 }
 
 async function getShiftByInput({ shiftId, shiftLabel }) {
@@ -820,7 +820,7 @@ async function resolveRosterRequester(config, actorUser, requestedStaffId = null
 
   const roles = [...new Set([...config.staffRoles, ...config.managerRoles])];
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid, name, role
+    `SELECT id, uid, name, role, tenant_id
        FROM users
       WHERE id = $1::int
         AND is_active = true
@@ -890,14 +890,21 @@ export async function createRosterPreferenceRequest({
     building
   });
 
+  // Stamp tenant_id explicitly from the resolved staff row rather than trusting
+  // the column DEFAULT — a bare prisma.$transaction never sets the
+  // app.current_tenant_id GUC, so the default would land every request on the
+  // default tenant (the reviewer's list filters by tenant and would never see
+  // it). See commit 862b78de for the same fix on the roster boards.
+  const tenantId = requireTenantId(staff.tenant_id);
+
   return prisma.$transaction(async tx => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO staff_shift_roster_requests
-         (request_type, staff_id, staff_uid, department, requested_start_date,
+         (tenant_id, request_type, staff_id, staff_uid, department, requested_start_date,
           requested_end_date, period_type, shift_id, shift_label,
           assignment_target_type, assignment_target_id, assignment_target_label,
           floor, building, priority, reason, metadata, updated_at)
-       VALUES ($1,$2::int,$3::uuid,$4,$5::date,$6::date,$7,$8::int,$9,$10,$11::int,
+       VALUES ($18::uuid,$1,$2::int,$3::uuid,$4,$5::date,$6::date,$7,$8::int,$9,$10,$11::int,
                $12,$13,$14,$15,$16,$17::jsonb,NOW())
        RETURNING *`,
       type,
@@ -916,7 +923,8 @@ export async function createRosterPreferenceRequest({
       target.building || null,
       requestPriority,
       reason || null,
-      JSON.stringify(normalizeSnapshot(metadata))
+      JSON.stringify(normalizeSnapshot(metadata)),
+      tenantId
     );
     const created = rows[0];
     await auditRosterRequest(tx, {
@@ -1046,11 +1054,17 @@ export async function reviewRosterPreferenceRequest({
     });
   }
   const actor = await resolveActor(actorUser);
+  // Scope the by-id read/write to the reviewer's own tenant — a bare
+  // prisma.$transaction leaves the RLS GUC unset, so without this predicate a
+  // reviewer could resolve and mutate another tenant's enumerable request id.
+  const tenantId = requireTenantId(actor.tenant_id);
 
   return prisma.$transaction(async tx => {
     const beforeRows = await tx.$queryRawUnsafe(
-      `SELECT * FROM staff_shift_roster_requests WHERE id = $1::int LIMIT 1`,
-      id
+      `SELECT * FROM staff_shift_roster_requests
+        WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      id,
+      tenantId
     );
     const before = beforeRows[0];
     if (!before) {
@@ -1075,12 +1089,14 @@ export async function reviewRosterPreferenceRequest({
               review_notes = $5,
               updated_at = NOW()
         WHERE id = $1::int
+          AND tenant_id = $6::uuid
         RETURNING *`,
       id,
       status,
       actor.id || null,
       actor.uid || null,
-      reviewNotes || reason || null
+      reviewNotes || reason || null,
+      tenantId
     );
     const after = rows[0];
     await auditRosterRequest(tx, {
@@ -1461,18 +1477,21 @@ export async function publishRosterBoard({ tenantId: rawTenantId, rosterId, acto
         `UPDATE housekeeping_floor_assignments
             SET status = 'superseded', updated_at = NOW()
           WHERE roster_board_id = $1::int
+            AND tenant_id = $2::uuid
             AND assignment_kind = 'roster'
             AND status = 'active'`,
-        id
+        id,
+        tenantId
       );
 
       const projectionRows = await tx.$queryRawUnsafe(
         `INSERT INTO housekeeping_floor_assignments
-           (staff_id, staff_uid, zone_id, zone_name, floor, building, shift_label,
+           (tenant_id, staff_id, staff_uid, zone_id, zone_name, floor, building, shift_label,
             assigned_by, assigned_by_uid, reason, is_temporary,
             effective_from, effective_to, status, roster_board_id,
             roster_assignment_id, assignment_kind)
-         SELECT a.staff_id,
+         SELECT $5::uuid,
+                a.staff_id,
                 a.staff_uid,
                 a.assignment_target_id,
                 a.assignment_target_label,
@@ -1496,13 +1515,16 @@ export async function publishRosterBoard({ tenantId: rawTenantId, rosterId, acto
            FROM staff_shift_roster_assignments a
            JOIN staff_shift_roster_boards b ON b.id = a.roster_id
           WHERE b.id = $1::int
+            AND a.tenant_id = $5::uuid
+            AND b.tenant_id = $5::uuid
             AND a.status = 'published'
             AND a.assignment_target_type = 'housekeeping_zone'
          RETURNING id`,
         id,
         actor.id || null,
         actor.uid || null,
-        reason || null
+        reason || null,
+        tenantId
       );
       projectionCount = projectionRows.length;
     }

@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 typedef DashboardUidProvider = String? Function();
 typedef DashboardRealtimeReady = bool Function();
@@ -37,7 +37,7 @@ class DashboardProvider extends ChangeNotifier {
     this.appointmentFallbackBase = const Duration(seconds: 120),
     this.smartPollBase = const Duration(seconds: 60),
   }) : _isGuestSession = isGuestSession,
-       _uidProvider = uidProvider ?? _firebaseUid,
+       _uidProvider = uidProvider ?? _noInjectedPatientId,
        _cachedGet = cachedGet ?? _defaultCachedGet,
        _get = get ?? _defaultGet,
        _invalidateCache = invalidateCache ?? ApiCacheManager.invalidate,
@@ -62,6 +62,9 @@ class DashboardProvider extends ChangeNotifier {
   bool _disposed = false;
   int _appointmentPollFailures = 0;
   int _smartPollFailures = 0;
+  // DB-minted users.uid (numeric id), cached from secure storage. The
+  // appointment feed keys off this, NOT the FirebaseAuth uid.
+  String? _patientDbId;
 
   Map<String, dynamic>? _todayAppointment;
   Map<String, dynamic>? _nextAppointmentDetail;
@@ -102,9 +105,9 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> refreshAppointments({bool invalidateCache = false}) async {
     if (_isGuestSession || _disposed) return;
     try {
-      final uid = _uidProvider();
-      if (uid == null || uid.isEmpty) return;
-      final path = _appointmentPath(uid);
+      final id = await _resolvePatientId();
+      if (id == null || id.isEmpty) return;
+      final path = _appointmentPath(id);
 
       if (invalidateCache) {
         await _invalidateCache(path);
@@ -349,9 +352,20 @@ class DashboardProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  static String? _firebaseUid() => FirebaseAuth.instance.currentUser?.uid;
+  // Default id source: none injected, so resolve from secure storage.
+  static String? _noInjectedPatientId() => null;
 
-  static String _appointmentPath(String uid) => '/appointments/uid/$uid';
+  /// Resolve the DB user id used to key the appointment feed. An injected
+  /// [_uidProvider] (tests / overrides) wins; otherwise read the login-time
+  /// `user_id` from secure storage and cache it. The old poller used the
+  /// FirebaseAuth uid, which the backend (needing users.uid) rejected with 400.
+  Future<String?> _resolvePatientId() async {
+    final injected = _uidProvider();
+    if (injected != null && injected.isNotEmpty) return injected;
+    return _patientDbId ??= await VHSecureStorage.instance.read(key: 'user_id');
+  }
+
+  static String _appointmentPath(String id) => '/appointments/patient/$id';
 
   static Future<CachedApiResponse> _defaultCachedGet(
     String path, {

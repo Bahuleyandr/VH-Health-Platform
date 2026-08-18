@@ -44,6 +44,10 @@ const vitalsCreateMock = jest.fn(async ({ data }) => ({
   source_device: data.source_device ?? null,
   recorded_by: data.recorded_by,
   recorded_at: data.recorded_at ?? new Date(),
+  // correctVitals reads the absolute-instant twins, not the driver Dates
+  // (PR #881); derive both from the same values so the row is self-consistent.
+  recorded_at_epoch_ms: BigInt(new Date(data.recorded_at ?? Date.now()).getTime()),
+  created_at_epoch_ms: BigInt(Date.now()),
   weight_kg: null,
   height_cm: null,
 }));

@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const OP_PATHWAY_KEY = CARE_PATHWAY_KEYS.OP;
 
@@ -326,25 +327,31 @@ export class AdminDoctorService {
   }
 
   // Bulk doctor operations
-async performBulkOperation(operation, doctorIds, data = {}) {
+async performBulkOperation(operation, doctorIds, data = {}, tenantId) {
   try {
     const validOperations = ['activate', 'deactivate', 'update_fee', 'change_department', 'update_schedule'];
     if (!validOperations.includes(operation)) {
       throw new Error('Invalid operation');
     }
-    
+
+    // Scope every mutation to the acting admin's tenant — doctor ids are
+    // enumerable SERIALs, so without this a tenant-A admin could flip a
+    // tenant-B doctor (and cancel their appointments) by id. Fails closed on a
+    // missing tenant context (862b78de pattern; W1 no-default-fallback rule).
+    const scopedTenant = requireTenantId(tenantId);
+
     let results = [];
-    
+
     switch (operation) {
       case 'activate': {
         const activateResult = await prisma.$queryRawUnsafe(
-          'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-          doctorIds
+          'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) AND tenant_id = $2::uuid RETURNING user_id',
+          doctorIds, scopedTenant
         );
         results = activateResult;
         break;
       }
-        
+
       case 'deactivate': {
         results = await prisma.$transaction(async tx => {
           const affectedAppointments = await lockFutureScheduledAppointmentsTx(
@@ -356,8 +363,8 @@ async performBulkOperation(operation, doctorIds, data = {}) {
             'bulk_deactivate'
           );
           const deactivateResult = await tx.$queryRawUnsafe(
-            'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-            doctorIds
+            'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) AND tenant_id = $2::uuid RETURNING user_id',
+            doctorIds, scopedTenant
           );
 
           // Preserve the legacy off/shadow behavior. Active-mode appointments
@@ -367,45 +374,45 @@ async performBulkOperation(operation, doctorIds, data = {}) {
               status = 'CANCELLED',
               notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
               updated_at = NOW()
-            WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, doctorIds);
+            WHERE doctor_id = ANY($1) AND tenant_id = $2::uuid AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+          `, doctorIds, scopedTenant);
 
           return deactivateResult;
         });
         break;
       }
-        
+
       case 'update_fee': {
         if (!data.consultation_fee) {
           throw new Error('consultation_fee is required for update_fee operation');
         }
         const feeResult = await prisma.$queryRawUnsafe(
-          'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
-          data.consultation_fee, doctorIds
+          'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) AND tenant_id = $3::uuid RETURNING user_id, consultation_fee',
+          data.consultation_fee, doctorIds, scopedTenant
         );
         results = feeResult;
         break;
       }
-        
+
       case 'change_department': {
         if (!data.department) {
           throw new Error('department is required for change_department operation');
         }
         const deptResult = await prisma.$queryRawUnsafe(
-          'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
-          data.department, doctorIds
+          'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) AND tenant_id = $3::uuid RETURNING user_id, department',
+          data.department, doctorIds, scopedTenant
         );
         results = deptResult;
         break;
       }
-        
+
       case 'update_schedule': {
         if (!data.available_days || !data.available_hours) {
           throw new Error('available_days and available_hours are required for update_schedule operation');
         }
         const scheduleResult = await prisma.$queryRawUnsafe(
-          'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
-          data.available_days, data.available_hours, doctorIds
+          'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) AND tenant_id = $4::uuid RETURNING user_id, available_days, available_hours',
+          data.available_days, data.available_hours, doctorIds, scopedTenant
         );
         results = scheduleResult;
         break;
@@ -424,20 +431,25 @@ async performBulkOperation(operation, doctorIds, data = {}) {
 }
 
   // Update doctor availability with appointment handling
-  async updateDoctorAvailability(id, availabilityData) {
+  async updateDoctorAvailability(id, availabilityData, tenantId) {
     try {
       const doctorIdentifier = parseInt(id, 10);
       const { is_available, reason } = availabilityData;
+      // Scope the by-id lookup/mutation to the acting admin's tenant so a
+      // tenant-A admin cannot flip a tenant-B doctor by enumerable id. The
+      // guard SELECT throws NOT_FOUND for a cross-tenant id, failing the whole
+      // transaction closed before any appointment write.
+      const scopedTenant = requireTenantId(tenantId);
 
       return prisma.$transaction(async tx => {
         const doctorRows = await tx.$queryRawUnsafe(
           `SELECT id, user_id, specialty AS specialization, department,
                   is_available, created_at, updated_at
              FROM doctors
-            WHERE id = $1 OR user_id = $1
+            WHERE (id = $1 OR user_id = $1) AND tenant_id = $2::uuid
             ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, id
             FOR UPDATE`,
-          doctorIdentifier
+          doctorIdentifier, scopedTenant
         );
 
         if (doctorRows.length === 0) {
@@ -463,9 +475,9 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           UPDATE doctors SET
             is_available = $1,
             updated_at = NOW()
-          WHERE id = $2 OR user_id = $2
+          WHERE (id = $2 OR user_id = $2) AND tenant_id = $3::uuid
           RETURNING id, user_id, specialty as specialization, department, is_available, created_at, updated_at
-        `, is_available, doctorIdentifier);
+        `, is_available, doctorIdentifier, scopedTenant);
 
         // If making unavailable, preserve the legacy off/shadow cancellation.
         if (!is_available) {
@@ -477,9 +489,9 @@ async performBulkOperation(operation, doctorIds, data = {}) {
               status = 'CANCELLED',
               notes = COALESCE(notes || ' ', '') || 'Doctor became unavailable: ' || COALESCE($1, 'Administrative decision'),
               updated_at = NOW()
-            WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            WHERE doctor_id = ANY($2::int[]) AND tenant_id = $3::uuid AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
             RETURNING id, appointment_date, appointment_time
-          `, reason || null, doctorIds);
+          `, reason || null, doctorIds, scopedTenant);
 
           affectedAppointments = appointmentResult;
         }
@@ -497,10 +509,14 @@ async performBulkOperation(operation, doctorIds, data = {}) {
   }
 
   // Delete doctor account with appointment handling
-  async deleteDoctorAccount(id, options = {}) {
+  async deleteDoctorAccount(id, options = {}, tenantId) {
     try {
       const doctorIdentifier = parseInt(id, 10);
       const { reason, transfer_patients_to } = options;
+      // Scope the by-id lookup/mutation to the acting admin's tenant so a
+      // tenant-A admin cannot delete a tenant-B doctor by enumerable id. The
+      // guard SELECT throws NOT_FOUND for a cross-tenant id, failing closed.
+      const scopedTenant = requireTenantId(tenantId);
 
       return prisma.$transaction(async tx => {
         // Verify and lock the exact doctor row before deriving affected
@@ -510,10 +526,10 @@ async performBulkOperation(operation, doctorIds, data = {}) {
                   COALESCE(u.name, d.name) as name, d.department
              FROM doctors d
              LEFT JOIN users u ON u.id = d.user_id
-            WHERE d.id = $1 OR d.user_id = $1
+            WHERE (d.id = $1 OR d.user_id = $1) AND d.tenant_id = $2::uuid
             ORDER BY CASE WHEN d.id = $1 THEN 0 ELSE 1 END, d.id
             FOR UPDATE OF d`,
-          doctorIdentifier
+          doctorIdentifier, scopedTenant
         );
 
         if (doctorCheck.length === 0) {
@@ -545,8 +561,8 @@ async performBulkOperation(operation, doctorIds, data = {}) {
             const transferTarget = parseInt(transfer_patients_to, 10);
             // Verify transfer target doctor exists
             const transferDoctor = await tx.$queryRawUnsafe(
-              'SELECT name FROM users WHERE id = $1 AND role = $2',
-              transferTarget, 'DOCTOR'
+              'SELECT name FROM users WHERE id = $1 AND role = $2 AND tenant_id = $3::uuid',
+              transferTarget, 'DOCTOR', scopedTenant
             );
 
             if (transferDoctor.length === 0) {
@@ -558,23 +574,23 @@ async performBulkOperation(operation, doctorIds, data = {}) {
                 doctor_id = $1,
                 notes = COALESCE(notes || ' ', '') || 'Transferred due to doctor account deletion',
                 updated_at = NOW()
-              WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-            `, transferTarget, doctorIds);
+              WHERE doctor_id = ANY($2::int[]) AND tenant_id = $3::uuid AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            `, transferTarget, doctorIds, scopedTenant);
           } else {
             await tx.$executeRawUnsafe(`
               UPDATE appointments SET
                 status = 'CANCELLED',
                 notes = COALESCE(notes || ' ', '') || 'Doctor account deleted: ' || COALESCE($1, 'Administrative decision'),
                 updated_at = NOW()
-              WHERE doctor_id = ANY($2::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-            `, reason || null, doctorIds);
+              WHERE doctor_id = ANY($2::int[]) AND tenant_id = $3::uuid AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+            `, reason || null, doctorIds, scopedTenant);
           }
         }
 
         // Soft delete: deactivate doctor
         await tx.$executeRawUnsafe(
-          'UPDATE doctors SET is_available = false, is_active = false, updated_at = NOW() WHERE id = $1 OR user_id = $1',
-          doctorIdentifier
+          'UPDATE doctors SET is_available = false, is_active = false, updated_at = NOW() WHERE (id = $1 OR user_id = $1) AND tenant_id = $2::uuid',
+          doctorIdentifier, scopedTenant
         );
 
         return {

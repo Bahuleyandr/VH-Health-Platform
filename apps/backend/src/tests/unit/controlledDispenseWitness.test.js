@@ -70,6 +70,7 @@ function approvalRow(overrides = {}) {
     status: 'approved',
     approved_by: [{ uid: WITNESS, at: new Date().toISOString() }],
     expires_at: new Date(Date.now() + 60_000),
+    expires_at_epoch_ms: BigInt(Date.now() + 60_000),
     decided_by: WITNESS,
     created_by: DISPENSER,
     decided_at: new Date(),
@@ -320,5 +321,29 @@ describe('dispenseControlledTx wiring', () => {
     expect(controlledDispenseWitnessPayload({
       inventory_item_id: '5', inventory_batch_id: '9', quantity: '1',
     })).toEqual(PAYLOAD);
+  });
+
+  test('an expired witness approval rejects before any stock movement', async () => {
+    // assertApprovalContract reads expires_at_epoch_ms (PR #881). This is the
+    // only test that drives that gate with a past instant; the happy-path
+    // fixture above keeps it 60s in the future.
+    const expiredAt = Date.now() - 60_000;
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ id: 5, schedule_class: 'X', is_narcotic: true, unit_label: 'tab' }])
+      .mockResolvedValueOnce([approvalRow({
+        expires_at: new Date(expiredAt),
+        expires_at_epoch_ms: BigInt(expiredAt),
+      })]);
+
+    await expect(dispenseControlled({
+      tenantId: TENANT,
+      inventory_item_id: 5,
+      inventory_batch_id: 9,
+      quantity: 1,
+      performed_by: DISPENSER,
+      performed_by_name: 'Pharmacist',
+      witness_approval_id: 71,
+    })).rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_EXPIRED' });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
   });
 });

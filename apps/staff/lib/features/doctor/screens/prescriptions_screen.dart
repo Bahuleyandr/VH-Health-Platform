@@ -28,6 +28,8 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../emr/screens/vitals_chart_screen.dart'
+    show vitalsTemperatureDisplayF, vitalsTemperatureUnitSent;
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
@@ -625,6 +627,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     ctrl.text = value.toString();
   }
 
+  /// Format a °F temperature for prefill: trim to one decimal, dropping a
+  /// trailing ".0" so whole degrees read cleanly.
+  String _formatTemperatureF(double value) {
+    final text = value.toStringAsFixed(1);
+    return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
+  }
+
   String? _cleanAppointmentText(Object? value) {
     final text = value?.toString().trim() ?? '';
     if (text.isEmpty || text.toLowerCase() == 'null') return null;
@@ -792,7 +801,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         _setControllerIfEmpty(_bpSysCtrl, vitals['systolic_bp']);
         _setControllerIfEmpty(_bpDiaCtrl, vitals['diastolic_bp']);
         _setControllerIfEmpty(_pulseCtrl, vitals['heart_rate']);
-        _setControllerIfEmpty(_tempCtrl, vitals['temperature']);
+        // Backend returns canonical °C; this field is labelled/entered in °F.
+        final tempF = vitalsTemperatureDisplayF(vitals['temperature']);
+        _setControllerIfEmpty(
+          _tempCtrl,
+          tempF == null ? null : _formatTemperatureF(tempF),
+        );
         _setControllerIfEmpty(_respRateCtrl, vitals['respiratory_rate']);
         _setControllerIfEmpty(_spo2Ctrl, vitals['spo2']);
         _setControllerIfEmpty(_weightCtrl, vitals['weight_kg']);
@@ -832,7 +846,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       v['pulse'] = int.tryParse(pulse);
     }
     if (temp.isNotEmpty) {
-      v['temperature'] = double.tryParse(temp);
+      final tempValue = double.tryParse(temp);
+      v['temperature'] = tempValue;
+      // The field collects °F — declare the unit so the backend converts to
+      // canonical °C instead of treating the value as °C (see
+      // [vitalsTemperatureUnitSent]).
+      if (tempValue != null) {
+        v['temperature_unit'] = vitalsTemperatureUnitSent;
+      }
     }
     if (_temperatureRoute != null && _temperatureRoute!.isNotEmpty) {
       v['temperature_route'] = _temperatureRoute;

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -23,12 +23,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   bool permissionsGranted = false;
   bool _isLoadingEvents = false;
-  late final String _uid;
+  String? _loadError;
+  // The DB-minted users.uid (integer id), stored at login. The self feeds
+  // key off req.user, but /appointments/patient/:id needs the numeric id;
+  // the phone used previously UUID-rejected on every feed.
+  String? _patientDbId;
 
   @override
   void initState() {
     super.initState();
-    _uid = context.read<UserProvider>().phone;
     _checkPermissionsAndLoad();
   }
 
@@ -43,7 +46,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         permissionsGranted = true;
         _isLoadingEvents = true;
       });
-      await _loadBackendEvents(_uid);
+      _patientDbId ??= await VHSecureStorage.instance.read(key: 'user_id');
+      await _loadBackendEvents();
       if (mounted) {
         setState(() => _isLoadingEvents = false);
       }
@@ -60,13 +64,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
-  Future<void> _loadBackendEvents(String uid) async {
+  Future<void> _loadBackendEvents() async {
     final loc = AppLocalizations.of(context)!;
+    final dbId = _patientDbId;
+    if (dbId == null || dbId.isEmpty) {
+      if (!mounted) return;
+      setState(() => _loadError = loc.calendarLoadFailed);
+      return;
+    }
     try {
+      // Self feeds: /appointments/patient/:dbId is keyed by the numeric users.uid;
+      // investigations + pharmacy derive the patient from the JWT (req.user).
+      // The old /uid/:phone routes UUID-rejected the phone and returned nothing.
       final responses = await Future.wait([
-        ApiClient.get('/appointments/uid/$uid'),
-        ApiClient.get('/investigations/uid/$uid'),
-        ApiClient.get('/pharmacy-orders/orders/uid/$uid'),
+        ApiClient.get('/appointments/patient/$dbId'),
+        ApiClient.get('/investigations/bookings/my'),
+        ApiClient.get('/pharmacy-orders/orders/my'),
       ]);
 
       if (!mounted) return;
@@ -75,27 +88,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
       _parseAndAddEvents(
         newEvents,
-        responses[0].isSuccess
-            ? (responses[0].data is List ? responses[0].data : null)
-            : null,
+        _asList(responses[0], listKey: 'appointments'),
         'appointment',
-        (item) => item['department'] ?? loc.eventTypesAppointment,
-        (item) => item['date'] ?? item['created_at'],
+        (item) =>
+            item['department_name'] ??
+            item['department'] ??
+            loc.eventTypesAppointment,
+        (item) => item['appointment_date'] ?? item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        responses[1].isSuccess
-            ? (responses[1].data is List ? responses[1].data : null)
-            : null,
+        _asList(responses[1]),
         'investigation',
-        (item) => item['test_name'] ?? loc.eventTypesInvestigation,
-        (item) => item['created_at'],
+        (item) =>
+            item['custom_test_names'] ??
+            item['test_name'] ??
+            loc.eventTypesInvestigation,
+        (item) => item['preferred_date'] ?? item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        responses[2].isSuccess
-            ? (responses[2].data is List ? responses[2].data : null)
-            : null,
+        _asList(responses[2]),
         'pharmacy',
         (_) => loc.eventTypesPharmacyOrder,
         (item) => item['created_at'],
@@ -103,6 +116,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
       if (!mounted) return;
       setState(() {
+        _loadError = null;
         allEvents.clear();
         allEvents.addAll(newEvents);
       });
@@ -110,7 +124,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       debugPrint('Error loading calendar data: $e');
       if (!mounted) return;
       final theme = Theme.of(context);
-      final loc = AppLocalizations.of(context)!;
+      setState(() => _loadError = loc.calendarLoadFailed);
       ScaffoldMessenger.of(context).showSnackBar(
         LiveRegionSnackBar.build(
           message: loc.calendarLoadFailed,
@@ -119,6 +133,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
       );
     }
+  }
+
+  /// Unwraps an [ApiResponse] into a list. The backend returns either a bare
+  /// list in `data`, or a map wrapping it under [listKey] (appointments).
+  List<dynamic>? _asList(dynamic response, {String? listKey}) {
+    if (response == null || !response.isSuccess) return null;
+    final data = response.data;
+    if (data is List) return data;
+    if (data is Map && listKey != null && data[listKey] is List) {
+      return data[listKey] as List;
+    }
+    return null;
   }
 
   void _parseAndAddEvents(
@@ -202,7 +228,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             onPressed: () {
               if (permissionsGranted && !_isLoadingEvents) {
                 setState(() => _isLoadingEvents = true);
-                _loadBackendEvents(_uid).whenComplete(() {
+                _loadBackendEvents().whenComplete(() {
                   if (mounted) setState(() => _isLoadingEvents = false);
                 });
               }
@@ -276,6 +302,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
     ColorScheme colorScheme,
     AppLocalizations loc,
   ) {
+    // Surface load failures with a retry instead of a silent empty calendar.
+    if (_loadError != null) {
+      return DataStateBuilder<Map<String, dynamic>>(
+        isLoading: false,
+        error: _loadError,
+        data: const [],
+        builder: (context, data) => const SizedBox.shrink(),
+        errorTitle: loc.calendarLoadFailed,
+        errorActionLabel: loc.refreshCalendar,
+        onRetry: () {
+          setState(() => _isLoadingEvents = true);
+          _loadBackendEvents().whenComplete(() {
+            if (mounted) setState(() => _isLoadingEvents = false);
+          });
+        },
+      );
+    }
     final eventsToShow = _getEventsForDay(selectedDay ?? focusedDay);
     if (eventsToShow.isEmpty) {
       return Center(

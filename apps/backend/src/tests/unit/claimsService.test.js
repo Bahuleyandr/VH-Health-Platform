@@ -387,6 +387,7 @@ describe('submitPreauth standard document bundle', () => {
       status: 'draft',
       query_text: null,
       submit_due_at: null,
+      submit_due_at_epoch_ms: null,
       created_at: new Date(),
     };
 
@@ -625,6 +626,7 @@ describe('recordPreauthResponse tenant scoping (with prisma stub)', () => {
           payer_name: null,
           query_text: null,
           submit_due_at: null,
+          submit_due_at_epoch_ms: null,
         }];
       }
       return [];

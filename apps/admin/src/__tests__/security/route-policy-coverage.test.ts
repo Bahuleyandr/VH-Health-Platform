@@ -114,6 +114,10 @@ describe("H6/M8 — admin route policy", () => {
         "/dashboard/feature-flags",
         "/dashboard/database",
         "/dashboard/continuity-facility-context",
+        // Tenant entitlement editing and admin-account lifecycle are
+        // SUPER_ADMIN-only (a tenant ADMIN must not self-upgrade / self-grant).
+        "/dashboard/entitlements",
+        "/dashboard/admin-management",
       ]) {
         const policy = policyForPath(p);
         expect(policy).toBeTruthy();

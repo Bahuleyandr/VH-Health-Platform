@@ -523,14 +523,13 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         name: "Admin Management",
         href: "/dashboard/admin-management",
-        requiredRole: "ADMIN",
-        requiredPermissions: ["adminManagement"],
+        requiredRole: "SUPER_ADMIN",
       },
       { name: "Settings", href: "/dashboard/settings", requiredRole: "ADMIN" },
       {
         name: "Entitlements",
         href: "/dashboard/entitlements",
-        requiredRole: "ADMIN",
+        requiredRole: "SUPER_ADMIN",
       },
       {
         name: "Adoption & LMS",

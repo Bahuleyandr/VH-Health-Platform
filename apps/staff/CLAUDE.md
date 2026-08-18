@@ -72,17 +72,17 @@ lib/
 
 ## Auth Flow
 1. Staff enters Employee ID + password/PIN, or taps SSO when tenant discovery returns an active staff OIDC provider.
-2. App calls `POST /api/v1/auth/staff/login` with `{ employeeId, password }`
+2. App calls `POST /api/v1/auth/staff/register-device` with `{ employeeId, password }`
 3. SSO uses `GET /api/v1/auth/staff/sso/oidc/providers`, launches the backend `start` URL in the system browser, receives `vhhealthstaff://sso/oidc/callback`, then posts code/state to the backend callback broker.
 4. Backend returns `{ data: { accessToken, refreshToken, staff: { id, name, role, department, ... } } }`
-5. JWT stored in flutter_secure_storage under key `staff_jwt` and mirrored to the shared `jwt` key for existing HTTP/realtime helpers.
+5. JWT stored in flutter_secure_storage under the shared `jwt` key (via core `AuthService.setTokens` + `ApiConfig.saveJwt`) used by the shared HTTP/realtime helpers.
 6. All subsequent calls include `Authorization: Bearer <jwt>`
 7. PIN login: `POST /api/v1/auth/staff/login-pin` with `{ employeeId, pin }`
 
 ## API Endpoints Used (representative — not exhaustive)
 | Feature | Endpoint | Method |
 |---------|----------|--------|
-| Login (password) | `/auth/staff/login` | POST |
+| Login (password) | `/auth/staff/register-device` | POST |
 | Login (PIN) | `/auth/staff/login-pin` | POST |
 | Staff SSO discovery | `/auth/staff/sso/oidc/providers` | GET |
 | Staff SSO start | `/auth/staff/sso/oidc/:provider/start` | GET |
@@ -141,7 +141,7 @@ The five separate source repos these were merged from are archived on GitHub as 
 
 ## Conventions
 - All Staff HTTP calls use `ApiClient`; do not bypass the shared hardened transport with raw `package:http`
-- JWT stored under key `staff_jwt` (separate from patient app's `jwt` key)
+- JWT stored under the shared `jwt` key (core `AuthService`) — same key the patient app uses; the staff app does not use a separate `staff_jwt` key
 - Backend response envelope: `{ success, data: {...} }` — unwrap `body['data']`
 - Staff-specific theme: blue/teal primary (distinct from patient app's teal/green)
 - Use descriptive SnackBars for success/error feedback

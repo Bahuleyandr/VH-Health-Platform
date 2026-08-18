@@ -34,8 +34,8 @@ void main() {
       await fetchedCompleter.future;
       await Future<void>.delayed(Duration.zero);
 
-      expect(invalidated, ['/appointments/uid/uid-1']);
-      expect(fetched, ['/appointments/uid/uid-1']);
+      expect(invalidated, ['/appointments/patient/uid-1']);
+      expect(fetched, ['/appointments/patient/uid-1']);
       expect(provider.todayAppointment?['id'], 17);
       expect(ws.lastAppointmentEvent, isNotNull);
     },
@@ -59,7 +59,7 @@ void main() {
 
     await provider.refreshAppointments();
 
-    expect(fetched, ['/appointments/uid/uid-1']);
+    expect(fetched, ['/appointments/patient/uid-1']);
     expect(provider.todayAppointment?['id'], 24);
   });
 
@@ -96,7 +96,7 @@ void main() {
 
       timers.first();
       await Future<void>.delayed(Duration.zero);
-      expect(fetched, ['/appointments/uid/uid-1']);
+      expect(fetched, ['/appointments/patient/uid-1']);
 
       acknowledged = true;
       fetched.clear();
