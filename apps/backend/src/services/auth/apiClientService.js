@@ -19,6 +19,7 @@ import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const TEXT_MAX = 8000;
@@ -381,6 +382,7 @@ export async function authenticateByApiKey({
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT k.id AS key_id, k.api_client_id, k.status AS key_status, k.expires_at,
+              (EXTRACT(EPOCH FROM k.expires_at) * 1000)::bigint AS expires_at_epoch_ms,
               c.tenant_id, c.client_code, c.display_name, c.client_kind, c.status AS client_status,
               c.environment, c.scopes, c.allowed_ips, c.rate_limit_profile
        FROM api_keys k
@@ -392,7 +394,8 @@ export async function authenticateByApiKey({
     const row = rows[0];
     if (!row) return null;
     if (row.key_status !== 'active' || row.client_status !== 'active') return null;
-    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
+    const keyExpiry = epochMsOrNull(row.expires_at_epoch_ms);
+    if (keyExpiry != null && keyExpiry < Date.now()) return null;
     if (Array.isArray(row.allowed_ips) && row.allowed_ips.length > 0 && ipAddress) {
       if (!row.allowed_ips.some((allowed) => timingSafeEqualString(allowed, ipAddress))) {
         return null;
@@ -437,6 +440,7 @@ export async function authenticateByApiKeyGlobal({ plaintext, ipAddress = null }
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT k.id AS key_id, k.api_client_id, k.status AS key_status, k.expires_at, k.tenant_id,
+              (EXTRACT(EPOCH FROM k.expires_at) * 1000)::bigint AS expires_at_epoch_ms,
               c.client_code, c.display_name, c.client_kind, c.status AS client_status,
               c.environment, c.scopes, c.allowed_ips, c.rate_limit_profile
        FROM api_keys k
@@ -448,7 +452,8 @@ export async function authenticateByApiKeyGlobal({ plaintext, ipAddress = null }
     const row = rows[0];
     if (!row) return null;
     if (row.key_status !== 'active' || row.client_status !== 'active') return null;
-    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
+    const keyExpiry = epochMsOrNull(row.expires_at_epoch_ms);
+    if (keyExpiry != null && keyExpiry < Date.now()) return null;
     if (Array.isArray(row.allowed_ips) && row.allowed_ips.length > 0 && ipAddress) {
       if (!row.allowed_ips.some((allowed) => timingSafeEqualString(allowed, ipAddress))) {
         return null;

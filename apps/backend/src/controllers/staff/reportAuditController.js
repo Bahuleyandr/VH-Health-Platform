@@ -7,6 +7,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
 
@@ -155,7 +156,8 @@ export const getReportAuditTrail = async (req, res) => {
     const reportQuery = type === 'incident'
       ? `SELECT ir.*, u.name as reporter_name, u.name as actual_reporter_name, s.department as reporter_dept,
                 s.department as actual_reporter_dept,
-                u2.name as assigned_to_name, u3.name as resolved_by_name
+                u2.name as assigned_to_name, u3.name as resolved_by_name,
+                (EXTRACT(EPOCH FROM ir.created_at) * 1000)::bigint AS created_at_epoch_ms
          FROM incident_reports ir
          LEFT JOIN users u ON ir.reporter_id = u.uid
          LEFT JOIN staff s ON u.uid = s.user_id
@@ -166,7 +168,8 @@ export const getReportAuditTrail = async (req, res) => {
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
                 CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
                 u.name as actual_reporter_name, s.department as actual_reporter_dept,
-                u2.name as assigned_to_name, u3.name as resolved_by_name
+                u2.name as assigned_to_name, u3.name as resolved_by_name,
+                (EXTRACT(EPOCH FROM sg.created_at) * 1000)::bigint AS created_at_epoch_ms
          FROM staff_grievances sg
          LEFT JOIN users u ON sg.reporter_id = u.uid
          LEFT JOIN staff s ON u.uid = s.user_id
@@ -204,9 +207,18 @@ export const getReportAuditTrail = async (req, res) => {
     }
     delete reportData.actual_reporter_name;
     delete reportData.actual_reporter_dept;
+    // `created_at` is NOT NULL on both incident_reports and staff_grievances,
+    // but the old code read a SQL NULL as `new Date(null).getTime()` === 0 —
+    // finite, not NaN — so keep that fallback rather than letting absence turn
+    // the SLA figure into NaN.
+    const createdAtMs = epochMsOrNull(reportData.created_at_epoch_ms) ?? 0;
+    // `createdAt` and `resolvedAt` stay driver Dates on purpose: their only
+    // remaining use is the DB-vs-DB `resolvedAt - createdAt` span, where both
+    // sides carry the same session-timezone shift and it cancels. Only the
+    // process-clock comparison below needs the absolute instant.
     const createdAt = new Date(reportData.created_at);
     const resolvedAt = reportData.resolved_at ? new Date(reportData.resolved_at) : null;
-    const hoursOpen = (Date.now() - createdAt.getTime()) / 3600000;
+    const hoursOpen = (Date.now() - createdAtMs) / 3600000;
     const hoursToResolve = resolvedAt ? (resolvedAt - createdAt) / 3600000 : null;
 
     const _severityOrPriority = reportData.severity || reportData.priority || 'normal';

@@ -7,6 +7,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const DIMENSION_MAX = 20;
 const STEP_DEFAULT_GOAL = 8000;
@@ -243,11 +244,14 @@ export async function computeHealthInsights(userUid, limit = 3, tenantId = null)
 
     // — Vitals logging nudge —
     const lastVitals = await prisma.$queryRawUnsafe(
-      `SELECT MAX(recorded_at) AS last_at FROM patient_vitals WHERE patient_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      `SELECT MAX(recorded_at) AS last_at,
+              (EXTRACT(EPOCH FROM MAX(recorded_at)) * 1000)::bigint AS last_at_epoch_ms
+         FROM patient_vitals
+        WHERE patient_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
       ...(tenantId ? [userUid, tenantId] : [userUid])
     );
-    const lastAt = lastVitals[0]?.last_at;
-    if (!lastAt) {
+    const lastAtMs = epochMsOrNull(lastVitals[0]?.last_at_epoch_ms);
+    if (lastAtMs == null) {
       insights.push({
         type: 'log_first_vitals',
         priority: 70,
@@ -256,7 +260,7 @@ export async function computeHealthInsights(userUid, limit = 3, tenantId = null)
         actionRoute: '/vitals',
       });
     } else {
-      const daysSince = Math.floor((Date.now() - new Date(lastAt).getTime()) / (24 * 3600 * 1000));
+      const daysSince = Math.floor((Date.now() - lastAtMs) / (24 * 3600 * 1000));
       if (daysSince >= 5) {
         insights.push({
           type: 'vitals_nudge',

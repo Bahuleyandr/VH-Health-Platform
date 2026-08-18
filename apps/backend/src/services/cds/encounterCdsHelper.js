@@ -15,6 +15,7 @@ import logger from '../../logging/logger.js';
 import { getActiveAlerts, getProtocolReminders } from '../emr/cdsEngine.js';
 import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
 import { getActiveProblemSummary } from '../clinical/problemListService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 function isMissingSchemaError(err) {
   return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
@@ -122,7 +123,8 @@ export async function buildEncounterStartAlerts({ patientUid, encounterId = null
   // 4. Open follow-up plans (overdue or due-soon)
   try {
     const followups = await prisma.$queryRawUnsafe(
-      `SELECT id, origin_kind, due_at, reason
+      `SELECT id, origin_kind, due_at, reason,
+              (EXTRACT(EPOCH FROM due_at) * 1000)::bigint AS due_at_epoch_ms
        FROM follow_up_plans
        WHERE patient_uid = $1::uuid AND status IN ('open', 'overdue')
        ORDER BY due_at NULLS LAST, created_at DESC
@@ -130,7 +132,8 @@ export async function buildEncounterStartAlerts({ patientUid, encounterId = null
       patientUid,
     );
     for (const fu of followups) {
-      const overdue = fu.due_at && new Date(fu.due_at).getTime() < Date.now();
+      const dueAt = epochMsOrNull(fu.due_at_epoch_ms);
+      const overdue = dueAt != null && dueAt < Date.now();
       alerts.push({
         type: 'follow_up_plan_due',
         severity: overdue ? 'warning' : 'info',

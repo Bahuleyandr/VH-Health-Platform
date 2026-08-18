@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 function isMissingSchemaError(err) {
   return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
@@ -105,7 +106,8 @@ export async function assertPatientConsentInTenant({
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT pc.id, pc.patient_uid, pc.consent_type, pc.granted, pc.status,
-              pc.expires_at, u.tenant_id
+              pc.expires_at, u.tenant_id,
+              (EXTRACT(EPOCH FROM pc.expires_at) * 1000)::bigint AS expires_at_epoch_ms
        FROM patient_consents pc
        JOIN users u ON u.uid = pc.patient_uid
        WHERE pc.id = $1
@@ -145,7 +147,8 @@ export async function assertPatientConsentInTenant({
         { consent_reference: normalizedRef.reference, status: consent.status || null },
       );
     }
-    if (consent.expires_at && new Date(consent.expires_at).getTime() <= Date.now()) {
+    const consentExpiry = epochMsOrNull(consent.expires_at_epoch_ms);
+    if (consentExpiry != null && consentExpiry <= Date.now()) {
       throw AppError.forbidden(
         'Clinical AI consent reference has expired',
         expiredCode,

@@ -15,6 +15,7 @@ import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
@@ -522,7 +523,8 @@ export async function startSession({ tenantId, id, ...body }) {
 export async function completeSession({ tenantId, id, completed_by, actorRole, ...body }) {
   const completed = await setTenantTx(tenantOr(tenantId), async (tx) => {
     const sessRows = await tx.$queryRawUnsafe(
-      `SELECT s.*, p.patient_uid
+      `SELECT s.*, p.patient_uid,
+              (EXTRACT(EPOCH FROM s.actual_start_at) * 1000)::bigint AS actual_start_at_epoch_ms
          FROM dialysis_sessions s
          JOIN dialysis_patients p ON p.id = s.dialysis_patient_id
           AND p.tenant_id = s.tenant_id
@@ -535,8 +537,8 @@ export async function completeSession({ tenantId, id, completed_by, actorRole, .
       throw AppError.invalidTransition(sess.status, 'completed', SESSION_TRANSITIONS[sess.status] || []);
     }
 
-    const startTs = sess.actual_start_at ? new Date(sess.actual_start_at) : null;
-    const durationMin = startTs ? Math.round((Date.now() - startTs.getTime()) / 60000) : null;
+    const startMs = epochMsOrNull(sess.actual_start_at_epoch_ms);
+    const durationMin = startMs != null ? Math.round((Date.now() - startMs) / 60000) : null;
 
     const ureaPre = body.urea_pre_mg_dl ?? sess.urea_pre_mg_dl;
     const ureaPost = body.urea_post_mg_dl ?? sess.urea_post_mg_dl;

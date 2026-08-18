@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import {
   DOCTOR,
   DUTY_DOCTOR,
@@ -177,7 +178,8 @@ async function loadApproval(db, tenantId, approvalId, { lock = false } = {}) {
     ? await db.$queryRawUnsafe(
       `SELECT id, approval_kind, subject_resource_type, subject_resource_id,
               status, approved_by, expires_at, decided_by, metadata,
-              created_by, decided_at
+              created_by, decided_at,
+              (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
          FROM approvals
         WHERE tenant_id = $1::uuid
           AND id = $2::bigint
@@ -188,7 +190,8 @@ async function loadApproval(db, tenantId, approvalId, { lock = false } = {}) {
     : await db.$queryRawUnsafe(
       `SELECT id, approval_kind, subject_resource_type, subject_resource_id,
               status, approved_by, expires_at, decided_by, metadata,
-              created_by, decided_at
+              created_by, decided_at,
+              (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
          FROM approvals
         WHERE tenant_id = $1::uuid
           AND id = $2::bigint`,
@@ -225,7 +228,8 @@ function assertApprovalContract(row, { scope, payload, requestedBy, requireAppro
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
     );
   }
-  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+  const approvalExpiry = epochMsOrNull(row.expires_at_epoch_ms);
+  if (approvalExpiry != null && approvalExpiry <= Date.now()) {
     throw AppError.conflict(
       'Witness approval has expired',
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_EXPIRED',

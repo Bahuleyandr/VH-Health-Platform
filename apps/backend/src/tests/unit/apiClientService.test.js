@@ -190,10 +190,14 @@ describe('authenticateByApiKey', () => {
   });
 
   it('returns null when key expired', async () => {
+    // The query selects expires_at_epoch_ms beside expires_at: a timestamptz
+    // materialised by the driver is shifted by the database session timezone,
+    // so the expiry comparison reads the epoch twin instead.
     queryUnsafeMock.mockResolvedValueOnce([{
       key_id: 1, api_client_id: 1, key_status: 'active', client_status: 'active',
       tenant_id: TENANT, scopes: [], allowed_ips: [],
       expires_at: new Date(Date.now() - 60_000),
+      expires_at_epoch_ms: BigInt(Date.now() - 60_000),
     }]);
     expect(await authenticateByApiKey({
       tenantId: TENANT, plaintext: 'vh_xyz',

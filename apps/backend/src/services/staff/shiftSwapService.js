@@ -14,6 +14,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import {
   ROSTER_DEPARTMENT_POLICIES,
   canReviewRosterDepartmentRequest,
@@ -102,6 +103,7 @@ async function loadSwapAssignment(client, assignmentId, tenantId, { forUpdate = 
             b.shift_end::text AS shift_end,
             b.status AS board_status,
             (b.roster_date + b.shift_start)::timestamptz AS shift_start_at,
+            (EXTRACT(EPOCH FROM (b.roster_date + b.shift_start)::timestamptz) * 1000)::bigint AS shift_start_at_epoch_ms,
             u.name AS staff_name,
             u.role AS staff_user_role,
             u.is_active AS staff_is_active
@@ -257,15 +259,16 @@ export async function proposeShiftSwap({
     if (!policy.staffRoles.includes(String(row.staff_user_role || '').toUpperCase())) {
       throw httpError('Both staff members must be eligible for this roster department', 409);
     }
-    if (new Date(row.shift_start_at).getTime() <= Date.now()) {
+    const shiftStartMs = epochMsOrNull(row.shift_start_at_epoch_ms);
+    if (shiftStartMs == null || shiftStartMs <= Date.now()) {
       throw httpError('Only future shifts can be swapped', 400);
     }
   }
   await assertNoLiveSwapForAssignments(prisma, [myAssignmentId, theirAssignmentId], tenant);
 
   const expiresAt = new Date(Math.min(
-    new Date(mine.shift_start_at).getTime(),
-    new Date(theirs.shift_start_at).getTime()
+    epochMsOrNull(mine.shift_start_at_epoch_ms),
+    epochMsOrNull(theirs.shift_start_at_epoch_ms)
   ));
 
   return prisma.$transaction(async tx => {
@@ -453,7 +456,9 @@ export async function listDepartmentShiftSwaps({ department, status = null, acto
 // locking and flipping tenant A's swap.
 async function lockSwap(tx, swapId, tenantId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT * FROM staff_shift_swap_requests
+    `SELECT *,
+            (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
+       FROM staff_shift_swap_requests
       WHERE id = $1::int AND tenant_id = $2::uuid
       FOR UPDATE`,
     swapId,
@@ -467,7 +472,8 @@ async function lockSwap(tx, swapId, tenantId) {
 
 async function expireIfPastDeadline(tx, swap, actor) {
   if (!LIVE_STATUSES.includes(swap.status)) return false;
-  if (new Date(swap.expires_at).getTime() > Date.now()) return false;
+  const deadlineMs = epochMsOrNull(swap.expires_at_epoch_ms);
+  if (deadlineMs != null && deadlineMs > Date.now()) return false;
   const rows = await tx.$queryRawUnsafe(
     `UPDATE staff_shift_swap_requests
         SET status = 'expired', updated_at = NOW()
@@ -749,7 +755,8 @@ export async function reviewShiftSwap({ swapId, decision, notes, actorUser, tena
       if (!policy.staffRoles.includes(String(row.staff_user_role || '').toUpperCase())) {
         throw httpError('Both staff members must still be eligible for this roster department', 409);
       }
-      if (new Date(row.shift_start_at).getTime() <= Date.now()) {
+      const shiftStartMs = epochMsOrNull(row.shift_start_at_epoch_ms);
+      if (shiftStartMs == null || shiftStartMs <= Date.now()) {
         throw httpError('Only future shifts can be swapped', 409);
       }
     }

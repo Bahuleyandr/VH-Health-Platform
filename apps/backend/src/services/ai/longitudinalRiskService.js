@@ -31,6 +31,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { scoreAdherenceRisk } from '../gamification/adherenceRiskService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const CHRONIC_DIAGNOSIS_WEIGHTS = {
   // ICD-10 prefix → contribution points per active diagnosis.
@@ -79,7 +80,8 @@ async function scoreReadmissionRisk({ tenantId, patientUid }) {
   const [priorAdmissions] = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::int AS cnt,
             AVG(EXTRACT(EPOCH FROM (discharged_at - admitted_at)) / 86400.0)::float AS avg_los,
-            MAX(discharged_at) AS last_discharge
+            MAX(discharged_at) AS last_discharge,
+            (EXTRACT(EPOCH FROM MAX(discharged_at)) * 1000)::bigint AS last_discharge_epoch_ms
      FROM admissions
      WHERE patient_uid = $1::uuid
        AND status = 'discharged'
@@ -97,8 +99,9 @@ async function scoreReadmissionRisk({ tenantId, patientUid }) {
     contributors.prior_admissions_180d = priorAdmissions.cnt;
   }
 
-  if (priorAdmissions.last_discharge) {
-    const ms = Date.now() - new Date(priorAdmissions.last_discharge).getTime();
+  const lastDischarge = epochMsOrNull(priorAdmissions.last_discharge_epoch_ms);
+  if (lastDischarge != null) {
+    const ms = Date.now() - lastDischarge;
     const daysSince = Math.floor(ms / (24 * 60 * 60 * 1000));
     if (daysSince <= 30) {
       score += 30;

@@ -34,6 +34,7 @@ import { logSecurityEvent } from '../utils/securityAuditLogger.js';
 import { sendSecurityWebhook } from '../utils/securityWebhook.js';
 import * as notificationService from './notification/notificationService.js';
 import { emitSosCanonicalEvent, escalateAlert, SOS_RESPONSE_SLA_RULE } from './sosService.js';
+import { epochMsOrNull } from '../utils/dbInstant.js';
 
 export const DEFAULT_ESCALATION_WINDOW_MINUTES = Math.max(
   1,
@@ -102,7 +103,8 @@ export async function runSosAlertAgeEscalationSweep({
 
   const overdue = await db.$queryRawUnsafe(
     `SELECT sa.id, sa.uid, sa.phone, sa.severity, sa.message,
-            sa.latitude, sa.longitude, sa.raised_at, sa.last_escalated_at
+            sa.latitude, sa.longitude, sa.raised_at, sa.last_escalated_at,
+            (EXTRACT(EPOCH FROM sa.raised_at) * 1000)::bigint AS raised_at_epoch_ms
        FROM sos_alerts sa
       WHERE sa.tenant_id = $1::uuid
         AND sa.status = 'ACTIVE'
@@ -143,7 +145,8 @@ export async function runSosAlertAgeEscalationSweep({
 
     const currentSeverity = claimed[0].severity;
     let newSeverity = currentSeverity;
-    const ageMinutes = Math.round((Date.now() - new Date(alert.raised_at).getTime()) / 60000);
+    const raisedAt = epochMsOrNull(alert.raised_at_epoch_ms);
+    const ageMinutes = raisedAt == null ? 0 : Math.round((Date.now() - raisedAt) / 60000);
 
     if (currentSeverity !== 'CRITICAL') {
       try {
