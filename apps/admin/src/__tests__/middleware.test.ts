@@ -301,7 +301,7 @@ describe("ROLE_RANK ordering", () => {
       role: "ADMIN",
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    const req = makeRequest("/dashboard/admin-management", token);
+    const req = makeRequest("/dashboard/settings", token);
     await middleware(req);
 
     expect(mockNext).toHaveBeenCalledTimes(1);
@@ -332,7 +332,6 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/analytics",
     "/dashboard/settings",
     "/dashboard/audit",
-    "/dashboard/admin-management",
     "/dashboard/clinical-governance",
   ];
 
@@ -628,12 +627,16 @@ describe("middleware — default-deny route policy", () => {
     expect(redirectUrl.pathname).toBe("/dashboard");
   });
 
-  it("denies SUPER_ADMIN-only segments to plain ADMIN (tenants)", async () => {
+  it.each([
+    "/dashboard/tenants",
+    "/dashboard/entitlements",
+    "/dashboard/admin-management",
+  ])("denies SUPER_ADMIN-only segment %s to plain ADMIN", async (path) => {
     const token = fakeJwt({
       role: "ADMIN",
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    const req = makeRequest("/dashboard/tenants", token);
+    const req = makeRequest(path, token);
     await middleware(req);
 
     expect(mockRedirect).toHaveBeenCalledTimes(1);

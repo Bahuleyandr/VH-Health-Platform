@@ -307,7 +307,11 @@ void main() {
         await AuthService.setRefreshToken('old-refresh');
 
         String? expiredMessage;
-        VHHttpClient.onSessionExpired = (msg) => expiredMessage = msg;
+        var expiredCount = 0;
+        VHHttpClient.onSessionExpired = (msg) {
+          expiredMessage = msg;
+          expiredCount++;
+        };
 
         VHHttpClient.setClientForTesting(
           MockClient((req) async {
@@ -329,8 +333,61 @@ void main() {
         final resp = await VHHttpClient.get('/ping');
         expect(resp.isUnauthorized, isTrue);
         expect(expiredMessage, isNotNull);
+        // A single 401 must not fire onSessionExpired twice, even though it
+        // travels through both _handleUnauthorized and _checkUnauthorized.
+        expect(expiredCount, 1);
         expect(await AuthService.getJwt(), isNull);
         expect(await AuthService.getRefreshToken(), isNull);
+      },
+    );
+
+    test(
+      'a later, genuine expiry fires again after a valid session resumes',
+      () async {
+        await AuthService.setJwt('old-access');
+        await AuthService.setRefreshToken('old-refresh');
+
+        var expiredCount = 0;
+        VHHttpClient.onSessionExpired = (_) => expiredCount++;
+
+        // First expiry: refresh fails → one notification.
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+        expect(expiredCount, 1);
+
+        // A valid session resumes (successful authenticated response), which
+        // must clear the guard so the next expiry notifies again.
+        await AuthService.setJwt('fresh-access');
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': true, 'data': 'ok'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired again'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+        expect(expiredCount, 2);
       },
     );
   });

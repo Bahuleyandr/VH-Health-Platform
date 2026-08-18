@@ -409,23 +409,49 @@ function AssetDrawer({
   };
 
   const transitionMutation = useMutation({
-    mutationFn: () =>
-      transitionFacilityAsset(
+    mutationFn: () => {
+      const expectedVersion = detailQuery.data?.version;
+      if (expectedVersion == null) {
+        throw new Error(
+          "Asset details are still loading. Reopen the asset and try again.",
+        );
+      }
+      return transitionFacilityAsset(
         assetId,
         toStatus as FacilityAssetStatus,
-        detailQuery.data?.version ?? 0,
+        expectedVersion,
         reason.trim() || undefined,
-      ),
+      );
+    },
     onSuccess: (asset) => {
       toast.success(`Asset marked ${STATUS_LABELS[asset.status]}`);
       setToStatus("");
       setReason("");
       invalidate();
     },
-    onError: (err: unknown) =>
+    onError: async (err: unknown) => {
+      const payload =
+        err instanceof APIError && typeof err.data === "object"
+          ? (err.data as { code?: unknown })
+          : null;
+      if (
+        err instanceof APIError &&
+        err.status === 409 &&
+        payload?.code === "FACILITY_ASSET_STALE_WRITE"
+      ) {
+        invalidate();
+        // Re-read the current version so the retry uses fresh state instead
+        // of the stale one that just lost the optimistic-concurrency check.
+        await detailQuery.refetch();
+        toast.error(
+          "This asset changed after you opened it. The latest version was loaded — review and apply the status change again.",
+        );
+        return;
+      }
       toast.error(
         err instanceof Error ? err.message : "Could not change asset status",
-      ),
+      );
+    },
   });
 
   const maintenanceMutation = useMutation({

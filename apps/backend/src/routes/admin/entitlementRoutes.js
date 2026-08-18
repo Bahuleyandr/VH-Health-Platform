@@ -1,5 +1,6 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   getEntitlementCatalog,
   getTenantEntitlementSummary,
@@ -64,7 +65,11 @@ router.get('/tenants/:tenantId', async (req, res) => {
   }
 });
 
-router.put('/tenants/:tenantId', async (req, res) => {
+// Mutating a tenant's licence/entitlement is a platform control, gated to
+// SUPER_ADMIN like the sibling /admin/tenants CRUD — a tenant ADMIN must not be
+// able to self-upgrade their own tenant's package. The service enforces the
+// same rule as defence in depth.
+router.put('/tenants/:tenantId', requireRole('SUPER_ADMIN'), async (req, res) => {
   const tenantId = normalizeTenantId(req.params.tenantId);
   if (!tenantId) return error(res, 'Valid tenantId is required', 400);
 

@@ -56,6 +56,7 @@ describe('leaveService roster integration', () => {
       id: 100,
       uid: '11111111-2222-4333-8444-000000020100',
       name: 'Nurse One',
+      tenant_id: '10000000-0000-4000-8000-000000000001',
       staff: [
         {
           employee_id: 'EMP-100',

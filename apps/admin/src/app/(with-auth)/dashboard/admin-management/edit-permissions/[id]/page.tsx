@@ -25,11 +25,8 @@ export default function EditPermissionsPage() {
   const params = useParams<{ id: string }>();
   const adminId = params.id;
 
-  // Only ADMIN with 'admin:permissions:update' (or SUPER_ADMIN) may access
-  const { allowed } = usePermissions({
-    requiredRole: "ADMIN",
-    requiredPermissions: ["admin:permissions:update"],
-  });
+  // Admin lifecycle is SUPER_ADMIN-only (matches the backend gate + route policy).
+  const { allowed } = usePermissions({ requiredRole: "SUPER_ADMIN" });
 
   const [admin, setAdmin] = useState<AdminUser | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);

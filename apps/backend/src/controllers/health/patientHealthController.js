@@ -20,6 +20,17 @@ let vitalsSourceColumnsSupported;
 
 const STRICT_DECIMAL_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
+// Convert a temperature to canonical Celsius given a unit hint. Mirrors
+// vitalsChartService.toCelsius: default unit is C (store as-is), explicit
+// F/FAHRENHEIT (case-insensitive) converts. patient_vitals.temperature is
+// stored uniformly in °C from both the manual and wearable paths.
+function toCelsius(value, unit) {
+  if (value === undefined || value === null) return value;
+  const u = String(unit ?? 'C').trim().toUpperCase();
+  if (u === 'F' || u === 'FAHRENHEIT') return ((value - 32) * 5) / 9;
+  return value;
+}
+
 function strictNumberOrUndefined(value, field, { integer = false } = {}) {
   if (value === null || value === undefined || value === '') return undefined;
   if (typeof value === 'boolean' || typeof value === 'object') {
@@ -315,6 +326,7 @@ export async function recordPatientVitals(req, res) {
       bloodPressure,
       heartRate,
       temperature,
+      temperature_unit: temperatureUnit,
       bloodSugar,
       weight,
       spO2,
@@ -398,11 +410,21 @@ export async function recordPatientVitals(req, res) {
       }, wearable.duplicate ? 'Vitals already recorded' : 'Vitals recorded successfully');
     }
 
+    // Temperature arrives from the patient app unitless (historically °F).
+    // Convert to canonical °C using the explicit temperature_unit hint, then
+    // reject physiologically-impossible values before persisting — the column
+    // is uniformly °C (manual→converted here, wearable→already °C from the
+    // Flutter health plugin).
+    const temperatureC = temperature != null
+      ? toCelsius(parseFloat(temperature), temperatureUnit)
+      : null;
+    assertVitalPlausibility({ temperature: temperatureC });
+
     const baseParams = [
       uid,
       bloodPressure ? JSON.stringify(bloodPressure) : null,
       heartRate != null ? parseInt(heartRate, 10) : null,
-      temperature != null ? parseFloat(temperature) : null,
+      temperatureC,
       bloodSugar != null ? parseInt(bloodSugar, 10) : null,
       weight != null ? parseFloat(weight) : null,
       spO2 != null ? parseInt(spO2, 10) : null,

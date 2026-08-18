@@ -28188,6 +28188,7 @@ model abdm_patient_share_intakes {
   @@unique([tenant_id, request_id, environment], map: "uq_abdm_share_intake_request")
   @@index([tenant_id, abha_number], map: "idx_abdm_share_intake_abha", where: raw("(abha_number IS NOT NULL)"))
   @@index([expires_at], map: "idx_abdm_share_intake_expiry", where: raw("((status)::text = 'received'::text)"))
+  @@index([tenant_id, matched_patient_uid], map: "idx_abdm_share_intake_matched_patient", where: raw("(matched_patient_uid IS NOT NULL)"))
   @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_abdm_share_intake_tenant_status")
 }
 
@@ -28280,12 +28281,14 @@ model payment_gateway_orders {
   @@index([invoice_id], map: "idx_pg_order_invoice", where: raw("(invoice_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_pg_order_patient")
   @@index([payment_link_id], map: "idx_pg_order_payment_link", where: raw("(payment_link_id IS NOT NULL)"))
+  @@index([tenant_id, reconciled_by], map: "idx_pg_order_reconciled_by", where: raw("(reconciled_by IS NOT NULL)"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_pg_order_tenant_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model payment_gateway_provider_configs {
   id                         Int                      @id @default(autoincrement())
   tenant_id                  String                   @unique(map: "ux_pg_provider_config_tenant_live", where: raw("enabled")) @db.Uuid
@@ -28350,6 +28353,7 @@ model payment_gateway_refunds {
   @@unique([tenant_id, provider, provider_idempotency_key], map: "ux_pg_refund_provider_idempotency")
   @@unique([tenant_id, billing_refund_id, id], map: "ux_pg_refund_tenant_billing_execution")
   @@index([gateway_order_id], map: "idx_pg_refund_order")
+  @@index([tenant_id, reconciled_by], map: "idx_pg_refund_reconciled_by", where: raw("(reconciled_by IS NOT NULL)"))
   @@index([tenant_id, initiated_at, id], map: "idx_pg_refund_reconciliation_queue", where: raw("(((status)::text = 'requires_reconciliation'::text) AND (reconciled_at IS NULL))"))
   @@index([tenant_id, status, initiated_at(sort: Desc)], map: "idx_pg_refund_tenant_status")
 }

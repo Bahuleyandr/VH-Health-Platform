@@ -235,6 +235,71 @@ describe('recordPatientVitals wearable sources', () => {
   });
 });
 
+describe('recordPatientVitals manual temperature unit', () => {
+  function manualReq(body) {
+    return {
+      body: { source: 'manual', ...body },
+      user: { uid: PATIENT_UID, role: 'PATIENT' },
+      tenantId: TENANT,
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+      id: 'req-manual-temp',
+    };
+  }
+
+  function mockColumnsAndInsert() {
+    queryRawMock.mockImplementation(async (sql) => {
+      if (String(sql).includes('information_schema.columns')) return [{ count: 2 }];
+      if (String(sql).includes('INSERT INTO patient_vitals')) {
+        return [{ id: 501, recorded_at: new Date('2026-08-11T03:00:00.000Z'), source: 'manual', recorded_at_source: null }];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+  }
+
+  beforeEach(() => {
+    queryRawMock.mockReset();
+    logPhiAccessMock.mockReset();
+  });
+
+  function insertTemperatureParam() {
+    const call = queryRawMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO patient_vitals'));
+    // baseParams: [uid, blood_pressure, heart_rate, temperature, ...] → temperature is args[4].
+    return call?.[4];
+  }
+
+  it('converts a Fahrenheit patient temperature to canonical °C before storing', async () => {
+    mockColumnsAndInsert();
+    const res = responseDouble();
+
+    await recordPatientVitals(manualReq({ temperature: 98.6, temperature_unit: 'F' }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(insertTemperatureParam()).toBeCloseTo(37, 1);
+  });
+
+  it('stores a unit-less / °C temperature unchanged', async () => {
+    mockColumnsAndInsert();
+    const res = responseDouble();
+
+    await recordPatientVitals(manualReq({ temperature: 37 }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(insertTemperatureParam()).toBeCloseTo(37, 5);
+  });
+
+  it('rejects an implausible temperature after Fahrenheit conversion', async () => {
+    mockColumnsAndInsert();
+    const res = responseDouble();
+
+    // 200 °F → ~93.3 °C, outside the 12–45 °C plausibility bound.
+    await recordPatientVitals(manualReq({ temperature: 200, temperature_unit: 'F' }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect(queryRawMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO patient_vitals'))).toBe(false);
+  });
+});
+
 describe('recordStaffVitals canonical adapter', () => {
   beforeEach(() => {
     queryRawMock.mockReset();

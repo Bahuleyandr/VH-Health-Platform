@@ -376,7 +376,7 @@ describe("<FacilityAssetsPage /> optimistic concurrency", () => {
       ),
     );
     expect(toast.error).toHaveBeenCalledWith(
-      "Facility asset changed since it was loaded",
+      "This asset changed after you opened it. The latest version was loaded — review and apply the status change again.",
     );
     expect(toast.success).not.toHaveBeenCalledWith("Asset marked Disposed");
   });

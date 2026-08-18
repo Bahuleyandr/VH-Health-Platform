@@ -484,6 +484,15 @@ export async function upsertTenantEntitlement({
 }) {
   if (!tenantId) throw AppError.badRequest('tenantId is required', 'TENANT_ID_REQUIRED');
   if (!packageKey) throw AppError.badRequest('packageKey is required', 'PACKAGE_KEY_REQUIRED');
+  // Defence in depth behind the SUPER_ADMIN route gate: modifying a tenant's
+  // licence is a platform-only control. A non-SUPER_ADMIN actor (e.g. a tenant
+  // ADMIN self-upgrading their own tenant) is rejected even if it reaches here.
+  if (actorRole && String(actorRole).toUpperCase() !== 'SUPER_ADMIN') {
+    throw AppError.forbidden(
+      'Only SUPER_ADMIN may modify tenant entitlements',
+      'ENTITLEMENT_SUPER_ADMIN_REQUIRED'
+    );
+  }
   if (!STATUS_VALUES.has(status)) {
     throw AppError.badRequest('Invalid entitlement status', 'ENTITLEMENT_STATUS_INVALID');
   }
