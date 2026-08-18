@@ -327,6 +327,9 @@ describe('ABDM verified consent artefact binding', () => {
       date_range_from: new Date('2026-01-01T00:00:00.000Z'),
       date_range_to: new Date('2026-12-31T23:59:59.000Z'),
       expiry_date: new Date('2099-01-31T00:00:00.000Z'),
+      // The real _getConsentForPatient query always selects the epoch twin;
+      // a NULL twin is treated as expired (fail-closed).
+      expiry_date_epoch_ms: BigInt(new Date('2099-01-31T00:00:00.000Z').getTime()),
       status: 'REQUESTED',
       consent_artifact: {
         verification: {
