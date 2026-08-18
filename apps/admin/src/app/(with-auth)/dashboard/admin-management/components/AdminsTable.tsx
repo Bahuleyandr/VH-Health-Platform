@@ -44,20 +44,15 @@ export function AdminsTable({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Optional permission gating (SUPER_ADMIN auto-passes)
-  const { hasPermission, isSuperAdmin } = usePermissions();
+  // Admin lifecycle is SUPER_ADMIN-only (+ backend step-up); no per-admin flag
+  // grants it, so gate purely on the role.
+  const { isSuperAdmin } = usePermissions();
 
-  const canEditPermissions =
-    isSuperAdmin || hasPermission("admin:permissions:update");
-
-  const canToggleFor = (isActive: boolean) =>
-    isSuperAdmin ||
-    (isActive
-      ? hasPermission("admin:deactivate")
-      : hasPermission("admin:reactivate"));
+  const canEditPermissions = isSuperAdmin;
+  const canManageAdmins = isSuperAdmin;
 
   const handleToggleClick = (admin: AdminUser) => {
-    if (!canToggleFor(admin.is_active)) return;
+    if (!canManageAdmins) return;
     const action: ToggleAction = admin.is_active ? "deactivate" : "reactivate";
     setPendingAdmin(admin);
     setPendingAction(action);
@@ -265,7 +260,7 @@ export function AdminsTable({
               {paged.rows.map((admin) => {
                 const loginInfo = formatLastLogin(admin.last_login ?? null);
                 const toggling = updatingAdminId === admin.uid;
-                const toggleAllowed = canToggleFor(admin.is_active);
+                const toggleAllowed = canManageAdmins;
 
                 return (
                   <tr key={admin.uid} className="hover:bg-muted">

@@ -175,12 +175,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   integrations: { minRank: ADMIN_ONLY },
   adoption: { minRank: ADMIN_ONLY },
   "developer-portal": { minRank: ADMIN_ONLY },
-  entitlements: { minRank: ADMIN_ONLY },
   abdm: { minRank: ADMIN_ONLY },
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },
   "report-builder": { minRank: ADMIN_ONLY },
-  "admin-management": { minRank: ADMIN_ONLY },
 
   // ── Platform operations (SUPER_ADMIN only) ────────────────────────────────
   // live DB browser — backend databaseRoutes.js is SUPER_ADMIN-only too
@@ -188,6 +186,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   tenants: { minRank: SUPER_ADMIN_ONLY },
   "feature-flags": { minRank: SUPER_ADMIN_ONLY },
   "continuity-facility-context": { minRank: SUPER_ADMIN_ONLY },
+  // entitlements edit tenant license/package/status — a tenant ADMIN must not
+  // self-upgrade; matches the SUPER_ADMIN-only backend gate (entitlementRoutes).
+  entitlements: { minRank: SUPER_ADMIN_ONLY },
+  // admin account lifecycle is SUPER_ADMIN-only + step-up on the backend.
+  "admin-management": { minRank: SUPER_ADMIN_ONLY },
 };
 
 /**

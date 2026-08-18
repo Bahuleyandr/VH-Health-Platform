@@ -23,6 +23,12 @@ import { API_BASE_URL } from "@/lib/api-config";
 import { createHash } from "node:crypto";
 
 
+// Sentinel "permission" that no per-admin flag grants and the Permissions
+// Matrix never offers. A gate requiring it is effectively SUPER_ADMIN-only:
+// ADMIN accounts can never satisfy it, and SUPER_ADMIN (plus the '*' wildcard)
+// short-circuits the check before flags are consulted.
+const PLATFORM_SUPER_ADMIN = "platformSuperAdmin";
+
 interface PermissionGate {
   permission: string;
   /** Proxy path prefixes in candidate form ("api/v1/..."), segment-bounded. */
@@ -59,6 +65,9 @@ const PERMISSION_GATES: PermissionGate[] = [
       "api/v1/admin/departments",
       "api/v1/beds",
       "api/v1/wards",
+      // Facility assets are physical-infrastructure inventory, same class as
+      // beds/wards; scope a flag-limited ADMIN out of them too.
+      "api/v1/facility/assets",
     ],
   },
   {
@@ -113,6 +122,14 @@ const PERMISSION_GATES: PermissionGate[] = [
       "api/v1/auth/admin/update-permissions",
       "api/v1/rbac/admin/audit-log",
     ],
+  },
+  {
+    // Tenant entitlement/license administration is SUPER_ADMIN-only (route
+    // policy + backend gate). PLATFORM_SUPER_ADMIN is intentionally NOT a
+    // grantable per-admin flag, so no scoped ADMIN can hold it — only a
+    // SUPER_ADMIN (who bypasses this check) crosses the gate.
+    permission: PLATFORM_SUPER_ADMIN,
+    prefixes: ["api/v1/admin/entitlements"],
   },
 ];
 
