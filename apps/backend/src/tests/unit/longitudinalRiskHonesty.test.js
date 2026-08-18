@@ -34,6 +34,75 @@ beforeEach(() => {
   scoreAdherenceRisk.mockResolvedValue({ score: 20, band: 'low', source: 'heuristic' });
 });
 
+// The readmission bump is driven by `last_discharge_epoch_ms`, the absolute
+// instant twin, not by `last_discharge` (PR #881). Every fixture below passes
+// `last_discharge: null`, so this branch was never exercised with a real date —
+// and a dropped twin reads as "no prior discharge", silently removing up to 30
+// points of readmission risk while every existing assertion still passes. That
+// is the same class of synthetic-zero this file exists to prevent.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function admissionHistory({ cnt, daysSinceDischarge = null, avgLos = null }) {
+  const row = { cnt, avg_los: avgLos, last_discharge: null, last_discharge_epoch_ms: null };
+  if (daysSinceDischarge != null) {
+    const at = new Date(Date.now() - daysSinceDischarge * DAY_MS);
+    row.last_discharge = at.toISOString();
+    row.last_discharge_epoch_ms = BigInt(at.getTime());
+  }
+  return [row];
+}
+
+function mockScoringRun(history) {
+  queryRawUnsafe
+    .mockResolvedValueOnce([ADMISSION])
+    .mockResolvedValueOnce(history)
+    .mockResolvedValueOnce([])                                    // diagnoses
+    .mockResolvedValueOnce([{ active: 0 }])                       // abdm_consents
+    .mockResolvedValueOnce([{ delivered: 0, last_delivered: null }]) // abdm_data_requests
+    .mockResolvedValueOnce([{ active: 0 }])                       // patient_consents
+    .mockResolvedValueOnce([{ id: 91 }]);                         // snapshot insert
+}
+
+test('a discharge inside 30 days adds the readmission bump', async () => {
+  mockScoringRun(admissionHistory({ cnt: 1, daysSinceDischarge: 10 }));
+
+  const result = await scoreLongitudinalRisk({
+    admissionId: ADMISSION.id, req: { tenantId: TENANT_ID },
+  });
+
+  // 20 for one prior admission + 30 for a discharge inside 30 days.
+  expect(result.readmission_score).toBe(50);
+  expect(result.contributors.readmission).toMatchObject({
+    prior_admissions_180d: 1,
+    readmission_within_30d: 10,
+  });
+});
+
+test('a discharge inside 60 days adds the smaller bump instead', async () => {
+  mockScoringRun(admissionHistory({ cnt: 1, daysSinceDischarge: 45 }));
+
+  const result = await scoreLongitudinalRisk({
+    admissionId: ADMISSION.id, req: { tenantId: TENANT_ID },
+  });
+
+  // 20 + 15, and the 30-day contributor must not appear.
+  expect(result.readmission_score).toBe(35);
+  expect(result.contributors.readmission).toMatchObject({ readmission_within_60d: 45 });
+  expect(result.contributors.readmission.readmission_within_30d).toBeUndefined();
+});
+
+test('a prior admission with no recorded discharge earns no readmission bump', async () => {
+  mockScoringRun(admissionHistory({ cnt: 1 }));
+
+  const result = await scoreLongitudinalRisk({
+    admissionId: ADMISSION.id, req: { tenantId: TENANT_ID },
+  });
+
+  expect(result.readmission_score).toBe(20);
+  expect(result.contributors.readmission.readmission_within_30d).toBeUndefined();
+  expect(result.contributors.readmission.readmission_within_60d).toBeUndefined();
+});
+
 test('an adherence scorer fault cannot become a low authoritative risk score', async () => {
   queryRawUnsafe.mockResolvedValueOnce([ADMISSION]);
   scoreAdherenceRisk.mockRejectedValueOnce(new Error('adherence store unavailable'));
