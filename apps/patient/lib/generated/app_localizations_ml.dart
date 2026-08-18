@@ -2816,6 +2816,17 @@ class AppLocalizationsMl extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'ഓർമ്മപ്പെടുത്തൽ നീക്കുക';
 
   @override
+  String get medicationReminderUpdateFailed =>
+      'റിമൈൻഡർ അപ്ഡേറ്റ് ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderDeleteFailed =>
+      'റിമൈൻഡർ നീക്കം ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderPausedLabel => 'താൽക്കാലികമായി നിർത്തി';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'ഡോസ്: $dosage';
   }

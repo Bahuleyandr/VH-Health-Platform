@@ -14,6 +14,21 @@ import 'package:vhhealth/core/services/patient_notification_privacy.dart';
 
 typedef NotificationPayloadHandler = void Function(String payload);
 
+/// One planned local-notification firing for a medication reminder with an
+/// end date: bounded reminders are scheduled as individual one-shot
+/// notifications (never an unbounded daily repeat), so nothing keeps firing
+/// after the course ends.
+@immutable
+class ReminderNotificationInstance {
+  const ReminderNotificationInstance({
+    required this.notificationId,
+    required this.scheduledDate,
+  });
+
+  final int notificationId;
+  final tz.TZDateTime scheduledDate;
+}
+
 class NotificationScheduler {
   NotificationScheduler._();
 
@@ -23,6 +38,18 @@ class NotificationScheduler {
   static const int ancSupplementReminderIdOffset = 1000000000;
   static const int _ancSupplementLocalIdOffset = 7000000;
   static const int _ancSupplementLocalIdModulo = 10000000;
+
+  /// Cap on one-shot notifications scheduled per bounded (end-dated)
+  /// reminder. Two constraints:
+  /// - every instance index must stay < 100 so [cancelReminder]'s
+  ///   0..99 sweep clears them and IDs never collide across reminders;
+  /// - iOS keeps at most 64 pending local notifications app-wide, so a
+  ///   single course must leave headroom for other reminders. Each
+  ///   resync ([rescheduleAll] on cold start / reminders-screen visit)
+  ///   tops the window up, so a long course keeps rolling forward; if
+  ///   the app is never opened the notifications stop early rather
+  ///   than firing past the end date.
+  static const int _maxBoundedInstancesPerReminder = 56;
 
   static const _patientPushChannelId = 'patient_push';
   static const _patientPushChannelName = 'Patient Updates';
@@ -148,7 +175,27 @@ class NotificationScheduler {
     );
   }
 
-  /// Schedule daily notifications for a medication reminder.
+  static const NotificationDetails _medicationNotificationDetails =
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'medication_reminders',
+          'Medication Reminders',
+          channelDescription: 'Reminders to take your medications on time',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      );
+
+  /// Schedule notifications for a medication reminder.
+  ///
+  /// Reminders WITHOUT an end date use an OS-level daily repeat
+  /// ([DateTimeComponents.time]). Reminders WITH an end date are
+  /// scheduled as bounded one-shot instances up to (and including) the
+  /// end date — an OS daily repeat never stops on its own, so an
+  /// end-dated course scheduled that way kept firing "Time for your
+  /// medication" every day after the course finished until the next
+  /// resync happened to run.
   ///
   /// SECURITY: Notification body uses generic text to prevent PHI
   /// exposure on lock screens. Actual medication details are only
@@ -164,22 +211,39 @@ class NotificationScheduler {
     await initialize();
     if (!isActive) return;
 
-    if (endDate != null && endDate.isNotEmpty) {
-      final end = DateTime.tryParse(endDate);
-      if (end != null && end.isBefore(DateTime.now())) return;
+    if (endDate != null &&
+        endDate.isNotEmpty &&
+        DateTime.tryParse(endDate) != null) {
+      // Bounded course: one-shot instances through the end date only.
+      final instances = boundedReminderInstances(
+        id: id,
+        reminderTimes: reminderTimes,
+        endDate: endDate,
+      );
+      for (final instance in instances) {
+        try {
+          await _plugin.zonedSchedule(
+            id: instance.notificationId,
+            title: 'Medication Reminder',
+            // Generic message to prevent PHI on lock screen
+            body: 'Time for your medication. Open the app for details.',
+            scheduledDate: instance.scheduledDate,
+            notificationDetails: _medicationNotificationDetails,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            payload: jsonEncode({'reminderId': id}),
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint(
+              'Failed to schedule notification ${instance.notificationId}: $e',
+            );
+          }
+        }
+      }
+      return;
     }
 
-    const notificationDetails = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'medication_reminders',
-        'Medication Reminders',
-        channelDescription: 'Reminders to take your medications on time',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-    );
-
+    // Open-ended reminder: unbounded OS-level daily repeat.
     for (var i = 0; i < reminderTimes.length; i++) {
       final parts = reminderTimes[i].split(':');
       if (parts.length != 2) continue;
@@ -198,7 +262,7 @@ class NotificationScheduler {
           // Generic message to prevent PHI on lock screen
           body: 'Time for your medication. Open the app for details.',
           scheduledDate: scheduledTime,
-          notificationDetails: notificationDetails,
+          notificationDetails: _medicationNotificationDetails,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           matchDateTimeComponents: DateTimeComponents.time,
           payload: jsonEncode({'reminderId': id}),
@@ -209,6 +273,79 @@ class NotificationScheduler {
         }
       }
     }
+  }
+
+  /// Plan the bounded one-shot instances for an end-dated reminder.
+  ///
+  /// The end date is INCLUSIVE (a course "ending 2026-08-20" still
+  /// fires on the 20th). Instances are capped at
+  /// [_maxBoundedInstancesPerReminder]; each resync tops the window up
+  /// for long courses. Instance indices are packed slot-major
+  /// (`slot * daysCap + day`) and always stay < 100, so
+  /// [cancelReminder]'s 0..99 sweep cancels every pending instance and
+  /// IDs never collide with another reminder's namespace.
+  @visibleForTesting
+  static List<ReminderNotificationInstance> boundedReminderInstances({
+    required int id,
+    required List<String> reminderTimes,
+    required String endDate,
+    tz.TZDateTime? now,
+  }) {
+    final nowTz = now ?? tz.TZDateTime.now(tz.local);
+    final location = nowTz.location;
+    final end = DateTime.tryParse(endDate);
+    if (end == null) return const [];
+
+    final today = tz.TZDateTime(location, nowTz.year, nowTz.month, nowTz.day);
+    final endDay = tz.TZDateTime(location, end.year, end.month, end.day);
+    final remainingDays = endDay.difference(today).inDays + 1;
+    if (remainingDays <= 0) return const [];
+
+    // Parse valid HH:mm slots first so the index space stays packed.
+    final slots = <(int, int)>[];
+    for (final time in reminderTimes) {
+      final parts = time.split(':');
+      if (parts.length != 2) continue;
+      final hour = int.tryParse(parts[0]);
+      final minute = int.tryParse(parts[1]);
+      if (hour == null || minute == null) continue;
+      slots.add((hour, minute));
+    }
+    if (slots.isEmpty) return const [];
+
+    final maxDays = _maxBoundedInstancesPerReminder ~/ slots.length;
+    final daysCap = remainingDays < maxDays ? remainingDays : maxDays;
+    if (daysCap <= 0) return const [];
+
+    final instances = <ReminderNotificationInstance>[];
+    for (var slot = 0; slot < slots.length; slot++) {
+      final (hour, minute) = slots[slot];
+      for (var day = 0; day < daysCap; day++) {
+        final scheduled = tz.TZDateTime(
+          location,
+          today.year,
+          today.month,
+          today.day + day,
+          hour,
+          minute,
+        );
+        // Skip today's already-passed times.
+        if (!scheduled.isAfter(nowTz)) continue;
+        instances.add(
+          ReminderNotificationInstance(
+            notificationId: notificationIdForReminderSlot(
+              id,
+              slot * daysCap + day,
+            ),
+            scheduledDate: scheduled,
+          ),
+        );
+      }
+    }
+    // Chronological order, so the soonest firings are registered first
+    // if the platform ever truncates the pending set.
+    instances.sort((a, b) => a.scheduledDate.compareTo(b.scheduledDate));
+    return instances;
   }
 
   /// Cancel all notifications for a given reminder.

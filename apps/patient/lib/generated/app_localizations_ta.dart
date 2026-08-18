@@ -2824,6 +2824,16 @@ class AppLocalizationsTa extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'நினைவூட்டலை நீக்கு';
 
   @override
+  String get medicationReminderUpdateFailed =>
+      'நினைவூட்டலைப் புதுப்பிக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderDeleteFailed => 'நினைவூட்டலை நீக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderPausedLabel => 'இடைநிறுத்தப்பட்டது';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'அளவு: $dosage';
   }

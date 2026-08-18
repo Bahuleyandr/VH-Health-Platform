@@ -204,7 +204,7 @@ export async function createPrescriptionReminders(patientUid, medications, optio
 }
 
 /**
- * Get all active medication reminders for a patient.
+ * Get medication reminders for a patient (active only by default).
  *
  * Returns rows from `medication_reminders` UNION ALL ANC supplements
  * (`maternity_supplements`) projected into the same shape. ANC rows
@@ -212,20 +212,30 @@ export async function createPrescriptionReminders(patientUid, medications, optio
  * ANC_SUPPLEMENT_ID_OFFSET so the patient app can render them read-only
  * without colliding with real reminder ids.
  *
+ * Pass `{ includeInactive: true }` to also return deactivated
+ * medication_reminders rows so the patient app can show a toggled-off
+ * reminder (dimmed) and let the patient re-enable it via PUT
+ * `is_active: true`. The default stays active-only so existing callers
+ * (cold-start notification resync, older app builds) are unchanged.
+ * The ANC projection only ever surfaces currently-active supplements.
+ *
  * The supplements UNION is wrapped in a try/catch: tenants that have
  * not yet applied migration 181 (ANC subsystem) hit error code
  * `42P01 — relation does not exist`. Falling back to a
  * medication_reminders-only result keeps the patient screen working
  * on under-migrated environments.
  */
-export async function getActiveReminders(patientUid) {
+export async function getActiveReminders(patientUid, options = {}) {
+  const includeInactive = options.includeInactive === true;
+  // Fixed literal chosen by a boolean — never user input.
+  const activeFilter = includeInactive ? '' : 'AND is_active = true';
   try {
     const result = await prisma.$queryRawUnsafe(`
       SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
              start_date, end_date, is_active, notes, created_at,
              'medication_reminder' AS source
       FROM medication_reminders
-      WHERE patient_uid = $1::uuid AND is_active = true
+      WHERE patient_uid = $1::uuid ${activeFilter}
       UNION ALL
       ${ANC_SUPPLEMENT_PROJECTION}
       ORDER BY created_at DESC
@@ -239,7 +249,7 @@ export async function getActiveReminders(patientUid) {
                start_date, end_date, is_active, notes, created_at,
                'medication_reminder' AS source
         FROM medication_reminders
-        WHERE patient_uid = $1::uuid AND is_active = true
+        WHERE patient_uid = $1::uuid ${activeFilter}
         ORDER BY created_at DESC
       `, patientUid);
       return fallback;
@@ -252,6 +262,16 @@ export async function getActiveReminders(patientUid) {
  * Update an existing medication reminder.
  * Enforces ownership via patient_uid.
  *
+ * Only fields actually present in `data` are written:
+ * - medication_name / dosage / frequency / reminder_times / start_date
+ *   fall back to the stored value when omitted or null (COALESCE);
+ * - end_date / notes are only touched when the key is present in the
+ *   payload (an explicit null clears them — omitting them must NOT
+ *   null a course's end_date, which is what previously made every
+ *   partial PUT wipe the stored end date and notes);
+ * - is_active (boolean) deactivates/reactivates the reminder, so the
+ *   patient app's switch is reversible in both directions.
+ *
  * ANC-supplement projections (id >= ANC_SUPPLEMENT_ID_OFFSET) are
  * doctor-managed and cannot be edited from the patient app — return
  * a 403-style AppError so the UI shows a sensible message instead of
@@ -263,7 +283,17 @@ export async function updateReminder(id, patientUid, data) {
       'ANC supplement reminders are managed by your doctor and cannot be edited here',
     );
   }
-  const { medication_name, dosage, frequency, reminder_times, start_date, end_date, notes } = data;
+  const { medication_name, dosage, frequency, reminder_times, start_date } = data;
+
+  const hasEndDate = Object.prototype.hasOwnProperty.call(data, 'end_date');
+  const hasNotes = Object.prototype.hasOwnProperty.call(data, 'notes');
+  let isActive = null;
+  if (Object.prototype.hasOwnProperty.call(data, 'is_active')) {
+    if (typeof data.is_active !== 'boolean') {
+      throw AppError.badRequest('is_active must be a boolean');
+    }
+    isActive = data.is_active;
+  }
 
   const result = await prisma.$queryRawUnsafe(`
     UPDATE medication_reminders
@@ -271,14 +301,20 @@ export async function updateReminder(id, patientUid, data) {
         dosage = COALESCE($4, dosage),
         frequency = COALESCE($5, frequency),
         reminder_times = COALESCE($6, reminder_times),
-        start_date = COALESCE($7, start_date),
-        end_date = $8,
-        notes = $9,
+        start_date = COALESCE($7::date, start_date),
+        end_date = CASE WHEN $8::boolean THEN $9::date ELSE end_date END,
+        notes = CASE WHEN $10::boolean THEN $11::text ELSE notes END,
+        is_active = COALESCE($12::boolean, is_active),
         updated_at = NOW()
     WHERE id = $1 AND patient_uid = $2::uuid
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
-  `, id, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes || null);
+  `, id, patientUid,
+  medication_name ?? null, dosage ?? null, frequency ?? null,
+  reminder_times ?? null, start_date ?? null,
+  hasEndDate, hasEndDate ? (data.end_date ?? null) : null,
+  hasNotes, hasNotes ? (data.notes ?? null) : null,
+  isActive);
 
   if (result.length === 0) {
     throw AppError.notFound('Medication reminder not found');
