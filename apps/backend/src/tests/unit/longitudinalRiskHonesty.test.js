@@ -123,7 +123,7 @@ test('an admissions history fault cannot contribute a synthetic zero', async () 
 test('a diagnoses fault cannot contribute a synthetic zero', async () => {
   queryRawUnsafe
     .mockResolvedValueOnce([ADMISSION])
-    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null }])
+    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null, last_discharge_epoch_ms: null }])
     .mockRejectedValueOnce(new Error('diagnoses unavailable'));
 
   await expect(scoreLongitudinalRisk({ admissionId: ADMISSION.id, req: { tenantId: TENANT_ID } }))
@@ -133,7 +133,7 @@ test('a diagnoses fault cannot contribute a synthetic zero', async () => {
 test('snapshot persistence failure rejects instead of returning an unaudited risk band', async () => {
   queryRawUnsafe
     .mockResolvedValueOnce([ADMISSION])
-    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null }])
+    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null, last_discharge_epoch_ms: null }])
     .mockResolvedValueOnce([])
     .mockResolvedValueOnce([{ active: 0 }])
     .mockResolvedValueOnce([{ delivered: 0, last_delivered: null }])
@@ -154,7 +154,7 @@ test('latest-risk lookup faults reject instead of looking like no prior assessme
 test('non-scoring ABDM enrichment may degrade only with an explicit unavailable contract', async () => {
   queryRawUnsafe
     .mockResolvedValueOnce([ADMISSION])
-    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null }])
+    .mockResolvedValueOnce([{ cnt: 0, avg_los: null, last_discharge: null, last_discharge_epoch_ms: null }])
     .mockResolvedValueOnce([])
     .mockRejectedValueOnce(new Error('ABDM consent store unavailable'))
     .mockRejectedValueOnce(new Error('ABDM request store unavailable'))

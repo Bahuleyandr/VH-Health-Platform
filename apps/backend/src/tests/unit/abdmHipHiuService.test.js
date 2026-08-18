@@ -405,9 +405,11 @@ describe('recordWebhookEvent — idempotency', () => {
   it('reclaims failed intake when an authenticated callback is retried', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 4, external_event_id: 'EVT-RETRY', status: 'failed', received_at: new Date(),
+      received_at_epoch_ms: BigInt(Date.now()),
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 4, external_event_id: 'EVT-RETRY', status: 'pending', received_at: new Date(),
+      received_at_epoch_ms: BigInt(Date.now()),
     }]);
     const result = await recordWebhookEvent({
       tenantId: TENANT,
