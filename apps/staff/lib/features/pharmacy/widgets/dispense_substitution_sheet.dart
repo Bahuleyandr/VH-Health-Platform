@@ -299,7 +299,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       // Fail closed client-side too: Schedule X / narcotic substitutes need
       // the approved second-staff witness before the dispense is attempted.
       setState(
-        () => _error = s.lookup('s4.lib.pharmacy.substitution_witness_required'),
+        () =>
+            _error = s.lookup('s4.lib.pharmacy.substitution_witness_required'),
       );
       return;
     }

@@ -8971,8 +8971,7 @@ class AppStrings {
       's4.lib.pharmacy.order_note': "Order note",
       's4.lib.pharmacy.substitute': "Substitute",
       's4.lib.pharmacy.dispense_substitute': "Dispense substitute",
-      's4.lib.pharmacy.substitution_witness_required':
-          "An approved second staff witness is required before this Schedule X / narcotic substitute can be dispensed.",
+      's4.lib.pharmacy.substitution_witness_required': "An approved second staff witness is required before this Schedule X / narcotic substitute can be dispensed.",
       's4.lib.pharmacy.prescribed_medicine': "Prescribed medicine",
       's4.lib.pharmacy.batch_earliest_expiry_first':
           "Batch (earliest expiry first)",

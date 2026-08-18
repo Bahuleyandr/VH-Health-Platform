@@ -233,11 +233,17 @@ void main() {
       );
 
       // Run the witness flow: request, then sign in as the second staff.
-      final witnessBtn = find.byKey(const ValueKey('substitution-witness-request'));
+      final witnessBtn = find.byKey(
+        const ValueKey('substitution-witness-request'),
+      );
       await tester.ensureVisible(witnessBtn);
       await tester.pumpAndSettle();
       await tester.tap(witnessBtn);
-      await tester.pumpAndSettle();
+      // The credentials dialog is up while _witnessBusy still animates the
+      // request button's indeterminate spinner, so pumpAndSettle would never
+      // settle here — bounded pumps, same as counter_sale_screen_test.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(requestedSubstitution, isNotNull);
       expect(requestedSubstitution!['inventory_item_id'], 66);
       expect(requestedSubstitution!['final_catalog_id'], 202);
