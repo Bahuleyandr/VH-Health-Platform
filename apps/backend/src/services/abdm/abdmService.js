@@ -1140,8 +1140,10 @@ class ABDMService {
     // Check expiry. abdm_consents.expiry_date is timestamptz, so read the
     // absolute-instant twin rather than a driver Date, which is materialised in
     // the database session timezone (a positive offset made this fail OPEN).
+    // A NULL expiry is treated as expired (fail-closed): a missing consent
+    // expiry denies access rather than granting a consent that never expires.
     const consentExpiry = epochMsOrNull(consent.expiry_date_epoch_ms);
-    if (consentExpiry != null && consentExpiry < Date.now()) {
+    if (consentExpiry == null || consentExpiry < Date.now()) {
       await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
         consentId
@@ -1363,8 +1365,10 @@ class ABDMService {
     }
 
     // Check consent expiry against the absolute-instant twin (see grantConsent).
+    // A NULL expiry is treated as expired (fail-closed) — no data export on a
+    // consent whose expiry cannot be established.
     const consentExpiry = epochMsOrNull(consent.expiry_date_epoch_ms);
-    if (consentExpiry != null && consentExpiry < Date.now()) {
+    if (consentExpiry == null || consentExpiry < Date.now()) {
       await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1 AND tenant_id = $2::uuid`,
         consentId, tenantId,
