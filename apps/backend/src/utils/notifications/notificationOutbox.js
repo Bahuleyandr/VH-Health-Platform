@@ -16,6 +16,18 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
 
+// Retry budget for this file's two SERIALIZABLE transactions. See
+// runSerializableTx for why they need one at all. Mirrors
+// SERIALIZABLE_ATTEMPTS / runSerializableCommand in
+// services/downtime/externalRecoveryOperabilityService.js, the house pattern
+// for a serializable command that can lose a race.
+const SERIALIZABLE_ATTEMPTS = 3;
+
+// Full-jitter base. The window a serialization conflict opens is tiny, so the
+// point of sleeping at all is to decorrelate two writers that just collided —
+// an immediate retry tends to re-collide with the same peer.
+const SERIALIZABLE_RETRY_BASE_MS = 10;
+
 const toRecipientIdTextOrNull = (value) => {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -224,6 +236,73 @@ async function queueTx(db, tenantId, intent, { replayGeneration = 0 } = {}) {
   return rows[0] || null;
 }
 
+// Prisma reports a raw-SQL failure as P2010 and carries the real SQLSTATE on
+// `meta.code`; the Prisma 7 driver adapter nests it one level deeper. Probe the
+// same chain the other serializable services use — never the message text.
+function sqlState(error) {
+  return (
+    error?.meta?.code
+    || error?.meta?.driverAdapterError?.cause?.originalCode
+    || error?.cause?.code
+    || error?.code
+  );
+}
+
+/**
+ * Is `error` a transient conflict that beginning a NEW transaction — and
+ * therefore taking a FRESH snapshot — can actually resolve?
+ *
+ * 40001 (serialization_failure), 40P01 (deadlock_detected) and Prisma's P2034
+ * are the generic transient classes every SERIALIZABLE caller is required to be
+ * ready for. Deliberately NOT 23505/P2002: the only unique violation these
+ * transactions expect is the delivery-intent collision, and `queueTx` already
+ * absorbs that with ON CONFLICT DO NOTHING. A unique violation that still
+ * escapes is a real defect and must surface to the caller, not be retried and
+ * then re-raised three transactions later.
+ */
+function isRetryableSerializationConflict(error) {
+  return ['40001', '40P01', 'P2034'].includes(String(sqlState(error) || ''));
+}
+
+/**
+ * Run `command` in a tenant-scoped SERIALIZABLE transaction, retrying the whole
+ * transaction on a transient conflict.
+ *
+ * ★ The retry is mandatory rather than defensive. SERIALIZABLE fixes a
+ * transaction's snapshot at its first statement, so two concurrent claimers
+ * racing the same outbox row make Postgres abort one with 40001 by design —
+ * "could not serialize access due to concurrent update" is the contract
+ * working, not a fault. 40001 is retryable by that same contract, so letting it
+ * escape turns a routine lost race into a 500 for the caller.
+ *
+ * Safe because both callers pass a command that is safe to re-run WHOLE: each
+ * is a single statement, an abort rolls back every effect including the
+ * claim-generation bump, and the retry either wins the lease or loses cleanly
+ * (the next snapshot sees the row already CLAIMED and the candidate predicate
+ * excludes it, yielding an empty batch). Do not reach for this around a
+ * transaction with non-idempotent side effects.
+ */
+async function runSerializableTx(tenantId, command, context = {}) {
+  for (let attempt = 1; attempt <= SERIALIZABLE_ATTEMPTS; attempt += 1) {
+    try {
+      return await setTenantTx(tenantId, command, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if (attempt >= SERIALIZABLE_ATTEMPTS || !isRetryableSerializationConflict(error)) throw error;
+      logger.warn('Notification outbox serializable conflict — retrying', {
+        ...context,
+        tenant_id: tenantId,
+        attempt,
+        max_attempts: SERIALIZABLE_ATTEMPTS,
+        sql_state: sqlState(error),
+      });
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.floor(Math.random() * SERIALIZABLE_RETRY_BASE_MS * attempt));
+      });
+    }
+  }
+  throw new Error('Notification outbox serializable command retry exhausted');
+}
+
 class NotificationOutbox {
   async queue(notification, { tx = null, strict = false, replayGeneration = 0 } = {}) {
     try {
@@ -237,11 +316,15 @@ class NotificationOutbox {
         if (contexts[0]?.tenant_id !== tenantId) {
           throw new Error('Notification outbox transaction tenant does not match intent tenant');
         }
+        // A caller-supplied transaction is NOT ours to retry — it may already
+        // be aborted, and its other statements are outside our control.
         return await queueTx(tx, tenantId, intent, { replayGeneration });
       }
-      return await setTenantTx(tenantId, db => queueTx(db, tenantId, intent, { replayGeneration }), {
-        isolationLevel: 'Serializable',
-      });
+      return await runSerializableTx(
+        tenantId,
+        db => queueTx(db, tenantId, intent, { replayGeneration }),
+        { operation: 'queue', channel: intent.channel },
+      );
     } catch (err) {
       if (strict) throw err;
       logger.warn('Notification outbox queue failed:', err.message);
@@ -254,7 +337,7 @@ class NotificationOutbox {
     if (!tid) throw new Error('Notification outbox claim requires tenantId');
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 250);
     const safeLeaseSeconds = Math.min(Math.max(Number(leaseSeconds) || 120, 30), 900);
-    return setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    return runSerializableTx(tid, tx => tx.$queryRawUnsafe(
       `WITH candidates AS (
          SELECT outbox.id
            FROM notification_outbox AS outbox
@@ -308,7 +391,7 @@ class NotificationOutbox {
                   outbox.claimed_at, outbox.lease_expires_at`,
       tid, safeLimit, safeLeaseSeconds,
       TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
-    ), { isolationLevel: 'Serializable' });
+    ), { operation: 'claimPendingBatch', limit: safeLimit });
   }
 
   async markSent(outboxId, { tenantId, claimToken, claimGeneration } = {}) {
