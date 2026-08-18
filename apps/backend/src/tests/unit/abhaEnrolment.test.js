@@ -136,9 +136,31 @@ let routes;
 function route(sqlIncludes, impl) {
   routes.unshift([sqlIncludes, impl]);
 }
+// loadSession selects an epoch-millisecond twin beside `expires_at`, because a
+// timestamptz materialised by the pg driver is shifted by the database session
+// timezone and the expiry check compares against the process clock. Postgres
+// computes that column, so this double derives it centrally rather than per
+// fixture — otherwise a fixture omits it, the service reads undefined, and an
+// expired session silently looks like one with no expiry set.
+// An explicitly supplied twin wins, so a test can still pin an odd value.
+const EPOCH_TWIN_COLUMNS = [['expires_at', 'expires_at_epoch_ms']];
+function withDerivedEpochs(row) {
+  if (!row || typeof row !== 'object') return row;
+  let out = row;
+  for (const [source, twin] of EPOCH_TWIN_COLUMNS) {
+    if (source in out && !(twin in out)) {
+      const ms = out[source] == null ? NaN : new Date(out[source]).getTime();
+      out = { ...out, [twin]: Number.isFinite(ms) ? BigInt(ms) : null };
+    }
+  }
+  return out;
+}
 function dispatch(sql, args) {
   for (const [needle, impl] of routes) {
-    if (sql.includes(needle)) return impl(sql, args);
+    if (sql.includes(needle)) {
+      const rows = impl(sql, args);
+      return Array.isArray(rows) ? rows.map(withDerivedEpochs) : rows;
+    }
   }
   return [];
 }
