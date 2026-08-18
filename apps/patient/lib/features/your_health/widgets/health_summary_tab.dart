@@ -33,8 +33,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
     // stored id would 403 / return empty under the acting-as header. Read the
     // live provider statically (context-free, null-safe) — mirrors how the
     // acting-as HTTP header resolver is registered.
-    _dependentId =
-        DependentsProvider.instance?.activeDependent?.id.toString();
+    _dependentId = DependentsProvider.instance?.activeDependent?.id.toString();
     _loadPatientId();
   }
 

@@ -13,17 +13,20 @@ void main() {
       }
     });
 
-    test('definitive client rejections → conflict (400/403/404/409/410/422)', () {
-      // 404/410 mean the target is gone — terminal, not retryable (matches
-      // the prepared path).
-      for (final s in [400, 403, 404, 409, 410, 422]) {
-        expect(
-          dispositionForStatus(s),
-          SyncDisposition.conflict,
-          reason: 'status $s',
-        );
-      }
-    });
+    test(
+      'definitive client rejections → conflict (400/403/404/409/410/422)',
+      () {
+        // 404/410 mean the target is gone — terminal, not retryable (matches
+        // the prepared path).
+        for (final s in [400, 403, 404, 409, 410, 422]) {
+          expect(
+            dispositionForStatus(s),
+            SyncDisposition.conflict,
+            reason: 'status $s',
+          );
+        }
+      },
+    );
 
     test('transient / auth / server errors → retry (401/408/429/5xx)', () {
       for (final s in [401, 408, 429, 500, 502, 503]) {

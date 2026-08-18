@@ -71,9 +71,7 @@ function request(path: string, token: string, method = "GET") {
     method,
     headers: {
       cookie: `auth_token=${token}`,
-      ...(method === "GET"
-        ? {}
-        : { origin: "https://admin.vhhealth.app" }),
+      ...(method === "GET" ? {} : { origin: "https://admin.vhhealth.app" }),
     },
   });
 }

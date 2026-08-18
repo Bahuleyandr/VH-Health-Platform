@@ -71,7 +71,10 @@ export function AdminsTable({
           : API_ENDPOINTS.auth.admin.reactivate;
       const body =
         pendingAction === "deactivate"
-          ? { adminId: pendingAdmin.uid, reason: "Deactivated via admin portal" }
+          ? {
+              adminId: pendingAdmin.uid,
+              reason: "Deactivated via admin portal",
+            }
           : { adminId: pendingAdmin.uid };
 
       await postJSON(endpoint, body);

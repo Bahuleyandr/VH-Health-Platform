@@ -15,10 +15,7 @@ void main() {
 
     test('counts an empty due list as 0 (real zero, not degraded)', () {
       expect(
-        dashboardDueMedsCountFromRaw({
-          'success': true,
-          'data': <dynamic>[],
-        }),
+        dashboardDueMedsCountFromRaw({'success': true, 'data': <dynamic>[]}),
         0,
       );
     });
@@ -46,9 +43,7 @@ void main() {
       );
       expect(
         dashboardDueMedsCountFromRaw({
-          'data': {
-            'items': <dynamic>[],
-          },
+          'data': {'items': <dynamic>[]},
         }),
         0,
       );

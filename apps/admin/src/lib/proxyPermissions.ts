@@ -22,7 +22,6 @@
 import { API_BASE_URL } from "@/lib/api-config";
 import { createHash } from "node:crypto";
 
-
 // Sentinel "permission" that no per-admin flag grants and the Permissions
 // Matrix never offers. A gate requiring it is effectively SUPER_ADMIN-only:
 // ADMIN accounts can never satisfy it, and SUPER_ADMIN (plus the '*' wildcard)
@@ -189,7 +188,8 @@ async function fetchAdminPermissions(token: string): Promise<string[] | null> {
       Authorization: `Bearer ${token}`,
       "x-forwarded-proto": "https",
     };
-    const serverApiKey = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
+    const serverApiKey =
+      process.env.BACKEND_API_KEY || process.env.API_KEY || "";
     if (serverApiKey) headers["x-api-key"] = serverApiKey;
 
     try {
@@ -230,7 +230,9 @@ export async function checkProxyPermission(
   role: string | null,
   permission: string,
 ): Promise<ProxyPermissionVerdict> {
-  const normalized = String(role ?? "").trim().toUpperCase();
+  const normalized = String(role ?? "")
+    .trim()
+    .toUpperCase();
 
   if (normalized === "SUPER_ADMIN") return { allowed: true };
 

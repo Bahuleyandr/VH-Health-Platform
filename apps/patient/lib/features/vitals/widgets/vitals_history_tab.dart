@@ -38,8 +38,8 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
     // with the dependent's id; the guardian's stored id would 403 / be empty.
     // Read the live provider statically (context-free, null-safe) — mirrors
     // how the acting-as HTTP header resolver is registered.
-    final dependentId =
-        DependentsProvider.instance?.activeDependent?.id.toString();
+    final dependentId = DependentsProvider.instance?.activeDependent?.id
+        .toString();
     setState(() {
       _loading = true;
       _error = null;
