@@ -51,7 +51,8 @@ const insertSpy = jest.fn(async (sql) => {
   }
   return [{
     id: 4242, patient_uid: 'x', total_score: 0, clinical_risk: 'high',
-    recorded_by: 'y', recorded_at: dbControl.recordedAt, created_at: new Date(),
+    recorded_by: 'y', recorded_at: dbControl.recordedAt,
+    recorded_at_epoch_ms: BigInt(new Date(dbControl.recordedAt).getTime()), created_at: new Date(),
   }];
 });
 const setTenantTxSpy = jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: insertSpy }));
@@ -115,6 +116,7 @@ describe('NEWS2 escalation loudness + recipient (MEDIUM §4 / W1-H4)', () => {
     const record = {
       id: 4242,
       recorded_at: new Date('2023-08-11T05:00:00.000Z'),
+      recorded_at_epoch_ms: BigInt(new Date('2023-08-11T05:00:00.000Z').getTime()),
     };
     const computed = {
       totalScore: 12,

@@ -186,6 +186,7 @@ function signoffRow(overrides = {}) {
     reason: 'Pilot signoff requested',
     payload: signoffPayload(),
     expires_at: '2099-01-01T00:00:00.000Z',
+    expires_at_epoch_ms: BigInt(new Date('2099-01-01T00:00:00.000Z').getTime()),
     decided_at: null,
     created_at: '2026-05-26T00:00:00.000Z',
     updated_at: '2026-05-26T00:00:00.000Z',
@@ -318,6 +319,7 @@ describe('pilotEvidencePackService pilot signoffs', () => {
             reason: args[3],
             payload,
             expires_at: args[5].toISOString(),
+            expires_at_epoch_ms: BigInt(args[5].getTime()),
           }),
         ]);
       }

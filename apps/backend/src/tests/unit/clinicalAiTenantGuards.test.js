@@ -117,6 +117,7 @@ describe('clinicalAiTenantGuards', () => {
       granted: true,
       status: 'active',
       expires_at: null,
+      expires_at_epoch_ms: null,
       tenant_id: TENANT_ID,
     }]);
 
@@ -140,6 +141,7 @@ describe('clinicalAiTenantGuards', () => {
       granted: true,
       status: 'active',
       expires_at: null,
+      expires_at_epoch_ms: null,
       tenant_id: TENANT_ID,
     }]);
 
@@ -162,6 +164,7 @@ describe('clinicalAiTenantGuards', () => {
       granted: false,
       status: 'revoked',
       expires_at: null,
+      expires_at_epoch_ms: null,
       tenant_id: TENANT_ID,
     }]);
 
@@ -173,6 +176,36 @@ describe('clinicalAiTenantGuards', () => {
     })).rejects.toMatchObject({
       statusCode: 403,
       code: 'TEST_CONSENT_INACTIVE',
+    });
+  });
+
+  it('rejects an expired consent read through the absolute-instant twin', async () => {
+    // The gate reads expires_at_epoch_ms, not the driver-materialised
+    // expires_at (PR #881). A past instant must deny even though the row is
+    // otherwise granted and active — this is the branch the null fixtures
+    // above can never reach.
+    const expiredAt = Date.now() - 60_000;
+    queryRawUnsafeMock.mockResolvedValue([{
+      id: 7,
+      patient_uid: PATIENT_UID,
+      consent_type: 'treatment',
+      granted: true,
+      status: 'active',
+      expires_at: new Date(expiredAt),
+      expires_at_epoch_ms: BigInt(expiredAt),
+      tenant_id: TENANT_ID,
+    }]);
+
+    await expect(assertPatientConsentInTenant({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      consentReference: '7',
+      inactiveCode: 'TEST_CONSENT_INACTIVE',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      // Expiry throws its own dedicated code, distinct from inactiveCode —
+      // pinning it proves the EXPIRY branch fired, not the active/granted one.
+      code: 'CLINICAL_AI_CONSENT_EXPIRED',
     });
   });
 });
