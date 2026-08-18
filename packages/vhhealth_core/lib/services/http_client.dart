@@ -40,6 +40,21 @@ class VHHttpClient {
   /// Set this from the app's root widget to trigger a redirect to login.
   static void Function(String? message)? onSessionExpired;
 
+  /// Guards [onSessionExpired] against double-firing for a single expiry
+  /// event. A single 401 can travel through both [_handleUnauthorized]
+  /// (failed refresh) and the trailing [_checkUnauthorized] on the same
+  /// request; without this the app would receive two redirect-to-login
+  /// callbacks. Reset when a valid session resumes (successful refresh or
+  /// any successful authenticated response) so a later, genuine expiry
+  /// still notifies.
+  static bool _sessionExpiredNotified = false;
+
+  static void _notifySessionExpired(String? message) {
+    if (_sessionExpiredNotified) return;
+    _sessionExpiredNotified = true;
+    onSessionExpired?.call(message ?? 'Session expired. Please log in again.');
+  }
+
   /// When set, returns the UID the current request should be made on
   /// behalf of (e.g. a guardian acting as their minor dependent). When
   /// non-null + non-empty the resolver's return value is sent as the
@@ -834,6 +849,8 @@ class VHHttpClient {
       accessToken: newAccess,
       refreshToken: rotatedRefresh,
     );
+    // Session is valid again — allow a future expiry to notify.
+    _sessionExpiredNotified = false;
     if (kDebugMode) debugPrint('VHHttpClient: token refreshed');
     return true;
   }
@@ -854,21 +871,21 @@ class VHHttpClient {
     // Clear both access + refresh — forces a full re-login.
     await AuthService.clearJwt();
     await AuthService.clearRefreshToken();
-    onSessionExpired?.call(
-      response.message ?? 'Session expired. Please log in again.',
-    );
+    _notifySessionExpired(response.message);
     return false;
   }
 
-  /// If the response is 401, notify the app to redirect to login.
+  /// If the response is 401, notify the app to redirect to login. A
+  /// successful authenticated response instead clears the guard so a later
+  /// expiry can notify again.
   static void _checkUnauthorized(ApiResponse response) {
     if (response.isUnauthorized) {
       if (kDebugMode) {
         debugPrint('VHHttpClient: 401 Unauthorized — session expired');
       }
-      onSessionExpired?.call(
-        response.message ?? 'Session expired. Please log in again.',
-      );
+      _notifySessionExpired(response.message);
+    } else if (response.isSuccess) {
+      _sessionExpiredNotified = false;
     }
   }
 }
