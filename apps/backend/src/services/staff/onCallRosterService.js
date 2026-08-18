@@ -243,13 +243,18 @@ export async function createOnCallAssignment({
         })
       );
       await tx.$executeRawUnsafe(
+        // tenant_id stamped from the recipient row and the lookup tenant-filtered
+        // (shiftSwapService idiom): a bare prisma.$transaction leaves the GUC
+        // unset, so the column DEFAULT would land this notice on the default
+        // tenant — invisible to the recipient's tenant-filtered list.
         `INSERT INTO notifications
-           (uid, user_id, phone, title, body, type, priority, data, is_read,
+           (tenant_id, uid, user_id, phone, title, body, type, priority, data, is_read,
             created_at, updated_at, recipient_role)
-         SELECT u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'ON_CALL', 'HIGH', $3::jsonb,
+         SELECT u.tenant_id, u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'ON_CALL', 'HIGH', $3::jsonb,
                 false, NOW(), NOW(), u.role
            FROM users u
-          WHERE u.id = $4::int`,
+          WHERE u.id = $4::int
+            AND u.tenant_id = $5::uuid`,
         'On-call duty assigned',
         `You are on call (tier ${created.tier}) for ${policy.label} from ${start.toISOString()} to ${end.toISOString()}.`,
         JSON.stringify({
@@ -260,7 +265,8 @@ export async function createOnCallAssignment({
           end_at: created.end_at,
           source: 'on_call_assigned',
         }),
-        staff.id
+        staff.id,
+        tenant
       );
       return created;
     });

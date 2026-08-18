@@ -5,8 +5,16 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
+
+// Resolve the acting admin's tenant so doctor mutations cannot reach across
+// tenants (a tenant-A admin flipping/deleting a tenant-B doctor by enumerable
+// id). Fails closed on a missing tenant context (W1 no-default-fallback rule).
+function adminTenantId(req) {
+  return requireTenantId(req.tenantId || req.user?.tenant_id || req.user?.tenantId);
+}
 
 export const adminDoctorController = {
   // Test endpoint
@@ -119,7 +127,7 @@ export const adminDoctorController = {
       }
 
       const { operation, doctor_ids, data } = req.body;
-      const result = await adminDoctorService.performBulkOperation(operation, doctor_ids, data);
+      const result = await adminDoctorService.performBulkOperation(operation, doctor_ids, data, adminTenantId(req));
 
       logger.info(`[adminDoctorRoutes] Bulk ${operation} performed on ${doctor_ids.length} doctors by ${req.user?.uid}`);
 
@@ -216,7 +224,7 @@ export const adminDoctorController = {
         return error(res, 'is_available must be a boolean value', 400);
       }
 
-      const result = await adminDoctorService.updateDoctorAvailability(id, req.body);
+      const result = await adminDoctorService.updateDoctorAvailability(id, req.body, adminTenantId(req));
 
       logger.info(`[adminDoctorRoutes] Doctor ${id} availability updated by ${req.user?.uid}`);
 
@@ -241,7 +249,7 @@ export const adminDoctorController = {
       }
 
       const { id } = req.params;
-      const result = await adminDoctorService.deleteDoctorAccount(id, req.body);
+      const result = await adminDoctorService.deleteDoctorAccount(id, req.body, adminTenantId(req));
 
       logger.info(`[adminDoctorRoutes] Doctor account deleted: ${result.doctor.name} by ${req.user?.uid} (${result.appointments_handled.future_appointments} appointments handled)`);
 

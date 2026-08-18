@@ -6,6 +6,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -148,6 +149,13 @@ router.post('/session/start', async (req, res) => {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
+    // Stamp tenant_id explicitly: this create runs under a bare
+    // prisma.$transaction where the app.current_tenant_id GUC is unset, so the
+    // column DEFAULT would misfile the session on the default tenant.
+    const tenantId = requireTenantId(
+      req.tenantId || req.user?.tenant_id || req.user?.tenantId,
+    );
+
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRawUnsafe(
         'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
@@ -161,6 +169,7 @@ router.post('/session/start', async (req, res) => {
 
       const session = await tx.step_sessions.create({
         data: {
+          tenant_id: tenantId,
           user_uid: uid,
           started_at: new Date(),
           is_active: true,

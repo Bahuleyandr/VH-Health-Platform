@@ -339,6 +339,7 @@ export const raiseRequest = async (req, res) => {
       await ensureHousekeepingRequestRecipients({
         requestId: inserted[0].id,
         recipients,
+        tenantId: requestTenantId(req),
         db: tx,
       });
 
@@ -1558,6 +1559,7 @@ export const adminCreateRequest = async (req, res) => {
       await ensureHousekeepingRequestRecipients({
         requestId: inserted[0].id,
         recipients,
+        tenantId: requestTenantId(req),
         db: tx,
       });
 
