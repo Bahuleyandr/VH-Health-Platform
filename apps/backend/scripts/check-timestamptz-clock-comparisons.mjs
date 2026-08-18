@@ -41,6 +41,16 @@
  *
  *      as in the key-material expiry in src/services/abdm/abdmHiuService.js.
  *
+ * READING THE LEGACY LINE YOU ARE REPLACING (the practical tell): if it carried
+ * an explicit truthiness guard, e.g.
+ *
+ *     if (row.expires_at && new Date(row.expires_at) < new Date())
+ *
+ * it was ALREADY permissive, and `!= null &&` preserves it faithfully. If it was
+ * UNGUARDED it was fail-CLOSED, and only `== null ||` preserves it. That is the
+ * exact line PR #881 crossed: every site it converted that had the guard stayed
+ * faithful; the two UNGUARDED ABDM consent gates are the ones that flipped open.
+ *
  * Never a bare `Number.isFinite`: `Number(null)` is 0 — finite, and reading as
  * 1970, i.e. "long ago". That fact cuts BOTH ways, which is exactly what makes
  * this easy to get wrong. It is why an unguarded legacy comparison such as
@@ -278,6 +288,11 @@ if (invokedDirectly) {
       + '\n  * CAPABILITY / TTL field, where NULL means "no expiry configured"'
       + '\n    -- absence is permissive:'
       + '\n        if (t != null && t < Date.now()) { ... }'
+      + '\n'
+      + '\nTell, when converting a legacy line: if it had a truthiness guard, as in'
+      + '\n"if (row.col && new Date(row.col) < ...)", it was already permissive, so'
+      + '\n"!= null &&" is faithful. If it was UNGUARDED it was fail-CLOSED, and only'
+      + '\n"== null ||" preserves that.'
       + '\n'
       + '\nNever a bare isFinite: Number(null) is 0, which reads as 1970. That cuts'
       + '\nBOTH ways -- it is why the unguarded legacy comparison you are replacing'
