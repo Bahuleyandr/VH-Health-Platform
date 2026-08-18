@@ -76,11 +76,24 @@ void main() {
         'diastolic_bp': 80,
         'heart_rate': 82,
         'spo2': 98,
-        'temperature': 98.6,
+        'temperature': 37.0,
         'respiratory_rate': 18,
       });
-      expect(line, 'BP 120/80 · HR 82 · SpO2 98% · T 98.6 · RR 18');
+      expect(line, 'BP 120/80 · HR 82 · SpO2 98% · T 98.6 °F · RR 18');
     });
+
+    test('temperature converts canonical °C to a unit-labelled °F', () {
+      expect(latestVitalsLine({'temperature': 37.0}), 'T 98.6 °F');
+      expect(latestVitalsLine({'temperature': '36.5'}), 'T 97.7 °F');
+    });
+
+    test(
+      'implausible-as-°C temperature renders raw without a fabricated unit',
+      () {
+        // A legacy raw-°F residue row must not display as ~209 °F.
+        expect(latestVitalsLine({'temperature': 98.6}), 'T 98.6');
+      },
+    );
 
     test('tolerates legacy bp field spellings', () {
       final line = latestVitalsLine({'bp_systolic': 110, 'bp_diastolic': 70});
