@@ -13,11 +13,19 @@
  *   - ABHA enrolment OTP expiry    — same fail-open shape
  *   - HIU page-claim freshness / webhook replay window — shifted either way
  *
- * The fix is to select an epoch-millisecond twin alongside the column
- * (`(EXTRACT(EPOCH FROM col) * 1000)::bigint AS col_epoch_ms`) and read it via
- * `epochMsOrNull` from `src/utils/dbInstant.js`.
+ * The PRIMARY defence is now the connection-level session pin in
+ * `src/lib/prisma.js` (`pinSessionTimeZoneToUrl`), guarded by
+ * `prismaSessionTimeZone.test.js` — it forces every session to UTC and so fixes
+ * this class everywhere at once, including the typed model delegates, which are
+ * skewed identically and cannot be fixed with a computed column.
  *
- * This is a SOURCE-shape assertion on purpose. CI runs a UTC database, so every
+ * This file is the second layer: within ABDM, the safety-critical subsystem
+ * where the fail-open cases lived, instants are read as an epoch-millisecond
+ * twin (`(EXTRACT(EPOCH FROM col) * 1000)::bigint AS col_epoch_ms`) via
+ * `epochMsOrNull` from `src/utils/dbInstant.js`, so consent and credential
+ * expiry stay correct even if the pin is ever lost or overridden.
+ *
+ * It is a SOURCE-shape assertion on purpose. CI runs a UTC database, so every
  * one of those defects is behaviourally invisible there — a relapse would ship
  * green. Only the shape can be checked in CI.
  */

@@ -206,10 +206,17 @@ describe('src/lib/prisma.js coverage completion', () => {
       delete process.env.DATABASE_URL;
     });
 
-    it('leaves the URL untouched when timeout is 0', async () => {
+    it('adds no statement_timeout when the timeout is 0', async () => {
       process.env.STATEMENT_TIMEOUT_MS = '0';
       await freshImport();
-      expect(adapterConnStrings[0]).toBe('postgresql://test@localhost/test');
+      const conn = decodeURIComponent(adapterConnStrings[0]);
+      expect(conn).not.toContain('statement_timeout');
+      // The URL is no longer byte-identical to the input: every connection now
+      // carries the UTC session pin (pinSessionTimeZoneToUrl), which is what
+      // keeps a timestamptz decoding to the same instant on any server.
+      // As above, URLSearchParams encodes the space in "-c timezone=…" as '+',
+      // and decodeURIComponent does not turn '+' back into a space.
+      expect(conn).toContain('timezone=UTC');
     });
 
     it('returns an unparseable URL as-is (catch branch)', async () => {

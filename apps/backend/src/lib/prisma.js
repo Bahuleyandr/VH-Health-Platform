@@ -286,11 +286,42 @@ function applyStatementTimeoutToUrl(url, timeoutMs) {
   }
 }
 
+// Pin every session's timezone so a `timestamptz` decodes to the same instant
+// no matter how the server happens to be configured.
+//
+// The driver materialises a timestamptz as a JS Date in the DATABASE SESSION
+// timezone, and that applies to BOTH `$queryRaw*` and the typed model
+// delegates. On a non-UTC session `new Date(row.expires_at) < Date.now()` is
+// therefore wrong by the session offset — which shipped as several real
+// defects, two of them fail-open (expired credentials accepted) on a positive
+// offset such as Asia/Kolkata. Prod and CI already run UTC, so this pin is a
+// no-op there; what it buys is immunity to server config drift, and it makes
+// dev/QA (whose cluster is Asia/Calcutta) decode instants exactly like prod.
+//
+// An explicit `timezone=` already present in the URL's `options` wins, so an
+// operator retains a deliberate escape hatch.
+export function pinSessionTimeZoneToUrl(url, timeZone = 'UTC') {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    const existing = u.searchParams.get('options');
+    if (existing && /(^|\s)-c\s*timezone=/i.test(existing)) return url;
+    const pin = `-c timezone=${timeZone}`;
+    u.searchParams.set('options', existing ? `${existing} ${pin}` : pin);
+    return u.toString();
+  } catch {
+    // Unparseable URL — return as-is and let Prisma surface the error.
+    return url;
+  }
+}
+
 function makeClient(url, tag, { statementTimeoutMs = 0 } = {}) {
   if (!url) {
     throw new Error(`DATABASE_URL is required to create Prisma[${tag}] client`);
   }
-  const connectionString = applyStatementTimeoutToUrl(url, statementTimeoutMs);
+  const connectionString = pinSessionTimeZoneToUrl(
+    applyStatementTimeoutToUrl(url, statementTimeoutMs),
+  );
   const adapter = new PrismaPg({ connectionString });
   const client = new PrismaClient({
     adapter,

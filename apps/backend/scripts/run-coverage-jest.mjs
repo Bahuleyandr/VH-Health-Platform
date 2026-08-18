@@ -108,6 +108,7 @@ const COVERAGE_TESTS = [
   // ── RLS: lib/prisma.js + lib/tenantContext.js ──
   'src/tests/unit/prismaCoverage.test.js',
   'src/tests/unit/prismaHardening.test.js',
+  'src/tests/unit/prismaSessionTimeZone.test.js',
   'src/tests/unit/rlsDisabledLogLevel.test.js',
   'src/tests/unit/tenantRlsPosture.test.js',
   'src/tests/unit/tenantRlsConfig.test.js',
