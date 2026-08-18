@@ -717,3 +717,73 @@ describe('staff operational endpoint drift guards', () => {
     }));
   });
 });
+
+// `getLeaveAuditTrail` derives its SLA figure from two absolute-instant twins,
+// `created_at_epoch_ms` and `reviewed_at_epoch_ms`, not from the driver
+// materialised columns (PR #881). Nothing exercised it with a real pair of
+// timestamps, so the whole SLA block sat at zero coverage: a dropped
+// `reviewed_at` twin reads as "never actioned" and silently returns
+// hours_to_action: null on a leave request that WAS actioned, while a dropped
+// `created_at` twin falls back to epoch 0 and inflates the gap to ~56 years.
+//
+// `reviewed_at` is genuinely nullable (a pending request), which is why the
+// read is permissive — that case is pinned too.
+describe('getLeaveAuditTrail SLA', () => {
+  const LEAVE_SLA_HOURS = 48; // ATTENDANCE_SLA.leave_approval.action
+
+  // Both instants come from one clock read so the pair is self-consistent;
+  // twins are BigInt because that is what the driver returns for `::bigint`.
+  function leaveRow({ status, hoursToAction }) {
+    const createdAt = new Date(Date.now() - 96 * 3600000);
+    const row = {
+      id: 1,
+      status,
+      staff_name: 'Clinical Staff One',
+      department: 'Nursing',
+      created_at: createdAt.toISOString(),
+      created_at_epoch_ms: BigInt(createdAt.getTime()),
+      reviewed_at: null,
+      reviewed_at_epoch_ms: null,
+    };
+    if (hoursToAction != null) {
+      const reviewedAt = new Date(createdAt.getTime() + hoursToAction * 3600000);
+      row.reviewed_at = reviewedAt.toISOString();
+      row.reviewed_at_epoch_ms = BigInt(reviewedAt.getTime());
+    }
+    return [row];
+  }
+
+  const slaOf = async (row) => {
+    queryRawUnsafe.mockResolvedValueOnce(row);
+    const res = makeRes();
+    await getLeaveAuditTrail({ params: { id: '1' } }, res);
+    return res.json.mock.calls[0][0].data.sla;
+  };
+
+  it('reports the real hours to action on a leave actioned inside the SLA', async () => {
+    const sla = await slaOf(leaveRow({ status: 'approved', hoursToAction: 5 }));
+
+    expect(sla.hours_to_action).toBe(5);
+    expect(sla.within_sla).toBe(true);
+    expect(sla.still_pending).toBe(false);
+    expect(sla.threshold_hours).toBe(LEAVE_SLA_HOURS);
+  });
+
+  it('marks a leave actioned past the 48h threshold as out of SLA', async () => {
+    const sla = await slaOf(leaveRow({ status: 'approved', hoursToAction: 72 }));
+
+    expect(sla.hours_to_action).toBe(72);
+    expect(sla.within_sla).toBe(false);
+  });
+
+  it('leaves the action figures null while the request is still pending', async () => {
+    // reviewed_at is a genuine SQL NULL here, not an absent twin.
+    const sla = await slaOf(leaveRow({ status: 'pending', hoursToAction: null }));
+
+    expect(sla.hours_to_action).toBeNull();
+    expect(sla.within_sla).toBeNull();
+    expect(sla.still_pending).toBe(true);
+    // hours_pending comes off created_at: ~96h, and must not read as ~1970.
+    expect(sla.hours_pending).toBeCloseTo(96, 0);
+  });
+});
