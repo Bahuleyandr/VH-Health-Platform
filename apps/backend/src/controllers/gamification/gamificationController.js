@@ -6,6 +6,7 @@ import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as wellnessService from '../../services/gamification/wellnessService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { istDateString } from '../../utils/dateUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -216,7 +217,13 @@ export async function recordCheckIn(req, res) {
       return error(res, 'mood must be one of: great, good, okay, poor, bad', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    // P7 fix (2026-08-18): the check-in "day" is the user-facing IST calendar
+    // day (Asia/Kolkata, the platform's canonical local zone), not the UTC
+    // day — a UTC key put the boundary at 05:30 IST, blocking evening users
+    // until the next morning and splitting streaks for 00:00-05:29 check-ins.
+    // Pre-fix ledger keys were UTC days; a one-time boundary skew for
+    // late-evening historical entries is accepted (see istDateString).
+    const today = istDateString();
     const tenantId = resolveTenantOrThrow(req); // CAN-012: tenant-scope + stamp
     const awarded = await pointService.awardPoints(uid, {
       activityType: 'DAILY_CHECKIN',

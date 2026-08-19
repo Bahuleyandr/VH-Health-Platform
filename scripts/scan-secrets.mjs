@@ -8,6 +8,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const skippedDirs = new Set([
   '.git',
+  // Local agent/session state (e.g. .claude/worktrees holds full checkouts of
+  // in-flight branches, including copies of this scanner whose PEM regex
+  // self-matches). Never present in CI checkouts; machine-local only.
+  '.claude',
   '.dart_tool',
   '.idea',
   '.vscode',

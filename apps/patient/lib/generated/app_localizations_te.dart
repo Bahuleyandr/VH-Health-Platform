@@ -544,6 +544,11 @@ class AppLocalizationsTe extends AppLocalizations {
       'ఒక ఫైల్‌ను ఎంచుకోలేకపోయింది. దయచేసి మళ్ళీ ప్రయత్నించండి.';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'ఆరోగ్య ఆసక్తికరమైన విషయాలు';
 
   @override
@@ -2798,6 +2803,15 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get medicationReminderDeleteTooltip => 'రిమైండర్ తొలగించండి';
+
+  @override
+  String get medicationReminderUpdateFailed => 'రిమైండర్‌ను నవీకరించలేకపోయాము';
+
+  @override
+  String get medicationReminderDeleteFailed => 'రిమైండర్‌ను తొలగించలేకపోయాము';
+
+  @override
+  String get medicationReminderPausedLabel => 'పాజ్ చేయబడింది';
 
   @override
   String medicationReminderDosageLine(String dosage) {

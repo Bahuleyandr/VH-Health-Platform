@@ -144,7 +144,7 @@ class _VitalsTrendSummary extends StatelessWidget {
       String unit,
       String key, {
       bool higherIsBad = true,
-      double Function(double)? transform,
+      double? Function(double)? transform,
     }) {
       var cur = _toDouble(latest[key]);
       var prev = _toDouble(previous[key]);
@@ -153,12 +153,21 @@ class _VitalsTrendSummary extends StatelessWidget {
         cur = transform(cur);
         prev = transform(prev);
       }
+      // A null after transform means the value is implausible (legacy
+      // unconverted row) — skip the trend rather than corrupt the arrow.
+      if (cur == null || prev == null) return;
       trends.add(_TrendItem(label, cur, prev, unit, higherIsBad));
     }
 
     addTrend('HR', 'bpm', 'heartRate');
-    // Stored °C → °F so the value and unit label are consistent.
-    addTrend('Temp', '°F', 'temperature', transform: _celsiusToFahrenheit);
+    // Stored °C → °F so the value and unit label are consistent; implausible
+    // legacy values (> 45 °C-equivalent) are dropped from the comparison.
+    addTrend(
+      'Temp',
+      '°F',
+      'temperature',
+      transform: vitalsHistoryTemperatureTrendF,
+    );
     addTrend('Sugar', 'mg/dL', 'bloodSugar');
     addTrend('Weight', 'kg', 'weight', higherIsBad: false);
     addTrend('SpO2', '%', 'spO2', higherIsBad: false);
@@ -272,10 +281,40 @@ class _VitalsTrendSummary extends StatelessWidget {
 /// path.
 double _celsiusToFahrenheit(double celsius) => celsius * 9 / 5 + 32;
 
-double? _celsiusToFahrenheitOrNull(dynamic celsius) {
-  final c = celsius is num ? celsius.toDouble() : double.tryParse('$celsius');
-  return c == null ? null : _celsiusToFahrenheit(c);
+/// Ceiling of the backend's canonical °C plausibility band
+/// (VITAL_PLAUSIBILITY_BOUNDS.temperature.max). A stored value above it is
+/// not a real Celsius reading — it is a legacy row written before the
+/// canonical-unit fix (raw °F, pending the backfill migration) or garbage.
+const double vitalsMaxPlausibleTemperatureC = 45.0;
+
+/// Display projection for one stored patient_vitals temperature.
+///
+/// Canonical °C values convert to °F so the label matches what the patient
+/// typed. Values above [vitalsMaxPlausibleTemperatureC] cannot be °C, so
+/// converting them would fabricate an absurd °F number (98.6 → 209.5);
+/// render them raw and flagged instead. Non-numeric input returns null.
+({String value, String unit, bool flagged})? vitalsHistoryTemperatureDisplay(
+  dynamic stored,
+) {
+  final c = stored is num ? stored.toDouble() : double.tryParse('$stored');
+  if (c == null) return null;
+  if (c > vitalsMaxPlausibleTemperatureC) {
+    return (value: c.toStringAsFixed(1), unit: '⚠ raw', flagged: true);
+  }
+  return (
+    value: _celsiusToFahrenheit(c).toStringAsFixed(1),
+    unit: '°F',
+    flagged: false,
+  );
 }
+
+/// Trend transform for temperature: convert canonical °C to °F, or return
+/// null to drop implausible legacy values from the trend comparison so a
+/// mixed-unit prev/cur pair cannot fabricate a huge delta arrow.
+double? vitalsHistoryTemperatureTrendF(double celsius) =>
+    celsius > vitalsMaxPlausibleTemperatureC
+    ? null
+    : _celsiusToFahrenheit(celsius);
 
 class _TrendItem {
   final String label;
@@ -321,9 +360,11 @@ class _VitalEntryCard extends StatelessWidget {
     }
     if (entry['temperature'] != null) {
       // Stored value is canonical °C; convert back to °F for display.
-      final tempF = _celsiusToFahrenheitOrNull(entry['temperature']);
-      if (tempF != null) {
-        items.add(_VitalItem('Temp', tempF.toStringAsFixed(1), '°F'));
+      // Implausible legacy values (> 45 °C-equivalent, i.e. pre-backfill raw
+      // °F rows) render raw and flagged instead of as a fake huge °F number.
+      final temp = vitalsHistoryTemperatureDisplay(entry['temperature']);
+      if (temp != null) {
+        items.add(_VitalItem('Temp', temp.value, temp.unit));
       }
     }
     if (entry['bloodSugar'] != null) {

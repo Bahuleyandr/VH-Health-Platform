@@ -654,6 +654,15 @@
   "@investigationsFilePickerError": {
     "description": "Snackbar when file-picker throws"
   },
+  "investigationsUploadNotAvailableForDependent": "Report uploads aren't available while viewing {name}'s profile. Switch back to your own profile to upload a report.",
+  "@investigationsUploadNotAvailableForDependent": {
+    "description": "Banner + snackbar shown on the investigations Upload tab while a guardian is viewing a dependent profile — uploads only file against the guardian's own record",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "triviaTitle": "Health Trivia",
   "@triviaTitle": {
     "description": "App-bar title for trivia screen"
@@ -2796,6 +2805,18 @@
   },
   "medicationReminderDeleteTooltip": "Delete reminder",
   "@medicationReminderDeleteTooltip": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderUpdateFailed": "Unable to update reminder",
+  "@medicationReminderUpdateFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderDeleteFailed": "Unable to delete reminder",
+  "@medicationReminderDeleteFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderPausedLabel": "Paused",
+  "@medicationReminderPausedLabel": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
   "medicationReminderDosageLine": "Dosage: {dosage}",

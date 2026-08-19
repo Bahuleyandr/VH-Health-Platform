@@ -91,6 +91,28 @@ export class BackendClient {
     return readResponse(res, 'I09 recovery ingest');
   }
 
+  // LIS analyzer bridge. Both endpoints authenticate with a per-analyzer
+  // machine bearer token (tenant-bound JWT with a lab-interface ingest role);
+  // the backend derives the tenant from the token, so the gateway never
+  // asserts tenant identity itself — fail-closed on the backend side.
+  async ingestLabInterface(payload, { token = null } = {}) {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/v1/lab/interface/ingest`, {
+      method: 'POST',
+      headers: this.headers(token ? { authorization: `Bearer ${token}` } : {}),
+      body: JSON.stringify(payload),
+    }, 'lab interface ingest');
+    return readResponse(res, 'lab interface ingest');
+  }
+
+  async ingestLabOru(payload, { token = null } = {}) {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/v1/lab/oru/ingest`, {
+      method: 'POST',
+      headers: this.headers(token ? { authorization: `Bearer ${token}` } : {}),
+      body: JSON.stringify(payload),
+    }, 'lab ORU ingest');
+    return readResponse(res, 'lab ORU ingest');
+  }
+
   async ingestColdChain(payload, { deviceToken, tenantId = null } = {}) {
     const headers = {};
     if (deviceToken) {

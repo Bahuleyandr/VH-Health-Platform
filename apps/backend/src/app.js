@@ -184,6 +184,10 @@ import {
   COUNTER_SALE_APPROVAL_HOST_ROLES,
   pharmacyCounterSaleWitnessApprovalRoutes,
 } from './routes/pharmacy/counterSaleRoutes.js';
+import {
+  SUBSTITUTION_WITNESS_APPROVAL_HOST_ROLES,
+  pharmacySubstitutionWitnessApprovalRoutes,
+} from './routes/pharmacy/dispenseSubstitutionWitnessRoutes.js';
 import pharmacyInventoryV2Routes, {
   pharmacyInventoryWitnessApprovalRoutes,
   PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
@@ -1093,6 +1097,18 @@ app.use(
   patientRateLimiter,
   requireRole(...COUNTER_SALE_APPROVAL_HOST_ROLES),
   pharmacyCounterSaleWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/dispense-substitution/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...SUBSTITUTION_WITNESS_APPROVAL_HOST_ROLES),
+  pharmacySubstitutionWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/dispense-substitution/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...SUBSTITUTION_WITNESS_APPROVAL_HOST_ROLES),
+  pharmacySubstitutionWitnessApprovalRoutes,
 );
 app.use(
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/:id/approve',

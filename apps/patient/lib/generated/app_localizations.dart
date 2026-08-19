@@ -1106,6 +1106,12 @@ abstract class AppLocalizations {
   /// **'Could not pick a file. Please try again.'**
   String get investigationsFilePickerError;
 
+  /// Banner + snackbar shown on the investigations Upload tab while a guardian is viewing a dependent profile — uploads only file against the guardian's own record
+  ///
+  /// In en, this message translates to:
+  /// **'Report uploads aren\'t available while viewing {name}\'s profile. Switch back to your own profile to upload a report.'**
+  String investigationsUploadNotAvailableForDependent(String name);
+
   /// App-bar title for trivia screen
   ///
   /// In en, this message translates to:
@@ -5293,6 +5299,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete reminder'**
   String get medicationReminderDeleteTooltip;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to update reminder'**
+  String get medicationReminderUpdateFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to delete reminder'**
+  String get medicationReminderDeleteFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get medicationReminderPausedLabel;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///

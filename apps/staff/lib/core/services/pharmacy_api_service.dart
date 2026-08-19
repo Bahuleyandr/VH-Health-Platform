@@ -279,6 +279,7 @@ class PharmacyApiService {
     required int originalCatalogId,
     required int finalCatalogId,
     String? reason,
+    String? witnessApprovalId,
   }) async {
     return _post('/pharmacy-orders/dispense-substitution', {
       'patient_uid': patientUid,
@@ -289,7 +290,45 @@ class PharmacyApiService {
       'original_catalog_id': originalCatalogId,
       'final_catalog_id': finalCatalogId,
       'reason': ?reason,
+      'witness_approval_id': ?witnessApprovalId,
     });
+  }
+
+  /// POST /pharmacy-orders/dispense-substitution/witness-approvals
+  ///
+  /// Creates a short-lived pending witness approval bound to the authenticated
+  /// dispenser and the exact prospective Schedule X / narcotic substitution
+  /// payload. The payload must be byte-identical to the eventual dispense body
+  /// (minus witness_approval_id) or consumption fails closed.
+  static Future<Map<String, dynamic>> requestSubstitutionWitnessApproval({
+    required Map<String, dynamic> substitution,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/dispense-substitution/witness-approvals',
+      substitution,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates the second staff member without replacing the dispenser's
+  /// session, then approves the same substitution payload that was requested.
+  static Future<Map<String, dynamic>> approveSubstitutionWitnessApproval({
+    required String approvalId,
+    required Map<String, dynamic> substitution,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/dispense-substitution/witness-approvals/$approvalId/approve',
+      {
+        'substitution': substitution,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   /// GET /pharmacy-orders/orders/:id/dispensable

@@ -75,7 +75,14 @@ router.get('/drug-returns/batches/:id', requireStaffOrAdmin, wrap(async (req) =>
   drug.getBatch({ tenantId: tenantOf(req), id: req.params.id })));
 
 router.post('/drug-returns/batches/:id/lines', requireStaffOrAdmin, wrap(async (req) =>
-  drug.addLine({ ...req.body, tenantId: tenantOf(req), batch_id: req.params.id })));
+  drug.addLine({
+    ...req.body,
+    tenantId: tenantOf(req),
+    batch_id: req.params.id,
+    // Authenticated recorder — the witness distinctness + roster validation
+    // for controlled disposal lines binds to this identity, never the body.
+    recorded_by: req.user?.uid,
+  })));
 
 router.post('/drug-returns/batches/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
   drug.transition({

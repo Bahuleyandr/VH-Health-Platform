@@ -185,6 +185,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   database: { minRank: SUPER_ADMIN_ONLY },
   tenants: { minRank: SUPER_ADMIN_ONLY },
   "feature-flags": { minRank: SUPER_ADMIN_ONLY },
+  // Dark-gate console: reads/flips the most sensitive per-tenant toggles
+  // (payment gateway, SMS/DLT, ABDM) — SUPER_ADMIN-only end to end
+  // (backend requireRole + proxy sentinel gate + this policy + nav).
+  "integration-gates": { minRank: SUPER_ADMIN_ONLY },
   "continuity-facility-context": { minRank: SUPER_ADMIN_ONLY },
   // entitlements edit tenant license/package/status — a tenant ADMIN must not
   // self-upgrade; matches the SUPER_ADMIN-only backend gate (entitlementRoutes).

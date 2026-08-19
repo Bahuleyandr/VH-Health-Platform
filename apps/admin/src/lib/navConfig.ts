@@ -175,6 +175,11 @@ export const NAV_SECTIONS: NavSection[] = [
         name: "Facility Assets",
         href: "/dashboard/facility-assets",
         requiredRole: "ADMIN",
+        // Mirrors the proxy gate (proxyPermissions.ts): facility assets are
+        // physical-infrastructure inventory, same class as beds/wards — a
+        // flag-limited ADMIN without departmentManagement gets 403s on every
+        // API call, so don't advertise a dead page.
+        requiredAdminPermissions: ["departmentManagement"],
       },
     ],
   },
@@ -571,6 +576,11 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         name: "Tenant Operator Console",
         href: "/dashboard/tenants",
+        requiredRole: "SUPER_ADMIN",
+      },
+      {
+        name: "Integrations & Gates",
+        href: "/dashboard/integration-gates",
         requiredRole: "SUPER_ADMIN",
       },
     ],

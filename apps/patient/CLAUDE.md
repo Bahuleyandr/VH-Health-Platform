@@ -208,7 +208,9 @@ Builders are param-free unless noted.
 | FCM token | `/auth/firebase/update-fcm-token` | POST |
 | Revoke own session | `/auth/firebase/revoke-my-session` | POST |
 | **Users** | | |
-| Get/Update profile | `/users/:phone` | GET, PUT |
+| Get own profile | `/users/me` | GET |
+| Create/update own profile | `/users/profile` | POST |
+| Delete own account | `/users/me/account` | DELETE |
 | **Dashboard** | | |
 | Dashboard data | `/dashboard?phone=` | GET |
 | **Appointments** | | |

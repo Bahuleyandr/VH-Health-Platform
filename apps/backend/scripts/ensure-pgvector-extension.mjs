@@ -18,7 +18,7 @@ try {
   );
   if (available.rowCount === 0) {
     throw new Error(
-      'pgvector is not available in this Postgres instance. Use the pgvector/pgvector:pg18 image in CI or install the vector extension locally before running Prisma db push.',
+      'pgvector is not available in this Postgres instance. Use the pgvector/pgvector:pg17 image in CI or install the vector extension locally before running Prisma db push.',
     );
   }
 

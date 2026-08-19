@@ -38,5 +38,10 @@ export const dispenseSubstitutionValidator = [
   body('quantity').isFloat({ gt: 0 }).withMessage('quantity must be greater than 0'),
   body('original_catalog_id').isInt({ min: 1 }).withMessage('Valid original_catalog_id required'),
   body('final_catalog_id').isInt({ min: 1 }).withMessage('Valid final_catalog_id required'),
-  body('reason').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('Reason too long (max 500 characters)')
+  body('reason').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('Reason too long (max 500 characters)'),
+  // Controlled (Schedule X / narcotic) substitutes: the one-time approval id
+  // from the two-person witness flow. Deep validation (existence, fingerprint,
+  // consumption) happens in controlledDispenseWitnessService.
+  body('witness_approval_id').optional({ nullable: true }),
+  body('performed_by_name').optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('performed_by_name too long (max 255 characters)')
 ];

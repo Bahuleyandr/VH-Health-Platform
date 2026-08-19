@@ -40,9 +40,13 @@ export const PERMISSION_CATEGORIES: Record<
     label: "Notifications",
     permissions: ["notificationManagement"],
   },
-  admin: {
-    label: "Admin & Audit",
-    permissions: ["adminManagement", "viewAuditLogs"],
+  audit: {
+    // `adminManagement` was removed from the grantable vocabulary post-#883:
+    // every endpoint it gated (auth/admin list/create/deactivate/reactivate/
+    // update-permissions) is backend SUPER_ADMIN-only + step-up, so granting
+    // the flag to an ADMIN yielded nothing but a misleading matrix tick.
+    label: "Audit",
+    permissions: ["viewAuditLogs"],
   },
 };
 
@@ -51,7 +55,6 @@ export const ALL_PERMISSIONS = Object.values(PERMISSION_CATEGORIES).flatMap(
 );
 
 export const PERMISSION_DISPLAY: Record<string, string> = {
-  adminManagement: "Admin Mgmt",
   userManagement: "User Mgmt",
   doctorManagement: "Doctor Mgmt",
   departmentManagement: "Dept Mgmt",

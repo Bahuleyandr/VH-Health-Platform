@@ -4,13 +4,19 @@ export const schemas = {
   PatientAppConfig: {
     type: 'object',
     additionalProperties: false,
-    required: ['min_patient_version_code'],
+    required: ['min_patient_version_code', 'min_staff_version_code'],
     properties: {
       min_patient_version_code: {
         type: 'integer',
         minimum: 0,
         example: 0,
         description: 'Legacy projection of the signed minimum-version policy for older clients. 0 disables the hard upgrade gate when no signed policy is present.'
+      },
+      min_staff_version_code: {
+        type: 'integer',
+        minimum: 0,
+        example: 0,
+        description: 'Staff app hard-upgrade gate (MIN_STAFF_VERSION_CODE). 0 disables the gate. Unsigned by design: the staff client uses the legacy comparison only and fails open when this endpoint is unreachable.'
       },
       minimum_version_policy: {
         type: 'object',

@@ -52,7 +52,7 @@ const header = `--
 -- 000_baseline.sql — DB schema baseline.
 --
 -- Generated via \`pg_dump --schema-only --no-owner --no-privileges --no-comments\`
--- against a fresh pgvector/pgvector:pg18 container after applying
+-- against a fresh pgvector/pgvector:pg17 container after applying
 -- baseline.sql + raw migrations 001+ (i.e. the exact CI Postgres image).
 -- This is the canonical bootstrap for raw migrations in CI and
 -- ensure-test-db.mjs. It replaces the previous \`prisma db push\` step:
@@ -67,7 +67,7 @@ const header = `--
 --   1. Spin up the CI-matching Postgres in WSL/Docker:
 --        wsl docker run -d --name vh-pg-baseline -e POSTGRES_USER=vhhealth \\
 --          -e POSTGRES_PASSWORD=test -e POSTGRES_DB=vhhealth \\
---          -p 56432:5432 pgvector/pgvector:pg18
+--          -p 56432:5432 pgvector/pgvector:pg17
 --   2. Apply baseline + migrations:
 --        DATABASE_URL="postgresql://vhhealth:<password>@127.0.0.1:56432/vhhealth" \\
 --          node scripts/ci-setup-db.mjs

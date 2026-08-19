@@ -204,6 +204,26 @@ describe("proxy per-admin permission enforcement", () => {
     expect(proxiedCalls()).toHaveLength(0);
   });
 
+  it("keeps the integration-gates console SUPER_ADMIN-only even for a fully-flagged ADMIN", async () => {
+    // Same PLATFORM_SUPER_ADMIN sentinel pattern as entitlements: no
+    // grantable flag can open the dark-gate console for an ADMIN.
+    mockBackend([
+      "userManagement",
+      "doctorManagement",
+      "departmentManagement",
+      "appointmentManagement",
+      "pharmacyAdminRoutes",
+      "notificationManagement",
+      "viewAuditLogs",
+    ]);
+    const res = await GET(
+      request("admin/integration-gates", tokenWithRole("ADMIN")),
+    );
+
+    expect(res.status).toBe(403);
+    expect(proxiedCalls()).toHaveLength(0);
+  });
+
   it("lets SUPER_ADMIN through tenant entitlements", async () => {
     mockBackend([]);
     const res = await GET(

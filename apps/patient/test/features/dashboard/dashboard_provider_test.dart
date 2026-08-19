@@ -41,6 +41,35 @@ void main() {
     },
   );
 
+  test(
+    'active dependent id keys the appointment feed over the guardian id',
+    () async {
+      final fetched = <String>[];
+      String? activeDependentId = '77';
+      final provider = DashboardProvider(
+        isGuestSession: false,
+        uidProvider: () => 'uid-1',
+        activeDependentIdProvider: () => activeDependentId,
+        cachedGet: (path, {timeout, cacheTtl}) async {
+          fetched.add(path);
+          return _cachedAppointments(const []);
+        },
+      );
+      addTearDown(provider.dispose);
+
+      // Guardian viewing a dependent → the DEPENDENT's feed (P4: the
+      // guardian id 403'd under acting-as and silently emptied the feed).
+      await provider.refreshAppointments();
+      expect(fetched, ['/appointments/patient/77']);
+
+      // Back on the guardian's own profile → the guardian's feed.
+      activeDependentId = null;
+      fetched.clear();
+      await provider.refreshAppointments();
+      expect(fetched, ['/appointments/patient/uid-1']);
+    },
+  );
+
   test('cached offline appointment data is applied', () async {
     final fetched = <String>[];
     final provider = DashboardProvider(

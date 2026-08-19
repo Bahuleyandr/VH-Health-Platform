@@ -546,6 +546,11 @@ class AppLocalizationsMl extends AppLocalizations {
       'ഒരു ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'ആരോഗ്യ അറിവുകൾ';
 
   @override
@@ -2809,6 +2814,17 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get medicationReminderDeleteTooltip => 'ഓർമ്മപ്പെടുത്തൽ നീക്കുക';
+
+  @override
+  String get medicationReminderUpdateFailed =>
+      'റിമൈൻഡർ അപ്ഡേറ്റ് ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderDeleteFailed =>
+      'റിമൈൻഡർ നീക്കം ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderPausedLabel => 'താൽക്കാലികമായി നിർത്തി';
 
   @override
   String medicationReminderDosageLine(String dosage) {

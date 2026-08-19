@@ -8,6 +8,7 @@ import {
   listenerConfigFromEnv,
   startGateway,
 } from './gateway.js';
+import { LisRuntime, lisListenerConfigFromEnv } from './lisTransport.js';
 
 const backendClient = new BackendClient({
   baseUrl: process.env.BACKEND_BASE_URL || 'http://localhost:3000',
@@ -24,11 +25,23 @@ const runtime = new GatewayRuntime({
   allowLegacy: legacyIngestEnabledFromEnv(),
 });
 
+// LIS analyzer transport (ASTM E1394 / MLLP HL7 ORU) — off by default; only
+// operator-configured DEVICE_GATEWAY_LIS_LISTENERS open ports.
+const lisListeners = lisListenerConfigFromEnv();
+const lisRuntime = new LisRuntime({
+  spoolDir: defaultSpoolDir(),
+  backendClient,
+  listeners: lisListeners,
+  maxSpoolBytes: Number(process.env.DEVICE_GATEWAY_MAX_SPOOL_BYTES || 50 * 1024 * 1024),
+});
+
 const started = await startGateway({
   listeners: listenerConfigFromEnv(),
   runtime,
   metricsPort: Number(process.env.DEVICE_GATEWAY_METRICS_PORT || 9108),
   coldChainIngestPort: coldChainPortFromEnv(),
+  lisListeners,
+  lisRuntime,
 });
 
 console.log('VH Health device gateway listening');

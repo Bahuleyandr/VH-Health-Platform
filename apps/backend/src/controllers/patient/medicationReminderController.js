@@ -1,7 +1,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as reminderService from '../../services/patient/medicationReminderService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 /**
  * POST /reminders/medication
@@ -87,12 +87,17 @@ export const createReminder = async (req, res) => {
 
 /**
  * GET /reminders/medication
- * Get all active medication reminders for the current patient.
+ * Get medication reminders for the current patient. Active-only by
+ * default; `?include_inactive=true` also returns deactivated reminders
+ * so the app can show them dimmed and let the patient re-enable them.
  */
 export const getActiveReminders = async (req, res) => {
   try {
     const patientUid = req.user.uid;
-    const reminders = await reminderService.getActiveReminders(patientUid);
+    const includeInactive = ['true', '1'].includes(
+      String(req.query.include_inactive ?? '').toLowerCase(),
+    );
+    const reminders = await reminderService.getActiveReminders(patientUid, { includeInactive });
 
     success(res, reminders, 'Active medication reminders retrieved');
   } catch (err) {
@@ -116,11 +121,10 @@ export const updateReminder = async (req, res) => {
     const reminder = await reminderService.updateReminder(id, patientUid, req.body);
     success(res, reminder, 'Medication reminder updated');
   } catch (err) {
-    if (err.statusCode === 404) {
-      return error(res, 'Medication reminder not found', HTTP_STATUS.NOT_FOUND);
-    }
-    logger.error('Error updating medication reminder:', err);
-    error(res, 'Failed to update medication reminder', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Relays AppErrors (404 not-found, 403 ANC read-only, 400 bad
+    // is_active) with their real status + message; logs and returns a
+    // generic 500 for everything else.
+    return relayAppError(res, err, 'Failed to update medication reminder');
   }
 };
 
@@ -139,11 +143,10 @@ export const deactivateReminder = async (req, res) => {
     const reminder = await reminderService.deactivateReminder(id, patientUid);
     success(res, reminder, 'Medication reminder deactivated');
   } catch (err) {
-    if (err.statusCode === 404) {
-      return error(res, 'Medication reminder not found', HTTP_STATUS.NOT_FOUND);
-    }
-    logger.error('Error deactivating medication reminder:', err);
-    error(res, 'Failed to deactivate medication reminder', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Relays AppErrors (404 not-found, 403 ANC read-only) with their
+    // real status + message instead of collapsing the ANC 403 into a
+    // generic 500 the app cannot explain to the patient.
+    return relayAppError(res, err, 'Failed to deactivate medication reminder');
   }
 };
 

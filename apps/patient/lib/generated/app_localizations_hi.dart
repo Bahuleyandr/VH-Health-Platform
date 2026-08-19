@@ -535,6 +535,11 @@ class AppLocalizationsHi extends AppLocalizations {
       'एक फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'स्वास्थ्य रोचक तथ्य';
 
   @override
@@ -2770,6 +2775,15 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get medicationReminderDeleteTooltip => 'रिमाइंडर हटाएँ';
+
+  @override
+  String get medicationReminderUpdateFailed => 'रिमाइंडर अपडेट नहीं हो सका';
+
+  @override
+  String get medicationReminderDeleteFailed => 'रिमाइंडर हटाया नहीं जा सका';
+
+  @override
+  String get medicationReminderPausedLabel => 'रोका गया';
 
   @override
   String medicationReminderDosageLine(String dosage) {

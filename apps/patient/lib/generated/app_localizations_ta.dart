@@ -548,6 +548,11 @@ class AppLocalizationsTa extends AppLocalizations {
       'ஒரு கோப்பைத் தேர்ந்தெடுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
+
+  @override
   String get triviaTitle => 'ஆரோக்கியத் துணுக்குகள்';
 
   @override
@@ -2817,6 +2822,16 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get medicationReminderDeleteTooltip => 'நினைவூட்டலை நீக்கு';
+
+  @override
+  String get medicationReminderUpdateFailed =>
+      'நினைவூட்டலைப் புதுப்பிக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderDeleteFailed => 'நினைவூட்டலை நீக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderPausedLabel => 'இடைநிறுத்தப்பட்டது';
 
   @override
   String medicationReminderDosageLine(String dosage) {

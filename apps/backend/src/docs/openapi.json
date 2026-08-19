@@ -27576,6 +27576,240 @@
           }
         }
       },
+      "IntegrationGateEnvFacts": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "payment_gateway_enabled",
+          "abdm_enabled",
+          "uhi_enabled"
+        ],
+        "properties": {
+          "payment_gateway_enabled": {
+            "type": "boolean"
+          },
+          "sms_provider": {
+            "type": "string",
+            "nullable": true,
+            "description": "SMS_PROVIDER env value (provider NAME only, never credentials); null when unset."
+          },
+          "sms_kill_switch": {
+            "type": "boolean",
+            "description": "True when SMS_PROVIDER=logger (deployment-wide dry-run)."
+          },
+          "abdm_enabled": {
+            "type": "boolean"
+          },
+          "abdm_environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "abdm_has_client_credentials": {
+            "type": "boolean",
+            "description": "Presence boolean for ABDM_CLIENT_ID + ABDM_CLIENT_SECRET; values are never returned."
+          },
+          "uhi_enabled": {
+            "type": "boolean"
+          },
+          "uhi_environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "uhi_has_subscriber_identity": {
+            "type": "boolean"
+          },
+          "livekit_enabled": {
+            "type": "boolean"
+          },
+          "file_scan_policy": {
+            "type": "string",
+            "enum": [
+              "required",
+              "disabled_accepted_risk"
+            ]
+          },
+          "clinical_continuity_c_d14_approved": {
+            "type": "boolean",
+            "description": "Compile-time constant; deliberately not changeable by deployment configuration."
+          }
+        }
+      },
+      "IntegrationGateErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "IntegrationGateReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generated_at",
+          "env",
+          "tenants"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "env": {
+            "$ref": "#/components/schemas/IntegrationGateEnvFacts"
+          },
+          "tenants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntegrationGateTenantEntry"
+            }
+          }
+        }
+      },
+      "IntegrationGateReportResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IntegrationGateReport"
+          }
+        }
+      },
+      "IntegrationGateState": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "effective"
+        ],
+        "properties": {
+          "effective": {
+            "type": "boolean",
+            "description": "AND of every gate layer, computed by the feature's own resolver."
+          },
+          "blocking_layer": {
+            "type": "string",
+            "enum": [
+              "env",
+              "tenant_setting",
+              "provider_config",
+              "unknown"
+            ],
+            "nullable": true,
+            "description": "The first gate layer holding the feature dark; null when effective."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "layers": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Per-layer state. Provider config rows are the services' write-only admin views (has_* booleans, never secret values)."
+          }
+        }
+      },
+      "IntegrationGateTenantEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant",
+          "gates"
+        ],
+        "properties": {
+          "tenant": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "slug"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "nullable": true
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "gates": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "payment_gateway",
+              "sms",
+              "abdm_enrolment",
+              "abdm_scan_share",
+              "abdm_hiu",
+              "uhi",
+              "ambulance_gps"
+            ],
+            "properties": {
+              "payment_gateway": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "sms": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "abdm_enrolment": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "abdm_scan_share": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "abdm_hiu": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "uhi": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "ambulance_gps": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              }
+            }
+          }
+        }
+      },
       "InvestigationResultRecordRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -34064,7 +34298,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "min_patient_version_code"
+          "min_patient_version_code",
+          "min_staff_version_code"
         ],
         "properties": {
           "min_patient_version_code": {
@@ -34072,6 +34307,12 @@
             "minimum": 0,
             "example": 0,
             "description": "Legacy projection of the signed minimum-version policy for older clients. 0 disables the hard upgrade gate when no signed policy is present."
+          },
+          "min_staff_version_code": {
+            "type": "integer",
+            "minimum": 0,
+            "example": 0,
+            "description": "Staff app hard-upgrade gate (MIN_STAFF_VERSION_CODE). 0 disables the gate. Unsigned by design: the staff client uses the legacy comparison only and fails open when this endpoint is unreachable."
           },
           "minimum_version_policy": {
             "type": "object",
@@ -39040,6 +39281,118 @@
           }
         }
       },
+      "PharmacyDispenseSubstitutionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "inventory_item_id",
+          "inventory_batch_id",
+          "quantity",
+          "original_catalog_id",
+          "final_catalog_id"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "inventory_batch_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "original_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "final_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "witness_approval_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "nullable": true,
+            "description": "Approved, unexpired one-time witness approval from the two-person substitution witness flow. Required when the dispensed inventory item is Schedule X / narcotic; caller-selected witness identity is never accepted."
+          },
+          "performed_by_name": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255,
+            "description": "Display name recorded on the statutory register for controlled substitutes; defaults to the authenticated dispenser’s roster name."
+          }
+        }
+      },
+      "PharmacyDispenseSubstitutionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyDispenseSubstitutionResult"
+          }
+        }
+      },
+      "PharmacyDispenseSubstitutionResult": {
+        "type": "object",
+        "required": [
+          "movement_id",
+          "original_catalog_id",
+          "final_catalog_id",
+          "quantity"
+        ],
+        "properties": {
+          "movement_id": {
+            "type": "integer"
+          },
+          "original_catalog_id": {
+            "type": "integer"
+          },
+          "final_catalog_id": {
+            "type": "integer"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "schedule_class": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_narcotic": {
+            "type": "boolean"
+          },
+          "register_entry_id": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
       "PharmacyInventoryControlledDispenseRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -39278,6 +39631,122 @@
         }
       },
       "PharmacyInventoryWitnessApprovalResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyCounterSaleWitnessApproval"
+          }
+        }
+      },
+      "PharmacySubstitutionWitnessApprovalDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "substitution"
+        ],
+        "properties": {
+          "substitution": {
+            "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalRequest"
+          },
+          "employeeId": {
+            "type": "string",
+            "pattern": "^[A-Z0-9-]{3,20}$",
+            "description": "Witness employee ID for an in-session password step-up. Must be supplied with password; the server derives the witness UID from this authentication."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "maxLength": 100,
+            "writeOnly": true,
+            "description": "Witness password for the one-request step-up. It is neither returned nor persisted (and never enters the idempotency hash) and does not replace the dispenser session."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "employeeId",
+              "password"
+            ]
+          },
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "employeeId"
+                  ]
+                },
+                {
+                  "required": [
+                    "password"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "PharmacySubstitutionWitnessApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "inventory_item_id",
+          "inventory_batch_id",
+          "quantity",
+          "original_catalog_id",
+          "final_catalog_id"
+        ],
+        "description": "The exact prospective substitution payload to bind to a short-lived pending witness approval. witness_approval_id is not accepted on this pre-approval request.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "inventory_item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "inventory_batch_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.0001
+          },
+          "original_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "final_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          }
+        }
+      },
+      "PharmacySubstitutionWitnessApprovalResponse": {
         "type": "object",
         "required": [
           "success",
@@ -65217,6 +65686,106 @@
             "schema": {
               "type": "string"
             }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/integration-gates": {
+      "get": {
+        "operationId": "get_api_v1_admin_integration_gates",
+        "tags": [
+          "integration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateReportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The integration-gates request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller was not a SUPER_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The caller exceeded the API rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The integration gate states could not be retrieved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationGateErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "SUPER_ADMIN-only read of every dark-shipped feature gate per tenant: payment gateway (env kill switch AND tenants.settings.paymentGateway.enabled AND an enabled provider-config row, dry_run vs live credentials), SMS (SMS_PROVIDER env ladder AND settings.sms.enabled AND per-tenant config/DLT template registrations), ABDM enrolment / Scan & Share / thin HIU (ABDM_ENABLED AND the tenant flags), UHI, and ambulance GPS, plus read-only env facts (LiveKit, FILE_SCAN_POLICY, clinical-continuity approval). Effective state is computed by each feature's own resolver; secrets are never returned — presence booleans only. Read-only: flips go through the existing mutation endpoints.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Restrict the report to one tenant."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "description": "Maximum tenants to include (default 100, clamped to 500)."
           }
         ]
       }
@@ -125668,8 +126237,386 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyDispenseSubstitutionResponse"
                 }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pharmacist dispenses an in-stock, same-formulation alternative for a prescribed brand. Both catalog ids are server-resolved and the swap re-checked for equivalence; the chosen batch is locked, validated and decremented atomically with the canonical clinical timeline + audit pair. Controlled substitutes (Schedule H/H1/X or narcotic inventory items) route through the witnessed statutory-register controlled-dispense path in the same transaction; Schedule X / narcotic substitutes additionally require an approved one-time witness_approval_id and fail closed without it.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyDispenseSubstitutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/dispense-substitution/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_dispense_substitution_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The idempotency store was unavailable, so the mutation failed closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Dispensing pharmacist creates a short-lived pending witness approval bound to the authenticated dispenser and the exact prospective Schedule X / narcotic substitution payload.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for this logical mutation. Retries with the unchanged body replay the durable original result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/dispense-substitution/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_dispense_substitution_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The idempotency store was unavailable, so the mutation failed closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged substitution payload. The dispenser may then submit the returned one-time approval id; self-witness, administrative witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for this logical mutation. Retries with the unchanged body replay the durable original result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalDecisionRequest"
               }
             }
           }
@@ -129012,8 +129959,386 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyDispenseSubstitutionResponse"
                 }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pharmacist dispenses an in-stock, same-formulation alternative for a prescribed brand. Both catalog ids are server-resolved and the swap re-checked for equivalence; the chosen batch is locked, validated and decremented atomically with the canonical clinical timeline + audit pair. Controlled substitutes (Schedule H/H1/X or narcotic inventory items) route through the witnessed statutory-register controlled-dispense path in the same transaction; Schedule X / narcotic substitutes additionally require an approved one-time witness_approval_id and fail closed without it.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacyDispenseSubstitutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/dispense-substitution/witness-approvals": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_dispense_substitution_witness_approvals",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The idempotency store was unavailable, so the mutation failed closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Dispensing pharmacist creates a short-lived pending witness approval bound to the authenticated dispenser and the exact prospective Schedule X / narcotic substitution payload.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for this logical mutation. Retries with the unchanged body replay the durable original result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/dispense-substitution/witness-approvals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_dispense_substitution_witness_approvals_by_id_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The substitution payload, witness identity, or credential pair was invalid — including a Schedule X / narcotic substitute submitted without witness_approval_id (SUBSTITUTION_WITNESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The independently supplied witness credentials were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller or witness tenant/role was not permitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The inventory item, batch, patient, or witness approval was not found in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval expired, was consumed, or did not match the unchanged substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The witness credential attempt was rate limited or locked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The substitution witness approval could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The idempotency store was unavailable, so the mutation failed closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged substitution payload. The dispenser may then submit the returned one-time approval id; self-witness, administrative witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for this logical mutation. Retries with the unchanged body replay the durable original result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PharmacySubstitutionWitnessApprovalDecisionRequest"
               }
             }
           }

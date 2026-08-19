@@ -38,13 +38,35 @@ function isAdminRole(role) {
   return isAdmin(role) || String(role || '').trim().toUpperCase() === 'SUPER_ADMIN';
 }
 
+// Self-service SOS identity: SOS surfaces (alerts, my-alerts, cancel,
+// emergency contact, medical info) belong to the person physically holding
+// the phone, so when the acting-as delegation hop rewrote req.user to a
+// dependent, self-service reads/writes key off the pre-hop GUARDIAN actor
+// preserved on req.acting. Responder/admin surfaces keep req.user.
+function selfServiceUid(req) {
+  return req.acting?.actorUid ?? req.user?.uid ?? null;
+}
+
 async function resolveSelfServicePhone(req, requestedPhone) {
   const normalizedRequested = normalizePhone(requestedPhone || '');
   if (isAdminRole(req.user?.role) && normalizedRequested) {
     return normalizedRequested;
   }
 
-  const tokenPhone = normalizePhone(req.user?.phone || '');
+  // Defense in depth for delegated sessions (2026-08-18 P1): an SOS — and its
+  // emergency contact / medical info — belongs to the person physically
+  // holding the phone. When the acting-as hop rewrote req.user to a minor
+  // dependent, resolve from the pre-hop GUARDIAN identity preserved on
+  // req.acting; the dependent's synthetic `DEPEND-<hex>` phone can never
+  // match a real body phone, so without this a guardian viewing a dependent
+  // profile could never raise a hospital-side alert. The patient app also
+  // suppresses `X-Acting-As-Uid` on /sos/* (see vhhealth_core VHHttpClient
+  // actingAsExemptPathPrefixes); this keeps SOS working for older clients.
+  const self = req.acting
+    ? { phone: req.acting.actorPhone, uid: req.acting.actorUid }
+    : { phone: req.user?.phone, uid: req.user?.uid };
+
+  const tokenPhone = normalizePhone(self.phone || '');
   if (tokenPhone) {
     if (normalizedRequested && normalizedRequested !== tokenPhone) {
       const err = new Error('Can only manage SOS data for yourself');
@@ -54,13 +76,13 @@ async function resolveSelfServicePhone(req, requestedPhone) {
     return tokenPhone;
   }
 
-  if (!req.user?.uid) return null;
+  if (!self.uid) return null;
   const rows = await prisma.$queryRawUnsafe(
     `SELECT phone
        FROM users
       WHERE uid = $1::uuid AND tenant_id = $2::uuid
       LIMIT 1`,
-    req.user.uid,
+    self.uid,
     tenantOf(req),
   );
   const resolvedPhone = normalizePhone(rows[0]?.phone || '');
@@ -105,7 +127,7 @@ export const createEmergencyAlert = async (req, res) => {
       } : null,
       ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
       userAgent: req.headers['user-agent'] || null,
-      createdBy: req.user?.uid || 'patient_app'
+      createdBy: selfServiceUid(req) || 'patient_app'
     };
 
     const result = await sosService.createAlert(alertData);
@@ -135,7 +157,7 @@ export const updateEmergencyContact = async (req, res) => {
     }
 
     // FIX: Corrected function name from updateEmergencyContact to updateEmergencyContacts
-    const result = await sosService.updateEmergencyContacts(phone, req.body, req.user?.uid);
+    const result = await sosService.updateEmergencyContacts(phone, req.body, selfServiceUid(req));
     success(res, result, 'Emergency contact information updated successfully');
 
   } catch (err) {
@@ -160,7 +182,7 @@ export const getEmergencyContact = async (req, res) => {
 export const cancelAlert = async (req, res) => {
   try {
     const { alertId } = req.params;
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const result = await sosService.cancelAlert(alertId, uid);
@@ -176,7 +198,7 @@ export const cancelAlert = async (req, res) => {
 
 export const getMyAlerts = async (req, res) => {
   try {
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
@@ -208,7 +230,7 @@ export const getNearbyServices = async (req, res) => {
 
 export const getMedicalInfo = async (req, res) => {
   try {
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const info = await sosService.getMedicalInfo(uid);

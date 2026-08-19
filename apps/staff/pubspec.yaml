@@ -29,6 +29,10 @@ dependencies:
   lucide_icons: ^0.257.0
   intl: ^0.20.2
   local_auth: ^3.0.1
+  # Build-number source for the minimum-version (force-update) gate. Same
+  # constraint as the patient app so the shared workspace lock resolves one
+  # version.
+  package_info_plus: ^9.0.1
   # Aligned with patient app to allow a unified Melos/pub workspace.
   firebase_core: ^4.10.0
   firebase_messaging: ^16.3.0

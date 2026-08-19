@@ -9,6 +9,7 @@ import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
 import wardIndentRoutes from './wardIndentRoutes.js';
 import counterSaleRoutes from './counterSaleRoutes.js';
+import dispenseSubstitutionWitnessRoutes from './dispenseSubstitutionWitnessRoutes.js';
 import { dispenseSubstitutionValidator } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
@@ -59,6 +60,10 @@ router.use('/ward-indents', wardIndentRoutes);
 // Walk-in counter point-of-sale (migration 684): FEFO dispense + schedule
 // enforcement + billingV2 PHARMACY invoice + cash-drawer-tied payment.
 router.use('/counter-sales', counterSaleRoutes);
+// Schedule X / narcotic dispense-substitution witness approvals (two-person
+// signoff, mirrors the counter-sale + inventory controlled-dispense flows).
+// Mounted before wrapAutoRBAC so the router keeps its own role gates.
+router.use('/dispense-substitution/witness-approvals', dispenseSubstitutionWitnessRoutes);
 
 // Re-route some paths for backward compatibility
 router.use('/category', medicationRoutes);
