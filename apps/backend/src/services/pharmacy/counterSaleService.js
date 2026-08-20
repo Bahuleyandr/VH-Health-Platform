@@ -68,6 +68,9 @@ import {
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { postPaymentEntry } from '../billing/ledger/ledgerPostings.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { evaluateDrugKb } from '../clinical/drugKnowledgeBaseService.js';
+import { isDrugKbDeterministicEnvEnabled } from '../clinical/drugKbLinkService.js';
+import { getDrugKbSettings } from '../tenant/tenantSettingsService.js';
 
 // POS is pay-at-counter: every billingV2 mode except INSURANCE (which requires
 // a TPA claim anchor no walk-in sale has).
@@ -477,6 +480,70 @@ async function requireOpenDrawerSession(db, { tenantId, cashierUid }) {
  *            patients. Any failure rolls the whole phase back; the issued
  *            invoice is voided as compensation and the sale parks FAILED.
  */
+// ── OTC drug-KB advisory (terminology slate C1/WP4, dark by default) ──
+//
+// Fail-OPEN advisory screen of the items in one counter sale against the
+// drug-KB DDI engine. There is no clinician in the loop on a walk-in sale, so
+// this surface is ADVISORY ONLY by design decision: it can never block, fail,
+// or delay-with-error the sale path — every failure (settings read, engine,
+// audit write) is swallowed and logged, and the sale response simply carries
+// advisory: null. Double-gated: env DRUG_KB_DETERMINISTIC_MATCHING AND tenant
+// settings.drugKb.counterSaleAdvisory, both default off. The fail-CLOSED
+// posture of CPOE/prescription saves (validatePrescriptionSafety) is a
+// different surface and is untouched.
+//
+// Exported for unit tests; not part of the route contract.
+export async function counterSaleDrugKbAdvisory({
+  tenantId, itemsById, saleId = null, soldBy = null,
+}) {
+  try {
+    if (!isDrugKbDeterministicEnvEnabled()) return null;
+    const settings = await getDrugKbSettings(tenantId);
+    if (settings.counterSaleAdvisory !== true) return null;
+    const medications = [...(itemsById?.values?.() || [])]
+      .map((item) => ({ name: item?.display_name }))
+      .filter((m) => m.name);
+    if (medications.length === 0) return null;
+    const result = await evaluateDrugKb({ medications, tenantId });
+    const findings = Array.isArray(result?.findings) ? result.findings : [];
+    const advisory = {
+      kb_available: result?.kbAvailable === true,
+      findings,
+      count: findings.length,
+    };
+    if (findings.length > 0) {
+      // Advisory evidence row — best-effort, never blocks the sale.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO audit_logs (uid, role, action, resource, resource_id, metadata, tenant_id)
+         VALUES ($1::uuid, 'PHARMACY_STAFF', 'COUNTER_SALE_DRUG_KB_ADVISORY',
+                 'pharmacy_counter_sales', $2, $3::jsonb, $4::uuid)`,
+        soldBy || null,
+        saleId != null ? String(saleId) : null,
+        JSON.stringify({
+          finding_count: findings.length,
+          findings: findings.map((f) => ({
+            check: f.check,
+            severity: f.severity,
+            drug_keys: f.drug_keys,
+            medications: f.medications,
+          })),
+        }),
+        String(tenantId),
+      ).catch((auditErr) => {
+        logger.warn('Counter-sale drug-KB advisory audit write failed (non-blocking)', {
+          sale_id: saleId, error: auditErr?.message,
+        });
+      });
+    }
+    return advisory;
+  } catch (err) {
+    logger.warn('Counter-sale drug-KB advisory failed (non-blocking)', {
+      sale_id: saleId, error: err?.message,
+    });
+    return null;
+  }
+}
+
 export async function createCounterSale({
   tenantId, lines, patient_uid, customer_name, customer_phone,
   rx, witness_approval_id, payment_mode, payment_reference, notes,
@@ -857,7 +924,16 @@ export async function createCounterSale({
         counter_sale_id: sale.id, invoice_id: invoice.id, error: readErr.message,
       });
     }
-    return { sale: result.sale, invoice: invoiceView, payment: result.payment };
+    // Fail-open OTC drug-KB advisory (dark by default; see the helper). The
+    // sale is already committed — this can only ever enrich the response.
+    // Gates off / advisory unavailable ⇒ the response shape is byte-identical
+    // to today (no advisory key at all).
+    const advisory = await counterSaleDrugKbAdvisory({
+      tenantId: tenant, itemsById, saleId: result.sale.id, soldBy: sold_by,
+    });
+    const response = { sale: result.sale, invoice: invoiceView, payment: result.payment };
+    if (advisory != null) response.advisory = advisory;
+    return response;
   } catch (err) {
     // Compensation: the issued invoice holds no payment (the payment was part
     // of the rolled-back tx), so it can still be voided cleanly.

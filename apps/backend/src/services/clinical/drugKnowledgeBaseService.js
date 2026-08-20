@@ -21,6 +21,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveDrugKeys } from './drugKbLinkService.js';
 
 const KB_CACHE_TTL_MS = 5 * 60 * 1000;
 let kbCache = { loadedAt: 0, kb: null };
@@ -302,12 +303,40 @@ async function loadKb() {
   }
 }
 
+/** License-expiry warnings for active sources (migration 722 metadata). */
+export function licenseWarningsFor(sources, now = Date.now()) {
+  const warnings = [];
+  const soonMs = 30 * 24 * 60 * 60 * 1000;
+  for (const source of sources || []) {
+    if (!source.is_active || !source.license_expires_at) continue;
+    const expiresAt = new Date(source.license_expires_at).getTime();
+    if (!Number.isFinite(expiresAt)) continue;
+    if (expiresAt <= now) {
+      warnings.push({
+        source_key: source.source_key,
+        kind: 'license_expired',
+        license_expires_at: source.license_expires_at,
+        message: `Active drug-KB source '${source.source_key}' has an EXPIRED license (${source.license_expires_at}). Renew or deactivate it (drug-kb-import.mjs --deactivate-source).`,
+      });
+    } else if (expiresAt <= now + soonMs) {
+      warnings.push({
+        source_key: source.source_key,
+        kind: 'license_expiring',
+        license_expires_at: source.license_expires_at,
+        message: `Active drug-KB source '${source.source_key}' license expires within 30 days (${source.license_expires_at}).`,
+      });
+    }
+  }
+  return warnings;
+}
+
 export async function drugKbStatus() {
   try {
     const sources = await prisma.$queryRawUnsafe(
       `SELECT source_key, name, vendor, version, license_note, is_starter, is_active,
               priority, source_family, edition_status, license_status, imported_at,
-              accepted_at, activated_at, deactivated_at, metadata
+              accepted_at, activated_at, deactivated_at, metadata,
+              license_holder, license_expires_at, vendor_edition
          FROM drug_kb_sources
         ORDER BY is_active DESC, priority DESC, is_starter ASC, source_key`,
     );
@@ -318,9 +347,14 @@ export async function drugKbStatus() {
       sources,
       counts: kb?.counts || null,
       starter_only: sources.every((s) => !s.is_active || s.is_starter),
+      license_warnings: licenseWarningsFor(sources),
     };
   } catch (err) {
-    if (isSchemaMissing(err)) return { kb_available: false, sources: [], counts: null, starter_only: null };
+    if (isSchemaMissing(err)) {
+      return {
+        kb_available: false, sources: [], counts: null, starter_only: null, license_warnings: [],
+      };
+    }
     throw err;
   }
 }
@@ -360,19 +394,56 @@ function allergenGroups(kb, allergenText) {
  *
  * Returns { kbAvailable, findings: [{ check, severity, drug_keys,
  * medications, message, management, source_key }] }.
+ *
+ * Deterministic matching (migration 722, double-gated dark): callers may pass
+ * `tenantId` (the engine asks drugKbLinkService.resolveDrugKeys, which itself
+ * enforces env DRUG_KB_DETERMINISTIC_MATCHING AND the tenant
+ * settings.drugKb.deterministicMatching flag and fails open) or hand
+ * pre-resolved keys via `resolvedKeys` (array parallel to `medications`;
+ * string[] per med, null = substring fallback for that med). With no tenantId
+ * and no resolvedKeys — every pre-existing caller — behavior is byte-identical
+ * to the substring-only path.
  */
-export async function evaluateDrugKb({ medications = [], allergies = [], problems = [], patient = {} } = {}) {
+export async function evaluateDrugKb({
+  medications = [], allergies = [], problems = [], patient = {},
+  tenantId = null, resolvedKeys = null,
+} = {}) {
   const kb = await loadKb();
   if (!kb) return { kbAvailable: false, findings: [] };
   const findings = [];
 
-  // Resolve each medication to KB drug keys once.
-  const meds = (medications || []).map((med) => ({
-    med,
-    display: medicationDisplay(med),
-    text: medicationText(med),
-    keys: matchMonographKeys(kb.monographs, medicationText(med)),
-  })).filter((m) => m.display);
+  // Deterministic per-med key resolution (gated + fail-open inside the link
+  // service; any failure degrades to the substring path below).
+  let deterministicKeys = null;
+  if (Array.isArray(resolvedKeys)) {
+    deterministicKeys = resolvedKeys;
+  } else if (tenantId) {
+    try {
+      const resolution = await resolveDrugKeys({ tenantId, medications: medications || [] });
+      if (resolution?.enabled && Array.isArray(resolution.resolutions)) {
+        deterministicKeys = resolution.resolutions.map((r) => (r ? r.drug_keys : null));
+      }
+    } catch (err) {
+      logger.warn('Deterministic drug-key resolution failed — using substring matching', {
+        error: err?.message,
+      });
+    }
+  }
+
+  // Resolve each medication to KB drug keys once: deterministic keys when the
+  // adapter resolved this med, else the existing substring match.
+  const meds = (medications || []).map((med, index) => {
+    const pre = deterministicKeys?.[index];
+    const keys = Array.isArray(pre) && pre.length > 0
+      ? [...new Set(pre.map((k) => String(k || '').toLowerCase().trim()).filter(Boolean))]
+      : matchMonographKeys(kb.monographs, medicationText(med));
+    return {
+      med,
+      display: medicationDisplay(med),
+      text: medicationText(med),
+      keys,
+    };
+  }).filter((m) => m.display);
 
   // 1. Drug–drug interactions (pairwise on resolved keys).
   const seenPairs = new Set();
@@ -585,6 +656,7 @@ export async function evaluateDrugKb({ medications = [], allergies = [], problem
 export default {
   evaluateDrugKb,
   drugKbStatus,
+  licenseWarningsFor,
   canonicalPair,
   frequencyPerDay,
   parseFlatDoseMg,

@@ -491,6 +491,17 @@ export const envSchema = Joi.object({
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
 
+  // Drug-KB deterministic matching (migration 722) — deployment-wide kill
+  // switch for the formulary→KB link adapter AND the OTC counter-sale
+  // advisory. Off/unset (default) keeps the name-substring matching path
+  // byte-identical; each tenant must additionally opt in via
+  // settings.drugKb.deterministicMatching / settings.drugKb.counterSaleAdvisory.
+  DRUG_KB_DETERMINISTIC_MATCHING: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('DRUG_KB_DETERMINISTIC_MATCHING'),
+
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,
   // so production must fail closed if the HMAC secrets are not provisioned.
