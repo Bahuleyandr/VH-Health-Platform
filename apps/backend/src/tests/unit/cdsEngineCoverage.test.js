@@ -58,12 +58,15 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitCdsAlertAcknowledged,
 }));
 
-// tenantService only exports a constant used as the fallback tenant for the
-// acknowledge tx — keep the real value shape.
+// tenantService exports used across cdsEngine's import graph. getTenantById is
+// reached transitively since WP4: cdsEngine → drugKbLinkService →
+// tenantSettingsService (real) → tenantService.getTenantById. Return null so
+// tenant settings resolve to their disabled defaults (drug-KB adapter dark).
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
   resolveTenantOrThrow: (req) => req?.tenantId || '00000000-0000-4000-8000-000000000001',
   requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
+  getTenantById: jest.fn(async () => null),
 }));
 
 const cds = await import('../../services/emr/cdsEngine.js');

@@ -41,11 +41,18 @@ import {
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getAnalyticsBiSettings,
   getFacilityAssetsSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
 } from '../tenant/tenantSettingsService.js';
+// Namespace view of the same module for OPTIONAL accessors added by sibling
+// work packages (getLabLoincMappingSettings / getDrugKbSettings). Accessed
+// via property lookup so this file loads — and the gates fail closed — both
+// before and after those packages merge.
+import * as tenantSettingsAccessors from '../tenant/tenantSettingsService.js';
+import { isWhoIcdConfigured } from '../terminology/whoIcdClient.js';
 
 // Map each resolver's blocking reason onto the gate layer it names, so the
 // console can say WHICH layer holds a dark feature dark.
@@ -74,6 +81,14 @@ function blockingLayer(map, reason) {
   return map[reason] || 'unknown';
 }
 
+// Env layer of the analytics-BI (embedded Metabase) gate. Mirrors
+// metabaseService.isMetabaseEnvConfigured — read here directly from
+// process.env (the sms_provider idiom) so this console module does not
+// import the dashboards service graph.
+function metabaseEnvConfigured() {
+  return Boolean(process.env.METABASE_URL && process.env.METABASE_EMBED_SECRET);
+}
+
 /** Deployment-wide env facts — booleans / enum names only, never values. */
 export function integrationGateEnvFacts() {
   const smsProvider = String(process.env.SMS_PROVIDER || '').trim().toLowerCase();
@@ -94,6 +109,21 @@ export function integrationGateEnvFacts() {
     livekit_enabled: livekitEnabled(),
     file_scan_policy: resolveFileScanPolicy(),
     clinical_continuity_c_d14_approved: CLINICAL_CONTINUITY_C_D14_APPROVED === true,
+    // ── Terminology & knowledge env facts (slate C1; self-contained block) ──
+    // Presence booleans / enum names only, never credential values.
+    who_icd_configured: isWhoIcdConfigured(),
+    terminology_coding_enforcement: normalizeCodingEnforcementEnv(),
+    drug_kb_deterministic_matching: knowledgeEnvFlagEnabled('DRUG_KB_DETERMINISTIC_MATCHING'),
+    lab_loinc_mapping_enabled: knowledgeEnvFlagEnabled('LAB_LOINC_MAPPING_ENABLED'),
+
+    // Embedded BI (slate C2): presence booleans/counts only, never URLs or
+    // secrets. metabase_dashboards_configured counts METABASE_DASH_* env
+    // vars carrying a positive dashboard id (the per-dashboard config layer).
+    metabase_configured: metabaseEnvConfigured(),
+    metabase_dashboards_configured: Object.entries(process.env)
+      .filter(([name]) => name.startsWith('METABASE_DASH_'))
+      .filter(([, value]) => Number.parseInt(value, 10) > 0)
+      .length,
   };
 }
 
@@ -209,9 +239,223 @@ async function ambulanceGpsGate(tenantId) {
   };
 }
 
+// ── Terminology & knowledge gates (slate C1) ────────────────────────────────
+//
+// One self-contained block per the shared-file merge rule, so sibling gate
+// additions merge cleanly around it. Same three-layer contract as the gates
+// above, with one reinterpretation: the "provider_config" layer here means
+// IMPORTED CONTENT (concepts / licensed KB source / mapping rows) — a
+// terminology feature with no content behaves exactly like a payment gateway
+// with no credentials: dark, fail-closed.
+//
+// Content counts and the WP2/3/4 tenant-settings accessors are resolved
+// lazily and defensively. Before those work packages merge (or when the DB
+// is unreachable) every check degrades to "absent" and the gate stays dark —
+// this console read never throws because a knowledge table is missing.
+
+const TERMINOLOGY_ENFORCEMENT_LEVELS = ['off', 'warn', 'block'];
+const TERMINOLOGY_CODING_SURFACES = [
+  'death_certificate',
+  'insurance_claim',
+  'discharge_summary',
+];
+
+function normalizeCodingEnforcementEnv() {
+  const value = String(process.env.TERMINOLOGY_CODING_ENFORCEMENT || '')
+    .trim()
+    .toLowerCase();
+  return TERMINOLOGY_ENFORCEMENT_LEVELS.includes(value) ? value : 'off';
+}
+
+function knowledgeEnvFlagEnabled(name) {
+  return String(process.env[name] || '').trim().toLowerCase() === 'true';
+}
+
+/**
+ * COUNT(*) helper for the content layer. Prisma is imported lazily so this
+ * module's static dependency set is unchanged (existing unit-test mock
+ * factories stay valid) and any failure — table not migrated yet, DB down —
+ * reads as "no content", never as an error.
+ */
+async function knowledgeContentCount(sql, ...params) {
+  try {
+    const mod = await import('../../lib/prisma.js');
+    const client = mod.prisma || mod.default;
+    const rows = await client.$queryRawUnsafe(sql, ...params);
+    return Number(rows?.[0]?.count ?? 0);
+  } catch (err) {
+    logger.warn('integration gates: knowledge content check failed', { error: err?.message });
+    return 0;
+  }
+}
+
+/** Assemble the standard {effective, reason, blocking_layer, layers} shape. */
+function knowledgeGateShape({ env, tenantSetting, contentPresent, reasons, extra = {} }) {
+  const effective = env === true && tenantSetting === true && contentPresent === true;
+  let reason = null;
+  let blockingLayerName = null;
+  if (!effective) {
+    if (env !== true) {
+      reason = reasons.env;
+      blockingLayerName = 'env';
+    } else if (tenantSetting !== true) {
+      reason = reasons.tenant;
+      blockingLayerName = 'tenant_setting';
+    } else {
+      reason = reasons.content;
+      blockingLayerName = 'provider_config';
+    }
+  }
+  return {
+    effective,
+    reason,
+    blocking_layer: blockingLayerName,
+    layers: {
+      env: env === true,
+      tenant_setting: tenantSetting === true,
+      provider_config: contentPresent === true,
+    },
+    ...extra,
+  };
+}
+
+async function terminologyCodingGate(tenant) {
+  const envLevel = normalizeCodingEnforcementEnv();
+  // Tenant layer lives in tenant_terminology_settings.coding_enforcement
+  // (WP2 JSONB, per-surface off|warn|block) — absent pre-merge ⇒ all off.
+  let enforcementRaw = {};
+  try {
+    const mod = await import('../terminology/terminologySettingsService.js');
+    const settings = await mod.getTenantTerminologySettings(tenant.id);
+    if (settings?.coding_enforcement && typeof settings.coding_enforcement === 'object'
+        && !Array.isArray(settings.coding_enforcement)) {
+      enforcementRaw = settings.coding_enforcement;
+    }
+  } catch (err) {
+    logger.warn('integration gates: terminology settings read failed', { error: err?.message });
+  }
+  const enforcement = {};
+  for (const surface of TERMINOLOGY_CODING_SURFACES) {
+    const level = String(enforcementRaw[surface] || 'off').trim().toLowerCase();
+    enforcement[surface] = TERMINOLOGY_ENFORCEMENT_LEVELS.includes(level) ? level : 'off';
+  }
+  const tenantSetting = Object.values(enforcement).some((level) => level !== 'off');
+  // Content layer: ICD-10 is federated into terminology_concepts on day one
+  // (migration 275), so a healthy deployment always has active concepts.
+  const conceptCount = await knowledgeContentCount(
+    `SELECT COUNT(*)::int AS count
+       FROM terminology_concepts
+      WHERE system_key = 'ICD10' AND status = 'active'`,
+  );
+  return knowledgeGateShape({
+    env: envLevel !== 'off',
+    tenantSetting,
+    contentPresent: conceptCount > 0,
+    reasons: {
+      env: 'env_enforcement_off',
+      tenant: 'all_surfaces_off',
+      content: 'no_concepts_imported',
+    },
+    extra: { env_level: envLevel, enforcement, concept_count: conceptCount },
+  });
+}
+
+async function labLoincMappingGate(tenant) {
+  const env = knowledgeEnvFlagEnabled('LAB_LOINC_MAPPING_ENABLED');
+  // Prefer the WP3 accessor once it exists; fall back to the raw settings
+  // JSONB on the tenant row (same disabled-by-default semantics) before then.
+  let tenantSetting = tenant?.settings?.labLoincMapping?.enabled === true;
+  try {
+    if (typeof tenantSettingsAccessors.getLabLoincMappingSettings === 'function') {
+      const settings = await tenantSettingsAccessors.getLabLoincMappingSettings(tenant.id);
+      tenantSetting = settings?.enabled === true;
+    }
+  } catch (err) {
+    logger.warn('integration gates: lab LOINC mapping settings read failed', { error: err?.message });
+  }
+  const mappingRows = await knowledgeContentCount(
+    `SELECT COUNT(*)::int AS count
+       FROM lab_analyzer_code_mappings
+      WHERE tenant_id = $1::uuid AND active = true`,
+    tenant.id,
+  );
+  return knowledgeGateShape({
+    env,
+    tenantSetting,
+    contentPresent: mappingRows > 0,
+    reasons: {
+      env: 'env_disabled',
+      tenant: 'tenant_disabled',
+      content: 'no_mapping_rows',
+    },
+    extra: { mapping_rows: mappingRows },
+  });
+}
+
+async function drugKbGate(tenant) {
+  const env = knowledgeEnvFlagEnabled('DRUG_KB_DETERMINISTIC_MATCHING');
+  let tenantSetting = tenant?.settings?.drugKb?.deterministicMatching === true;
+  let counterSaleAdvisory = tenant?.settings?.drugKb?.counterSaleAdvisory === true;
+  try {
+    if (typeof tenantSettingsAccessors.getDrugKbSettings === 'function') {
+      const settings = await tenantSettingsAccessors.getDrugKbSettings(tenant.id);
+      tenantSetting = settings?.deterministicMatching === true;
+      counterSaleAdvisory = settings?.counterSaleAdvisory === true;
+    }
+  } catch (err) {
+    logger.warn('integration gates: drug KB settings read failed', { error: err?.message });
+  }
+  // Content layer: a licensed (non-starter) source must be active. The
+  // homegrown starter set alone keeps deterministic matching dark.
+  const licensedSources = await knowledgeContentCount(
+    `SELECT COUNT(*)::int AS count
+       FROM drug_kb_sources
+      WHERE is_active = true AND is_starter = false`,
+  );
+  return knowledgeGateShape({
+    env,
+    tenantSetting,
+    contentPresent: licensedSources > 0,
+    reasons: {
+      env: 'env_disabled',
+      tenant: 'tenant_disabled',
+      content: 'no_licensed_source',
+    },
+    extra: {
+      licensed_active_sources: licensedSources,
+      counter_sale_advisory: counterSaleAdvisory,
+    },
+  });
+}
+
+
+// ── analytics_bi (embedded Metabase BI, slate C2) ───────────────────────────
+// Self-contained append-style block (wt/bi-app). Two AND-ed layers:
+//   env           — METABASE_URL + METABASE_EMBED_SECRET both set
+//   tenant_setting— settings.analyticsBi.enabled === true
+// Truth reused, not re-derived: the tenant layer is the same
+// tenantSettingsService accessor metabaseService.buildEmbedUrl consults; the
+// env predicate mirrors its isMetabaseEnvConfigured fail-closed check.
+// Per-dashboard METABASE_DASH_* ids are a per-resource config layer surfaced
+// as a count in integrationGateEnvFacts (metabase_dashboards_configured),
+// not a blocking layer here.
+async function analyticsBiGate(tenantId) {
+  const envConfigured = metabaseEnvConfigured();
+  const settings = await getAnalyticsBiSettings(tenantId);
+  const effective = envConfigured && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envConfigured ? 'tenant_setting' : 'env'),
+    layers: { env: envConfigured, tenant_setting: settings.enabled === true },
+  };
+}
+
 async function tenantGates(tenant) {
   const tenantId = tenant.id;
-  const [paymentGateway, sms, abdm, uhi, ambulanceGps, facilityAssets, paymentSetting, smsSetting] =
+  const [
+    paymentGateway, sms, abdm, uhi, ambulanceGps, facilityAssets,
+    paymentSetting, smsSetting, analyticsBi,
+  ] =
     await Promise.all([
       paymentGatewayGate(tenantId),
       smsGate(tenantId),
@@ -221,7 +465,15 @@ async function tenantGates(tenant) {
       facilityAssetsGate(tenantId),
       getPaymentGatewaySettings(tenantId),
       getSmsSettings(tenantId),
+      analyticsBiGate(tenantId),
     ]);
+  // Terminology & knowledge gates (slate C1) — separate await so the block
+  // above keeps its positional destructure untouched for sibling merges.
+  const [terminologyCoding, labLoincMapping, drugKb] = await Promise.all([
+    terminologyCodingGate(tenant),
+    labLoincMappingGate(tenant),
+    drugKbGate(tenant),
+  ]);
   // Consistency belt: the standalone accessors and the resolver views should
   // agree; the resolver wins, but log if they ever diverge (cache skew).
   if (paymentGateway.layers.tenant_setting !== paymentSetting.enabled
@@ -242,6 +494,12 @@ async function tenantGates(tenant) {
       uhi,
       ambulance_gps: ambulanceGps,
       facility_assets: facilityAssets,
+      // Terminology & knowledge gates (slate C1; appended block).
+      terminology_coding: terminologyCoding,
+      lab_loinc_mapping: labLoincMapping,
+      drug_kb: drugKb,
+
+      analytics_bi: analyticsBi,
     },
   };
 }

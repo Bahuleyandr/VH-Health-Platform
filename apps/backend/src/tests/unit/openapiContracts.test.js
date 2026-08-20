@@ -19,6 +19,7 @@ import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumabl
 import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
 import * as hl7 from '../../../scripts/openapi/schemas/hl7.mjs';
 import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
+import * as labCodeMappings from '../../../scripts/openapi/schemas/labCodeMappings.mjs';
 import * as nhcx from '../../../scripts/openapi/schemas/nhcx.mjs';
 import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from '../../../scripts/openapi/schemas/outboxRecovery.mjs';
@@ -38,6 +39,7 @@ import * as devices from '../../../scripts/openapi/schemas/devices.mjs';
 import * as health from '../../../scripts/openapi/schemas/health.mjs';
 import * as pharmacyCounterSale from '../../../scripts/openapi/schemas/pharmacyCounterSale.mjs';
 import * as dietaryKitchen from '../../../scripts/openapi/schemas/dietaryKitchen.mjs';
+import * as drugKb from '../../../scripts/openapi/schemas/drugKb.mjs';
 import * as misReportSchedules from '../../../scripts/openapi/schemas/misReportSchedules.mjs';
 import * as referralFacilities from '../../../scripts/openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from '../../../scripts/openapi/schemas/shiftSwapOnCall.mjs';
@@ -47,6 +49,7 @@ import * as smsConfig from '../../../scripts/openapi/schemas/smsConfig.mjs';
 import * as abdmCompletion from '../../../scripts/openapi/schemas/abdmCompletion.mjs';
 import * as facilityAssets from '../../../scripts/openapi/schemas/facilityAssets.mjs';
 import * as integrationGates from '../../../scripts/openapi/schemas/integrationGates.mjs';
+import * as terminology from '../../../scripts/openapi/schemas/terminology.mjs';
 import * as uhi from '../../../scripts/openapi/schemas/uhi.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
@@ -68,6 +71,7 @@ const MODULES = [
   clinicalInbox,
   hl7,
   lab,
+  labCodeMappings,
   nhcx,
   carePathways,
   outboxRecovery,
@@ -87,6 +91,7 @@ const MODULES = [
   health,
   pharmacyCounterSale,
   dietaryKitchen,
+  drugKb,
   misReportSchedules,
   referralFacilities,
   shiftSwapOnCall,
@@ -96,6 +101,7 @@ const MODULES = [
   abdmCompletion,
   facilityAssets,
   integrationGates,
+  terminology,
   uhi
 ];
 

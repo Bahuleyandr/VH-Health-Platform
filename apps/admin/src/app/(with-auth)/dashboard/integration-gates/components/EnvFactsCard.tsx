@@ -68,6 +68,36 @@ export function EnvFactsCard({ env }: { env: IntegrationGateEnvFacts }) {
           label="Clinical continuity (compile-time C-D14)"
           on={env.clinical_continuity_c_d14_approved}
         />
+        {/* Terminology & knowledge env facts (slate C1; appended block).
+            Optional-guarded so the card renders against a backend that
+            predates these facts. */}
+        <Fact
+          label="WHO ICD-11 API (WHO_ICD_* creds)"
+          on={env.who_icd_configured === true}
+        />
+        <Fact
+          label="Coding enforcement (TERMINOLOGY_CODING_ENFORCEMENT)"
+          on={
+            env.terminology_coding_enforcement === "warn" ||
+            env.terminology_coding_enforcement === "block"
+          }
+          detail={env.terminology_coding_enforcement ?? "off"}
+        />
+        <Fact
+          label="Drug KB deterministic matching (DRUG_KB_DETERMINISTIC_MATCHING)"
+          on={env.drug_kb_deterministic_matching === true}
+        />
+        <Fact
+          label="Lab LOINC mapping (LAB_LOINC_MAPPING_ENABLED)"
+          on={env.lab_loinc_mapping_enabled === true}
+        />
+        <Fact
+          label="Metabase embeds (METABASE_URL + secret)"
+          on={env.metabase_configured === true}
+          detail={`${env.metabase_dashboards_configured ?? 0} dashboard id${
+            env.metabase_dashboards_configured === 1 ? "" : "s"
+          }`}
+        />
       </div>
     </div>
   );

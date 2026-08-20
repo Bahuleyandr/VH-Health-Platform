@@ -5035,8 +5035,12 @@ model drug_kb_sources {
   activated_at                     DateTime?                          @db.Timestamptz(6)
   deactivated_at                   DateTime?                          @db.Timestamptz(6)
   source_hash                      String?                            @db.VarChar(128)
+  license_holder                   String?                            @db.VarChar(200)
+  license_expires_at               DateTime?                          @db.Timestamptz(6)
+  vendor_edition                   String?                            @db.VarChar(120)
   drug_kb_allergy_cross_reactivity drug_kb_allergy_cross_reactivity[]
   drug_kb_allergy_groups           drug_kb_allergy_groups[]
+  drug_kb_catalog_links            drug_kb_catalog_links[]
   drug_kb_condition_cautions       drug_kb_condition_cautions[]
   drug_kb_dose_ranges              drug_kb_dose_ranges[]
   drug_kb_interactions             drug_kb_interactions[]
@@ -6596,22 +6600,23 @@ model investigation_templates {
 }
 
 model investigation_test_catalog {
-  id                        BigInt   @id @default(autoincrement())
-  name                      String   @db.VarChar(255)
-  code                      String?  @unique @db.VarChar(50)
-  category                  String?  @db.VarChar(100)
-  description               String?
-  normal_range              String?
-  unit                      String?  @db.VarChar(50)
-  default_cost              Decimal  @default(0) @db.Decimal(10, 2)
-  home_collection_surcharge Decimal  @default(50) @db.Decimal(10, 2)
-  turnaround_hours          Int      @default(24)
-  requires_fasting          Boolean  @default(false)
-  patient_instructions      String?
-  sample_type               String?  @db.VarChar(50)
-  is_active                 Boolean  @default(true)
-  created_at                DateTime @default(now()) @db.Timestamp(6)
-  updated_at                DateTime @default(now()) @db.Timestamp(6)
+  id                         BigInt                       @id @default(autoincrement())
+  name                       String                       @db.VarChar(255)
+  code                       String?                      @unique @db.VarChar(50)
+  category                   String?                      @db.VarChar(100)
+  description                String?
+  normal_range               String?
+  unit                       String?                      @db.VarChar(50)
+  default_cost               Decimal                      @default(0) @db.Decimal(10, 2)
+  home_collection_surcharge  Decimal                      @default(50) @db.Decimal(10, 2)
+  turnaround_hours           Int                          @default(24)
+  requires_fasting           Boolean                      @default(false)
+  patient_instructions       String?
+  sample_type                String?                      @db.VarChar(50)
+  is_active                  Boolean                      @default(true)
+  created_at                 DateTime                     @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamp(6)
+  lab_analyzer_code_mappings lab_analyzer_code_mappings[]
 
   @@index([category], map: "idx_invtestcat_active_category", where: raw("(is_active = true)"))
 }
@@ -8319,6 +8324,7 @@ model pharmacy_catalog {
   composition_confidence          String?                           @db.VarChar(10)
   parsed_notes                    String?
   drug_composition_curation_queue drug_composition_curation_queue[]
+  drug_kb_catalog_links           drug_kb_catalog_links[]
   tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
   drug_compositions               drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pharmacy_inventory_items        pharmacy_inventory_items[]
@@ -17992,6 +17998,7 @@ model tenant_terminology_settings {
   updated_by                 String?  @db.Uuid
   created_at                 DateTime @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime @default(now()) @db.Timestamptz(6)
+  coding_enforcement         Json     @default("{}")
   tenants                    tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
@@ -28531,6 +28538,52 @@ model uhi_transactions {
   @@index([appointment_id], map: "idx_uhi_txn_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_uhi_txn_tenant_received")
   @@index([tenant_id, transaction_id, received_at, id], map: "idx_uhi_txn_tenant_transaction")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model drug_kb_catalog_links {
+  id                  Int              @id @default(autoincrement())
+  tenant_id           String           @db.Uuid
+  pharmacy_catalog_id Int
+  drug_key            String           @db.VarChar(120)
+  link_source         String           @default("manual") @db.VarChar(20)
+  source_key          String?          @db.VarChar(60)
+  confidence          Decimal?         @db.Decimal(4, 3)
+  review_status       String           @default("legacy") @db.VarChar(24)
+  is_active           Boolean          @default(true)
+  created_by          String?          @db.Uuid
+  created_at          DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime         @default(now()) @db.Timestamptz(6)
+  pharmacy_catalog    pharmacy_catalog @relation(fields: [pharmacy_catalog_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  drug_kb_sources     drug_kb_sources? @relation(fields: [source_key], references: [source_key], onDelete: NoAction)
+
+  @@index([drug_key], map: "idx_drug_kb_catalog_links_key")
+  @@index([tenant_id, is_active], map: "idx_drug_kb_catalog_links_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model lab_analyzer_code_mappings {
+  id                         BigInt                      @id @default(autoincrement())
+  tenant_id                  String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  source_key                 String                      @default("any") @db.VarChar(120)
+  incoming_code              String                      @db.VarChar(120)
+  incoming_code_system       String?                     @db.VarChar(80)
+  catalog_id                 BigInt?
+  loinc_code                 String?                     @db.VarChar(20)
+  display                    String?
+  active                     Boolean                     @default(true)
+  verified_by                String?                     @db.Uuid
+  verified_at                DateTime?                   @db.Timestamptz(6)
+  created_by                 String?                     @db.Uuid
+  created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  investigation_test_catalog investigation_test_catalog? @relation(fields: [catalog_id], references: [id], onUpdate: NoAction)
+
+  @@index([catalog_id], map: "idx_lab_analyzer_code_mappings_catalog", where: raw("(catalog_id IS NOT NULL)"))
 }
 
 enum transplant_organ_type {

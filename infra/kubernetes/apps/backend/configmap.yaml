@@ -180,3 +180,30 @@ data:
   # `_migrations` exactly matches the image and refuse to listen on drift; only
   # the owner-credential PreSync Job may apply DDL.
   RUN_MIGRATIONS: "false"
+
+  # ---- Embedded BI (NL-10) — DARK until the optional Metabase module is
+  # enabled. Empty values = unconfigured: metabaseService.buildEmbedUrl fails
+  # closed without METABASE_URL (+ METABASE_EMBED_SECRET, which is a Secret —
+  # see sealed-secret.yaml.example), and every catalog dashboard whose
+  # METABASE_DASH_* id is unset renders as a disabled "Config" card. The
+  # backend only SIGNS embed URLs — it never calls Metabase over the network,
+  # so no NetworkPolicy egress is needed here. Fill METABASE_URL with the
+  # LAN Metabase origin (https://analytics.vhhealth.hospital.local) and the
+  # dashboard ids per docs/runbooks/EMBEDDED_BI_GO_LIVE.md after authoring
+  # dashboards in Metabase (see infra/kubernetes/optional/metabase/README.md).
+  METABASE_URL: ""
+  # Dashboard ids — names match analytics_dashboard_catalog.metabase_env_var
+  # (migrations 465 + 720).
+  METABASE_DASH_DAILY_OPS: ""
+  METABASE_DASH_BED_FLOW: ""
+  METABASE_DASH_OT_UTILIZATION: ""
+  METABASE_DASH_REVENUE_PAYER_MIX: ""
+  METABASE_DASH_ORDERS_TAT: ""
+  METABASE_DASH_LAB_TAT: ""
+  METABASE_DASH_PHARMACY_OPS: ""
+  METABASE_DASH_COLLECTIONS_RCM: ""
+  METABASE_DASH_ENCOUNTER_VOLUME: ""
+  # Held catalog rows (status 'held' in migration 465) — leave empty until
+  # their upstream aggregates are certified.
+  METABASE_DASH_QUALITY_FEEDBACK: ""
+  METABASE_DASH_OPERATIONAL_AI_ALERTS: ""

@@ -41,6 +41,8 @@ const REPORT = {
     livekit_enabled: false,
     file_scan_policy: "required",
     clinical_continuity_c_d14_approved: false,
+    metabase_configured: false,
+    metabase_dashboards_configured: 0,
   },
   tenants: [
     {
@@ -122,6 +124,11 @@ const REPORT = {
           blocking_layer: "env",
           layers: { env: false, tenant_setting: false },
         },
+        analytics_bi: {
+          effective: false,
+          blocking_layer: "env",
+          layers: { env: false, tenant_setting: false },
+        },
       },
     },
   ],
@@ -179,6 +186,13 @@ describe("gate table", () => {
     expect(screen.getByText(/rides ABHA enrolment/)).toBeInTheDocument();
     // The facility asset register row is listed with its own tenant flag
     expect(screen.getByText("Facility asset register")).toBeInTheDocument();
+    // Analytics BI (wt/bi-app) renders as a normal two-layer gate row with
+    // its own tenant-flag toggle.
+    expect(screen.getByText("Analytics BI embeds")).toBeInTheDocument();
+    // And the env facts card carries the Metabase presence fact.
+    expect(
+      screen.getByText(/Metabase embeds \(METABASE_URL \+ secret\)/),
+    ).toBeInTheDocument();
   });
 
   it("never prefills write-only secret inputs from stored config", async () => {

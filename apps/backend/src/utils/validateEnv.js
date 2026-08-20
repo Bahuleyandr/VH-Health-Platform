@@ -372,6 +372,19 @@ export const envSchema = Joi.object({
   METABASE_DASH_DOCTOR_PROD: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DOCTOR_PROD'),
   METABASE_DASH_OR_THROUGHPUT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OR_THROUGHPUT'),
   METABASE_DASH_SAFETY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_SAFETY'),
+  // ── Analytics BI dashboard ids (wt/bi-app, migration 723) ────────────────
+  // Registers the migration-465 metabase_env_var names that were missing
+  // above (the six legacy METABASE_DASH_* names before this block stay for
+  // back-compat; only _DAILY_OPS, _REVENUE_PAYER_MIX, and _LAB_TAT match
+  // catalog rows) plus the three names seeded by migration 723.
+  METABASE_DASH_BED_FLOW: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_BED_FLOW'),
+  METABASE_DASH_OT_UTILIZATION: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OT_UTILIZATION'),
+  METABASE_DASH_ORDERS_TAT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ORDERS_TAT'),
+  METABASE_DASH_QUALITY_FEEDBACK: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_QUALITY_FEEDBACK'),
+  METABASE_DASH_OPERATIONAL_AI_ALERTS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OPERATIONAL_AI_ALERTS'),
+  METABASE_DASH_PHARMACY_OPS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_PHARMACY_OPS'),
+  METABASE_DASH_COLLECTIONS_RCM: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_COLLECTIONS_RCM'),
+  METABASE_DASH_ENCOUNTER_VOLUME: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ENCOUNTER_VOLUME'),
 
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
@@ -490,6 +503,38 @@ export const envSchema = Joi.object({
   WHO_ICD_LANGUAGE: Joi.string().allow('').optional().label('WHO_ICD_LANGUAGE'),
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
+
+  // Terminology coding enforcement (WP2, migration 720) — env kill-switch for
+  // ICD-10 validation on downstream documents (death certificate, insurance
+  // pre-auth/claim, discharge summary). Effective level is min(env, tenant
+  // tenant_terminology_settings.coding_enforcement[surface]); unset/'off'
+  // (the default) keeps every surface byte-identical to pre-WP2 behavior.
+  TERMINOLOGY_CODING_ENFORCEMENT: Joi.string()
+    .valid('off', 'warn', 'block')
+    .allow('')
+    .optional()
+    .label('TERMINOLOGY_CODING_ENFORCEMENT'),
+
+  // Lab analyzer-code → LOINC mapping enrichment (migration 721). Deployment
+  // kill switch, default off; even when true each tenant must also opt in via
+  // settings.labLoincMapping.enabled AND curated lab_analyzer_code_mappings
+  // rows must exist before any lab_results.loinc_code is stamped at ingest.
+  LAB_LOINC_MAPPING_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('LAB_LOINC_MAPPING_ENABLED'),
+
+  // Drug-KB deterministic matching (migration 722) — deployment-wide kill
+  // switch for the formulary→KB link adapter AND the OTC counter-sale
+  // advisory. Off/unset (default) keeps the name-substring matching path
+  // byte-identical; each tenant must additionally opt in via
+  // settings.drugKb.deterministicMatching / settings.drugKb.counterSaleAdvisory.
+  DRUG_KB_DETERMINISTIC_MATCHING: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('DRUG_KB_DETERMINISTIC_MATCHING'),
 
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,

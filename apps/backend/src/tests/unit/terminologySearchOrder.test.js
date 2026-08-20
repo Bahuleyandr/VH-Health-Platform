@@ -66,6 +66,12 @@ jest.unstable_mockModule('../../services/terminology/whoIcdClient.js', () => ({
 
 jest.unstable_mockModule('../../services/terminology/terminologySettingsService.js', () => ({
   isTerminologySystemEnabledForTenant: enabledForTenantMock,
+  getTenantTerminologySettings: jest.fn(async () => ({
+    preferred_diagnosis_system: 'ICD11',
+    enabled_systems: ['ICD10', 'ICD11', 'SNOMED_CT', 'LOINC', 'ATC'],
+    snomed_pickers_enabled: false,
+    is_default: true,
+  })),
 }));
 
 const {

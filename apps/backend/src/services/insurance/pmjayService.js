@@ -5,9 +5,15 @@
 // beneficiary verification, and a unified preauth+claim case row.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
+
+// WP2 terminology deps are imported lazily inside createCase: their static
+// graph reaches terminologyService (prismaReadOnly import), which would force
+// every existing partial lib/prisma.js jest mock in suites that load this
+// service to grow new exports (PR #875 stale-ESM-mock lesson).
 
 function fiscalYearOf(d = new Date()) {
   const m = d.getMonth() + 1;
@@ -161,6 +167,17 @@ export async function createCase({
     throw AppError.badRequest('Beneficiary must be verified (OTP / biometric) before creating a case');
   }
 
+  // Coding enforcement (WP2, migration 720): a PM-JAY case is the unified
+  // preauth+claim document, so it enforces under the 'insurance_claim'
+  // surface. Runs BEFORE any write; default 'off' == no-op.
+  const { validateDocumentCodes } = await import('../terminology/codingEnforcementService.js');
+  const codingVerdict = await validateDocumentCodes({
+    tenantId,
+    surface: 'insurance_claim',
+    codes: icd10_codes || [],
+    actorUid: created_by ? String(created_by) : null,
+  });
+
   const caseNumber = await nextCaseNumber(tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO pmjay_cases
@@ -182,7 +199,34 @@ export async function createCase({
     notes || null,
     created_by ? String(created_by) : null, tenantId,
   );
-  return rows[0];
+  const created = rows[0];
+
+  // Structured coding mirror (best-effort, post-insert). resource_id carries
+  // a 'pmjay_case:' prefix so PM-JAY case ids can never collide with
+  // tpa_claims ids under the shared 'insurance_claim' resource type
+  // (per-table SERIAL ids overlap across tables).
+  const suppliedCodes = Array.isArray(icd10_codes) ? icd10_codes.filter(Boolean) : [];
+  if (suppliedCodes.length > 0) {
+    try {
+      const { replaceResourceCodings, legacyIcd10Coding } = await import(
+        '../terminology/clinicalCodeBindingService.js'
+      );
+      await replaceResourceCodings({
+        resourceType: 'insurance_claim',
+        resourceId: `pmjay_case:${created.id}`,
+        tenantId,
+        patientUid: String(patient_uid),
+        codings: suppliedCodes.map((code) => legacyIcd10Coding({ code, source: 'manual' })),
+        createdBy: created_by ? String(created_by) : null,
+      });
+    } catch (err) {
+      logger.warn(`createCase: code binding persist failed for pmjay case #${created.id}: ${err.message}`);
+    }
+  }
+  if (codingVerdict.warnings.length > 0) {
+    created.coding_warnings = codingVerdict.warnings;
+  }
+  return created;
 }
 
 export async function getCase({ tenantId, id }) {

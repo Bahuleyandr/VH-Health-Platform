@@ -179,6 +179,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },
   "report-builder": { minRank: ADMIN_ONLY },
+  // Terminology & Knowledge console (slate C1): code-system imports, binding
+  // curation, tenant coding settings, drug-KB sources, lab code mappings.
+  // Backend gates writes to curator roles; the console itself is ADMIN+.
+  terminology: { minRank: ADMIN_ONLY },
 
   // ── Platform operations (SUPER_ADMIN only) ────────────────────────────────
   // live DB browser — backend databaseRoutes.js is SUPER_ADMIN-only too

@@ -21,6 +21,7 @@ const listTenants = jest.fn();
 const getAbdmEnrolmentSettings = jest.fn();
 const getAbdmHiuSettings = jest.fn();
 const getAmbulanceGpsTrackingSettings = jest.fn();
+const getAnalyticsBiSettings = jest.fn();
 const getFacilityAssetsSettings = jest.fn();
 const getPaymentGatewaySettings = jest.fn();
 const getSmsSettings = jest.fn();
@@ -68,6 +69,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getAnalyticsBiSettings,
   getFacilityAssetsSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
@@ -112,6 +114,7 @@ function primeDefaults() {
   getAmbulanceGpsTrackingSettings.mockResolvedValue({
     enabled: false, retentionDays: 7, minSecondsBetweenFixes: 3,
   });
+  getAnalyticsBiSettings.mockResolvedValue({ enabled: false });
   isFacilityAssetsEnvEnabled.mockReturnValue(false);
   getFacilityAssetsSettings.mockResolvedValue({ enabled: false });
   getPaymentGatewaySettings.mockResolvedValue({ enabled: false });
@@ -125,6 +128,13 @@ beforeEach(() => {
   ABDM_CONFIG.clientId = '';
   ABDM_CONFIG.clientSecret = '';
   UHI_CONFIG.enabled = false;
+  delete process.env.METABASE_URL;
+  delete process.env.METABASE_EMBED_SECRET;
+  // Clear every dashboard id so the configured count starts from 0 even if
+  // another suite in this worker primed METABASE_DASH_* values.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('METABASE_DASH_')) delete process.env[key];
+  }
   primeDefaults();
 });
 
@@ -150,6 +160,11 @@ describe('effective-state assembly', () => {
     expect(gates.facility_assets).toMatchObject({
       effective: false, blocking_layer: 'env',
     });
+    expect(gates.analytics_bi).toMatchObject({
+      effective: false,
+      blocking_layer: 'env',
+      layers: { env: false, tenant_setting: false },
+    });
   });
 
   it('facility assets: env on + tenant off → tenant_setting; both on → effective', async () => {
@@ -167,6 +182,56 @@ describe('effective-state assembly', () => {
       blocking_layer: null,
       layers: { env: true, tenant_setting: true },
     });
+  });
+
+  it('analytics_bi: env AND tenant flag; blocking layer names the dark one', async () => {
+    // Env configured, tenant flag off → tenant_setting blocks.
+    process.env.METABASE_URL = 'https://metabase.example.test';
+    process.env.METABASE_EMBED_SECRET = 'unit-test-secret';
+    let report = await listIntegrationGates();
+    expect(report.tenants[0].gates.analytics_bi).toMatchObject({
+      effective: false,
+      blocking_layer: 'tenant_setting',
+      layers: { env: true, tenant_setting: false },
+    });
+
+    // Both layers on → effective.
+    getAnalyticsBiSettings.mockResolvedValue({ enabled: true });
+    report = await listIntegrationGates();
+    expect(report.tenants[0].gates.analytics_bi).toMatchObject({
+      effective: true,
+      blocking_layer: null,
+      layers: { env: true, tenant_setting: true },
+    });
+
+    // Tenant flag on but env dark → env blocks (fail-closed, never wider).
+    delete process.env.METABASE_URL;
+    delete process.env.METABASE_EMBED_SECRET;
+    report = await listIntegrationGates();
+    expect(report.tenants[0].gates.analytics_bi).toMatchObject({
+      effective: false,
+      blocking_layer: 'env',
+      layers: { env: false, tenant_setting: true },
+    });
+  });
+
+  it('env facts surface metabase presence booleans and configured-dashboard count only', async () => {
+    expect(integrationGateEnvFacts()).toMatchObject({
+      metabase_configured: false,
+      metabase_dashboards_configured: 0,
+    });
+
+    process.env.METABASE_URL = 'https://metabase.example.test';
+    process.env.METABASE_EMBED_SECRET = 'unit-test-secret';
+    process.env.METABASE_DASH_DAILY_OPS = '42';
+    process.env.METABASE_DASH_LAB_TAT = '77';
+    const facts = integrationGateEnvFacts();
+    expect(facts.metabase_configured).toBe(true);
+    expect(facts.metabase_dashboards_configured).toBe(2);
+    // Never the URL or secret values themselves.
+    const serialized = JSON.stringify(facts);
+    expect(serialized).not.toContain('metabase.example.test');
+    expect(serialized).not.toContain('unit-test-secret');
   });
 
   it('payment gateway: effective comes from resolveGatewayContext, layers from the admin view', async () => {
@@ -296,13 +361,19 @@ describe('no secret leakage', () => {
     }
   });
 
-  it('env facts expose only booleans and enum names', () => {
+  it('env facts expose only booleans, enum names, and counts', () => {
     const facts = integrationGateEnvFacts();
     for (const [key, value] of Object.entries(facts)) {
-      expect(['boolean', 'string', 'object']).toContain(typeof value);
+      expect(['boolean', 'string', 'object', 'number']).toContain(typeof value);
       if (typeof value === 'string') {
-        expect(['sms_provider', 'abdm_environment', 'uhi_environment', 'file_scan_policy'])
-          .toContain(key);
+        expect([
+          'sms_provider', 'abdm_environment', 'uhi_environment', 'file_scan_policy',
+          // Terminology & knowledge (slate C1): enum name off|warn|block.
+          'terminology_coding_enforcement',
+        ]).toContain(key);
+      }
+      if (typeof value === 'number') {
+        expect(['metabase_dashboards_configured']).toContain(key);
       }
     }
   });

@@ -46,13 +46,13 @@ export default function IntegrationGatesPage() {
   }, [report.data, actingTenant]);
 
   const existingGatewayConfig = useMemo(() => {
-    const configs = (configEntry?.gates.payment_gateway.layers
+    const configs = (configEntry?.gates.payment_gateway?.layers
       ?.provider_configs ?? []) as PaymentGatewayConfigView[];
     return configs.find((c) => c.enabled) ?? configs[0] ?? null;
   }, [configEntry]);
 
   const existingSmsConfig = useMemo(() => {
-    const configs = (configEntry?.gates.sms.layers?.provider_configs ??
+    const configs = (configEntry?.gates.sms?.layers?.provider_configs ??
       []) as SmsProviderConfigView[];
     return configs.find((c) => c.enabled) ?? configs[0] ?? null;
   }, [configEntry]);

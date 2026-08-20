@@ -2,7 +2,9 @@
 
 Second CNPG Postgres (`vhhealth-warehouse`) fed by **native logical
 replication** from the OLTP cluster, with **dbt** building star schemas and
-the four F2 operational marts nightly. Metabase repoints here and stops
+the operational + finance marts nightly (F2 four plus the NL-10 expansion:
+encounter volume, order TAT, pharmacy ops, collections, claims aging — all
+tenant_id-carrying). Metabase repoints here and stops
 scanning the clinical database. Full architecture + rationale:
 [`docs/ANALYTICS_WAREHOUSE.md`](../../../../docs/ANALYTICS_WAREHOUSE.md).
 

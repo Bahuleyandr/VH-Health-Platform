@@ -24,7 +24,10 @@ import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { isValidStructure as isValidLoincStructure } from '../hl7/loincValidator.js';
 import whoIcdClient from './whoIcdClient.js';
-import { isTerminologySystemEnabledForTenant } from './terminologySettingsService.js';
+import {
+  getTenantTerminologySettings,
+  isTerminologySystemEnabledForTenant,
+} from './terminologySettingsService.js';
 
 // ── System keys ────────────────────────────────────────────────────────────
 
@@ -37,6 +40,11 @@ export const SYSTEM_KEYS = Object.freeze({
 });
 
 export const ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD = 1000;
+
+// Diagnosis code systems the settings-driven picker search may fan out to,
+// in default priority order. LOINC/ATC are deliberately excluded — they are
+// lab/drug systems, never diagnosis systems.
+export const DIAGNOSIS_SEARCH_SYSTEMS = Object.freeze(['ICD11', 'ICD10', 'SNOMED_CT']);
 
 const SYSTEM_ALIASES = Object.freeze({
   icd10: 'ICD10',
@@ -292,6 +300,101 @@ export async function searchConcepts({ system, q, limit, tenantId = null } = {})
     }
   }
   return localSearchConcepts({ systemKey, query, limit: max });
+}
+
+/**
+ * Pure resolver for the settings-driven diagnosis search fan-out — exported
+ * for unit tests.
+ *
+ * Given a tenant terminology settings shape (terminologySettingsService),
+ * returns the ordered list of diagnosis systems to search:
+ *   - only DIAGNOSIS_SEARCH_SYSTEMS members that appear in enabled_systems;
+ *   - SNOMED_CT only when snomed_pickers_enabled is true (the dark flag —
+ *     this is its first consumer);
+ *   - preferred_diagnosis_system first when it survives the filters,
+ *     otherwise the default DIAGNOSIS_SEARCH_SYSTEMS order.
+ */
+export function resolveDiagnosisSearchSystems(settings = {}) {
+  const enabled = Array.isArray(settings.enabled_systems) ? settings.enabled_systems : [];
+  const systems = DIAGNOSIS_SEARCH_SYSTEMS.filter((systemKey) => {
+    if (!enabled.includes(systemKey)) return false;
+    if (systemKey === 'SNOMED_CT' && settings.snomed_pickers_enabled !== true) return false;
+    return true;
+  });
+  const preferred = normalizeSystemKey(settings.preferred_diagnosis_system);
+  if (preferred && systems.includes(preferred)) {
+    return [preferred, ...systems.filter((systemKey) => systemKey !== preferred)];
+  }
+  return systems;
+}
+
+/**
+ * Settings-aware diagnosis concept search (no explicit system): resolves the
+ * tenant's preferred_diagnosis_system + enabled_systems (SNOMED_CT only when
+ * snomed_pickers_enabled), then fans the query out per system via
+ * searchConcepts.
+ *
+ * FROZEN CONTRACT (WP1 → WP2/WP5 — do not change shape without coordination):
+ *   searchDiagnosisConcepts({ tenantId, q, limit }) → {
+ *     query: string,
+ *     resolved: {
+ *       preferred_system: string,   // tenant preference, e.g. 'ICD11'
+ *       systems: string[],          // ordered systems actually searched
+ *       snomed_included: boolean,
+ *     },
+ *     concepts: [{ system_key, code, display, category, semantic_tag,
+ *                  status, match_rank }],
+ *   }
+ * concepts are grouped by system in `resolved.systems` order (preferred
+ * system's rows first), ranked within each group; each system contributes at
+ * most `limit` rows. A failing secondary system is fail-open (logged,
+ * skipped) so the typeahead never dies on one backend; with nothing imported
+ * every group is empty and clients degrade to free text.
+ */
+export async function searchDiagnosisConcepts({ tenantId = null, q, limit } = {}) {
+  const query = q == null ? '' : String(q).trim();
+  if (query.length < 2) {
+    throw AppError.badRequest('Search text must be at least 2 characters', 'TERMINOLOGY_QUERY_TOO_SHORT');
+  }
+  const max = clampLimit(limit);
+  const settings = await getTenantTerminologySettings(tenantId);
+  const systems = resolveDiagnosisSearchSystems(settings);
+
+  const concepts = [];
+  for (const systemKey of systems) {
+    try {
+      const rows = await searchConcepts({ system: systemKey, q: query, limit: max, tenantId });
+      for (const row of rows) {
+        concepts.push({
+          system_key: row.system_key || systemKey,
+          code: row.code,
+          display: row.display,
+          category: row.category ?? null,
+          semantic_tag: row.semantic_tag ?? null,
+          status: row.status || 'active',
+          match_rank: row.match_rank ?? null,
+        });
+      }
+    } catch (err) {
+      // Fail-open per system: a broken secondary system must not take the
+      // whole typeahead down. Query-shape errors were validated above.
+      logger.warn('searchDiagnosisConcepts: system search failed', {
+        system: systemKey,
+        message: err?.message,
+        code: err?.code,
+      });
+    }
+  }
+
+  return {
+    query,
+    resolved: {
+      preferred_system: settings.preferred_diagnosis_system,
+      systems,
+      snomed_included: systems.includes('SNOMED_CT'),
+    },
+    concepts,
+  };
 }
 
 export async function getConcept(system, code) {
@@ -687,10 +790,13 @@ export async function coverageReport() {
 export default {
   SYSTEM_KEYS,
   ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD,
+  DIAGNOSIS_SEARCH_SYSTEMS,
   CATALOG_TARGETS,
   normalizeSystemKey,
   listCodeSystems,
   searchConcepts,
+  resolveDiagnosisSearchSystems,
+  searchDiagnosisConcepts,
   getConcept,
   validateCode,
   mapCode,

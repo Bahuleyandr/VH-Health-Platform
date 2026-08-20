@@ -73,6 +73,12 @@
 //       counterpartyParticipantCode?: string,
 //       gatewayBaseUrls?: { sandbox?: string, production?: string },
 //     },
+//     analyticsBi?: {
+//       enabled?: boolean,                // default false — embedded Metabase BI
+//                                         // (signed static embeds). Effective only
+//                                         // with METABASE_URL + METABASE_EMBED_SECRET
+//                                         // env set (metabaseService fails closed).
+//     },
 //     cathQuickWins?: {                     // NL-13 P1e owner-decision inert slots
 //       consent?: { consentType?: string }, // patient_consents.consent_type that counts as cath consent
 //       orderSets?: {                       // clinical_order_sets.family_key per workbench slot
@@ -275,6 +281,41 @@ export async function getUhiSettings(tenantId) {
   };
 }
 
+// Drug-KB adapter flags (migration 722, terminology slate C1/WP4). Both
+// disabled by default and BOTH additionally require the deployment-wide
+// DRUG_KB_DETERMINISTIC_MATCHING env kill switch (drugKbLinkService ANDs it):
+//   deterministicMatching — resolve prescription meds to KB drug keys via
+//     drug_kb_catalog_links / ATC bindings / composition ingredients instead
+//     of name-substring only. Off ⇒ the substring path is byte-identical.
+//   counterSaleAdvisory — fail-OPEN advisory DDI screen on OTC counter sales
+//     (warnings in the response, never blocks or fails a sale).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getDrugKbSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.drugKb;
+  const defaults = { deterministicMatching: false, counterSaleAdvisory: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    deterministicMatching: raw.deterministicMatching === true,
+    counterSaleAdvisory: raw.counterSaleAdvisory === true,
+  };
+}
+
+// Embedded analytics BI (NL-10 phase 3 / migration 723 catalog). Disabled by
+// default — Metabase signed embeds turn on per tenant via a settings write,
+// and only take effect when the deployment also sets METABASE_URL +
+// METABASE_EMBED_SECRET (metabaseService ANDs env first, then this flag).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getAnalyticsBiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.analyticsBi;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
 // General facility asset register (migrations 704/706/710). Disabled by
 // default — the register dark-ships like every other #878-wave feature, so a
 // tenant opts in via a settings write only after the deployment sets
@@ -306,4 +347,20 @@ export async function getFrontDeskBiometricCaptureSettings(tenantId) {
     modes,
     provider: raw.provider ? String(raw.provider).trim() || null : null,
   };
+}
+
+// Lab analyzer-code → LOINC mapping enrichment (migration 721). Disabled by
+// default — a tenant opts in via a settings write once its analyzer code
+// mappings are curated. Effective enablement additionally requires the
+// LAB_LOINC_MAPPING_ENABLED env kill switch AND curated active mapping rows
+// (labCodeMappingService.resolveLabLoincMappingGate ANDs env + tenant; no
+// rows means the resolver simply never matches). Defensive like every
+// accessor here: malformed config yields the disabled default, never a
+// throw.
+export async function getLabLoincMappingSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.labLoincMapping;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
 }

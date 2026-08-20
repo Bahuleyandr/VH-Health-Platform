@@ -26,7 +26,6 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { stripHtml } from '../../utils/sanitize.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { getFacilityAssetsSettings } from '../tenant/tenantSettingsService.js';
 
 /* ─── Dark-ship gate ─────────────────────────────────────────────────────── */
 // The register ships dark like every other #878-wave feature: env kill switch
@@ -39,11 +38,21 @@ export function isFacilityAssetsEnvEnabled() {
   return process.env.FACILITY_ASSETS_ENABLED === 'true';
 }
 
+// Dynamic import on purpose (drugKbLinkService/labCodeMappingService
+// precedent): keeps tenantSettingsService out of this module's STATIC import
+// graph so suites that partially mock it keep loading. The env kill switch is
+// checked first, so the accessor only ever loads on a deployment that has
+// opened the gate — and a gated call fails closed either way.
+async function getFacilityAssetsSettingsLazy(tenantId) {
+  const mod = await import('../tenant/tenantSettingsService.js');
+  return mod.getFacilityAssetsSettings(tenantId);
+}
+
 export async function requireFacilityAssetsEnabled(tenantId) {
   if (!isFacilityAssetsEnvEnabled()) {
     throw new AppError('Facility asset register is not enabled', 503, 'FACILITY_ASSETS_NOT_ENABLED');
   }
-  const settings = await getFacilityAssetsSettings(tenantId);
+  const settings = await getFacilityAssetsSettingsLazy(tenantId);
   if (!settings.enabled) {
     throw AppError.forbidden(
       'Facility asset register is not enabled for this tenant',

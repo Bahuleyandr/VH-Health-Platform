@@ -50,9 +50,48 @@ module to the prod overlay.
    other OLTP connection.
 6. Disable native SQL/query authoring for any non-platform group before sharing
    dashboards. Phase 1 hospital users should only receive curated signed embeds.
-7. Configure the backend with `METABASE_URL`, `METABASE_EMBED_SECRET`, and the
-   `METABASE_DASH_*` dashboard IDs. The backend is the only supported embed
-   broker; the frontend must not construct Metabase URLs directly.
+7. Author the catalog dashboards, then enable embedding per dashboard:
+
+   - Admin → Settings → Embedding: static embedding is already on
+     (`MB_ENABLE_EMBEDDING=true` in `metabase.yaml`); copy the signing key
+     into the backend's sealed `METABASE_EMBED_SECRET`.
+   - On EACH dashboard: Sharing → Embed → enable static embedding, and set
+     the `tenant_id` parameter to **Locked**. Locked means the value can only
+     come from the server-signed token (the backend injects it and rejects
+     caller-supplied tenant params) — viewers can never see or change it.
+     Date/department filter parameters may be set to Enabled (editable).
+   - Publish, then copy the numeric dashboard id from the URL into the
+     matching `METABASE_DASH_*` env var.
+
+8. Configure the backend with `METABASE_URL`, `METABASE_EMBED_SECRET`, and the
+   `METABASE_DASH_*` dashboard IDs (see
+   `infra/kubernetes/apps/backend/configmap.yaml` +
+   `sealed-secret.yaml.example`), and the admin portal with
+   `NEXT_PUBLIC_METABASE_ORIGIN` so its CSP allows the frame. The backend is
+   the only supported embed broker; the frontend must not construct Metabase
+   URLs directly.
+
+## Edition capability note (OSS)
+
+This module pins the **open-source** image (`metabase/metabase:v0.50.0`).
+What that edition can and cannot do constrains "self-serve":
+
+- **Available in OSS:** signed static embeds (what the backend produces),
+  including **Locked** parameters — the signed `tenant_id` is invisible and
+  immutable to viewers; per-group collection permissions.
+- **Pro/EE only:** interactive/full-app embedding, SSO/JWT user embedding,
+  data sandboxing (row-level per-user). In-portal drag-and-drop dashboard
+  authoring inside an iframe is therefore impossible on this edition.
+- Consequence: hospital users **view + filter** via signed embeds in the
+  admin portal; dashboard **authoring** happens in Metabase itself on the
+  LAN URL by platform-operator accounts (native SQL stays disabled for any
+  non-platform group). Locked embed params isolate viewers; collection
+  permissions isolate authors' dashboards — but any OSS author with data
+  access to `analytics_marts` can query other tenants' rows, which is why
+  every mart carries `tenant_id` and why author accounts remain a
+  deliberate, runbook-documented owner decision. If true in-portal
+  authoring is ever demanded, swap the image to Pro/EE — everything here
+  works unchanged.
 
 ## Validation
 

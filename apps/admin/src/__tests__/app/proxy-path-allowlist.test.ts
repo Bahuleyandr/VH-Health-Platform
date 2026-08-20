@@ -84,6 +84,25 @@ describe("proxy path allowlist", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("forwards the Terminology & Knowledge console families (slate C1)", async () => {
+    for (const path of [
+      "terminology/code-systems",
+      "terminology/settings",
+      "drug-kb/status",
+      "lab/code-mappings/coverage",
+    ]) {
+      fetchMock.mockClear();
+      const response = await GET(request(path));
+      expect(response.status).toBe(200);
+      expect(String(fetchMock.mock.calls[0][0])).toContain(`/api/v1/${path}`);
+    }
+
+    fetchMock.mockClear();
+    const lookalike = await GET(request("terminology-internal/code-systems"));
+    expect(lookalike.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards only the exact reconciliation family and its signed facility context", async () => {
     const response = await GET(
       request("downtime/reconciliation/workbench", {
