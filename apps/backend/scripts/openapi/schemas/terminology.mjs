@@ -69,6 +69,11 @@ export const schemas = {
         type: 'boolean',
         description: 'Dark flag: SNOMED_CT joins the settings-driven diagnosis search fan-out only when true (and SNOMED content is imported).',
       },
+      coding_enforcement: {
+        type: 'object',
+        description: 'Per-surface downstream-document code enforcement (WP2): keys are document surfaces (death_certificate, insurance_preauth, insurance_claim, discharge_summary), values off|warn|block. Effective level is min(env TERMINOLOGY_CODING_ENFORCEMENT, this). Empty object = all off.',
+        additionalProperties: { type: 'string', enum: ['off', 'warn', 'block'] },
+      },
       is_default: {
         type: 'boolean',
         description: 'True when the tenant has no stored settings row and platform defaults apply.',
@@ -97,6 +102,10 @@ export const schemas = {
         minItems: 1,
       },
       snomed_pickers_enabled: { type: 'boolean' },
+      coding_enforcement: {
+        type: 'object',
+        additionalProperties: { type: 'string', enum: ['off', 'warn', 'block'] },
+      },
     },
   },
 
