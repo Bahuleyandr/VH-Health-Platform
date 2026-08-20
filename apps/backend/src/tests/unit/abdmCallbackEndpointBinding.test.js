@@ -17,6 +17,13 @@ const executeRaw = jest.fn(async (sql, ...args) => {
   }
   return 1;
 });
+// assertSharedReplayOnce also issues a best-effort expired-row sweep
+// (`DELETE FROM interop_replay_guard ...`) on ~2% of successful claims, so a
+// global $executeRawUnsafe call count flakes. Durable-claim assertions must
+// count only the claim INSERTs.
+const replayClaimCalls = () => executeRaw.mock.calls.filter(
+  ([sql]) => String(sql).includes('INSERT INTO interop_replay_guard'),
+);
 const handleConsentRequest = jest.fn();
 const handleDataRequest = jest.fn();
 const recordAuthenticatedAbdmCallback = jest.fn();
@@ -154,9 +161,10 @@ describe('ABDM endpoint-bound callback signature', () => {
       .send(body);
     expect(intended.status).toBe(202);
     expect(handleConsentRequest).toHaveBeenCalledTimes(1);
-    expect(executeRaw).toHaveBeenCalledTimes(1);
-    expect(executeRaw.mock.calls[0][1]).toBe('abdm-callback');
-    expect(executeRaw.mock.calls[0][2]).toMatch(/^v1:[0-9a-f]{64}$/);
+    const claims = replayClaimCalls();
+    expect(claims).toHaveLength(1);
+    expect(claims[0][1]).toBe('abdm-callback');
+    expect(claims[0][2]).toMatch(/^v1:[0-9a-f]{64}$/);
     expect(recordAuthenticatedAbdmCallback).toHaveBeenCalledWith(expect.objectContaining({
       auth: expect.objectContaining({
         signatureVersion: 'v1',
@@ -171,8 +179,54 @@ describe('ABDM endpoint-bound callback signature', () => {
       .send(body);
     expect(replay.status).toBe(401);
     expect(replay.body.code).toBe('ABDM_CALLBACK_REPLAY');
-    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(replayClaimCalls()).toHaveLength(1);
     expect(handleConsentRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps durable-claim accounting immune to the opportunistic guard sweep', async () => {
+    const app = buildApp();
+    const timestamp = String(Date.now());
+    const requestId = 'abdm-sweep-1';
+    const body = {
+      notification: {
+        consentRequestId: 'c-1',
+        purpose: { code: 'CAREMGT' },
+        patient: { id: 'patient@sbx' },
+      },
+    };
+    const headers = signedHeaders({
+      body,
+      timestamp,
+      requestId,
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    });
+
+    // Force the ~2% post-claim expired-row sweep in assertSharedReplayOnce to
+    // fire deterministically — the exact condition behind the CI flake this
+    // suite is pinned against (an extra, non-claim $executeRawUnsafe DELETE
+    // recorded alongside the claim INSERT).
+    const sweepRoll = jest.spyOn(Math, 'random').mockReturnValue(0);
+    let accepted;
+    try {
+      accepted = await request(app)
+        .post('/api/v1/abdm/consent/on-notify')
+        .set(headers)
+        .send(body);
+    } finally {
+      sweepRoll.mockRestore();
+    }
+
+    expect(accepted.status).toBe(202);
+    expect(handleConsentRequest).toHaveBeenCalledTimes(1);
+    // The sweep DELETE reached the store...
+    expect(executeRaw.mock.calls.some(
+      ([sql]) => String(sql).includes('DELETE FROM interop_replay_guard'),
+    )).toBe(true);
+    // ...but exactly one durable replay claim was written.
+    const claims = replayClaimCalls();
+    expect(claims).toHaveLength(1);
+    expect(claims[0][1]).toBe('abdm-callback');
+    expect(claims[0][2]).toMatch(/^v1:[0-9a-f]{64}$/);
   });
 
   it('accepts an unversioned legacy signature only behind the explicit compatibility switch', async () => {
