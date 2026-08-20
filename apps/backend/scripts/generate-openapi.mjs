@@ -18,6 +18,7 @@ import * as ambulanceTracking from './openapi/schemas/ambulanceTracking.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as pharmacyCounterSale from './openapi/schemas/pharmacyCounterSale.mjs';
 import * as dietaryKitchen from './openapi/schemas/dietaryKitchen.mjs';
+import * as drugKb from './openapi/schemas/drugKb.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
 import * as payroll from './openapi/schemas/payroll.mjs';
@@ -32,6 +33,7 @@ import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';
 import * as clinicalInbox from './openapi/schemas/clinicalInbox.mjs';
 import * as hl7 from './openapi/schemas/hl7.mjs';
 import * as lab from './openapi/schemas/lab.mjs';
+import * as labCodeMappings from './openapi/schemas/labCodeMappings.mjs';
 import * as nhcx from './openapi/schemas/nhcx.mjs';
 import * as carePathways from './openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
@@ -61,6 +63,7 @@ import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
 import * as facilityAssets from './openapi/schemas/facilityAssets.mjs';
 import * as integrationGates from './openapi/schemas/integrationGates.mjs';
+import * as terminology from './openapi/schemas/terminology.mjs';
 import * as uhi from './openapi/schemas/uhi.mjs';
 
 const SCHEMA_MODULES = [
@@ -80,6 +83,7 @@ const SCHEMA_MODULES = [
   clinicalInbox,
   hl7,
   lab,
+  labCodeMappings,
   nhcx,
   carePathways,
   outboxRecovery,
@@ -107,11 +111,13 @@ const SCHEMA_MODULES = [
   ambulanceTracking,
   pharmacyCounterSale,
   dietaryKitchen,
+  drugKb,
   paymentGateway,
   smsConfig,
   abdmCompletion,
   facilityAssets,
   integrationGates,
+  terminology,
   uhi
 ];
 

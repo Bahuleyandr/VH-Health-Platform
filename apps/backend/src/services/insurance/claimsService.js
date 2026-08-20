@@ -18,6 +18,11 @@ import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.j
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import logger from '../../logging/logger.js';
 
+// WP2 terminology deps are imported lazily inside createPreauth: their static
+// graph reaches terminologyService (prismaReadOnly import), which would force
+// every existing partial lib/prisma.js jest mock in suites that load this
+// service to grow new exports (PR #875 stale-ESM-mock lesson).
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 // Pre-auth submission SLA windows (hours from creation), keyed by
@@ -300,6 +305,17 @@ export async function createPreauth({
     admissionId: admission_id, preauthId: parent_preauth_id,
   });
 
+  // Coding enforcement (WP2, migration 720): validate supplied ICD-10 codes
+  // BEFORE any write so a 'block' verdict leaves no partial pre-auth behind.
+  // Default 'off' == no-op (dark-ship invariant).
+  const { validateDocumentCodes } = await import('../terminology/codingEnforcementService.js');
+  const codingVerdict = await validateDocumentCodes({
+    tenantId,
+    surface: 'insurance_preauth',
+    codes: icd10_codes || [],
+    actorUid: created_by ? String(created_by) : null,
+  });
+
   const preauth_number = await nextSeq('insurance_preauth_counter', 'PA', tenantId);
 
   // Stamp a submission deadline at create time so the draft can't sit
@@ -344,6 +360,31 @@ export async function createPreauth({
     slaHours,
   );
   const created = rows[0];
+
+  // Structured coding mirror (best-effort, post-insert): icd10_codes stays
+  // the payer-facing column of record; clinical_code_bindings is the
+  // structured layer. Never fails an already-persisted pre-auth.
+  const suppliedCodes = Array.isArray(icd10_codes) ? icd10_codes.filter(Boolean) : [];
+  if (suppliedCodes.length > 0) {
+    try {
+      const { replaceResourceCodings, legacyIcd10Coding } = await import(
+        '../terminology/clinicalCodeBindingService.js'
+      );
+      await replaceResourceCodings({
+        resourceType: 'insurance_preauth',
+        resourceId: created.id,
+        tenantId,
+        patientUid: String(patient_uid),
+        codings: suppliedCodes.map((code) => legacyIcd10Coding({ code, source: 'manual' })),
+        createdBy: created_by ? String(created_by) : null,
+      });
+    } catch (e) {
+      logger.warn(`createPreauth: code binding persist failed for #${created.id}: ${e.message}`);
+    }
+  }
+  if (codingVerdict.warnings.length > 0) {
+    created.coding_warnings = codingVerdict.warnings;
+  }
 
   // Nudge the insurance desk that a draft pre-auth needs submitting to
   // the insurer. Best-effort and post-insert — notificationOutbox.queue

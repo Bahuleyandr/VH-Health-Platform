@@ -4,15 +4,12 @@
 
 "use client";
 
-import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { CodeSearchField } from "@/components/terminology/CodeSearchField";
+import { fetchAdminAPI } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 interface DeathRecord {
   id: number;
@@ -162,34 +159,42 @@ export default function DeathCertificationPage() {
 
   const { data: summary } = useQuery<MortalitySummary>({
     queryKey: ["death", "summary"],
-    queryFn: async () => unwrap<MortalitySummary>(
-      await fetchAdminAPI<unknown>(`/death-certification/summary-30d`),
-    ),
+    queryFn: async () =>
+      unwrap<MortalitySummary>(
+        await fetchAdminAPI<unknown>(`/death-certification/summary-30d`),
+      ),
   });
 
-  const { data: mortuaryBoard, isLoading: mortuaryLoading } = useQuery<MortuaryBoard>({
-    queryKey: ["death", "mortuary-board"],
-    queryFn: async () => unwrap<MortuaryBoard>(
-      await fetchAdminAPI<unknown>(`/death-certification/mortuary/board`),
-    ),
-    refetchInterval: 60_000,
-  });
+  const { data: mortuaryBoard, isLoading: mortuaryLoading } =
+    useQuery<MortuaryBoard>({
+      queryKey: ["death", "mortuary-board"],
+      queryFn: async () =>
+        unwrap<MortuaryBoard>(
+          await fetchAdminAPI<unknown>(`/death-certification/mortuary/board`),
+        ),
+      refetchInterval: 60_000,
+    });
 
   const { data: detail } = useQuery<DeathRecord>({
     queryKey: ["death", "detail", selectedId],
-    queryFn: async () => unwrap<DeathRecord>(
-      await fetchAdminAPI<unknown>(`/death-certification/records/${selectedId}`),
-    ),
+    queryFn: async () =>
+      unwrap<DeathRecord>(
+        await fetchAdminAPI<unknown>(
+          `/death-certification/records/${selectedId}`,
+        ),
+      ),
     enabled: selectedId != null,
   });
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Death Certification</h1>
+        <h1 className="text-3xl font-bold text-foreground">
+          Death Certification
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Form 4 / MCCD per RBD Act 1969, body release with medicolegal
-          checks, and post-event Mortality &amp; Morbidity review (NABH).
+          Form 4 / MCCD per RBD Act 1969, body release with medicolegal checks,
+          and post-event Mortality &amp; Morbidity review (NABH).
         </p>
       </div>
 
@@ -197,11 +202,23 @@ export default function DeathCertificationPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <KpiCard label="30d total" value={summary.total_deaths} />
           <KpiCard label="Registered" value={summary.registered_count} />
-          <KpiCard label="Medicolegal" value={summary.medicolegal_count} tone="warning" />
-          <KpiCard label="Maternal" value={summary.maternal_deaths} tone="warning" />
+          <KpiCard
+            label="Medicolegal"
+            value={summary.medicolegal_count}
+            tone="warning"
+          />
+          <KpiCard
+            label="Maternal"
+            value={summary.maternal_deaths}
+            tone="warning"
+          />
           <KpiCard label="Post-op (30d)" value={summary.surgical_30d_deaths} />
           <KpiCard label="Reviews done" value={summary.reviews_done} />
-          <KpiCard label="Preventable" value={summary.reviews_preventable} tone="warning" />
+          <KpiCard
+            label="Preventable"
+            value={summary.reviews_preventable}
+            tone="warning"
+          />
         </div>
       )}
 
@@ -210,9 +227,11 @@ export default function DeathCertificationPage() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-sm">
           <label className="text-muted-foreground">Status:</label>
-          <select value={statusFilter}
+          <select
+            value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded border border-border bg-background px-2 py-1 text-sm">
+            className="rounded border border-border bg-background px-2 py-1 text-sm"
+          >
             <option value="">All</option>
             <option value="pending">Pending</option>
             <option value="certified">Certified</option>
@@ -221,9 +240,11 @@ export default function DeathCertificationPage() {
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
-        <button type="button"
+        <button
+          type="button"
           onClick={() => setShowCreate(true)}
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
           + New death record
         </button>
       </div>
@@ -253,36 +274,64 @@ export default function DeathCertificationPage() {
               {list.map((r) => (
                 <tr key={r.id} className="border-t border-border">
                   <td className="p-3 font-mono text-xs">
-                    {r.mccd_serial ?? <span className="text-muted-foreground">—</span>}
+                    {r.mccd_serial ?? (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </td>
-                  <td className="p-3 font-mono text-xs">{r.patient_uid.slice(0, 8)}…</td>
+                  <td className="p-3 font-mono text-xs">
+                    {r.patient_uid.slice(0, 8)}…
+                  </td>
                   <td className="p-3 text-xs">
                     {r.date_of_death} {r.time_of_death}
                     <br />
-                    <span className="text-muted-foreground uppercase">{r.place_of_death}</span>
+                    <span className="text-muted-foreground uppercase">
+                      {r.place_of_death}
+                    </span>
                   </td>
-                  <td className="p-3 max-w-[16rem] truncate" title={r.cause_part_1a}>
+                  <td
+                    className="p-3 max-w-[16rem] truncate"
+                    title={r.cause_part_1a}
+                  >
                     {r.cause_part_1a}
                   </td>
                   <td className="p-3 text-xs uppercase">{r.manner_of_death}</td>
                   <td className="p-3 text-xs">
-                    {r.is_medicolegal && <span className="bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded mr-1">MLC</span>}
-                    {r.was_pregnancy_related && <span className="bg-fuchsia-500/20 text-fuchsia-300 px-1.5 py-0.5 rounded mr-1">M</span>}
-                    {r.surgery_within_30d && <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded mr-1">Op-30d</span>}
+                    {r.is_medicolegal && (
+                      <span className="bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded mr-1">
+                        MLC
+                      </span>
+                    )}
+                    {r.was_pregnancy_related && (
+                      <span className="bg-fuchsia-500/20 text-fuchsia-300 px-1.5 py-0.5 rounded mr-1">
+                        M
+                      </span>
+                    )}
+                    {r.surgery_within_30d && (
+                      <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded mr-1">
+                        Op-30d
+                      </span>
+                    )}
                   </td>
                   <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-xs ${STATUS_TONE[r.status] ?? ""}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs ${STATUS_TONE[r.status] ?? ""}`}
+                    >
                       {STATUS_LABEL[r.status] ?? r.status}
                     </span>
                   </td>
                   <td className="p-3 text-xs">
-                    {r.body_released_at
-                      ? <span className="text-emerald-400">Released</span>
-                      : <span className="text-amber-400">Pending</span>}
+                    {r.body_released_at ? (
+                      <span className="text-emerald-400">Released</span>
+                    ) : (
+                      <span className="text-amber-400">Pending</span>
+                    )}
                   </td>
                   <td className="p-3 text-right">
-                    <button type="button" onClick={() => setSelectedId(r.id)}
-                      className="text-xs underline">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(r.id)}
+                      className="text-xs underline"
+                    >
                       View
                     </button>
                   </td>
@@ -320,8 +369,12 @@ export default function DeathCertificationPage() {
 // ── New death modal ─────────────────────────────────────────────────
 
 function CreateDeathModal({
-  onClose, onCreated,
-}: { onClose: () => void; onCreated: (id: number) => void }) {
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
   const [form, setForm] = useState<Record<string, string | boolean>>({
     patient_uid: "",
     date_of_death: new Date().toISOString().slice(0, 10),
@@ -353,115 +406,212 @@ function CreateDeathModal({
   const m = useMutation({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/death-certification/records", {
-        method: "POST", body: form,
+        method: "POST",
+        body: form,
       });
       return unwrap<{ id: number }>(r);
     },
     onSuccess: (row) => onCreated(row.id),
   });
 
-  const valid = form.patient_uid && form.date_of_death && form.time_of_death && form.cause_part_1a;
+  const valid =
+    form.patient_uid &&
+    form.date_of_death &&
+    form.time_of_death &&
+    form.cause_part_1a;
 
   return (
     <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/60 p-6 overflow-y-auto">
       <div className="w-full max-w-3xl rounded-lg border border-border bg-card p-6 space-y-4 my-8">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">New death record</h2>
-          <button type="button" className="text-muted-foreground" onClick={onClose}>✕</button>
+          <button
+            type="button"
+            className="text-muted-foreground"
+            onClick={onClose}
+          >
+            ✕
+          </button>
         </div>
 
         <Section label="Patient + event">
-          <Field2 label="Patient UID *" v={form.patient_uid as string}
-            on={(v) => setF("patient_uid", v)} />
-          <Field2 label="Date of death *" v={form.date_of_death as string} type="date"
-            on={(v) => setF("date_of_death", v)} />
-          <Field2 label="Time of death *" v={form.time_of_death as string} type="time"
-            on={(v) => setF("time_of_death", v)} />
-          <SelectF label="Place of death" v={form.place_of_death as string}
-            on={(v) => setF("place_of_death", v)} options={[
+          <Field2
+            label="Patient UID *"
+            v={form.patient_uid as string}
+            on={(v) => setF("patient_uid", v)}
+          />
+          <Field2
+            label="Date of death *"
+            v={form.date_of_death as string}
+            type="date"
+            on={(v) => setF("date_of_death", v)}
+          />
+          <Field2
+            label="Time of death *"
+            v={form.time_of_death as string}
+            type="time"
+            on={(v) => setF("time_of_death", v)}
+          />
+          <SelectF
+            label="Place of death"
+            v={form.place_of_death as string}
+            on={(v) => setF("place_of_death", v)}
+            options={[
               ["inpatient", "Inpatient"],
               ["emergency", "Emergency"],
               ["icu", "ICU"],
               ["or", "Operating Room"],
               ["home_brought_dead", "Brought dead"],
               ["transferred_out_dead", "Died on transfer"],
-            ]} />
-          <Field2 label="Ward / Unit" v={form.ward_or_unit as string}
-            on={(v) => setF("ward_or_unit", v)} />
+            ]}
+          />
+          <Field2
+            label="Ward / Unit"
+            v={form.ward_or_unit as string}
+            on={(v) => setF("ward_or_unit", v)}
+          />
         </Section>
 
         <Section label="Cause of death (WHO ICD-10 format)">
-          <Field2 label="Ia immediate cause *" v={form.cause_part_1a as string}
-            on={(v) => setF("cause_part_1a", v)} multiline />
-          <Field2 label="Ia ICD-10" v={form.icd10_part_1a as string}
-            on={(v) => setF("icd10_part_1a", v)} placeholder="e.g. I21.9" />
-          <Field2 label="Ib intermediate" v={form.cause_part_1b as string}
-            on={(v) => setF("cause_part_1b", v)} multiline />
-          <Field2 label="Ib ICD-10" v={form.icd10_part_1b as string}
-            on={(v) => setF("icd10_part_1b", v)} />
-          <Field2 label="Ic underlying" v={form.cause_part_1c as string}
-            on={(v) => setF("cause_part_1c", v)} multiline />
-          <Field2 label="Ic ICD-10" v={form.icd10_part_1c as string}
-            on={(v) => setF("icd10_part_1c", v)} />
-          <Field2 label="II contributory" v={form.cause_part_2 as string}
-            on={(v) => setF("cause_part_2", v)} multiline />
-          <Field2 label="II ICD-10" v={form.icd10_part_2 as string}
-            on={(v) => setF("icd10_part_2", v)} />
+          <Field2
+            label="Ia immediate cause *"
+            v={form.cause_part_1a as string}
+            on={(v) => setF("cause_part_1a", v)}
+            multiline
+          />
+          <CodeSearchField
+            label="Ia ICD-10"
+            value={form.icd10_part_1a as string}
+            onChange={(v) => setF("icd10_part_1a", v)}
+            placeholder="e.g. I21.9"
+          />
+          <Field2
+            label="Ib intermediate"
+            v={form.cause_part_1b as string}
+            on={(v) => setF("cause_part_1b", v)}
+            multiline
+          />
+          <CodeSearchField
+            label="Ib ICD-10"
+            value={form.icd10_part_1b as string}
+            onChange={(v) => setF("icd10_part_1b", v)}
+          />
+          <Field2
+            label="Ic underlying"
+            v={form.cause_part_1c as string}
+            on={(v) => setF("cause_part_1c", v)}
+            multiline
+          />
+          <CodeSearchField
+            label="Ic ICD-10"
+            value={form.icd10_part_1c as string}
+            onChange={(v) => setF("icd10_part_1c", v)}
+          />
+          <Field2
+            label="II contributory"
+            v={form.cause_part_2 as string}
+            on={(v) => setF("cause_part_2", v)}
+            multiline
+          />
+          <CodeSearchField
+            label="II ICD-10"
+            value={form.icd10_part_2 as string}
+            onChange={(v) => setF("icd10_part_2", v)}
+          />
         </Section>
 
         <Section label="Manner + special situations">
-          <SelectF label="Manner of death *" v={form.manner_of_death as string}
-            on={(v) => setF("manner_of_death", v)} options={[
+          <SelectF
+            label="Manner of death *"
+            v={form.manner_of_death as string}
+            on={(v) => setF("manner_of_death", v)}
+            options={[
               ["natural", "Natural"],
               ["accident", "Accident"],
               ["suicide", "Suicide"],
               ["homicide", "Homicide"],
               ["pending", "Pending investigation"],
               ["undetermined", "Undetermined"],
-            ]} />
-          <Check label="Pregnancy-related" v={form.was_pregnancy_related as boolean}
-            on={(v) => setF("was_pregnancy_related", v)} />
+            ]}
+          />
+          <Check
+            label="Pregnancy-related"
+            v={form.was_pregnancy_related as boolean}
+            on={(v) => setF("was_pregnancy_related", v)}
+          />
           {form.was_pregnancy_related && (
-            <SelectF label="Pregnancy stage" v={form.pregnancy_stage as string}
-              on={(v) => setF("pregnancy_stage", v)} options={[
+            <SelectF
+              label="Pregnancy stage"
+              v={form.pregnancy_stage as string}
+              on={(v) => setF("pregnancy_stage", v)}
+              options={[
                 ["", "—"],
                 ["antenatal", "Antenatal"],
                 ["intrapartum", "Intrapartum"],
                 ["postpartum_42d", "Postpartum (≤42d)"],
-              ]} />
+              ]}
+            />
           )}
-          <Check label="Surgical procedure during admission" v={form.was_postsurgery as boolean}
-            on={(v) => setF("was_postsurgery", v)} />
-          <Check label="Surgery within 30 days of death" v={form.surgery_within_30d as boolean}
-            on={(v) => setF("surgery_within_30d", v)} />
+          <Check
+            label="Surgical procedure during admission"
+            v={form.was_postsurgery as boolean}
+            on={(v) => setF("was_postsurgery", v)}
+          />
+          <Check
+            label="Surgery within 30 days of death"
+            v={form.surgery_within_30d as boolean}
+            on={(v) => setF("surgery_within_30d", v)}
+          />
         </Section>
 
         <Section label="Medicolegal + postmortem">
-          <Check label="Medicolegal case" v={form.is_medicolegal as boolean}
-            on={(v) => setF("is_medicolegal", v)} />
+          <Check
+            label="Medicolegal case"
+            v={form.is_medicolegal as boolean}
+            on={(v) => setF("is_medicolegal", v)}
+          />
           {form.is_medicolegal && (
             <>
-              <Field2 label="Police station" v={form.police_station as string}
-                on={(v) => setF("police_station", v)} />
-              <Field2 label="FIR no." v={form.police_fir_no as string}
-                on={(v) => setF("police_fir_no", v)} />
+              <Field2
+                label="Police station"
+                v={form.police_station as string}
+                on={(v) => setF("police_station", v)}
+              />
+              <Field2
+                label="FIR no."
+                v={form.police_fir_no as string}
+                on={(v) => setF("police_fir_no", v)}
+              />
             </>
           )}
-          <Check label="Postmortem required" v={form.postmortem_required as boolean}
-            on={(v) => setF("postmortem_required", v)} />
+          <Check
+            label="Postmortem required"
+            v={form.postmortem_required as boolean}
+            on={(v) => setF("postmortem_required", v)}
+          />
         </Section>
 
-        <Field2 label="Notes" v={form.notes as string} multiline
-          on={(v) => setF("notes", v)} />
+        <Field2
+          label="Notes"
+          v={form.notes as string}
+          multiline
+          on={(v) => setF("notes", v)}
+        />
 
         {m.error instanceof Error && (
           <div className="text-sm text-rose-400">{m.error.message}</div>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
-          <button type="button" disabled={!valid || m.isPending} onClick={() => m.mutate()}
-            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          <button type="button" className="px-4 py-2 text-sm" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || m.isPending}
+            onClick={() => m.mutate()}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
             {m.isPending ? "Saving…" : "Create record"}
           </button>
         </div>
@@ -473,13 +623,17 @@ function CreateDeathModal({
 // ── Detail modal: certify / submit / register / body release / review
 
 function DetailModal({
-  rec, onClose, onChanged,
+  rec,
+  onClose,
+  onChanged,
 }: {
   rec: DeathRecord;
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [section, setSection] = useState<"workflow" | "release" | "review">("workflow");
+  const [section, setSection] = useState<"workflow" | "release" | "review">(
+    "workflow",
+  );
 
   return (
     <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/60 p-6 overflow-y-auto">
@@ -495,33 +649,60 @@ function DetailModal({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`px-2 py-0.5 rounded text-xs ${STATUS_TONE[rec.status] ?? ""}`}>
+            <span
+              className={`px-2 py-0.5 rounded text-xs ${STATUS_TONE[rec.status] ?? ""}`}
+            >
               {STATUS_LABEL[rec.status] ?? rec.status}
             </span>
-            <button type="button" className="text-muted-foreground" onClick={onClose}>✕</button>
+            <button
+              type="button"
+              className="text-muted-foreground"
+              onClick={onClose}
+            >
+              ✕
+            </button>
           </div>
         </div>
 
         <div className="rounded border border-border p-3 text-sm space-y-1">
-          <div><strong>Ia:</strong> {rec.cause_part_1a}</div>
-          {rec.cause_part_1b && <div><strong>Ib:</strong> {rec.cause_part_1b}</div>}
-          {rec.cause_part_1c && <div><strong>Ic:</strong> {rec.cause_part_1c}</div>}
-          {rec.cause_part_2 && <div><strong>II:</strong> {rec.cause_part_2}</div>}
+          <div>
+            <strong>Ia:</strong> {rec.cause_part_1a}
+          </div>
+          {rec.cause_part_1b && (
+            <div>
+              <strong>Ib:</strong> {rec.cause_part_1b}
+            </div>
+          )}
+          {rec.cause_part_1c && (
+            <div>
+              <strong>Ic:</strong> {rec.cause_part_1c}
+            </div>
+          )}
+          {rec.cause_part_2 && (
+            <div>
+              <strong>II:</strong> {rec.cause_part_2}
+            </div>
+          )}
           <div className="text-muted-foreground text-xs">
             Manner: {rec.manner_of_death}
             {rec.is_medicolegal && (
-              <> · MLC: {rec.police_station} / {rec.police_fir_no}
-                {rec.police_clearance_at ? " (cleared)" : " (NO CLEARANCE)"}</>
+              <>
+                {" "}
+                · MLC: {rec.police_station} / {rec.police_fir_no}
+                {rec.police_clearance_at ? " (cleared)" : " (NO CLEARANCE)"}
+              </>
             )}
           </div>
         </div>
 
         <div className="flex gap-2 border-b border-border">
-          {([
-            ["workflow", "Workflow"],
-            ["release", "Body release"],
-            ["review", "Mortality review"],
-          ] as const).map(([k, label]) => (
+          {(
+            [
+              ["workflow", "Workflow"],
+              ["release", "Body release"],
+              ["review", "Mortality review"],
+            ] as const
+          ).map(([k, label]) => (
             <button
               key={k}
               type="button"
@@ -551,13 +732,22 @@ function DetailModal({
   );
 }
 
-function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => void }) {
+function WorkflowSection({
+  rec,
+  onChanged,
+}: {
+  rec: DeathRecord;
+  onChanged: () => void;
+}) {
   const [certName, setCertName] = useState(rec.certified_by_name ?? "");
   const [regNo, setRegNo] = useState(rec.certifier_registration_no ?? "");
   const [ackNo, setAckNo] = useState(rec.registrar_acknowledgement_no ?? "");
 
   const NEXT: Record<string, Array<[string, string]>> = {
-    pending: [["certified", "Certify"], ["cancelled", "Cancel"]],
+    pending: [
+      ["certified", "Certify"],
+      ["cancelled", "Cancel"],
+    ],
     certified: [["submitted_to_registrar", "Submit to Registrar"]],
     submitted_to_registrar: [["registered", "Mark Registered"]],
   };
@@ -570,10 +760,11 @@ function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =
       certifier_name?: string;
       registration_no?: string;
       ack_no?: string;
-    }) => fetchAdminAPI<unknown>(
-      `/death-certification/records/${rec.id}/transition`,
-      { method: "POST", body: input },
-    ),
+    }) =>
+      fetchAdminAPI<unknown>(
+        `/death-certification/records/${rec.id}/transition`,
+        { method: "POST", body: input },
+      ),
     onSuccess: () => onChanged(),
   });
 
@@ -587,7 +778,11 @@ function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =
       )}
 
       {rec.status === "submitted_to_registrar" && (
-        <Field2 label="Registrar acknowledgement no. *" v={ackNo} on={setAckNo} />
+        <Field2
+          label="Registrar acknowledgement no. *"
+          v={ackNo}
+          on={setAckNo}
+        />
       )}
 
       {m.error instanceof Error && (
@@ -621,9 +816,13 @@ function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">
-          Workflow complete — record is {STATUS_LABEL[rec.status] ?? rec.status}.
+          Workflow complete — record is {STATUS_LABEL[rec.status] ?? rec.status}
+          .
           {rec.registered_at && (
-            <> Registered on {new Date(rec.registered_at).toLocaleDateString()}.</>
+            <>
+              {" "}
+              Registered on {new Date(rec.registered_at).toLocaleDateString()}.
+            </>
           )}
         </div>
       )}
@@ -631,7 +830,13 @@ function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =
   );
 }
 
-function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => void }) {
+function ReleaseSection({
+  rec,
+  onChanged,
+}: {
+  rec: DeathRecord;
+  onChanged: () => void;
+}) {
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
   const [idProof, setIdProof] = useState("");
@@ -640,27 +845,31 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
   const [station, setStation] = useState(rec.police_station ?? "");
 
   const release = useMutation({
-    mutationFn: async () => fetchAdminAPI<unknown>(
-      `/death-certification/records/${rec.id}/body-release`,
-      {
-        method: "POST",
-        body: {
-          body_released_to_name: name,
-          body_released_to_relation: relation,
-          body_released_to_id_proof: idProof,
-          body_release_method: method,
+    mutationFn: async () =>
+      fetchAdminAPI<unknown>(
+        `/death-certification/records/${rec.id}/body-release`,
+        {
+          method: "POST",
+          body: {
+            body_released_to_name: name,
+            body_released_to_relation: relation,
+            body_released_to_id_proof: idProof,
+            body_release_method: method,
+          },
         },
-      }),
+      ),
     onSuccess: () => onChanged(),
   });
 
   const policeClear = useMutation({
-    mutationFn: async () => fetchAdminAPI<unknown>(
-      `/death-certification/records/${rec.id}/police-clearance`,
-      {
-        method: "POST",
-        body: { fir_no: firNo, station },
-      }),
+    mutationFn: async () =>
+      fetchAdminAPI<unknown>(
+        `/death-certification/records/${rec.id}/police-clearance`,
+        {
+          method: "POST",
+          body: { fir_no: firNo, station },
+        },
+      ),
     onSuccess: () => onChanged(),
   });
 
@@ -668,7 +877,9 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
     return (
       <div className="rounded bg-emerald-500/10 p-4 text-sm space-y-1">
         <div className="font-semibold">Body released</div>
-        <div>To: {rec.body_released_to_name} ({rec.body_released_to_relation})</div>
+        <div>
+          To: {rec.body_released_to_name} ({rec.body_released_to_relation})
+        </div>
         <div className="text-muted-foreground text-xs">
           {new Date(rec.body_released_at).toLocaleString()}
         </div>
@@ -686,11 +897,16 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
         <Field2 label="Police station" v={station} on={setStation} />
         <Field2 label="FIR no." v={firNo} on={setFirNo} />
         {policeClear.error instanceof Error && (
-          <div className="text-sm text-rose-400">{policeClear.error.message}</div>
+          <div className="text-sm text-rose-400">
+            {policeClear.error.message}
+          </div>
         )}
-        <button type="button" disabled={policeClear.isPending}
+        <button
+          type="button"
+          disabled={policeClear.isPending}
           onClick={() => policeClear.mutate()}
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
           {policeClear.isPending ? "Recording…" : "Record police clearance"}
         </button>
       </div>
@@ -700,39 +916,63 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
   return (
     <div className="space-y-3">
       <Field2 label="Released to (name) *" v={name} on={setName} />
-      <Field2 label="Relation *" v={relation} on={setRelation}
-        placeholder="spouse / son / daughter / parent / sibling / other" />
-      <Field2 label="ID proof (last 4 of Aadhaar / passport)" v={idProof} on={setIdProof} />
-      <SelectF label="Method" v={method} on={setMethod} options={[
-        ["family", "Family"],
-        ["mortuary_van", "Mortuary van"],
-        ["unclaimed_to_municipality", "Unclaimed (to municipality)"],
-      ]} />
+      <Field2
+        label="Relation *"
+        v={relation}
+        on={setRelation}
+        placeholder="spouse / son / daughter / parent / sibling / other"
+      />
+      <Field2
+        label="ID proof (last 4 of Aadhaar / passport)"
+        v={idProof}
+        on={setIdProof}
+      />
+      <SelectF
+        label="Method"
+        v={method}
+        on={setMethod}
+        options={[
+          ["family", "Family"],
+          ["mortuary_van", "Mortuary van"],
+          ["unclaimed_to_municipality", "Unclaimed (to municipality)"],
+        ]}
+      />
 
       {release.error instanceof Error && (
         <div className="text-sm text-rose-400">{release.error.message}</div>
       )}
 
-      <button type="button"
+      <button
+        type="button"
         disabled={!name.trim() || !relation.trim() || release.isPending}
         onClick={() => release.mutate()}
-        className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+      >
         {release.isPending ? "Recording…" : "Record body release"}
       </button>
     </div>
   );
 }
 
-function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => void }) {
+function ReviewSection({
+  rec,
+  onChanged,
+}: {
+  rec: DeathRecord;
+  onChanged: () => void;
+}) {
   const review = rec.reviews?.[0] ?? null;
-  const [form, setForm] = useState<Partial<MortalityReview>>(() => review ?? {});
+  const [form, setForm] = useState<Partial<MortalityReview>>(
+    () => review ?? {},
+  );
   const [actionInput, setActionInput] = useState("");
 
   const m = useMutation({
-    mutationFn: async () => fetchAdminAPI<unknown>(
-      `/death-certification/records/${rec.id}/review`,
-      { method: "POST", body: form },
-    ),
+    mutationFn: async () =>
+      fetchAdminAPI<unknown>(`/death-certification/records/${rec.id}/review`, {
+        method: "POST",
+        body: form,
+      }),
     onSuccess: () => onChanged(),
   });
 
@@ -771,7 +1011,12 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
         </label>
         <select
           value={(form.preventability ?? "") as string}
-          onChange={(e) => setF("preventability", e.target.value as MortalityReview["preventability"])}
+          onChange={(e) =>
+            setF(
+              "preventability",
+              e.target.value as MortalityReview["preventability"],
+            )
+          }
           className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
         >
           <option value="">—</option>
@@ -793,7 +1038,9 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
         >
           <option value="">—</option>
           <option value="disease_progression">Disease progression</option>
-          <option value="complication_of_treatment">Complication of treatment</option>
+          <option value="complication_of_treatment">
+            Complication of treatment
+          </option>
           <option value="medication_error">Medication error</option>
           <option value="surgical_complication">Surgical complication</option>
           <option value="system_failure">System failure</option>
@@ -823,18 +1070,24 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
         <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
           Discussion summary
         </label>
-        <textarea rows={3} value={(form.discussion_summary as string) ?? ""}
+        <textarea
+          rows={3}
+          value={(form.discussion_summary as string) ?? ""}
           onChange={(e) => setF("discussion_summary", e.target.value)}
-          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+        />
       </div>
 
       <div>
         <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
           Learning points
         </label>
-        <textarea rows={2} value={(form.learning_points as string) ?? ""}
+        <textarea
+          rows={2}
+          value={(form.learning_points as string) ?? ""}
           onChange={(e) => setF("learning_points", e.target.value)}
-          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+        />
       </div>
 
       <div>
@@ -842,28 +1095,42 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
           Action items
         </label>
         <div className="flex gap-2">
-          <input type="text" value={actionInput}
+          <input
+            type="text"
+            value={actionInput}
             onChange={(e) => setActionInput(e.target.value)}
             placeholder="Add an action item and press Enter"
             onKeyDown={(e) => {
               if (e.key === "Enter" && actionInput.trim()) {
                 e.preventDefault();
-                setF("action_items", [...(form.action_items ?? []), actionInput.trim()]);
+                setF("action_items", [
+                  ...(form.action_items ?? []),
+                  actionInput.trim(),
+                ]);
                 setActionInput("");
               }
             }}
-            className="flex-1 rounded border border-border bg-background px-2 py-1.5 text-sm" />
+            className="flex-1 rounded border border-border bg-background px-2 py-1.5 text-sm"
+          />
         </div>
         {form.action_items && form.action_items.length > 0 && (
           <ul className="mt-2 space-y-1 text-sm">
             {form.action_items.map((a, i) => (
-              <li key={i} className="flex items-center justify-between rounded bg-muted/40 px-2 py-1">
+              <li
+                key={i}
+                className="flex items-center justify-between rounded bg-muted/40 px-2 py-1"
+              >
                 <span>{a}</span>
-                <button type="button"
-                  onClick={() => setF("action_items",
-                    (form.action_items ?? []).filter((_, j) => j !== i),
-                  )}
-                  className="text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setF(
+                      "action_items",
+                      (form.action_items ?? []).filter((_, j) => j !== i),
+                    )
+                  }
+                  className="text-xs text-muted-foreground"
+                >
                   remove
                 </button>
               </li>
@@ -879,20 +1146,29 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
       <div className="flex justify-between gap-2">
         <div>
           {review && review.status !== "finalised" && (
-            <button type="button" disabled={finalise.isPending}
+            <button
+              type="button"
+              disabled={finalise.isPending}
               onClick={() => finalise.mutate()}
-              className="rounded border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300 disabled:opacity-50">
+              className="rounded border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300 disabled:opacity-50"
+            >
               {finalise.isPending ? "Finalising…" : "Finalise (chair sign-off)"}
             </button>
           )}
           {review?.status === "finalised" && (
             <span className="text-sm text-emerald-400">
-              ✓ Finalised on {review.finalised_at && new Date(review.finalised_at).toLocaleDateString()}
+              ✓ Finalised on{" "}
+              {review.finalised_at &&
+                new Date(review.finalised_at).toLocaleDateString()}
             </span>
           )}
         </div>
-        <button type="button" disabled={m.isPending} onClick={() => m.mutate()}
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <button
+          type="button"
+          disabled={m.isPending}
+          onClick={() => m.mutate()}
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
           {m.isPending ? "Saving…" : review ? "Update review" : "Save review"}
         </button>
       </div>
@@ -903,20 +1179,25 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
 // ── Shared ───────────────────────────────────────────────────────────
 
 function MortuaryBoardSection({
-  board, isLoading,
-}: { board?: MortuaryBoard; isLoading: boolean }) {
+  board,
+  isLoading,
+}: {
+  board?: MortuaryBoard;
+  isLoading: boolean;
+}) {
   const qc = useQueryClient();
   const [slotCode, setSlotCode] = useState("");
   const [slotName, setSlotName] = useState("");
 
   const addSlot = useMutation({
-    mutationFn: async () => fetchAdminAPI<unknown>("/death-certification/mortuary/slots", {
-      method: "POST",
-      body: {
-        slot_code: slotCode,
-        display_name: slotName || slotCode,
-      },
-    }),
+    mutationFn: async () =>
+      fetchAdminAPI<unknown>("/death-certification/mortuary/slots", {
+        method: "POST",
+        body: {
+          slot_code: slotCode,
+          display_name: slotName || slotCode,
+        },
+      }),
     onSuccess: () => {
       setSlotCode("");
       setSlotName("");
@@ -935,12 +1216,17 @@ function MortuaryBoardSection({
         <div>
           <h2 className="text-xl font-semibold">Mortuary Board</h2>
           <p className="text-sm text-muted-foreground">
-            Cooler occupancy, custody state, and unclaimed-body escalation status.
+            Cooler occupancy, custody state, and unclaimed-body escalation
+            status.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           <MiniStat label="Slots" value={occupancy.total ?? 0} />
-          <MiniStat label="Occupied" value={occupancy.occupied ?? 0} tone="warning" />
+          <MiniStat
+            label="Occupied"
+            value={occupancy.occupied ?? 0}
+            tone="warning"
+          />
           <MiniStat label="Unclaimed" value={unclaimed.length} tone="warning" />
         </div>
       </div>
@@ -971,7 +1257,9 @@ function MortuaryBoardSection({
           </button>
         </div>
         {addSlot.error instanceof Error && (
-          <div className="mt-2 text-sm text-rose-400">{addSlot.error.message}</div>
+          <div className="mt-2 text-sm text-rose-400">
+            {addSlot.error.message}
+          </div>
         )}
       </div>
 
@@ -980,31 +1268,40 @@ function MortuaryBoardSection({
       {!isLoading && (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
-            <div className="bg-muted/40 p-3 text-sm font-semibold">Cooler slots</div>
+            <div className="bg-muted/40 p-3 text-sm font-semibold">
+              Cooler slots
+            </div>
             {slots.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">No mortuary slots registered.</div>
+              <div className="p-4 text-sm text-muted-foreground">
+                No mortuary slots registered.
+              </div>
             ) : (
               <div className="divide-y divide-border">
                 {slots.map((slot) => (
                   <div key={slot.id} className="p-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-mono text-xs">{slot.slot_code}</div>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        slot.status === "occupied"
-                          ? "bg-amber-500/15 text-amber-300"
-                          : "bg-emerald-500/15 text-emerald-300"
-                      }`}>
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs ${
+                          slot.status === "occupied"
+                            ? "bg-amber-500/15 text-amber-300"
+                            : "bg-emerald-500/15 text-emerald-300"
+                        }`}
+                      >
                         {slot.status}
                       </span>
                     </div>
-                    <div className="mt-1">{slot.display_name ?? slot.slot_code}</div>
+                    <div className="mt-1">
+                      {slot.display_name ?? slot.slot_code}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {slot.location_name ?? "No location"}
                     </div>
                     {slot.current_death_record_id && (
                       <div className="mt-2 text-xs">
                         Record #{slot.current_death_record_id}
-                        {slot.current_mccd_serial && ` / ${slot.current_mccd_serial}`}
+                        {slot.current_mccd_serial &&
+                          ` / ${slot.current_mccd_serial}`}
                       </div>
                     )}
                   </div>
@@ -1014,9 +1311,13 @@ function MortuaryBoardSection({
           </div>
 
           <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
-            <div className="bg-muted/40 p-3 text-sm font-semibold">Custody chain</div>
+            <div className="bg-muted/40 p-3 text-sm font-semibold">
+              Custody chain
+            </div>
             {activeBodies.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">No bodies currently in custody.</div>
+              <div className="p-4 text-sm text-muted-foreground">
+                No bodies currently in custody.
+              </div>
             ) : (
               <div className="divide-y divide-border">
                 {activeBodies.map((body) => (
@@ -1027,13 +1328,21 @@ function MortuaryBoardSection({
           </div>
 
           <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
-            <div className="bg-muted/40 p-3 text-sm font-semibold">Unclaimed</div>
+            <div className="bg-muted/40 p-3 text-sm font-semibold">
+              Unclaimed
+            </div>
             {unclaimed.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">No unclaimed bodies in custody.</div>
+              <div className="p-4 text-sm text-muted-foreground">
+                No unclaimed bodies in custody.
+              </div>
             ) : (
               <div className="divide-y divide-border">
                 {unclaimed.map((body) => (
-                  <BodyCustodyRow key={body.death_record_id} body={body} showEscalation />
+                  <BodyCustodyRow
+                    key={body.death_record_id}
+                    body={body}
+                    showEscalation
+                  />
                 ))}
               </div>
             )}
@@ -1045,8 +1354,12 @@ function MortuaryBoardSection({
 }
 
 function BodyCustodyRow({
-  body, showEscalation = false,
-}: { body: MortuaryBody; showEscalation?: boolean }) {
+  body,
+  showEscalation = false,
+}: {
+  body: MortuaryBody;
+  showEscalation?: boolean;
+}) {
   return (
     <div className="p-3 text-sm space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -1054,10 +1367,13 @@ function BodyCustodyRow({
           Record #{body.death_record_id}
           {body.mccd_serial && ` / ${body.mccd_serial}`}
         </div>
-        <span className="text-xs uppercase text-muted-foreground">{body.latest_event_type}</span>
+        <span className="text-xs uppercase text-muted-foreground">
+          {body.latest_event_type}
+        </span>
       </div>
       <div className="text-xs text-muted-foreground">
-        Patient {body.patient_uid.slice(0, 8)}... · {body.date_of_death} {body.time_of_death}
+        Patient {body.patient_uid.slice(0, 8)}... · {body.date_of_death}{" "}
+        {body.time_of_death}
       </div>
       <div className="text-xs">
         Slot: {body.slot_code ?? "Not stored"}
@@ -1069,24 +1385,38 @@ function BodyCustodyRow({
       </div>
       {showEscalation && (
         <div className="text-xs text-amber-300">
-          {body.unclaimed_task_status ?? "task pending"} / {body.unclaimed_sla_status ?? "SLA pending"}
-          {body.unclaimed_due_at && ` · due ${new Date(body.unclaimed_due_at).toLocaleString()}`}
+          {body.unclaimed_task_status ?? "task pending"} /{" "}
+          {body.unclaimed_sla_status ?? "SLA pending"}
+          {body.unclaimed_due_at &&
+            ` · due ${new Date(body.unclaimed_due_at).toLocaleString()}`}
         </div>
       )}
       {body.unclaimed_reason && (
-        <div className="text-xs text-muted-foreground">{body.unclaimed_reason}</div>
+        <div className="text-xs text-muted-foreground">
+          {body.unclaimed_reason}
+        </div>
       )}
     </div>
   );
 }
 
 function MiniStat({
-  label, value, tone,
-}: { label: string; value: number; tone?: "warning" }) {
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "warning";
+}) {
   return (
-    <div className={`rounded border px-3 py-2 ${
-      tone === "warning" ? "border-amber-500/30 bg-amber-500/5" : "border-border"
-    }`}>
+    <div
+      className={`rounded border px-3 py-2 ${
+        tone === "warning"
+          ? "border-amber-500/30 bg-amber-500/5"
+          : "border-border"
+      }`}
+    >
       <div className="text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
@@ -1094,31 +1424,54 @@ function MiniStat({
 }
 
 function KpiCard({
-  label, value, tone,
-}: { label: string; value: number; tone?: "warning" }) {
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "warning";
+}) {
   return (
-    <div className={`rounded-lg border p-4 ${
-      tone === "warning"
-        ? "border-amber-500/30 bg-amber-500/5"
-        : "border-border bg-card"
-    }`}>
-      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div
+      className={`rounded-lg border p-4 ${
+        tone === "warning"
+          ? "border-amber-500/30 bg-amber-500/5"
+          : "border-border bg-card"
+      }`}
+    >
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
       <div className="text-2xl font-semibold mt-1">{value}</div>
     </div>
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{label}</div>
+      <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        {label}
+      </div>
       <div className="grid grid-cols-2 gap-3">{children}</div>
     </div>
   );
 }
 
 function Field2({
-  label, v, on, type = "text", placeholder, multiline,
+  label,
+  v,
+  on,
+  type = "text",
+  placeholder,
+  multiline,
 }: {
   label: string;
   v: string;
@@ -1133,20 +1486,31 @@ function Field2({
         {label}
       </label>
       {multiline ? (
-        <textarea rows={2} value={v} onChange={(e) => on(e.target.value)}
+        <textarea
+          rows={2}
+          value={v}
+          onChange={(e) => on(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+        />
       ) : (
-        <input type={type} value={v} onChange={(e) => on(e.target.value)}
+        <input
+          type={type}
+          value={v}
+          onChange={(e) => on(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm" />
+          className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+        />
       )}
     </div>
   );
 }
 
 function SelectF({
-  label, v, on, options,
+  label,
+  v,
+  on,
+  options,
 }: {
   label: string;
   v: string;
@@ -1158,20 +1522,37 @@ function SelectF({
       <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
         {label}
       </label>
-      <select value={v} onChange={(e) => on(e.target.value)}
-        className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm">
+      <select
+        value={v}
+        onChange={(e) => on(e.target.value)}
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+      >
         {options.map(([k, label]) => (
-          <option key={k} value={k}>{label}</option>
+          <option key={k} value={k}>
+            {label}
+          </option>
         ))}
       </select>
     </div>
   );
 }
 
-function Check({ label, v, on }: { label: string; v: boolean; on: (v: boolean) => void }) {
+function Check({
+  label,
+  v,
+  on,
+}: {
+  label: string;
+  v: boolean;
+  on: (v: boolean) => void;
+}) {
   return (
     <label className="flex items-center gap-2 text-sm col-span-2">
-      <input type="checkbox" checked={v} onChange={(e) => on(e.target.checked)} />
+      <input
+        type="checkbox"
+        checked={v}
+        onChange={(e) => on(e.target.checked)}
+      />
       <span>{label}</span>
     </label>
   );

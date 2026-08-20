@@ -10,6 +10,7 @@ const {
   getRateLimitOverride,
   getBranding,
   getFrontDeskBiometricCaptureSettings,
+  getAnalyticsBiSettings,
 } = await import(
   '../../services/tenant/tenantSettingsService.js'
 );
@@ -107,5 +108,22 @@ describe('tenantSettingsService', () => {
       modes: ['face', 'fingerprint'],
       provider: 'Procured SDK',
     });
+  });
+
+  it('getAnalyticsBiSettings is disabled by default and malformed-config-safe', async () => {
+    getTenantById.mockResolvedValue({ settings: {} });
+    expect(await getAnalyticsBiSettings('t1')).toEqual({ enabled: false });
+
+    // Malformed shapes fall back to disabled, never throw.
+    getTenantById.mockResolvedValue({ settings: { analyticsBi: 'yes' } });
+    expect(await getAnalyticsBiSettings('t1')).toEqual({ enabled: false });
+    getTenantById.mockResolvedValue({ settings: { analyticsBi: [true] } });
+    expect(await getAnalyticsBiSettings('t1')).toEqual({ enabled: false });
+    // Only literal true enables — truthy strings stay disabled.
+    getTenantById.mockResolvedValue({ settings: { analyticsBi: { enabled: 'true' } } });
+    expect(await getAnalyticsBiSettings('t1')).toEqual({ enabled: false });
+
+    getTenantById.mockResolvedValue({ settings: { analyticsBi: { enabled: true } } });
+    expect(await getAnalyticsBiSettings('t1')).toEqual({ enabled: true });
   });
 });

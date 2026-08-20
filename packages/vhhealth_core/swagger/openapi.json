@@ -19662,6 +19662,199 @@
           }
         }
       },
+      "DrugKbCheckResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DrugKbCheckResult"
+          }
+        }
+      },
+      "DrugKbCheckResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "kb_available",
+          "findings",
+          "count"
+        ],
+        "properties": {
+          "kb_available": {
+            "type": "boolean",
+            "description": "False on an environment without the migration-277 KB tables — the engine contributes nothing and legacy checks remain the safety floor."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DrugKbFinding"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "DrugKbCoverageReport": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "kb_available",
+          "total_active_catalog_items",
+          "resolved",
+          "unmatched"
+        ],
+        "properties": {
+          "kb_available": {
+            "type": "boolean"
+          },
+          "total_active_catalog_items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resolved": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "explicit_link",
+              "atc_binding",
+              "composition",
+              "text_fallback"
+            ],
+            "description": "Active catalog items counted once at their highest-precedence resolution tier.",
+            "properties": {
+              "explicit_link": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "atc_binding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "composition": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "text_fallback": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "unmatched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deterministic_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "any_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "deterministic_matching": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "env_enabled",
+              "tenant_enabled",
+              "effective"
+            ],
+            "description": "State of the dark deterministic-matching gates (env DRUG_KB_DETERMINISTIC_MATCHING AND settings.drugKb.deterministicMatching; both default off).",
+            "properties": {
+              "env_enabled": {
+                "type": "boolean"
+              },
+              "tenant_enabled": {
+                "type": "boolean"
+              },
+              "effective": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "DrugKbCoverageResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DrugKbCoverageReport"
+          }
+        }
+      },
+      "DrugKbFinding": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "check",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "check": {
+            "type": "string",
+            "enum": [
+              "interaction",
+              "allergy_cross_sensitivity",
+              "condition_caution",
+              "dose_range",
+              "iv_compatibility"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "drug_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "medications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "management": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_key": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "EdClosureEvidenceMutationResponse": {
         "type": "object",
         "required": [
@@ -27637,6 +27830,27 @@
           "clinical_continuity_c_d14_approved": {
             "type": "boolean",
             "description": "Compile-time constant; deliberately not changeable by deployment configuration."
+          },
+          "who_icd_configured": {
+            "type": "boolean",
+            "description": "Presence boolean for WHO ICD-API credentials (or the local-mirror auth bypass); values are never returned."
+          },
+          "terminology_coding_enforcement": {
+            "type": "string",
+            "enum": [
+              "off",
+              "warn",
+              "block"
+            ],
+            "description": "TERMINOLOGY_CODING_ENFORCEMENT env kill switch; unknown values read as off."
+          },
+          "drug_kb_deterministic_matching": {
+            "type": "boolean",
+            "description": "DRUG_KB_DETERMINISTIC_MATCHING env kill switch."
+          },
+          "lab_loinc_mapping_enabled": {
+            "type": "boolean",
+            "description": "LAB_LOINC_MAPPING_ENABLED env kill switch."
           }
         }
       },
@@ -27782,7 +27996,10 @@
               "abdm_scan_share",
               "abdm_hiu",
               "uhi",
-              "ambulance_gps"
+              "ambulance_gps",
+              "terminology_coding",
+              "lab_loinc_mapping",
+              "drug_kb"
             ],
             "properties": {
               "payment_gateway": {
@@ -27804,6 +28021,15 @@
                 "$ref": "#/components/schemas/IntegrationGateState"
               },
               "ambulance_gps": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "terminology_coding": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "lab_loinc_mapping": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "drug_kb": {
                 "$ref": "#/components/schemas/IntegrationGateState"
               }
             }
@@ -29104,6 +29330,312 @@
           },
           "recovery": {
             "$ref": "#/components/schemas/LabI02RecoveryEnvelope"
+          }
+        }
+      },
+      "LabCodeMapping": {
+        "type": "object",
+        "required": [
+          "id",
+          "source_key",
+          "incoming_code",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "source_key": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Analyzer/interface identity (ORU MSH-3 sending application or ASTM analyzer_code); 'any' is the tenant-wide wildcard consulted when no source-specific row matches."
+          },
+          "incoming_code": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "incoming_code_system": {
+            "type": "string",
+            "maxLength": 80,
+            "nullable": true
+          },
+          "catalog_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "investigation_test_catalog row this inbound code maps to; its confirmed LOINC binding supplies the code when loinc_code is not set directly."
+          },
+          "loinc_code": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true
+          },
+          "display": {
+            "type": "string",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Soft-delete flag: only one active mapping may exist per (source_key, incoming_code); inactive rows keep history."
+          },
+          "verified_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "LabCodeMappingCoveragePayload": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "window_days",
+          "inbound",
+          "mappings",
+          "catalog"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "object",
+            "required": [
+              "env",
+              "tenant",
+              "effective"
+            ],
+            "properties": {
+              "env": {
+                "type": "boolean"
+              },
+              "tenant": {
+                "type": "boolean"
+              },
+              "effective": {
+                "type": "boolean"
+              }
+            },
+            "description": "Layered gate state: LAB_LOINC_MAPPING_ENABLED env kill switch AND tenant settings.labLoincMapping.enabled."
+          },
+          "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "inbound": {
+            "type": "object",
+            "required": [
+              "distinct_codes",
+              "mapped_codes",
+              "unmapped_codes",
+              "results_total",
+              "results_with_loinc",
+              "top_unmapped"
+            ],
+            "properties": {
+              "distinct_codes": {
+                "type": "integer"
+              },
+              "mapped_codes": {
+                "type": "integer"
+              },
+              "unmapped_codes": {
+                "type": "integer"
+              },
+              "results_total": {
+                "type": "integer"
+              },
+              "results_with_loinc": {
+                "type": "integer"
+              },
+              "top_unmapped": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "result_count"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "result_count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "mappings": {
+            "type": "object",
+            "required": [
+              "active",
+              "inactive"
+            ],
+            "properties": {
+              "active": {
+                "type": "integer"
+              },
+              "inactive": {
+                "type": "integer"
+              }
+            }
+          },
+          "catalog": {
+            "type": "object",
+            "required": [
+              "active_items",
+              "loinc_bound",
+              "loinc_bound_pct"
+            ],
+            "properties": {
+              "active_items": {
+                "type": "integer"
+              },
+              "loinc_bound": {
+                "type": "integer"
+              },
+              "loinc_bound_pct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          }
+        }
+      },
+      "LabCodeMappingCoverageResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LabCodeMappingCoveragePayload"
+          }
+        }
+      },
+      "LabCodeMappingListPayload": {
+        "type": "object",
+        "required": [
+          "mappings",
+          "count"
+        ],
+        "properties": {
+          "mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabCodeMapping"
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "LabCodeMappingListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LabCodeMappingListPayload"
+          }
+        }
+      },
+      "LabCodeMappingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LabCodeMapping"
+          }
+        }
+      },
+      "LabCodeMappingWriteRequest": {
+        "type": "object",
+        "properties": {
+          "source_key": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Defaults to 'any' on create."
+          },
+          "incoming_code": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "incoming_code_system": {
+            "type": "string",
+            "maxLength": 80,
+            "nullable": true
+          },
+          "catalog_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "loinc_code": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true,
+            "description": "Structurally validated (<digits>-<check digit>). At least one of catalog_id / loinc_code is required."
+          },
+          "display": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Update only: true stamps verified_by/verified_at from the caller; false clears them."
           }
         }
       },
@@ -44447,6 +44979,442 @@
           }
         }
       },
+      "TerminologyCatalogBindingCoverage": {
+        "type": "object",
+        "required": [
+          "catalog_type",
+          "table",
+          "default_system",
+          "catalog_rows",
+          "confirmed",
+          "suggested",
+          "rejected",
+          "confirmed_pct"
+        ],
+        "properties": {
+          "catalog_type": {
+            "type": "string",
+            "example": "investigation_test"
+          },
+          "table": {
+            "type": "string",
+            "example": "investigation_test_catalog"
+          },
+          "default_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "catalog_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confirmed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "suggested": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confirmed_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Confirmed bindings as a percentage of catalog rows, one decimal place."
+          }
+        }
+      },
+      "TerminologyConcept": {
+        "type": "object",
+        "required": [
+          "system_key",
+          "code",
+          "display"
+        ],
+        "properties": {
+          "system_key": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "display": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "semantic_tag": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "example": "active"
+          },
+          "match_rank": {
+            "type": "number",
+            "nullable": true,
+            "description": "Rank within the concept's system group: 0 = exact code match, then display-prefix, then substring matches."
+          }
+        }
+      },
+      "TerminologyConceptMapCoverage": {
+        "type": "object",
+        "required": [
+          "source_system",
+          "target_system",
+          "total",
+          "relationships"
+        ],
+        "properties": {
+          "source_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "target_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "relationships": {
+            "type": "object",
+            "required": [
+              "equivalent",
+              "broader",
+              "narrower",
+              "related"
+            ],
+            "properties": {
+              "equivalent": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "broader": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "narrower": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "related": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "TerminologyCoveragePayload": {
+        "type": "object",
+        "required": [
+          "coverage"
+        ],
+        "properties": {
+          "coverage": {
+            "type": "object",
+            "required": [
+              "catalog_bindings",
+              "concept_maps"
+            ],
+            "properties": {
+              "catalog_bindings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TerminologyCatalogBindingCoverage"
+                }
+              },
+              "concept_maps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TerminologyConceptMapCoverage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TerminologyCoverageResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TerminologyCoveragePayload"
+          }
+        }
+      },
+      "TerminologySearchPayload": {
+        "type": "object",
+        "required": [
+          "concepts",
+          "count"
+        ],
+        "properties": {
+          "concepts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TerminologyConcept"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resolved": {
+            "$ref": "#/components/schemas/TerminologySearchResolved"
+          }
+        }
+      },
+      "TerminologySearchResolved": {
+        "type": "object",
+        "required": [
+          "preferred_system",
+          "systems",
+          "snomed_included"
+        ],
+        "description": "Present only on settings-driven searches (no explicit system param): describes how the tenant terminology settings resolved the diagnosis-system fan-out.",
+        "properties": {
+          "preferred_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "systems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ICD10",
+                "ICD11",
+                "SNOMED_CT",
+                "LOINC",
+                "ATC"
+              ]
+            },
+            "description": "Ordered systems actually searched (preferred system first). Concepts are grouped in this order."
+          },
+          "snomed_included": {
+            "type": "boolean",
+            "description": "True only when the tenant has snomed_pickers_enabled and SNOMED_CT is in enabled_systems."
+          }
+        }
+      },
+      "TerminologySearchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TerminologySearchPayload"
+          }
+        }
+      },
+      "TerminologySettingsPayload": {
+        "type": "object",
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/TerminologyTenantSettings"
+          }
+        }
+      },
+      "TerminologySettingsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TerminologySettingsPayload"
+          }
+        }
+      },
+      "TerminologySettingsUpdateRequest": {
+        "type": "object",
+        "description": "Partial update: omitted fields keep their current values. preferred_diagnosis_system must be a member of enabled_systems.",
+        "properties": {
+          "preferred_diagnosis_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "enabled_systems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ICD10",
+                "ICD11",
+                "SNOMED_CT",
+                "LOINC",
+                "ATC"
+              ]
+            },
+            "minItems": 1
+          },
+          "snomed_pickers_enabled": {
+            "type": "boolean"
+          },
+          "coding_enforcement": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "off",
+                "warn",
+                "block"
+              ]
+            }
+          }
+        }
+      },
+      "TerminologyTenantSettings": {
+        "type": "object",
+        "required": [
+          "preferred_diagnosis_system",
+          "enabled_systems",
+          "snomed_pickers_enabled",
+          "is_default"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "preferred_diagnosis_system": {
+            "type": "string",
+            "enum": [
+              "ICD10",
+              "ICD11",
+              "SNOMED_CT",
+              "LOINC",
+              "ATC"
+            ]
+          },
+          "enabled_systems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ICD10",
+                "ICD11",
+                "SNOMED_CT",
+                "LOINC",
+                "ATC"
+              ]
+            },
+            "minItems": 1
+          },
+          "snomed_pickers_enabled": {
+            "type": "boolean",
+            "description": "Dark flag: SNOMED_CT joins the settings-driven diagnosis search fan-out only when true (and SNOMED content is imported)."
+          },
+          "coding_enforcement": {
+            "type": "object",
+            "description": "Per-surface downstream-document code enforcement (WP2): keys are document surfaces (death_certificate, insurance_preauth, insurance_claim, discharge_summary), values off|warn|block. Effective level is min(env TERMINOLOGY_CODING_ENFORCEMENT, this). Empty object = all off.",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "off",
+                "warn",
+                "block"
+              ]
+            }
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "True when the tenant has no stored settings row and platform defaults apply."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "TimelineEvent": {
         "type": "object",
         "additionalProperties": true,
@@ -45756,6 +46724,22 @@
           },
           "disallowed_reason": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateDraftCodesRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "PATCH /api/v1/discharge-summaries/{id}/codes. Replaces the draft ICD-10 code list; draft/ready-for-signoff only.",
+        "required": [
+          "icd10_codes"
+        ],
+        "properties": {
+          "icd10_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -101605,6 +102589,47 @@
         ]
       }
     },
+    "/api/v1/discharge-summaries/{id}/codes": {
+      "patch": {
+        "operationId": "patch_api_v1_discharge_summaries_by_id_codes",
+        "tags": [
+          "discharge"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replaces the discharge draft's ICD-10 code list (draft/ready_for_signoff only). Codes run through per-surface coding enforcement (off/warn/block; warn attaches warnings, block rejects before any write) and are mirrored into clinical_code_bindings in the same transaction.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDraftCodesRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/discharge-summaries/{id}/deliver": {
       "post": {
         "operationId": "post_api_v1_discharge_summaries_by_id_deliver",
@@ -103968,12 +104993,34 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DrugKbCheckResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Stateless drug-KB evaluation for CDS previews and the pharmacist verification screen: drug–drug interactions, allergy cross-sensitivity, drug–disease cautions, dose ceilings, and IV Y-site compatibility over an explicitly passed medication/allergy/problem context. The patient-bound path runs inside validatePrescriptionSafety on prescription save and is unchanged by this endpoint."
+      }
+    },
+    "/api/v1/drug-kb/coverage": {
+      "get": {
+        "operationId": "get_api_v1_drug_kb_coverage",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrugKbCoverageResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Formulary coverage report: how much of the tenant's active pharmacy_catalog resolves to a drug-KB key, per resolution tier (explicit drug_kb_catalog_links row, confirmed ATC binding, composition ingredients, name-substring text fallback). Read-only visibility for the dark deterministic-matching gates; not itself gated."
       }
     },
     "/api/v1/drug-kb/status": {
@@ -117556,6 +118603,176 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/lab/code-mappings": {
+      "get": {
+        "operationId": "get_api_v1_lab_code_mappings",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists the tenant's curated analyzer/interface code → catalog/LOINC mappings (active by default; include_inactive=true adds history rows). Supports source_key and q (code/display/LOINC substring) filters plus limit/offset. Staff or admin read."
+      },
+      "post": {
+        "operationId": "post_api_v1_lab_code_mappings",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates an analyzer-code mapping. Terminology catalog curator roles only. Requires incoming_code plus at least one of catalog_id / loinc_code; source_key defaults to the 'any' wildcard. At most one ACTIVE mapping may exist per (source_key, incoming_code) — duplicates return 409. Curating rows never changes ingest behavior by itself: enrichment stays dark until the env kill switch and the tenant flag are both on.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabCodeMappingWriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/code-mappings/coverage": {
+      "get": {
+        "operationId": "get_api_v1_lab_code_mappings_coverage",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingCoverageResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mapping coverage report: distinct inbound analyzer codes seen on lab_results in the window (days, default 30) split mapped/unmapped with the top unmapped codes, active/inactive mapping counts, the investigation catalog's confirmed-LOINC binding rate, and the layered enablement gate state. Staff or admin read."
+      }
+    },
+    "/api/v1/lab/code-mappings/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_lab_code_mappings_by_id",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deactivates an analyzer-code mapping (audit-preserving soft delete). The live-unique slot for its (source_key, incoming_code) is freed for a corrected replacement row. Terminology catalog curator roles only.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "get": {
+        "operationId": "get_api_v1_lab_code_mappings_by_id",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Fetches one analyzer-code mapping.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_lab_code_mappings_by_id",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabCodeMappingResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Updates an analyzer-code mapping; omitted fields keep their current values. Terminology catalog curator roles only. A mapping must always keep at least one of catalog_id / loinc_code; verified=true stamps verification evidence from the caller.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabCodeMappingWriteRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/lab/interface/ingest": {
@@ -148191,12 +149408,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TerminologyCoverageResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Terminology binding coverage report (roadmap B8 exit metric): confirmed/suggested/rejected standard-code bindings per local catalog plus concept-map counts per system pair."
       }
     },
     "/api/v1/terminology/map": {
@@ -148249,12 +149467,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TerminologySearchResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Ranked concept search. With `system` (canonical key or alias), searches that single system — the original contract, unchanged. Without `system`, the search is settings-driven: the tenant's preferred_diagnosis_system and enabled_systems choose the diagnosis systems (SNOMED_CT only behind snomed_pickers_enabled), concepts arrive grouped by system in resolved.systems order, and the payload additionally carries `resolved`. Query params: q (min 2 chars), limit (default 20, max 100; per system in settings-driven mode). Empty results are expected while code systems are unimported — typeahead clients degrade to free text."
       }
     },
     "/api/v1/terminology/settings": {
@@ -148269,12 +149488,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TerminologySettingsResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Tenant terminology preferences (preferred diagnosis system, enabled systems, SNOMED picker flag). Falls back to platform defaults (is_default=true) when the tenant has no stored row."
       },
       "put": {
         "operationId": "put_api_v1_terminology_settings",
@@ -148287,8 +149507,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TerminologySettingsResponse"
                 }
+              }
+            }
+          }
+        },
+        "description": "Updates the tenant terminology preference row (catalog curator roles only). Omitted fields keep their current values; every change lands a terminology_audit_events row.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminologySettingsUpdateRequest"
               }
             }
           }

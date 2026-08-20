@@ -12,6 +12,7 @@ const listCodeSystemsMock = jest.fn();
 jest.unstable_mockModule('../../services/terminology/terminologyService.js', () => ({
   listCodeSystems: listCodeSystemsMock,
   searchConcepts: jest.fn(),
+  searchDiagnosisConcepts: jest.fn(),
   getConcept: jest.fn(),
   validateCode: jest.fn(),
   mapCode: jest.fn(),

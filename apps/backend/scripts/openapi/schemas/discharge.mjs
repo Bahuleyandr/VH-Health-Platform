@@ -183,6 +183,18 @@ export const schemas = {
       body: { type: 'string' },
     },
   },
+  // PATCH /{id}/codes — replace the draft's ICD-10 code list (WP2 coding
+  // enforcement; codes also mirrored into clinical_code_bindings in-tx).
+  UpdateDraftCodesRequest: {
+    type: 'object',
+    additionalProperties: true,
+    description: 'PATCH /api/v1/discharge-summaries/{id}/codes. Replaces the '
+      + 'draft ICD-10 code list; draft/ready-for-signoff only.',
+    required: ['icd10_codes'],
+    properties: {
+      icd10_codes: { type: 'array', items: { type: 'string' } },
+    },
+  },
   // POST /{id}/sign — no required field (route falls back to req.user.name).
   SignDischargeRequest: {
     type: 'object',
@@ -263,6 +275,13 @@ export const operations = {
   // PATCH /{id}/sections/{key}/translation → detail with the translation merged.
   'PATCH /api/v1/discharge-summaries/{id}/sections/{key}/translation': {
     request: 'SetSectionTranslationRequest',
+    response: 'DischargeSummaryResponse',
+  },
+  // PATCH /{id}/codes → detail with the replaced ICD-10 code list.
+  'PATCH /api/v1/discharge-summaries/{id}/codes': {
+    description:
+      'Replaces the discharge draft\'s ICD-10 code list (draft/ready_for_signoff only). Codes run through per-surface coding enforcement (off/warn/block; warn attaches warnings, block rejects before any write) and are mirrored into clinical_code_bindings in the same transaction.',
+    request: 'UpdateDraftCodesRequest',
     response: 'DischargeSummaryResponse',
   },
 };

@@ -1672,16 +1672,50 @@ class MedicalApiService {
     return _get('/emr/icd10/search', query: {'q': query});
   }
 
-  /// GET /terminology/search — search standard clinical terminology
+  /// GET /terminology/search — search standard clinical terminology.
+  ///
+  /// [system] is optional: when omitted the backend resolves the tenant's
+  /// preferred/enabled diagnosis systems (settings-driven multi-system
+  /// search); passing an explicit system keeps the legacy single-system
+  /// behavior byte-identical.
   static Future<Map<String, dynamic>> searchTerminology({
-    required String system,
+    String? system,
     required String query,
     int limit = 20,
   }) async {
     return _get(
       '/terminology/search',
-      query: {'system': system, 'q': query, 'limit': '$limit'},
+      query: {
+        if (system != null && system.isNotEmpty) 'system': system,
+        'q': query,
+        'limit': '$limit',
+      },
     );
+  }
+
+  static Map<String, dynamic>? _terminologySettingsCache;
+
+  /// GET /terminology/settings — tenant terminology preferences
+  /// (preferred_diagnosis_system, enabled_systems, snomed_pickers_enabled).
+  /// Cached for the app session; pass [refresh] to force a refetch.
+  static Future<Map<String, dynamic>> getTerminologySettings({
+    bool refresh = false,
+  }) async {
+    if (!refresh && _terminologySettingsCache != null) {
+      return _terminologySettingsCache!;
+    }
+    final res = await _get('/terminology/settings');
+    final data = res['data'] ?? res;
+    final settings = data is Map && data['settings'] is Map
+        ? Map<String, dynamic>.from(data['settings'] as Map)
+        : <String, dynamic>{};
+    _terminologySettingsCache = settings;
+    return settings;
+  }
+
+  /// Test seam / logout hygiene: drop the cached terminology settings.
+  static void clearTerminologySettingsCache() {
+    _terminologySettingsCache = null;
   }
 
   // ─── EMR: CDS (Clinical Decision Support) ─────────────────────────────────

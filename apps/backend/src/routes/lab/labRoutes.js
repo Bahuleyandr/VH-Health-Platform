@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import * as lab from '../../services/lab/labResultsService.js';
 import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
+import labCodeMappingRoutes from './labCodeMappingRoutes.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -21,6 +22,11 @@ import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// ── Terminology WP3 — analyzer-code → catalog/LOINC mapping curation ──────
+// CRUD + coverage for lab_analyzer_code_mappings (migration 721). Sub-router
+// keeps its own read (staff/admin) and write (terminology curator) gates.
+router.use('/code-mappings', labCodeMappingRoutes);
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
