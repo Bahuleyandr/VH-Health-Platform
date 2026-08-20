@@ -13,6 +13,7 @@ import {
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { CodeSearchField } from "@/components/terminology/CodeSearchField";
 
 interface DeathRecord {
   id: number;
@@ -393,20 +394,20 @@ function CreateDeathModal({
         <Section label="Cause of death (WHO ICD-10 format)">
           <Field2 label="Ia immediate cause *" v={form.cause_part_1a as string}
             on={(v) => setF("cause_part_1a", v)} multiline />
-          <Field2 label="Ia ICD-10" v={form.icd10_part_1a as string}
-            on={(v) => setF("icd10_part_1a", v)} placeholder="e.g. I21.9" />
+          <CodeSearchField label="Ia ICD-10" value={form.icd10_part_1a as string}
+            onChange={(v) => setF("icd10_part_1a", v)} placeholder="e.g. I21.9" />
           <Field2 label="Ib intermediate" v={form.cause_part_1b as string}
             on={(v) => setF("cause_part_1b", v)} multiline />
-          <Field2 label="Ib ICD-10" v={form.icd10_part_1b as string}
-            on={(v) => setF("icd10_part_1b", v)} />
+          <CodeSearchField label="Ib ICD-10" value={form.icd10_part_1b as string}
+            onChange={(v) => setF("icd10_part_1b", v)} />
           <Field2 label="Ic underlying" v={form.cause_part_1c as string}
             on={(v) => setF("cause_part_1c", v)} multiline />
-          <Field2 label="Ic ICD-10" v={form.icd10_part_1c as string}
-            on={(v) => setF("icd10_part_1c", v)} />
+          <CodeSearchField label="Ic ICD-10" value={form.icd10_part_1c as string}
+            onChange={(v) => setF("icd10_part_1c", v)} />
           <Field2 label="II contributory" v={form.cause_part_2 as string}
             on={(v) => setF("cause_part_2", v)} multiline />
-          <Field2 label="II ICD-10" v={form.icd10_part_2 as string}
-            on={(v) => setF("icd10_part_2", v)} />
+          <CodeSearchField label="II ICD-10" value={form.icd10_part_2 as string}
+            onChange={(v) => setF("icd10_part_2", v)} />
         </Section>
 
         <Section label="Manner + special situations">

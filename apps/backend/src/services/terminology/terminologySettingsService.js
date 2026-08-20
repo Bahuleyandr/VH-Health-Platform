@@ -15,11 +15,72 @@ const settingsCache = new Map();
 
 export const TERMINOLOGY_SYSTEMS = Object.freeze(['ICD10', 'ICD11', 'SNOMED_CT', 'LOINC', 'ATC']);
 
+// Downstream document surfaces governed by coding_enforcement (migration 720).
+// Shape: { [surface]: 'off' | 'warn' | 'block' }; absent surface == 'off'.
+// codingEnforcementService resolves the effective level (min of env + tenant).
+export const CODING_ENFORCEMENT_SURFACES = Object.freeze([
+  'death_certificate',
+  'insurance_preauth',
+  'insurance_claim',
+  'discharge_summary',
+]);
+
+export const CODING_ENFORCEMENT_LEVELS = Object.freeze(['off', 'warn', 'block']);
+
 export const DEFAULT_TERMINOLOGY_SETTINGS = Object.freeze({
   preferred_diagnosis_system: 'ICD11',
   enabled_systems: TERMINOLOGY_SYSTEMS,
   snomed_pickers_enabled: false,
+  coding_enforcement: Object.freeze({}),
 });
+
+export function normalizeCodingEnforcementLevel(value) {
+  if (value == null) return 'off';
+  const text = String(value).trim().toLowerCase();
+  return CODING_ENFORCEMENT_LEVELS.includes(text) ? text : 'off';
+}
+
+// Lenient read-side shaping: unknown surfaces and unknown levels are dropped
+// so a bad row can never poison consumers; 'off' entries are elided (absent
+// == off is the canonical spelling).
+function shapeCodingEnforcement(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const surface of CODING_ENFORCEMENT_SURFACES) {
+    const level = normalizeCodingEnforcementLevel(value[surface]);
+    if (level !== 'off') out[surface] = level;
+  }
+  return out;
+}
+
+// Strict write-side validation for PUT /terminology/settings payloads.
+function normalizeCodingEnforcementInput(value) {
+  if (value == null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest(
+      'coding_enforcement must be an object of surface -> off|warn|block',
+      'TERMINOLOGY_SETTINGS_BAD_CODING_ENFORCEMENT',
+    );
+  }
+  const out = {};
+  for (const [surface, level] of Object.entries(value)) {
+    if (!CODING_ENFORCEMENT_SURFACES.includes(surface)) {
+      throw AppError.badRequest(
+        `Unknown coding_enforcement surface '${surface}'`,
+        'TERMINOLOGY_SETTINGS_BAD_CODING_SURFACE',
+      );
+    }
+    const text = String(level ?? '').trim().toLowerCase();
+    if (!CODING_ENFORCEMENT_LEVELS.includes(text)) {
+      throw AppError.badRequest(
+        `coding_enforcement.${surface} must be one of ${CODING_ENFORCEMENT_LEVELS.join(', ')}`,
+        'TERMINOLOGY_SETTINGS_BAD_CODING_LEVEL',
+      );
+    }
+    if (text !== 'off') out[surface] = text;
+  }
+  return out;
+}
 
 const SYSTEM_ALIASES = Object.freeze({
   icd10: 'ICD10',
@@ -51,6 +112,7 @@ function defaultSettings(tenantId = null) {
     preferred_diagnosis_system: DEFAULT_TERMINOLOGY_SETTINGS.preferred_diagnosis_system,
     enabled_systems: [...DEFAULT_TERMINOLOGY_SETTINGS.enabled_systems],
     snomed_pickers_enabled: DEFAULT_TERMINOLOGY_SETTINGS.snomed_pickers_enabled,
+    coding_enforcement: {},
     is_default: true,
     created_at: null,
     updated_at: null,
@@ -90,6 +152,7 @@ function shapeSettingsRow(row, tenantId) {
       || DEFAULT_TERMINOLOGY_SETTINGS.preferred_diagnosis_system,
     enabled_systems: enabled.length > 0 ? enabled : [...DEFAULT_TERMINOLOGY_SETTINGS.enabled_systems],
     snomed_pickers_enabled: row.snomed_pickers_enabled === true,
+    coding_enforcement: shapeCodingEnforcement(row.coding_enforcement),
     is_default: false,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
@@ -102,20 +165,28 @@ export async function getTenantTerminologySettings(tenantId) {
 
   const cached = settingsCache.get(key);
   if (cached && Date.now() - cached.fetchedAt <= REFRESH_INTERVAL_MS) {
-    return { ...cached.value, enabled_systems: [...cached.value.enabled_systems] };
+    return {
+      ...cached.value,
+      enabled_systems: [...cached.value.enabled_systems],
+      coding_enforcement: { ...cached.value.coding_enforcement },
+    };
   }
 
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT tenant_id::text AS tenant_id, preferred_diagnosis_system, enabled_systems,
-              snomed_pickers_enabled, created_at, updated_at
+              snomed_pickers_enabled, coding_enforcement, created_at, updated_at
          FROM tenant_terminology_settings
         WHERE tenant_id = $1::uuid`,
       tenantId,
     );
     const value = shapeSettingsRow(rows[0], tenantId);
     settingsCache.set(key, { value, fetchedAt: Date.now() });
-    return { ...value, enabled_systems: [...value.enabled_systems] };
+    return {
+      ...value,
+      enabled_systems: [...value.enabled_systems],
+      coding_enforcement: { ...value.coding_enforcement },
+    };
   } catch (err) {
     logger.warn(`getTenantTerminologySettings failed for tenant ${tenantId}: ${err.message}`);
     return defaultSettings(tenantId);
@@ -131,6 +202,8 @@ export async function setTenantTerminologySettings(
     enabled_systems = null,
     snomedPickersEnabled = null,
     snomed_pickers_enabled = null,
+    codingEnforcement = null,
+    coding_enforcement = null,
   } = {},
   { actorUid = null } = {},
 ) {
@@ -154,23 +227,30 @@ export async function setTenantTerminologySettings(
   }
   const snomedEnabled = snomedPickersEnabled ?? snomed_pickers_enabled ?? current.snomed_pickers_enabled;
   const snomedBool = snomedEnabled === true;
+  const enforcementInput = codingEnforcement ?? coding_enforcement;
+  const enforcement = enforcementInput != null
+    ? normalizeCodingEnforcementInput(enforcementInput)
+    : shapeCodingEnforcement(current.coding_enforcement);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tenant_terminology_settings
-       (tenant_id, preferred_diagnosis_system, enabled_systems, snomed_pickers_enabled, updated_by, updated_at)
-     VALUES ($1::uuid, $2, $3::text[], $4, $5::uuid, NOW())
+       (tenant_id, preferred_diagnosis_system, enabled_systems, snomed_pickers_enabled,
+        coding_enforcement, updated_by, updated_at)
+     VALUES ($1::uuid, $2, $3::text[], $4, $5::jsonb, $6::uuid, NOW())
      ON CONFLICT (tenant_id) DO UPDATE SET
        preferred_diagnosis_system = EXCLUDED.preferred_diagnosis_system,
        enabled_systems = EXCLUDED.enabled_systems,
        snomed_pickers_enabled = EXCLUDED.snomed_pickers_enabled,
+       coding_enforcement = EXCLUDED.coding_enforcement,
        updated_by = EXCLUDED.updated_by,
        updated_at = NOW()
      RETURNING tenant_id::text AS tenant_id, preferred_diagnosis_system, enabled_systems,
-               snomed_pickers_enabled, created_at, updated_at`,
+               snomed_pickers_enabled, coding_enforcement, created_at, updated_at`,
     tenantId,
     preferred,
     enabled,
     snomedBool,
+    JSON.stringify(enforcement),
     actorUid,
   );
 
@@ -184,13 +264,18 @@ export async function setTenantTerminologySettings(
       preferred_diagnosis_system: preferred,
       enabled_systems: enabled,
       snomed_pickers_enabled: snomedBool,
+      coding_enforcement: enforcement,
     }),
   );
 
   const value = shapeSettingsRow(rows[0], tenantId);
   settingsCache.set(String(tenantId), { value, fetchedAt: Date.now() });
   logger.info(`Terminology settings updated: tenant=${tenantId}`);
-  return { ...value, enabled_systems: [...value.enabled_systems] };
+  return {
+    ...value,
+    enabled_systems: [...value.enabled_systems],
+    coding_enforcement: { ...value.coding_enforcement },
+  };
 }
 
 export async function isTerminologySystemEnabledForTenant(tenantId, system) {
