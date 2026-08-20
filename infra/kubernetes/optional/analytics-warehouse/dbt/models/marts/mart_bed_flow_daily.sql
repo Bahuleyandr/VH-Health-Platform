@@ -1,28 +1,31 @@
--- Bed-flow board (F2): per ward per day — admissions in, discharges out,
--- transfers in/out, midnight census, occupancy vs the seeded bed structure.
--- Census definition: admissions overlapping the day boundary (admitted
--- before the NEXT midnight, not discharged before it) — the NABH/billing
--- convention for occupied-bed-days.
+-- Bed-flow board (F2): per tenant per ward per day — admissions in,
+-- discharges out, transfers in/out, midnight census, occupancy vs the seeded
+-- bed structure. Census definition: admissions overlapping the day boundary
+-- (admitted before the NEXT midnight, not discharged before it) — the
+-- NABH/billing convention for occupied-bed-days.
+-- Grain: tenant_id × ward_id × date_day (NL-10: every mart carries
+-- tenant_id so embeds can lock on it). Ward-name joins are tenant-qualified
+-- — the same ward name can exist in two tenants.
 with days as (
     select date_day from {{ ref('dim_date') }}
     where date_day <= current_date
 ),
 
 wards as (
-    select ward_id, ward_name, total_beds from {{ ref('stg_wards') }}
+    select ward_id, tenant_id, ward_name, total_beds from {{ ref('stg_wards') }}
 ),
 
 admits as (
-    select ward, admitted_at::date as d, count(*) as n
+    select tenant_id, ward, admitted_at::date as d, count(*) as n
     from {{ ref('stg_admissions') }}
-    group by 1, 2
+    group by 1, 2, 3
 ),
 
 discharges as (
-    select ward, discharged_at::date as d, count(*) as n
+    select tenant_id, ward, discharged_at::date as d, count(*) as n
     from {{ ref('stg_admissions') }}
     where discharged_at is not null
-    group by 1, 2
+    group by 1, 2, 3
 ),
 
 transfers as (
@@ -38,16 +41,18 @@ transfers as (
 census as (
     select
         d.date_day,
+        a.tenant_id,
         a.ward,
         count(*) as midnight_census
     from days d
     join {{ ref('stg_admissions') }} a
       on a.admitted_at < (d.date_day + 1)
      and (a.discharged_at is null or a.discharged_at >= (d.date_day + 1))
-    group by 1, 2
+    group by 1, 2, 3
 )
 
 select
+    w.tenant_id,
     d.date_day,
     w.ward_id,
     w.ward_name,
@@ -62,9 +67,9 @@ select
     end                                   as occupancy_pct
 from days d
 cross join wards w
-left join admits     ad  on ad.ward = w.ward_name and ad.d = d.date_day
-left join discharges dis on dis.ward = w.ward_name and dis.d = d.date_day
-left join census     c   on c.ward = w.ward_name and c.date_day = d.date_day
+left join admits     ad  on ad.tenant_id = w.tenant_id and ad.ward = w.ward_name and ad.d = d.date_day
+left join discharges dis on dis.tenant_id = w.tenant_id and dis.ward = w.ward_name and dis.d = d.date_day
+left join census     c   on c.tenant_id = w.tenant_id and c.ward = w.ward_name and c.date_day = d.date_day
 left join (
     select d, from_ward_id, count(*) as n from transfers group by 1, 2
 ) tout on tout.from_ward_id = w.ward_id and tout.d = d.date_day

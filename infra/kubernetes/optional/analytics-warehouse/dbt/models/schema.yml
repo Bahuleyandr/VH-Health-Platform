@@ -39,6 +39,8 @@ models:
     columns:
       - name: encounter_key
         tests: [unique, not_null]
+      - name: tenant_id
+        tests: [not_null]
       - name: encounter_type
         tests:
           - accepted_values:
@@ -54,6 +56,8 @@ models:
     columns:
       - name: order_key
         tests: [unique, not_null]
+      - name: tenant_id
+        tests: [not_null]
       - name: status_class
         tests:
           - accepted_values:
@@ -63,27 +67,39 @@ models:
     columns:
       - name: revenue_line_key
         tests: [unique, not_null]
+      - name: tenant_id
+        tests: [not_null]
       - name: invoice_id
         tests: [not_null]
 
   - name: mart_bed_flow_daily
     description: >
-      Ward × day bed-flow board. Occupancy uses the seeded ward bed
+      Tenant × ward × day bed-flow board. Occupancy uses the seeded ward bed
       structure. Grain + occupancy bounds are enforced by the singular test
       tests/assert_bed_flow_unique_ward_day.sql (no external packages).
     columns:
+      - name: tenant_id
+        tests: [not_null]
       - name: date_day
         tests: [not_null]
       - name: ward_id
-        tests: [not_null]
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_wards')
+              field: ward_id
 
   - name: mart_ot_utilization_daily
     columns:
+      - name: tenant_id
+        tests: [not_null]
       - name: cases_scheduled
         tests: [not_null]
 
   - name: mart_department_revenue_monthly
     columns:
+      - name: tenant_id
+        tests: [not_null]
       - name: department
         tests: [not_null]
       - name: month
@@ -91,9 +107,111 @@ models:
 
   - name: mart_payer_mix_monthly
     columns:
+      - name: tenant_id
+        tests: [not_null]
       - name: month
         tests: [not_null]
       - name: payer_class
+        tests: [not_null]
+
+  - name: mart_encounter_volume_daily
+    description: >
+      Tenant × day × department × encounter-type volume from fct_encounters.
+      Grain uniqueness enforced by tests/assert_encounter_volume_unique_grain.sql.
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date_day
+        tests: [not_null]
+      - name: department
+        tests: [not_null]
+      - name: encounter_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ipd', 'opd', 'er']
+      - name: encounters
+        tests: [not_null]
+
+  - name: mart_lab_tat_daily
+    description: >
+      Tenant × day × order-store × order-type turnaround cohorts (lab TAT
+      headline; covers all three replicated order stores). Grain + count
+      consistency enforced by tests/assert_lab_tat_unique_grain.sql.
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date_day
+        tests: [not_null]
+      - name: order_store
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['clinical', 'pharmacy', 'investigation']
+      - name: order_type
+        tests: [not_null]
+      - name: orders_placed
+        tests: [not_null]
+
+  - name: mart_pharmacy_orders_daily
+    description: >
+      Tenant × day × status-class pharmacy order volume + dispense TAT.
+      OTC counter sales (migration 684) are not replicated — follow-up.
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date_day
+        tests: [not_null]
+      - name: status_class
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['open', 'completed', 'cancelled']
+      - name: orders
+        tests: [not_null]
+
+  - name: mart_collections_daily
+    description: >
+      Tenant × day × payment-mode counter collections with same-day billing
+      context (day_* columns repeat across mode rows — never sum them across
+      modes). Grain + context consistency enforced by
+      tests/assert_collections_unique_grain.sql.
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: date_day
+        tests: [not_null]
+      - name: mode
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['cash', 'card', 'upi', 'cheque', 'bank_transfer', 'wallet', 'unknown']
+              config:
+                severity: warn   # upstream mode is free-ish text; surfacing, not blocking
+      - name: collected_amount
+        tests: [not_null]
+
+  - name: mart_claims_aging_monthly
+    description: >
+      Tenant × submission-month × claim-store × aging-bucket cohorts over
+      the deliberately-separate TPA and insurance claim stores. Grain
+      enforced by tests/assert_claims_aging_unique_grain.sql.
+    columns:
+      - name: tenant_id
+        tests: [not_null]
+      - name: claim_month
+        tests: [not_null]
+      - name: claim_store
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['tpa', 'insurance']
+      - name: aging_bucket
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['open_0_30', 'open_31_60', 'open_61_90', 'open_over_90', 'settled', 'closed_unsettled']
+      - name: claims
         tests: [not_null]
 
 
