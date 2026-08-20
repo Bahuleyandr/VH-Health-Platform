@@ -96,6 +96,10 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/stroke-pathway",
   "api/v1/downtime/reconciliation/",
   "api/v1/debug/",
+  // Terminology & Knowledge console (slate C1). api/v1/lab (above) already
+  // covers the api/v1/lab/code-mappings family by segment boundary.
+  "api/v1/terminology",
+  "api/v1/drug-kb",
 ];
 
 // Headers that must not be forwarded by proxies

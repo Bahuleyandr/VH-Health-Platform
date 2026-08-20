@@ -66,6 +66,23 @@ export const schemas = {
         type: 'boolean',
         description: 'Compile-time constant; deliberately not changeable by deployment configuration.',
       },
+      // ── Terminology & knowledge env facts (slate C1; appended block) ──
+      who_icd_configured: {
+        type: 'boolean',
+        description: 'Presence boolean for WHO ICD-API credentials (or the local-mirror auth bypass); values are never returned.',
+      },
+      terminology_coding_enforcement: {
+        type: 'string', enum: ['off', 'warn', 'block'],
+        description: 'TERMINOLOGY_CODING_ENFORCEMENT env kill switch; unknown values read as off.',
+      },
+      drug_kb_deterministic_matching: {
+        type: 'boolean',
+        description: 'DRUG_KB_DETERMINISTIC_MATCHING env kill switch.',
+      },
+      lab_loinc_mapping_enabled: {
+        type: 'boolean',
+        description: 'LAB_LOINC_MAPPING_ENABLED env kill switch.',
+      },
     },
   },
 
@@ -112,6 +129,9 @@ export const schemas = {
         required: [
           'payment_gateway', 'sms', 'abdm_enrolment', 'abdm_scan_share',
           'abdm_hiu', 'uhi', 'ambulance_gps',
+          // Terminology & knowledge gates (slate C1; appended block). Their
+          // "provider_config" layer means imported content.
+          'terminology_coding', 'lab_loinc_mapping', 'drug_kb',
         ],
         properties: {
           payment_gateway: { $ref: '#/components/schemas/IntegrationGateState' },
@@ -121,6 +141,10 @@ export const schemas = {
           abdm_hiu: { $ref: '#/components/schemas/IntegrationGateState' },
           uhi: { $ref: '#/components/schemas/IntegrationGateState' },
           ambulance_gps: { $ref: '#/components/schemas/IntegrationGateState' },
+          // Terminology & knowledge gates (slate C1; appended block).
+          terminology_coding: { $ref: '#/components/schemas/IntegrationGateState' },
+          lab_loinc_mapping: { $ref: '#/components/schemas/IntegrationGateState' },
+          drug_kb: { $ref: '#/components/schemas/IntegrationGateState' },
         },
       },
     },

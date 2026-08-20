@@ -273,8 +273,11 @@ describe('no secret leakage', () => {
     for (const [key, value] of Object.entries(facts)) {
       expect(['boolean', 'string', 'object']).toContain(typeof value);
       if (typeof value === 'string') {
-        expect(['sms_provider', 'abdm_environment', 'uhi_environment', 'file_scan_policy'])
-          .toContain(key);
+        expect([
+          'sms_provider', 'abdm_environment', 'uhi_environment', 'file_scan_policy',
+          // Terminology & knowledge (slate C1): enum name off|warn|block.
+          'terminology_coding_enforcement',
+        ]).toContain(key);
       }
     }
   });
