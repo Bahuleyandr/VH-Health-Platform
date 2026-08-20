@@ -86,6 +86,17 @@ describe('queries target the real scan-status stores', () => {
     expect(allSql).toContain("IN ('quarantined', 'failed', 'pending', '')");
     expect(allSql).not.toContain("'not_scanned',");
   });
+
+  it('quarantine list casts both stores\' ids to text — integer (file_metadata) and uuid (staff_message_attachments) ids cannot be UNIONed raw', async () => {
+    // Regression pin for the 2026-08-20 Smoke E2E route-crawl red:
+    // "UNION types integer and uuid cannot be matched" 500'd /dashboard/uploads.
+    queryRawUnsafeMock.mockResolvedValue([]);
+    await listQuarantinedFiles(20, 0);
+
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    const castCount = (sql.match(/id::text AS id/g) || []).length;
+    expect(castCount).toBe(2); // one per UNION branch
+  });
 });
 
 describe('rescanFile — can never mint a permanently-blocked status', () => {
@@ -174,23 +185,31 @@ describe('rescanFile — can never mint a permanently-blocked status', () => {
 
 describe('purgeQuarantinedFiles — known-bad only', () => {
   it('dry run lists only rows matching the quarantined predicate and deletes nothing', async () => {
+    // ids arrive as text — the candidate query casts both stores' ids for the UNION
     queryRawUnsafeMock.mockResolvedValueOnce([
-      { source: 'generic', id: 1, storage_key: 'k1' },
-      { source: 'attachment', id: 2, storage_key: 'k2' },
+      { source: 'generic', id: '1', storage_key: 'k1' },
+      { source: 'attachment', id: '2e9c1d34-0000-4000-8000-000000000002', storage_key: 'k2' },
     ]);
 
     const result = await purgeQuarantinedFiles(true);
 
-    expect(result).toEqual({ success: true, purged: 0, dryRun: true, details: ['generic:1', 'attachment:2'] });
+    expect(result).toEqual({
+      success: true,
+      purged: 0,
+      dryRun: true,
+      details: ['generic:1', 'attachment:2e9c1d34-0000-4000-8000-000000000002'],
+    });
     expect(deleteObjectMock).not.toHaveBeenCalled();
     const sql = queryRawUnsafeMock.mock.calls[0][0];
     expect(sql).toContain("= 'quarantined'");
     expect(sql).not.toContain("'failed'"); // unreviewed rows are never purged
+    // Same UNION type pin as the quarantine list: both branches cast id to text.
+    expect((sql.match(/id::text AS id/g) || []).length).toBe(2);
   });
 
   it('real run deletes the stored object and deactivates the generic row', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([{ source: 'generic', id: 1, storage_key: 'k1' }])
+      .mockResolvedValueOnce([{ source: 'generic', id: '1', storage_key: 'k1' }])
       .mockResolvedValueOnce([{ id: 1 }]);
     deleteObjectMock.mockResolvedValue(undefined);
 

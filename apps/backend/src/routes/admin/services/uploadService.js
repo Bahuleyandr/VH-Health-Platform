@@ -132,7 +132,11 @@ export async function listQuarantinedFiles(limit = 50, offset = 0) {
            quarantined_at,
            size_bytes
       FROM (
-        SELECT '${SOURCE_GENERIC}' AS source, id, file_name,
+        -- id is cast to text in BOTH branches: file_metadata.id is an integer
+        -- while staff_message_attachments.id is a uuid, and Postgres rejects
+        -- the UNION at parse time otherwise ("UNION types integer and uuid
+        -- cannot be matched") — which 500'd the whole admin uploads page.
+        SELECT '${SOURCE_GENERIC}' AS source, id::text AS id, file_name,
                scan_status,
                'scan_status=' || COALESCE(scan_status, 'NULL') AS reason,
                uploaded_by::text AS uploaded_by,
@@ -141,7 +145,7 @@ export async function listQuarantinedFiles(limit = 50, offset = 0) {
           FROM file_metadata
          WHERE ${REVIEW_PREDICATE}
         UNION ALL
-        SELECT '${SOURCE_ATTACHMENT}' AS source, id, file_name,
+        SELECT '${SOURCE_ATTACHMENT}' AS source, id::text AS id, file_name,
                scan_status,
                'scan_status=' || COALESCE(scan_status, 'NULL') AS reason,
                uploaded_by_uid::text AS uploaded_by,
@@ -351,11 +355,13 @@ export async function purgeQuarantinedFiles(dryRun = true) {
   const rows = await safeQuery(
     `
     SELECT source, id, storage_key FROM (
-      SELECT '${SOURCE_GENERIC}' AS source, id, storage_key
+      -- Same id::text cast as listQuarantinedFiles: integer vs uuid ids
+      -- cannot be UNIONed without it.
+      SELECT '${SOURCE_GENERIC}' AS source, id::text AS id, storage_key
         FROM file_metadata
        WHERE ${QUARANTINED_PREDICATE} AND is_active = true
       UNION ALL
-      SELECT '${SOURCE_ATTACHMENT}' AS source, id, storage_key
+      SELECT '${SOURCE_ATTACHMENT}' AS source, id::text AS id, storage_key
         FROM staff_message_attachments
        WHERE ${QUARANTINED_PREDICATE}
     ) q
@@ -377,7 +383,9 @@ export async function purgeQuarantinedFiles(dryRun = true) {
       await deleteObject(row.storage_key);
       if (row.source === SOURCE_GENERIC) {
         await safeQuery(
-          'UPDATE file_metadata SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id',
+          // row.id arrives as text (the candidate query casts both stores'
+          // ids to text for the UNION); cast back for the integer column.
+          'UPDATE file_metadata SET is_active = false, updated_at = NOW() WHERE id = $1::int RETURNING id',
           [row.id],
           'uploads.quarantine.deactivate',
         );
