@@ -47,6 +47,7 @@ import * as smsConfig from '../../../scripts/openapi/schemas/smsConfig.mjs';
 import * as abdmCompletion from '../../../scripts/openapi/schemas/abdmCompletion.mjs';
 import * as facilityAssets from '../../../scripts/openapi/schemas/facilityAssets.mjs';
 import * as integrationGates from '../../../scripts/openapi/schemas/integrationGates.mjs';
+import * as terminology from '../../../scripts/openapi/schemas/terminology.mjs';
 import * as uhi from '../../../scripts/openapi/schemas/uhi.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
@@ -96,6 +97,7 @@ const MODULES = [
   abdmCompletion,
   facilityAssets,
   integrationGates,
+  terminology,
   uhi
 ];
 

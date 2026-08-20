@@ -61,6 +61,7 @@ import * as referralFacilities from './openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from './openapi/schemas/shiftSwapOnCall.mjs';
 import * as facilityAssets from './openapi/schemas/facilityAssets.mjs';
 import * as integrationGates from './openapi/schemas/integrationGates.mjs';
+import * as terminology from './openapi/schemas/terminology.mjs';
 import * as uhi from './openapi/schemas/uhi.mjs';
 
 const SCHEMA_MODULES = [
@@ -112,6 +113,7 @@ const SCHEMA_MODULES = [
   abdmCompletion,
   facilityAssets,
   integrationGates,
+  terminology,
   uhi
 ];
 
