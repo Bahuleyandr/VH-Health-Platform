@@ -1,8 +1,11 @@
--- OT utilization (F2): per theatre per day. Denominator = the staffed-day
--- var (ot_available_minutes_per_day, default 600 = 10h). Completed cases
--- without a recorded actual_duration fall back to the estimate so the
--- utilization line doesn't lie low while documentation lags.
+-- OT utilization (F2): per tenant per theatre per day. Denominator = the
+-- staffed-day var (ot_available_minutes_per_day, default 600 = 10h).
+-- Completed cases without a recorded actual_duration fall back to the
+-- estimate so the utilization line doesn't lie low while documentation lags.
+-- Grain: tenant_id × ot_room × date_day — the migration-465 catalog already
+-- declares this mart tenant_id-bounded; the model now actually carries it.
 select
+    tenant_id,
     scheduled_date                        as date_day,
     ot_room,
     count(*)                              as cases_scheduled,
@@ -26,4 +29,4 @@ select
     )                                     as utilization_pct
 from {{ ref('stg_ot_schedules') }}
 where ot_room is not null
-group by 1, 2
+group by 1, 2, 3
