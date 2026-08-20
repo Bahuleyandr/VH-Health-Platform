@@ -40,6 +40,7 @@ import {
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getAnalyticsBiSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -78,6 +79,14 @@ function blockingLayer(map, reason) {
   return map[reason] || 'unknown';
 }
 
+// Env layer of the analytics-BI (embedded Metabase) gate. Mirrors
+// metabaseService.isMetabaseEnvConfigured — read here directly from
+// process.env (the sms_provider idiom) so this console module does not
+// import the dashboards service graph.
+function metabaseEnvConfigured() {
+  return Boolean(process.env.METABASE_URL && process.env.METABASE_EMBED_SECRET);
+}
+
 /** Deployment-wide env facts — booleans / enum names only, never values. */
 export function integrationGateEnvFacts() {
   const smsProvider = String(process.env.SMS_PROVIDER || '').trim().toLowerCase();
@@ -103,6 +112,15 @@ export function integrationGateEnvFacts() {
     terminology_coding_enforcement: normalizeCodingEnforcementEnv(),
     drug_kb_deterministic_matching: knowledgeEnvFlagEnabled('DRUG_KB_DETERMINISTIC_MATCHING'),
     lab_loinc_mapping_enabled: knowledgeEnvFlagEnabled('LAB_LOINC_MAPPING_ENABLED'),
+
+    // Embedded BI (slate C2): presence booleans/counts only, never URLs or
+    // secrets. metabase_dashboards_configured counts METABASE_DASH_* env
+    // vars carrying a positive dashboard id (the per-dashboard config layer).
+    metabase_configured: metabaseEnvConfigured(),
+    metabase_dashboards_configured: Object.entries(process.env)
+      .filter(([name]) => name.startsWith('METABASE_DASH_'))
+      .filter(([, value]) => Number.parseInt(value, 10) > 0)
+      .length,
   };
 }
 
@@ -396,9 +414,31 @@ async function drugKbGate(tenant) {
   });
 }
 
+
+// ── analytics_bi (embedded Metabase BI, slate C2) ───────────────────────────
+// Self-contained append-style block (wt/bi-app). Two AND-ed layers:
+//   env           — METABASE_URL + METABASE_EMBED_SECRET both set
+//   tenant_setting— settings.analyticsBi.enabled === true
+// Truth reused, not re-derived: the tenant layer is the same
+// tenantSettingsService accessor metabaseService.buildEmbedUrl consults; the
+// env predicate mirrors its isMetabaseEnvConfigured fail-closed check.
+// Per-dashboard METABASE_DASH_* ids are a per-resource config layer surfaced
+// as a count in integrationGateEnvFacts (metabase_dashboards_configured),
+// not a blocking layer here.
+async function analyticsBiGate(tenantId) {
+  const envConfigured = metabaseEnvConfigured();
+  const settings = await getAnalyticsBiSettings(tenantId);
+  const effective = envConfigured && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envConfigured ? 'tenant_setting' : 'env'),
+    layers: { env: envConfigured, tenant_setting: settings.enabled === true },
+  };
+}
+
 async function tenantGates(tenant) {
   const tenantId = tenant.id;
-  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting] =
+  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting, analyticsBi] =
     await Promise.all([
       paymentGatewayGate(tenantId),
       smsGate(tenantId),
@@ -407,6 +447,7 @@ async function tenantGates(tenant) {
       ambulanceGpsGate(tenantId),
       getPaymentGatewaySettings(tenantId),
       getSmsSettings(tenantId),
+      analyticsBiGate(tenantId),
     ]);
   // Terminology & knowledge gates (slate C1) — separate await so the block
   // above keeps its positional destructure untouched for sibling merges.
@@ -438,6 +479,8 @@ async function tenantGates(tenant) {
       terminology_coding: terminologyCoding,
       lab_loinc_mapping: labLoincMapping,
       drug_kb: drugKb,
+
+      analytics_bi: analyticsBi,
     },
   };
 }

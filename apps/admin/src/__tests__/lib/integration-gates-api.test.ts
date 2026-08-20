@@ -93,6 +93,19 @@ describe("tenant gate flag flip (settings PATCH is a full replace)", () => {
     });
   });
 
+  it("flips the analyticsBi gate flag through the same settings merge (wt/bi-app)", async () => {
+    listTenantsMock.mockResolvedValue({ tenants: [TENANT], count: 1 });
+    updateTenantMock.mockResolvedValue(TENANT);
+
+    await setTenantGateFlag(TENANT.id, "analyticsBi", true);
+
+    const sent = updateTenantMock.mock.calls[0][1].settings;
+    expect(sent.analyticsBi).toEqual({ enabled: true });
+    // Sibling gate flags survive the full-replace PATCH untouched.
+    expect(sent.sms).toEqual({ enabled: true });
+    expect(sent).not.toHaveProperty("care_pathways");
+  });
+
   it("throws instead of writing when the tenant is unknown", async () => {
     listTenantsMock.mockResolvedValue({ tenants: [], count: 0 });
     await expect(setTenantGateFlag(TENANT.id, "sms", true)).rejects.toThrow(

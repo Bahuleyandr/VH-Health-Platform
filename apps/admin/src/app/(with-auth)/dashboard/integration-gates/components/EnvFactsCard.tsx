@@ -87,6 +87,13 @@ export function EnvFactsCard({ env }: { env: IntegrationGateEnvFacts }) {
           label="Lab LOINC mapping (LAB_LOINC_MAPPING_ENABLED)"
           on={env.lab_loinc_mapping_enabled === true}
         />
+        <Fact
+          label="Metabase embeds (METABASE_URL + secret)"
+          on={env.metabase_configured === true}
+          detail={`${env.metabase_dashboards_configured ?? 0} dashboard id${
+            env.metabase_dashboards_configured === 1 ? "" : "s"
+          }`}
+        />
       </div>
     </div>
   );

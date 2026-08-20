@@ -84,7 +84,8 @@ export type GateKey =
   // Terminology & knowledge gates (slate C1; appended block).
   | "terminology_coding"
   | "lab_loinc_mapping"
-  | "drug_kb";
+  | "drug_kb"
+  | "analytics_bi";
 
 export interface IntegrationGateTenantEntry {
   tenant: { id: string; slug: string; name: string | null; status: string };
@@ -112,6 +113,10 @@ export interface IntegrationGateEnvFacts {
   terminology_coding_enforcement?: "off" | "warn" | "block";
   drug_kb_deterministic_matching?: boolean;
   lab_loinc_mapping_enabled?: boolean;
+  /** Embedded BI (wt/bi-app): METABASE_URL + METABASE_EMBED_SECRET present. */
+  metabase_configured: boolean;
+  /** Count of METABASE_DASH_* env vars carrying a positive dashboard id. */
+  metabase_dashboards_configured: number;
 }
 
 export interface IntegrationGateReport {
@@ -145,7 +150,8 @@ export type TenantGateSettingKey =
   | "abdmEnrolment"
   | "abdmHiu"
   | "uhi"
-  | "ambulanceGpsTracking";
+  | "ambulanceGpsTracking"
+  | "analyticsBi";
 
 export async function setTenantGateFlag(
   tenantId: string,
