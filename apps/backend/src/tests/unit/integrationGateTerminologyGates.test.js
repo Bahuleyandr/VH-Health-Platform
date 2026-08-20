@@ -33,6 +33,9 @@ const getSmsSettings = jest.fn();
 const getUhiSettings = jest.fn();
 const getLabLoincMappingSettings = jest.fn();
 const getDrugKbSettings = jest.fn();
+// Embedded-BI accessor (wt/bi-app): integrationGateService imports it by name,
+// so the mock module must export it even though these tests never enable it.
+const getAnalyticsBiSettings = jest.fn(async () => ({ enabled: false }));
 const getTenantTerminologySettings = jest.fn();
 const isWhoIcdConfigured = jest.fn();
 const queryRawUnsafe = jest.fn();
@@ -81,6 +84,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   // WP3/WP4 accessors — reached via the namespace import's property lookup.
   getLabLoincMappingSettings,
   getDrugKbSettings,
+  getAnalyticsBiSettings,
 }));
 jest.unstable_mockModule('../../services/terminology/terminologySettingsService.js', () => ({
   getTenantTerminologySettings,
