@@ -117,13 +117,17 @@ function Invoke-SmokeRequest {
     [Parameter(Mandatory)][string]$Method,
     [Parameter(Mandatory)][string]$Path,
     [object]$Body = $null,
-    [string]$AuthToken = $script:StaffToken
+    [string]$AuthToken = $script:StaffToken,
+    [string]$IdempotencyKey = $null
   )
 
   $uri = "$($BackendBase.TrimEnd('/'))$Path"
   $headers = @{
     Authorization = "Bearer $AuthToken"
     "x-api-key" = $ApiKey
+  }
+  if ($IdempotencyKey) {
+    $headers["Idempotency-Key"] = $IdempotencyKey
   }
 
   try {
@@ -238,11 +242,15 @@ if ($dietId) {
   Add-Result $results "dietary_discontinue" "SKIP" $false "diet order id not found after create"
 }
 
+# POST /messaging/send is mounted with requireIdempotencyKey({ required: true,
+# scope: 'staff_message_send' }) — omitting the header is a hard 400, exactly
+# like the real staff client (MessagingApiService.sendDirect). The stamp keys
+# each run uniquely so a rerun cannot replay a previous run's cached response.
 $messageCreate = Invoke-SmokeRequest $results "messaging_send" "POST" "/api/v1/messaging/send" @{
   recipient_uid = $RecipientUid
   body = "Staff smoke message $stamp"
   priority = "normal"
-}
+} -IdempotencyKey "staff-smoke-send-$stamp"
 $messageJson = Get-JsonContent $messageCreate
 $messageId = Get-JsonProperty (Get-JsonProperty $messageJson "data") "id"
 
