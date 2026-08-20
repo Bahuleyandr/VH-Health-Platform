@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { CodeMultiSearchField } from "@/components/terminology/CodeSearchField";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import {
@@ -83,6 +84,7 @@ interface IntakeForm {
   expected_cost: string;
   request_type: "planned" | "emergency";
   primary_diagnosis: string;
+  icd10_codes: string[];
   proposed_procedure: string;
   notes: string;
   submitNow: boolean;
@@ -112,6 +114,7 @@ const EMPTY_FORM: IntakeForm = {
   expected_cost: "",
   request_type: "planned",
   primary_diagnosis: "",
+  icd10_codes: [],
   proposed_procedure: "",
   notes: "",
   submitNow: true,
@@ -293,6 +296,7 @@ export function AdmissionIntakeTab() {
           admission_id: admission.id,
           request_type: form.request_type,
           primary_diagnosis: form.primary_diagnosis.trim(),
+          icd10_codes: form.icd10_codes.length > 0 ? form.icd10_codes : undefined,
           proposed_procedure: form.proposed_procedure.trim() || undefined,
           expected_admission_date: isoDate(admission.admitted_at),
           expected_los_days: asNumber(form.expected_los_days),
@@ -695,6 +699,13 @@ export function AdmissionIntakeTab() {
                   value={form.primary_diagnosis}
                   onChange={(v) => update("primary_diagnosis", v)}
                   required
+                />
+                <CodeMultiSearchField
+                  label="ICD-10 codes (optional)"
+                  values={form.icd10_codes}
+                  onChange={(codes) => update("icd10_codes", codes)}
+                  labelClassName="mb-1 block text-xs text-muted-foreground"
+                  inputClassName="w-full rounded-lg border border-border px-3 py-2 text-sm"
                 />
                 <Field
                   label="Proposed procedure"
