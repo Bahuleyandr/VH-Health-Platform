@@ -8,10 +8,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const skippedDirs = new Set([
   '.git',
-  // Local agent/session state (e.g. .claude/worktrees holds full checkouts of
-  // in-flight branches, including copies of this scanner whose PEM regex
-  // self-matches). Never present in CI checkouts; machine-local only.
-  '.claude',
+  // `.claude` is handled path-aware (skippedClaudeLocalState below), not by
+  // name: its `skills` subtree is tracked and ships in CI checkouts.
   '.dart_tool',
   '.idea',
   '.vscode',
@@ -57,11 +55,27 @@ const contentDetectors = [
   },
 ];
 
-async function* walk(dir) {
+// Inside any `.claude` directory, only the `skills` subtree is scanned.
+// Everything else there is machine-local agent/session state — worktrees of
+// in-flight branches (whose copies of this scanner self-match the PEM regex),
+// settings, session dirs — while `.claude/skills` is the tracked team-shared
+// carve-out (.gitignore) that IS present in CI checkouts and must stay
+// scanned. Applies to files directly under `.claude/` too (e.g. local
+// settings JSON).
+function skippedClaudeLocalState(relPath) {
+  const parts = relPath.split('/');
+  const i = parts.indexOf('.claude');
+  if (i === -1 || i === parts.length - 1) return false;
+  return parts[i + 1] !== 'skills';
+}
+
+async function* walk(dir, rel = '') {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+    if (skippedClaudeLocalState(relPath)) continue;
     if (entry.isDirectory()) {
       if (skippedDirs.has(entry.name)) continue;
-      yield* walk(join(dir, entry.name));
+      yield* walk(join(dir, entry.name), relPath);
     } else if (entry.isFile()) {
       yield join(dir, entry.name);
     }
