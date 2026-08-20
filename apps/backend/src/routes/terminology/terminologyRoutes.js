@@ -10,6 +10,7 @@ import express from 'express';
 import {
   listCodeSystems,
   searchConcepts,
+  searchDiagnosisConcepts,
   getConcept,
   validateCode,
   mapCode,
@@ -84,6 +85,7 @@ router.put('/settings', async (req, res) => {
         preferred_diagnosis_system: req.body.preferred_diagnosis_system,
         enabled_systems: req.body.enabled_systems,
         snomed_pickers_enabled: req.body.snomed_pickers_enabled,
+        coding_enforcement: req.body.coding_enforcement,
       },
       { actorUid: req.user?.uid || null },
     );
@@ -94,13 +96,34 @@ router.put('/settings', async (req, res) => {
 });
 
 // GET /search?system=ICD10&q=fever&limit=20
+//
+// `system` is optional (WP1 frozen contract): when present, behaviour is the
+// original single-system search, byte-identical for existing clients. When
+// absent, the search is settings-driven — the tenant's
+// preferred_diagnosis_system / enabled_systems (SNOMED_CT only behind
+// snomed_pickers_enabled) pick the systems, and the response additionally
+// carries `resolved` describing that fan-out.
 router.get('/search', async (req, res) => {
   try {
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId;
+    const rawSystem = req.query.system;
+    if (rawSystem == null || String(rawSystem).trim() === '') {
+      const result = await searchDiagnosisConcepts({
+        tenantId,
+        q: req.query.q,
+        limit: req.query.limit,
+      });
+      return success(
+        res,
+        { concepts: result.concepts, count: result.concepts.length, resolved: result.resolved },
+        'Concept search results',
+      );
+    }
     const concepts = await searchConcepts({
-      system: req.query.system,
+      system: rawSystem,
       q: req.query.q,
       limit: req.query.limit,
-      tenantId: req.tenantId || req.user?.tenant_id || req.user?.tenantId,
+      tenantId,
     });
     return success(res, { concepts, count: concepts.length }, 'Concept search results');
   } catch (err) {

@@ -14,6 +14,13 @@
 //   Generic code,display[,category] CSV (ICD10 / ICD11 / ATC or curated subsets):
 //     node scripts/terminology-import.mjs --system ICD11 --csv path/to/icd11.csv --version <release>
 //
+//   ICD-11 WHO SimpleTabulation linearization export (official offline artefact;
+//   save the xlsx as TSV/CSV first — Code/Title/ClassKind columns required):
+//     node scripts/terminology-import.mjs --system ICD11 --icd11-tabulation path/to/SimpleTabulation.tsv --version <release>
+//
+//   ATC (WHOCC index flat file / CSV: code + name per line; level derived from code length):
+//     node scripts/terminology-import.mjs --system ATC --atc path/to/atc_index.csv --version <release>
+//
 //   SNOMED ExtendedMap RF2 refset (SNOMED -> ICD-10):
 //     node scripts/terminology-import.mjs --system SNOMED_CT --rf2-map path/to/der2_iisssccRefset_ExtendedMapSnapshot.txt --version <release>
 //
@@ -63,6 +70,8 @@ function parseArgs(argv) {
     else if (a === '--rf2') args.rf2 = argv[++i];
     else if (a === '--loinc') args.loinc = argv[++i];
     else if (a === '--csv') args.csv = argv[++i];
+    else if (a === '--icd11-tabulation') args.icd11Tabulation = argv[++i];
+    else if (a === '--atc') args.atc = argv[++i];
     else if (a === '--rf2-map') args.rf2Map = argv[++i];
     else if (a === '--map-csv') args.mapCsv = argv[++i];
     else if (a === '--version') args.version = argv[++i];
@@ -97,7 +106,7 @@ function normalizeRelationship(value) {
 }
 
 function hasConceptInput(args) {
-  return !!(args.rf2 || args.loinc || args.csv);
+  return !!(args.rf2 || args.loinc || args.csv || args.icd11Tabulation || args.atc);
 }
 
 function hasMapInput(args) {
@@ -109,6 +118,8 @@ function sourceRefFor(args) {
   if (args.rf2) refs.push(`rf2:${args.rf2}`);
   if (args.loinc) refs.push(`loinc:${args.loinc}`);
   if (args.csv) refs.push(`csv:${args.csv}`);
+  if (args.icd11Tabulation) refs.push(`icd11-tabulation:${args.icd11Tabulation}`);
+  if (args.atc) refs.push(`atc:${args.atc}`);
   if (args.rf2Map) refs.push(`rf2-map:${args.rf2Map}`);
   if (args.mapCsv) refs.push(`map-csv:${args.mapCsv}`);
   return refs.join('; ');
@@ -143,6 +154,8 @@ async function createImportBatch(client, systemKey, args) {
       rf2: args.rf2 || null,
       loinc: args.loinc || null,
       csv: args.csv || null,
+      icd11_tabulation: args.icd11Tabulation || null,
+      atc: args.atc || null,
       rf2_map: args.rf2Map || null,
       map_csv: args.mapCsv || null,
     },
@@ -220,6 +233,144 @@ export function splitFsn(term) {
   const m = /^(.*)\s+\(([^()]+)\)\s*$/.exec(term || '');
   if (!m) return { display: (term || '').trim(), tag: null };
   return { display: m[1].trim(), tag: m[2].trim() };
+}
+
+// ── WHO ICD-11 SimpleTabulation parsing ────────────────────────────────────
+//
+// The official offline linearization artefact is the SimpleTabulation
+// spreadsheet (owner saves the xlsx as TSV/CSV/semicolon-CSV). Columns of
+// interest: Code, Title, ClassKind, ChapterNo (+ BlockId and URI columns we
+// ignore). Titles carry leading dashes encoding hierarchy depth
+// ("- - Some synthetic title"); ClassKind is chapter | block | category and
+// only category rows carry importable codes.
+
+export function detectTabulationDelimiter(line) {
+  const text = String(line || '');
+  if (text.includes('\t')) return '\t';
+  if (text.includes(';')) return ';';
+  return ',';
+}
+
+export function splitTabulationLine(line, delimiter) {
+  if (delimiter === ',') return parseCsvLine(line);
+  return String(line)
+    .split(delimiter)
+    .map((cell) => cell.trim().replace(/^"(.*)"$/s, '$1'));
+}
+
+// Normalize a header cell to a lookup key: "Linearization (release) URI" ->
+// "linearization(release)uri", "ClassKind" -> "classkind".
+export function normalizeTabulationHeaderCell(cell) {
+  return String(cell || '').trim().replace(/^"(.*)"$/s, '$1').toLowerCase().replace(/\s+/g, '');
+}
+
+// Strip the leading depth dashes from a SimpleTabulation title:
+// "- - Synthetic title" -> "Synthetic title".
+export function stripTabulationTitleDashes(title) {
+  return String(title || '').replace(/^[\s\-–—]+/, '').trim();
+}
+
+// Map one tabulation row (object keyed by normalized header cells) to a
+// concept, or null when the row must be skipped (chapter/block/residual
+// grouping rows, or rows without code/title).
+export function icd11TabulationConceptFromRow(row) {
+  const classKind = String(row.classkind || '').trim().toLowerCase();
+  if (classKind !== 'category') return null;
+  const code = String(row.code || '').trim();
+  const display = stripTabulationTitleDashes(row.title);
+  if (!code || !display) return null;
+  const chapter = String(row.chapterno || '').trim();
+  return { code, display, category: chapter || null };
+}
+
+export async function importIcd11Tabulation(client, filePath, stats, dryRun, batchContext) {
+  const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+  const batch = [];
+  let delimiter = null;
+  let header = null;
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    if (!header) {
+      delimiter = detectTabulationDelimiter(line);
+      header = splitTabulationLine(line, delimiter).map(normalizeTabulationHeaderCell);
+      for (const required of ['code', 'title', 'classkind']) {
+        if (!header.includes(required)) {
+          throw new Error(
+            `Not a WHO ICD-11 SimpleTabulation export: '${required}' column missing (need Code, Title, ClassKind)`,
+          );
+        }
+      }
+      continue;
+    }
+    const cols = splitTabulationLine(line, delimiter);
+    const row = Object.fromEntries(header.map((h, i) => [h, cols[i]]));
+    const concept = icd11TabulationConceptFromRow(row);
+    if (!concept) {
+      stats.skipped += 1;
+      continue;
+    }
+    batch.push(concept);
+    if (batch.length >= BATCH_SIZE) {
+      await flushConceptBatch(client, 'ICD11', batch, stats, dryRun, batchContext);
+    }
+  }
+  if (!header) {
+    throw new Error('ICD-11 tabulation file is empty');
+  }
+  await flushConceptBatch(client, 'ICD11', batch, stats, dryRun, batchContext);
+}
+
+// ── WHOCC ATC index parsing ────────────────────────────────────────────────
+//
+// The WHOCC ATC index is a flat "code name" listing (CSV or whitespace
+// separated). The classification level is a function of code length:
+// A (1) -> level 1, A01 (3) -> 2, A01A (4) -> 3, A01AA (5) -> 4,
+// A01AA01 (7) -> 5.
+
+const ATC_CODE_RE = /^[A-Z](\d{2}([A-Z]([A-Z](\d{2})?)?)?)?$/;
+const ATC_LEVEL_BY_LENGTH = Object.freeze({ 1: 1, 3: 2, 4: 3, 5: 4, 7: 5 });
+
+export function atcLevelForCode(code) {
+  const cleaned = String(code || '').trim().toUpperCase();
+  if (!ATC_CODE_RE.test(cleaned)) return null;
+  return ATC_LEVEL_BY_LENGTH[cleaned.length] || null;
+}
+
+// Parse one ATC index line -> { code, display, category } or null (skip).
+// Header lines and malformed rows fail the code pattern and return null.
+export function parseAtcIndexLine(line) {
+  const text = String(line || '').trim();
+  if (!text) return null;
+  let fields;
+  if (text.includes(',')) fields = parseCsvLine(text);
+  else if (text.includes('\t')) fields = text.split('\t');
+  else {
+    const m = /^(\S+)\s+(.*)$/.exec(text);
+    fields = m ? [m[1], m[2]] : [text];
+  }
+  const code = String(fields[0] || '').trim().replace(/^"(.*)"$/s, '$1').toUpperCase();
+  const display = String(fields[1] || '').trim().replace(/^"(.*)"$/s, '$1');
+  const level = atcLevelForCode(code);
+  if (!level || !display) return null;
+  return { code, display, category: `atc_level_${level}` };
+}
+
+export async function importAtcIndex(client, filePath, stats, dryRun, batchContext) {
+  const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+  const batch = [];
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    const concept = parseAtcIndexLine(line);
+    if (!concept) {
+      stats.skipped += 1;
+      continue;
+    }
+    batch.push(concept);
+    if (batch.length >= BATCH_SIZE) {
+      await flushConceptBatch(client, 'ATC', batch, stats, dryRun, batchContext);
+    }
+  }
+  await flushConceptBatch(client, 'ATC', batch, stats, dryRun, batchContext);
 }
 
 async function flushConceptBatch(client, systemKey, batch, stats, dryRun, { releaseLabel, batchId }) {
@@ -592,7 +743,7 @@ async function main() {
     process.exit(2);
   }
   if (!hasConceptInput(args) && !hasMapInput(args)) {
-    console.error('Provide an input: --rf2 <dir>, --loinc <Loinc.csv>, --csv <file>, --rf2-map <file|dir>, or --map-csv <file>');
+    console.error('Provide an input: --rf2 <dir>, --loinc <Loinc.csv>, --csv <file>, --icd11-tabulation <file>, --atc <file>, --rf2-map <file|dir>, or --map-csv <file>');
     process.exit(2);
   }
   if (args.rf2 && systemKey !== 'SNOMED_CT') {
@@ -603,8 +754,16 @@ async function main() {
     console.error('--loinc imports require --system LOINC');
     process.exit(2);
   }
+  if (args.icd11Tabulation && systemKey !== 'ICD11') {
+    console.error('--icd11-tabulation imports require --system ICD11');
+    process.exit(2);
+  }
+  if (args.atc && systemKey !== 'ATC') {
+    console.error('--atc imports require --system ATC');
+    process.exit(2);
+  }
   if (args.full && !hasConceptInput(args)) {
-    console.error('--full can only be used with a concept import input (--rf2, --loinc, or --csv)');
+    console.error('--full can only be used with a concept import input (--rf2, --loinc, --csv, --icd11-tabulation, or --atc)');
     process.exit(2);
   }
   if (args.full && !args.version) {
@@ -634,6 +793,10 @@ async function main() {
       await importSnomedRf2(client, args.rf2, stats, args.dryRun, batchContext);
     } else if (systemKey === 'LOINC' && args.loinc) {
       await importLoincCsv(client, args.loinc, stats, args.dryRun, batchContext);
+    } else if (systemKey === 'ICD11' && args.icd11Tabulation) {
+      await importIcd11Tabulation(client, args.icd11Tabulation, stats, args.dryRun, batchContext);
+    } else if (systemKey === 'ATC' && args.atc) {
+      await importAtcIndex(client, args.atc, stats, args.dryRun, batchContext);
     } else if (args.csv) {
       await importGenericCsv(client, systemKey, args.csv, stats, args.dryRun, batchContext);
     }

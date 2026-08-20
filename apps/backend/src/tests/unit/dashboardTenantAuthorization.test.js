@@ -19,6 +19,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => __prismaDefaultMock,
 }));
 
+// metabaseService ANDs the settings.analyticsBi.enabled tenant gate in front
+// of every embed (wt/bi-app). Default the gate OPEN here so the pre-existing
+// tenant-scoping assertions exercise the signing path; the gate's own
+// fail-closed behaviour is asserted below and in metabaseAnalyticsBiGate.test.js.
+const getAnalyticsBiSettingsMock = jest.fn(async () => ({ enabled: true }));
+jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
+  getAnalyticsBiSettings: getAnalyticsBiSettingsMock,
+}));
+
 const snapshot = await import('../../services/dashboards/snapshotService.js');
 const metabase = await import('../../services/dashboards/metabaseService.js');
 const catalog = await import('../../services/dashboards/analyticsCatalogService.js');
@@ -168,6 +177,22 @@ describe('dashboard tenant scoping', () => {
       tenant_id: TENANT_ID,
       department: 'lab',
     });
+  });
+
+  it('refuses embeds when the analyticsBi tenant gate is off (fail closed)', async () => {
+    getAnalyticsBiSettingsMock.mockResolvedValueOnce({ enabled: false });
+
+    await expect(metabase.buildEmbedUrl({
+      key: 'daily_ops',
+      tenantId: TENANT_ID,
+      role: 'ADMIN',
+      ttlSeconds: 120,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ANALYTICS_BI_TENANT_DISABLED',
+    });
+    // Gate refusal happens before any catalog read.
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('rejects client-supplied Metabase tenant params', async () => {

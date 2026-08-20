@@ -7,9 +7,15 @@
 // PATCH that can happen any time after pending.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import * as taskService from '../workflow/taskService.js';
+
+// WP2 terminology deps are imported lazily inside createDeathRecord: their
+// static graph reaches terminologyService (prismaReadOnly import), which
+// would force every existing partial lib/prisma.js jest mock in suites that
+// load this service to grow new exports (PR #875 stale-ESM-mock lesson).
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
@@ -436,6 +442,21 @@ export async function createDeathRecord({ tenantId, ...body }) {
     ? Boolean(body.is_medicolegal)
     : autoMedicolegal;
 
+  // Coding enforcement (WP2, migration 720). Runs BEFORE the INSERT so a
+  // 'block' verdict leaves no partial write behind. Default 'off' == no-op.
+  const icdParts = [
+    ['cause_1a', body.icd10_part_1a],
+    ['cause_1b', body.icd10_part_1b],
+    ['cause_1c', body.icd10_part_1c],
+    ['cause_2', body.icd10_part_2],
+  ].filter(([, code]) => code != null && String(code).trim() !== '');
+  const { validateDocumentCodes } = await import('../terminology/codingEnforcementService.js');
+  const codingVerdict = await validateDocumentCodes({
+    tenantId: tenantOr(tenantId),
+    surface: 'death_certificate',
+    codes: icdParts.map(([, code]) => code),
+  });
+
   const sql = `
     INSERT INTO death_records
       (patient_uid, admission_id, date_of_death, time_of_death,
@@ -471,7 +492,35 @@ export async function createDeathRecord({ tenantId, ...body }) {
     isMedicolegal, body.police_station || null, body.police_fir_no || null,
     Boolean(body.postmortem_required),
     body.notes || null, tenantOr(tenantId));
-  return unwrap(rows);
+  const record = unwrap(rows);
+
+  // Structured coding mirror (best-effort, post-insert): the legacy
+  // icd10_part_* columns above stay the document of record; the bindings are
+  // the structured layer downstream consumers (FHIR/registries) read. A
+  // failure here must never roll back an already-persisted death record.
+  if (icdParts.length > 0) {
+    try {
+      const { replaceResourceCodings, legacyIcd10Coding } = await import(
+        '../terminology/clinicalCodeBindingService.js'
+      );
+      await replaceResourceCodings({
+        resourceType: 'death_certificate',
+        resourceId: record.id,
+        tenantId: tenantOr(tenantId),
+        patientUid: body.patient_uid,
+        codings: icdParts.map(([part, code]) => ({
+          ...legacyIcd10Coding({ code, source: 'manual' }),
+          coding_role: part,
+        })),
+      });
+    } catch (err) {
+      logger.warn(`createDeathRecord: code binding persist failed for #${record.id}: ${err.message}`);
+    }
+  }
+  if (codingVerdict.warnings.length > 0) {
+    return { ...record, coding_warnings: codingVerdict.warnings };
+  }
+  return record;
 }
 
 export async function listDeathRecords({ tenantId, status, from, to, is_medicolegal, limit = 100 }) {

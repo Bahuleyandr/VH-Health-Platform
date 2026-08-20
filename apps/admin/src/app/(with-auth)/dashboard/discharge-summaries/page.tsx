@@ -6,11 +6,12 @@
 
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { CodeMultiSearchField } from "@/components/terminology/CodeSearchField";
+import { fetchAdminAPI } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 interface PendingSummary {
   id: number;
@@ -38,6 +39,7 @@ interface SummaryDetail {
   patient_uid: string;
   patient_name_snapshot: string | null;
   primary_diagnosis: string | null;
+  icd10_codes: string[] | null;
   status: "draft" | "ready_for_signoff" | "signed" | "delivered";
   signed_by_name: string | null;
   signed_by_reg: string | null;
@@ -232,11 +234,22 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
 
+  const codesMut = useMutation({
+    mutationFn: async (codes: string[]) =>
+      fetchAdminAPI(`/discharge-summaries/${id}/codes`, {
+        method: "PATCH",
+        body: { icd10_codes: codes },
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
+  });
+
   const errMsg = (
     editMut.error ??
     readyMut.error ??
     signMut.error ??
-    deliverMut.error
+    deliverMut.error ??
+    codesMut.error
   )?.toString();
 
   function saveSection(key: string) {
@@ -292,6 +305,26 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
 
         <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="border rounded p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium text-sm">ICD-10 codes</h3>
+              {codesMut.isPending && (
+                <span className="text-xs text-muted-foreground">Saving…</span>
+              )}
+            </div>
+            {editable ? (
+              <CodeMultiSearchField
+                values={detail.icd10_codes ?? []}
+                onChange={(codes) => codesMut.mutate(codes)}
+                labelClassName="text-xs text-muted-foreground block mb-1"
+                inputClassName="w-full border rounded px-2 py-1.5 text-sm"
+              />
+            ) : (
+              <p className="text-sm font-mono">
+                {(detail.icd10_codes ?? []).join(", ") || "—"}
+              </p>
+            )}
+          </div>
           {detail.sections.map((s) => {
             const draft = drafts[s.section_key];
             const value = draft ?? s.body ?? "";

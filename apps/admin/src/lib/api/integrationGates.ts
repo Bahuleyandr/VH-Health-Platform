@@ -60,8 +60,17 @@ export interface IntegrationGateState {
     env_kill_switch?: boolean;
     tenant_setting?: boolean;
     provider_configs?: Array<PaymentGatewayConfigView | SmsProviderConfigView>;
+    /** Terminology & knowledge gates: "provider config" ≙ imported content. */
+    provider_config?: boolean;
   };
   dlt_templates?: { total: number; active: number };
+  // ── Terminology & knowledge gate details (slate C1; appended block) ──
+  env_level?: string;
+  enforcement?: Record<string, string>;
+  concept_count?: number;
+  mapping_rows?: number;
+  licensed_active_sources?: number;
+  counter_sale_advisory?: boolean;
 }
 
 export type GateKey =
@@ -71,11 +80,18 @@ export type GateKey =
   | "abdm_scan_share"
   | "abdm_hiu"
   | "uhi"
-  | "ambulance_gps";
+  | "ambulance_gps"
+  // Terminology & knowledge gates (slate C1; appended block).
+  | "terminology_coding"
+  | "lab_loinc_mapping"
+  | "drug_kb"
+  | "analytics_bi";
 
 export interface IntegrationGateTenantEntry {
   tenant: { id: string; slug: string; name: string | null; status: string };
-  gates: Record<GateKey, IntegrationGateState>;
+  // Partial: a backend that predates a newly-added gate key simply omits it,
+  // and the console renders the rows it receives.
+  gates: Partial<Record<GateKey, IntegrationGateState>>;
 }
 
 export interface IntegrationGateEnvFacts {
@@ -91,6 +107,16 @@ export interface IntegrationGateEnvFacts {
   livekit_enabled: boolean;
   file_scan_policy: "required" | "disabled_accepted_risk";
   clinical_continuity_c_d14_approved: boolean;
+  // ── Terminology & knowledge env facts (slate C1; appended block) ──
+  // Optional so the console tolerates a backend that predates them.
+  who_icd_configured?: boolean;
+  terminology_coding_enforcement?: "off" | "warn" | "block";
+  drug_kb_deterministic_matching?: boolean;
+  lab_loinc_mapping_enabled?: boolean;
+  /** Embedded BI (wt/bi-app): METABASE_URL + METABASE_EMBED_SECRET present. */
+  metabase_configured: boolean;
+  /** Count of METABASE_DASH_* env vars carrying a positive dashboard id. */
+  metabase_dashboards_configured: number;
 }
 
 export interface IntegrationGateReport {
@@ -124,7 +150,8 @@ export type TenantGateSettingKey =
   | "abdmEnrolment"
   | "abdmHiu"
   | "uhi"
-  | "ambulanceGpsTracking";
+  | "ambulanceGpsTracking"
+  | "analyticsBi";
 
 export async function setTenantGateFlag(
   tenantId: string,

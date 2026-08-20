@@ -1,0 +1,9 @@
+Foundation URI	Linearization (release) URI	Code	BlockId	Title	ClassKind	DepthInKind	IsResidual	ChapterNo	isLeaf
+http://example.test/synthetic/900000001	http://example.test/synthetic/mms/900000001		{}	Synthetic chapter of fabricated conditions	chapter	1	False	98	False
+http://example.test/synthetic/900000002	http://example.test/synthetic/mms/900000002		BlockL1-XZ9	- Synthetic block of fabricated disorders	block	1	False	98	False
+http://example.test/synthetic/900000003	http://example.test/synthetic/mms/900000003	XZ90		- - Synthetic fabricated disorder alpha	category	1	False	98	False
+http://example.test/synthetic/900000004	http://example.test/synthetic/mms/900000004	XZ90.0		- - - Synthetic fabricated disorder alpha, mild form	category	2	False	98	True
+http://example.test/synthetic/900000005	http://example.test/synthetic/mms/900000005	XZ90.1		- - - Synthetic fabricated disorder alpha, severe form	category	2	False	98	True
+http://example.test/synthetic/900000006	http://example.test/synthetic/mms/900000006	XZ91		"- - Synthetic fabricated disorder beta"	category	1	False	98	True
+http://example.test/synthetic/900000007	http://example.test/synthetic/mms/900000007			- - Row without a code is skipped	category	1	False	98	True
+http://example.test/synthetic/900000008	http://example.test/synthetic/mms/900000008	XZ92		- - Synthetic fabricated disorder gamma	category	1	False	98	True

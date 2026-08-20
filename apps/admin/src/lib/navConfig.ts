@@ -552,6 +552,14 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/dashboard/integrations",
         requiredRole: "ADMIN",
       },
+      // Slate C1: terminology spine + licensed drug-KB console. Mirrors
+      // routePolicy `terminology` (ADMIN_ONLY); write endpoints are further
+      // curator-role-gated on the backend.
+      {
+        name: "Terminology & Knowledge",
+        href: "/dashboard/terminology",
+        requiredRole: "ADMIN",
+      },
     ],
   },
   {

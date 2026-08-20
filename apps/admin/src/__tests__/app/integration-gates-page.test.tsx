@@ -40,6 +40,8 @@ const REPORT = {
     livekit_enabled: false,
     file_scan_policy: "required",
     clinical_continuity_c_d14_approved: false,
+    metabase_configured: false,
+    metabase_dashboards_configured: 0,
   },
   tenants: [
     {
@@ -116,6 +118,11 @@ const REPORT = {
           retention_days: 7,
           min_seconds_between_fixes: 3,
         },
+        analytics_bi: {
+          effective: false,
+          blocking_layer: "env",
+          layers: { env: false, tenant_setting: false },
+        },
       },
     },
   ],
@@ -171,6 +178,13 @@ describe("gate table", () => {
     expect(screen.getByText(/off — tenant flag/)).toBeInTheDocument();
     // Scan & Share rides enrolment (no flag button of its own)
     expect(screen.getByText(/rides ABHA enrolment/)).toBeInTheDocument();
+    // Analytics BI (wt/bi-app) renders as a normal two-layer gate row with
+    // its own tenant-flag toggle.
+    expect(screen.getByText("Analytics BI embeds")).toBeInTheDocument();
+    // And the env facts card carries the Metabase presence fact.
+    expect(
+      screen.getByText(/Metabase embeds \(METABASE_URL \+ secret\)/),
+    ).toBeInTheDocument();
   });
 
   it("never prefills write-only secret inputs from stored config", async () => {
