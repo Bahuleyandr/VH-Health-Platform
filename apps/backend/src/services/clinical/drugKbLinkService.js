@@ -34,7 +34,16 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { getDrugKbSettings } from '../tenant/tenantSettingsService.js';
+// Dynamic import on purpose (labCodeMappingService precedent): keeps the
+// tenantSettingsService accessor — and through it tenantService — out of this
+// module's STATIC import graph. cdsEngine/prescriptionSafetyCheck/pharmacy
+// suites partially mock those modules; a static edge here fails their whole
+// import graph at load. Callers sit in try/catch blocks that degrade to the
+// disabled defaults, so a missing accessor can never throw past them.
+async function getDrugKbSettingsLazy(tenantId) {
+  const mod = await import('../tenant/tenantSettingsService.js');
+  return mod.getDrugKbSettings(tenantId);
+}
 
 const MONOGRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
 let monographCache = { loadedAt: 0, rows: null };
@@ -128,7 +137,7 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
   try {
     if (!tenantId || !Array.isArray(medications) || medications.length === 0) return disabled;
     if (!isDrugKbDeterministicEnvEnabled()) return disabled;
-    const settings = await getDrugKbSettings(tenantId);
+    const settings = await getDrugKbSettingsLazy(tenantId);
     if (!settings.deterministicMatching) return disabled;
 
     const catalogIds = [...new Set(medications.map(catalogIdOf).filter((n) => n !== null))];
@@ -281,7 +290,7 @@ export async function coverageReport({ tenantId } = {}) {
   };
   try {
     if (!tenantId) return empty;
-    const settings = await getDrugKbSettings(tenantId).catch(() => ({ deterministicMatching: false }));
+    const settings = await getDrugKbSettingsLazy(tenantId).catch(() => ({ deterministicMatching: false }));
     empty.deterministic_matching.tenant_enabled = settings.deterministicMatching === true;
     empty.deterministic_matching.effective = empty.deterministic_matching.env_enabled
       && empty.deterministic_matching.tenant_enabled;

@@ -70,7 +70,14 @@ import { postPaymentEntry } from '../billing/ledger/ledgerPostings.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { evaluateDrugKb } from '../clinical/drugKnowledgeBaseService.js';
 import { isDrugKbDeterministicEnvEnabled } from '../clinical/drugKbLinkService.js';
-import { getDrugKbSettings } from '../tenant/tenantSettingsService.js';
+// Dynamic import on purpose (labCodeMappingService precedent): keeps
+// tenantSettingsService (and its tenantService import) out of this module's
+// static graph so partial jest mocks across the pharmacy/prescription suites
+// keep loading. The only caller is inside try/catch and degrades to null.
+async function getDrugKbSettingsLazy(tenantId) {
+  const mod = await import('../tenant/tenantSettingsService.js');
+  return mod.getDrugKbSettings(tenantId);
+}
 
 // POS is pay-at-counter: every billingV2 mode except INSURANCE (which requires
 // a TPA claim anchor no walk-in sale has).
@@ -498,7 +505,7 @@ export async function counterSaleDrugKbAdvisory({
 }) {
   try {
     if (!isDrugKbDeterministicEnvEnabled()) return null;
-    const settings = await getDrugKbSettings(tenantId);
+    const settings = await getDrugKbSettingsLazy(tenantId);
     if (settings.counterSaleAdvisory !== true) return null;
     const medications = [...(itemsById?.values?.() || [])]
       .map((item) => ({ name: item?.display_name }))
