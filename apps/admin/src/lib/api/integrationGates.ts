@@ -71,7 +71,8 @@ export type GateKey =
   | "abdm_scan_share"
   | "abdm_hiu"
   | "uhi"
-  | "ambulance_gps";
+  | "ambulance_gps"
+  | "facility_assets";
 
 export interface IntegrationGateTenantEntry {
   tenant: { id: string; slug: string; name: string | null; status: string };
@@ -88,6 +89,7 @@ export interface IntegrationGateEnvFacts {
   uhi_enabled: boolean;
   uhi_environment: "sandbox" | "production";
   uhi_has_subscriber_identity: boolean;
+  facility_assets_enabled: boolean;
   livekit_enabled: boolean;
   file_scan_policy: "required" | "disabled_accepted_risk";
   clinical_continuity_c_d14_approved: boolean;
@@ -124,7 +126,8 @@ export type TenantGateSettingKey =
   | "abdmEnrolment"
   | "abdmHiu"
   | "uhi"
-  | "ambulanceGpsTracking";
+  | "ambulanceGpsTracking"
+  | "facilityAssets";
 
 export async function setTenantGateFlag(
   tenantId: string,

@@ -93,6 +93,17 @@ describe("tenant gate flag flip (settings PATCH is a full replace)", () => {
     });
   });
 
+  it("creates the facilityAssets gate object when the tenant has none yet", async () => {
+    listTenantsMock.mockResolvedValue({ tenants: [TENANT], count: 1 });
+    updateTenantMock.mockResolvedValue(TENANT);
+
+    await setTenantGateFlag(TENANT.id, "facilityAssets", true);
+
+    const sent = updateTenantMock.mock.calls[0][1].settings;
+    expect(sent.facilityAssets).toEqual({ enabled: true });
+    expect(sent.sms).toEqual({ enabled: true }); // siblings untouched
+  });
+
   it("throws instead of writing when the tenant is unknown", async () => {
     listTenantsMock.mockResolvedValue({ tenants: [], count: 0 });
     await expect(setTenantGateFlag(TENANT.id, "sms", true)).rejects.toThrow(

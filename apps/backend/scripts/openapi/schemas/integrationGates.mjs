@@ -1,7 +1,8 @@
 // apps/backend/scripts/openapi/schemas/integrationGates.mjs
 // SUPER_ADMIN-only "Integrations & Gates" console read: per tenant, the
 // effective state of every dark-shipped feature gate (payment gateway, SMS,
-// ABDM legs, UHI, ambulance GPS) plus deployment-wide env facts. Read-only;
+// ABDM legs, UHI, ambulance GPS, facility asset register) plus
+// deployment-wide env facts. Read-only;
 // secrets are never returned (presence booleans only).
 import { envelope } from './_helpers.mjs';
 
@@ -60,6 +61,7 @@ export const schemas = {
       uhi_enabled: { type: 'boolean' },
       uhi_environment: { type: 'string', enum: ['sandbox', 'production'] },
       uhi_has_subscriber_identity: { type: 'boolean' },
+      facility_assets_enabled: { type: 'boolean' },
       livekit_enabled: { type: 'boolean' },
       file_scan_policy: { type: 'string', enum: ['required', 'disabled_accepted_risk'] },
       clinical_continuity_c_d14_approved: {
@@ -111,7 +113,7 @@ export const schemas = {
         additionalProperties: false,
         required: [
           'payment_gateway', 'sms', 'abdm_enrolment', 'abdm_scan_share',
-          'abdm_hiu', 'uhi', 'ambulance_gps',
+          'abdm_hiu', 'uhi', 'ambulance_gps', 'facility_assets',
         ],
         properties: {
           payment_gateway: { $ref: '#/components/schemas/IntegrationGateState' },
@@ -121,6 +123,7 @@ export const schemas = {
           abdm_hiu: { $ref: '#/components/schemas/IntegrationGateState' },
           uhi: { $ref: '#/components/schemas/IntegrationGateState' },
           ambulance_gps: { $ref: '#/components/schemas/IntegrationGateState' },
+          facility_assets: { $ref: '#/components/schemas/IntegrationGateState' },
         },
       },
     },
@@ -146,7 +149,7 @@ export const schemas = {
 export const operations = {
   'GET /api/v1/admin/integration-gates': {
     description:
-      'SUPER_ADMIN-only read of every dark-shipped feature gate per tenant: payment gateway (env kill switch AND tenants.settings.paymentGateway.enabled AND an enabled provider-config row, dry_run vs live credentials), SMS (SMS_PROVIDER env ladder AND settings.sms.enabled AND per-tenant config/DLT template registrations), ABDM enrolment / Scan & Share / thin HIU (ABDM_ENABLED AND the tenant flags), UHI, and ambulance GPS, plus read-only env facts (LiveKit, FILE_SCAN_POLICY, clinical-continuity approval). Effective state is computed by each feature\'s own resolver; secrets are never returned — presence booleans only. Read-only: flips go through the existing mutation endpoints.',
+      'SUPER_ADMIN-only read of every dark-shipped feature gate per tenant: payment gateway (env kill switch AND tenants.settings.paymentGateway.enabled AND an enabled provider-config row, dry_run vs live credentials), SMS (SMS_PROVIDER env ladder AND settings.sms.enabled AND per-tenant config/DLT template registrations), ABDM enrolment / Scan & Share / thin HIU (ABDM_ENABLED AND the tenant flags), UHI, ambulance GPS, and the facility asset register (FACILITY_ASSETS_ENABLED AND settings.facilityAssets.enabled), plus read-only env facts (LiveKit, FILE_SCAN_POLICY, clinical-continuity approval). Effective state is computed by each feature\'s own resolver; secrets are never returned — presence booleans only. Read-only: flips go through the existing mutation endpoints.',
     parameters: [
       {
         name: 'tenantId',

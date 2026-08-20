@@ -615,6 +615,16 @@ export const envSchema = Joi.object({
     .default('false')
     .label('PAYMENT_GATEWAY_ENABLED'),
 
+  // General facility asset register (migrations 704/706/710) deployment-wide
+  // kill switch. Default OFF (dark-shipped). Effective enablement additionally
+  // requires the per-tenant tenants.settings.facilityAssets.enabled flag
+  // (facilityAssetService.requireFacilityAssetsEnabled ANDs both, fail closed).
+  // No credentials involved — enabling requires no additional env keys.
+  FACILITY_ASSETS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('FACILITY_ASSETS_ENABLED'),
+
   // SMS gateway (migrations 699/700). Unset = dry-run everywhere (DEFAULT
   // OFF); 'logger' is the explicit deployment-wide kill switch (tenant
   // configs ignored); 'msg91'/'twilio' enable an env-credential fallback for

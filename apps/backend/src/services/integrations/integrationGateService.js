@@ -34,12 +34,14 @@ import {
   listSmsTemplateRegistrations,
 } from '../notification/smsProviderConfigService.js';
 import { resolveSmsProviderContext } from '../../utils/notifications/smsProviders/index.js';
+import { isFacilityAssetsEnvEnabled } from '../facility/facilityAssetService.js';
 import { livekitEnabled } from '../telemedicine/teleconsultProvisioningService.js';
 import { listTenants } from '../tenant/tenantService.js';
 import {
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getFacilityAssetsSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -87,6 +89,7 @@ export function integrationGateEnvFacts() {
     uhi_has_subscriber_identity: Boolean(
       UHI_CONFIG.subscriberId && UHI_CONFIG.signingPrivateKey && UHI_CONFIG.signingKeyId,
     ),
+    facility_assets_enabled: isFacilityAssetsEnvEnabled(),
     // Read-only env facts (operator/hardware-blocked dark stack).
     livekit_enabled: livekitEnabled(),
     file_scan_policy: resolveFileScanPolicy(),
@@ -184,6 +187,17 @@ async function uhiGate(tenantId) {
   };
 }
 
+async function facilityAssetsGate(tenantId) {
+  const envEnabled = isFacilityAssetsEnvEnabled();
+  const settings = await getFacilityAssetsSettings(tenantId);
+  const effective = envEnabled && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
+    layers: { env: envEnabled, tenant_setting: settings.enabled === true },
+  };
+}
+
 async function ambulanceGpsGate(tenantId) {
   const settings = await getAmbulanceGpsTrackingSettings(tenantId);
   return {
@@ -197,13 +211,14 @@ async function ambulanceGpsGate(tenantId) {
 
 async function tenantGates(tenant) {
   const tenantId = tenant.id;
-  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting] =
+  const [paymentGateway, sms, abdm, uhi, ambulanceGps, facilityAssets, paymentSetting, smsSetting] =
     await Promise.all([
       paymentGatewayGate(tenantId),
       smsGate(tenantId),
       abdmGates(tenantId),
       uhiGate(tenantId),
       ambulanceGpsGate(tenantId),
+      facilityAssetsGate(tenantId),
       getPaymentGatewaySettings(tenantId),
       getSmsSettings(tenantId),
     ]);
@@ -226,6 +241,7 @@ async function tenantGates(tenant) {
       ...abdm,
       uhi,
       ambulance_gps: ambulanceGps,
+      facility_assets: facilityAssets,
     },
   };
 }

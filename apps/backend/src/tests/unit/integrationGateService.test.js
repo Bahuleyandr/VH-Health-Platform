@@ -21,9 +21,11 @@ const listTenants = jest.fn();
 const getAbdmEnrolmentSettings = jest.fn();
 const getAbdmHiuSettings = jest.fn();
 const getAmbulanceGpsTrackingSettings = jest.fn();
+const getFacilityAssetsSettings = jest.fn();
 const getPaymentGatewaySettings = jest.fn();
 const getSmsSettings = jest.fn();
 const getUhiSettings = jest.fn();
+const isFacilityAssetsEnvEnabled = jest.fn();
 
 const ABDM_CONFIG = {
   enabled: false, environment: 'sandbox', clientId: '', clientSecret: '',
@@ -56,6 +58,9 @@ jest.unstable_mockModule('../../utils/notifications/smsProviders/index.js', () =
 jest.unstable_mockModule('../../services/telemedicine/teleconsultProvisioningService.js', () => ({
   livekitEnabled,
 }));
+jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
+  isFacilityAssetsEnvEnabled,
+}));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   listTenants,
 }));
@@ -63,6 +68,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getFacilityAssetsSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -106,6 +112,8 @@ function primeDefaults() {
   getAmbulanceGpsTrackingSettings.mockResolvedValue({
     enabled: false, retentionDays: 7, minSecondsBetweenFixes: 3,
   });
+  isFacilityAssetsEnvEnabled.mockReturnValue(false);
+  getFacilityAssetsSettings.mockResolvedValue({ enabled: false });
   getPaymentGatewaySettings.mockResolvedValue({ enabled: false });
   getSmsSettings.mockResolvedValue({ enabled: false });
   getUhiSettings.mockResolvedValue({ enabled: false, environment: 'sandbox' });
@@ -138,6 +146,26 @@ describe('effective-state assembly', () => {
     expect(gates.uhi).toMatchObject({ effective: false, blocking_layer: 'env' });
     expect(gates.ambulance_gps).toMatchObject({
       effective: false, blocking_layer: 'tenant_setting',
+    });
+    expect(gates.facility_assets).toMatchObject({
+      effective: false, blocking_layer: 'env',
+    });
+  });
+
+  it('facility assets: env on + tenant off → tenant_setting; both on → effective', async () => {
+    isFacilityAssetsEnvEnabled.mockReturnValue(true);
+    let report = await listIntegrationGates();
+    expect(report.tenants[0].gates.facility_assets).toMatchObject({
+      effective: false,
+      blocking_layer: 'tenant_setting',
+      layers: { env: true, tenant_setting: false },
+    });
+    getFacilityAssetsSettings.mockResolvedValue({ enabled: true });
+    report = await listIntegrationGates();
+    expect(report.tenants[0].gates.facility_assets).toMatchObject({
+      effective: true,
+      blocking_layer: null,
+      layers: { env: true, tenant_setting: true },
     });
   });
 

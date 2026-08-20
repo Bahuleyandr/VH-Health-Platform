@@ -37,6 +37,7 @@ const REPORT = {
     uhi_enabled: false,
     uhi_environment: "sandbox",
     uhi_has_subscriber_identity: false,
+    facility_assets_enabled: false,
     livekit_enabled: false,
     file_scan_policy: "required",
     clinical_continuity_c_d14_approved: false,
@@ -116,6 +117,11 @@ const REPORT = {
           retention_days: 7,
           min_seconds_between_fixes: 3,
         },
+        facility_assets: {
+          effective: false,
+          blocking_layer: "env",
+          layers: { env: false, tenant_setting: false },
+        },
       },
     },
   ],
@@ -171,6 +177,8 @@ describe("gate table", () => {
     expect(screen.getByText(/off — tenant flag/)).toBeInTheDocument();
     // Scan & Share rides enrolment (no flag button of its own)
     expect(screen.getByText(/rides ABHA enrolment/)).toBeInTheDocument();
+    // The facility asset register row is listed with its own tenant flag
+    expect(screen.getByText("Facility asset register")).toBeInTheDocument();
   });
 
   it("never prefills write-only secret inputs from stored config", async () => {

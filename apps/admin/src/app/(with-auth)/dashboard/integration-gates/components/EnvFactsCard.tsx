@@ -54,6 +54,10 @@ export function EnvFactsCard({ env }: { env: IntegrationGateEnvFacts }) {
           on={env.uhi_enabled}
           detail={env.uhi_environment}
         />
+        <Fact
+          label="Facility assets (FACILITY_ASSETS_ENABLED)"
+          on={env.facility_assets_enabled}
+        />
         <Fact label="LiveKit (LIVEKIT_ENABLED)" on={env.livekit_enabled} />
         <Fact
           label="File scanning (FILE_SCAN_POLICY)"

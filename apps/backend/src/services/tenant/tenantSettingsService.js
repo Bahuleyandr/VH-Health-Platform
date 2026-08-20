@@ -60,6 +60,12 @@
 //                                         // environment: 'production'.
 //       environment?: 'sandbox'|'production',
 //     },
+//     facilityAssets?: {
+//       enabled?: boolean,                // default false — general facility asset
+//                                         // register (migrations 704/706/710).
+//                                         // Effective only with
+//                                         // FACILITY_ASSETS_ENABLED=true.
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
@@ -267,6 +273,21 @@ export async function getUhiSettings(tenantId) {
     enabled: raw.enabled === true,
     environment: raw.environment === 'production' ? 'production' : 'sandbox',
   };
+}
+
+// General facility asset register (migrations 704/706/710). Disabled by
+// default — the register dark-ships like every other #878-wave feature, so a
+// tenant opts in via a settings write only after the deployment sets
+// FACILITY_ASSETS_ENABLED (env is the kill switch, this is the per-hospital
+// enable; facilityAssetService.requireFacilityAssetsEnabled ANDs both).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getFacilityAssetsSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.facilityAssets;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
 }
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {

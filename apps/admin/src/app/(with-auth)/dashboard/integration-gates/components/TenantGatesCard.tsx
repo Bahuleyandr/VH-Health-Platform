@@ -44,6 +44,11 @@ const GATE_ROWS: Array<{
     label: "Ambulance GPS",
     settingKey: "ambulanceGpsTracking",
   },
+  {
+    key: "facility_assets",
+    label: "Facility asset register",
+    settingKey: "facilityAssets",
+  },
 ];
 
 export function TenantGatesCard({

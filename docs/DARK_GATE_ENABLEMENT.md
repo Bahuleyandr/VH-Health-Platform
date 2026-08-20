@@ -207,6 +207,37 @@ Scan & Share intake rides the enrolment/HIP gating — it has no flag of its own
 4. The console's ABDM rows should read `ON · sandbox`. Record results in
    `docs/ABDM_READINESS.md`.
 
+---
+
+## 4. Facility asset register
+
+Resolution logic: `apps/backend/src/services/facility/facilityAssetService.js`
+(`requireFacilityAssetsEnabled`) + `tenantSettingsService.js`
+(`getFacilityAssetsSettings`). Two layers only — no provider config row and no
+credentials. Fail closed: with the env switch off every
+`/api/v1/facility/assets*` call returns `FACILITY_ASSETS_NOT_ENABLED` (503);
+with the tenant flag off it returns `FACILITY_ASSETS_DISABLED` (403).
+
+### Layers
+
+| Layer | Setting | How |
+|---|---|---|
+| Env | `FACILITY_ASSETS_ENABLED=true` | backend configmap + ArgoCD sync |
+| Tenant flag | `settings.facilityAssets.enabled=true` | console toggle, or `PATCH /api/v1/admin/tenants/:tenantId` |
+
+### Bring-up + verification
+
+1. Set `FACILITY_ASSETS_ENABLED=true` and flip the tenant flag (console row
+   "Facility asset register").
+2. `GET /api/v1/facility/assets` as a facility-operations role returns the
+   (initially empty) register; register one asset, transition it
+   `active → under_repair → active`, and confirm each mutation appends a
+   `facility_asset_events` row plus an `audit_logs` row.
+3. Negative check: flip the tenant flag back off — every call must return
+   `FACILITY_ASSETS_DISABLED` (403); that is the gate working.
+
+---
+
 ### Explicitly out of scope
 
 - **UHI** stays dark (flagged lowest-value/droppable at merge).
