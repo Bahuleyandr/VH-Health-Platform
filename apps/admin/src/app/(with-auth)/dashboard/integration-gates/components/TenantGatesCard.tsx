@@ -44,6 +44,28 @@ const GATE_ROWS: Array<{
     label: "Ambulance GPS",
     settingKey: "ambulanceGpsTracking",
   },
+  // ── Terminology & knowledge gates (slate C1; appended block). Their
+  // tenant layers live in tenant_terminology_settings / nested settings
+  // shapes the generic {enabled} flip cannot write, so the flags are managed
+  // from the Terminology & Knowledge console instead.
+  {
+    key: "terminology_coding",
+    label: "Diagnosis coding enforcement",
+    settingKey: null,
+    note: "flags in Terminology & Knowledge console",
+  },
+  {
+    key: "lab_loinc_mapping",
+    label: "Lab LOINC mapping",
+    settingKey: null,
+    note: "flags in Terminology & Knowledge console",
+  },
+  {
+    key: "drug_kb",
+    label: "Drug KB deterministic matching",
+    settingKey: null,
+    note: "flags in Terminology & Knowledge console",
+  },
 ];
 
 export function TenantGatesCard({
