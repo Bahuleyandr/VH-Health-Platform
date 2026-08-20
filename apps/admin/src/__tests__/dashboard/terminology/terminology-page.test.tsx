@@ -13,7 +13,8 @@ jest.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ allowed }),
 }));
 
-const notFound = () => Object.assign(new Error("API Error: 404"), { status: 404 });
+const notFound = () =>
+  Object.assign(new Error("API Error: 404"), { status: 404 });
 
 const listTerminologyCodeSystems = jest.fn();
 const getTerminologyCoverage = jest.fn();
@@ -167,7 +168,9 @@ describe("code systems tab (default)", () => {
       expect(screen.getByText("ICD-10 (WHO)")).toBeInTheDocument(),
     );
     expect(screen.getByText("12,450")).toBeInTheDocument();
-    expect(screen.getByText(/Free Indian national license/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Free Indian national license/),
+    ).toBeInTheDocument();
     // Coverage table
     expect(screen.getByText("investigation_test")).toBeInTheDocument();
     expect(screen.getByText("20%")).toBeInTheDocument();

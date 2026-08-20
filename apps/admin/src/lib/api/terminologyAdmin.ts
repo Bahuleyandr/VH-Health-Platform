@@ -52,9 +52,7 @@ export function listTerminologyCodeSystems() {
 export type CodingEnforcementLevel = "off" | "warn" | "block";
 
 export type CodingEnforcementSurface =
-  | "death_certificate"
-  | "insurance_claim"
-  | "discharge_summary";
+  "death_certificate" | "insurance_claim" | "discharge_summary";
 
 export const CODING_ENFORCEMENT_SURFACES: CodingEnforcementSurface[] = [
   "death_certificate",
@@ -116,9 +114,7 @@ export function updateTerminologySettings(payload: TerminologySettingsWrite) {
 // ── Binding curation (suggest → confirm/reject) + coverage ──────────────────
 
 export type TerminologyCatalogType =
-  | "investigation_test"
-  | "pharmacy_item"
-  | "medication";
+  "investigation_test" | "pharmacy_item" | "medication";
 
 export const TERMINOLOGY_CATALOG_TYPES: TerminologyCatalogType[] = [
   "investigation_test",

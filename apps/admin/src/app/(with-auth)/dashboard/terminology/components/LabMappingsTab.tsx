@@ -16,7 +16,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "react-hot-toast";
 
-import { formatCount, OnOffPill, QueryErrorNotice, SectionCard } from "./shared";
+import {
+  formatCount,
+  OnOffPill,
+  QueryErrorNotice,
+  SectionCard,
+} from "./shared";
 
 export default function LabMappingsTab() {
   const queryClient = useQueryClient();
@@ -49,7 +54,12 @@ export default function LabMappingsTab() {
       }),
     onSuccess: () => {
       toast.success("Mapping saved");
-      setForm({ source_key: "any", incoming_code: "", loinc_code: "", display: "" });
+      setForm({
+        source_key: "any",
+        incoming_code: "",
+        loinc_code: "",
+        display: "",
+      });
       void queryClient.invalidateQueries({ queryKey: ["lab-code-mappings"] });
     },
     onError: (e) =>
@@ -62,8 +72,7 @@ export default function LabMappingsTab() {
       ),
   });
 
-  const featureMissing =
-    mappings.isError && isNotFoundError(mappings.error);
+  const featureMissing = mappings.isError && isNotFoundError(mappings.error);
 
   return (
     <div className="space-y-6">
@@ -154,6 +163,7 @@ export default function LabMappingsTab() {
                 </span>
                 <input
                   type="text"
+                  aria-label={label}
                   value={form[field]}
                   onChange={(e) =>
                     setForm((previous) => ({

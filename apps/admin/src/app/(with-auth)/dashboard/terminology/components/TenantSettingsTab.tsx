@@ -111,6 +111,7 @@ export default function TenantSettingsTab() {
                 <label key={system} className="flex items-center gap-1">
                   <input
                     type="checkbox"
+                    aria-label={system}
                     checked={enabledSystems.includes(system)}
                     onChange={(e) =>
                       setEnabledSystems((previous) =>
@@ -129,6 +130,7 @@ export default function TenantSettingsTab() {
         <label className="mt-4 flex items-center gap-2 text-sm text-foreground">
           <input
             type="checkbox"
+            aria-label="SNOMED CT pickers enabled"
             checked={snomedPickers}
             onChange={(e) => setSnomedPickers(e.target.checked)}
           />

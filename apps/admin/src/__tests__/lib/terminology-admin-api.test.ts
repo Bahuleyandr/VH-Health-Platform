@@ -131,9 +131,9 @@ describe("drug KB + lab mapping endpoints (sibling-owned paths)", () => {
 describe("isNotFoundError (the degrade seam)", () => {
   it("matches only the 404 APIError shape", () => {
     expect(isNotFoundError({ status: 404 })).toBe(true);
-    expect(isNotFoundError(Object.assign(new Error("x"), { status: 404 }))).toBe(
-      true,
-    );
+    expect(
+      isNotFoundError(Object.assign(new Error("x"), { status: 404 })),
+    ).toBe(true);
     expect(isNotFoundError({ status: 500 })).toBe(false);
     expect(isNotFoundError(new Error("network"))).toBe(false);
     expect(isNotFoundError(null)).toBe(false);

@@ -28,9 +28,7 @@ export function OnOffPill({ on, label }: { on: boolean; label?: string }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        on
-          ? "bg-success/15 text-success"
-          : "bg-muted text-muted-foreground"
+        on ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
       }`}
     >
       {label ?? (on ? "active" : "inactive")}

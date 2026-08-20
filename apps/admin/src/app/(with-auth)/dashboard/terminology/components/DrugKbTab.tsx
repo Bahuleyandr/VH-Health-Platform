@@ -6,13 +6,16 @@
 // read-only.
 
 import { LoadingSpinner } from "@/components/LoadingSpinner";
-import {
-  getDrugKbCoverage,
-  getDrugKbStatus,
-} from "@/lib/api/terminologyAdmin";
+import { getDrugKbCoverage, getDrugKbStatus } from "@/lib/api/terminologyAdmin";
 import { useQuery } from "@tanstack/react-query";
 
-import { formatCount, formatDate, OnOffPill, QueryErrorNotice, SectionCard } from "./shared";
+import {
+  formatCount,
+  formatDate,
+  OnOffPill,
+  QueryErrorNotice,
+  SectionCard,
+} from "./shared";
 
 export default function DrugKbTab() {
   const status = useQuery({
@@ -61,7 +64,10 @@ export default function DrugKbTab() {
                 </thead>
                 <tbody>
                   {status.data.sources.map((source) => (
-                    <tr key={source.source_key} className="border-b last:border-b-0">
+                    <tr
+                      key={source.source_key}
+                      className="border-b last:border-b-0"
+                    >
                       <td className="py-2 pr-4 font-medium text-foreground">
                         {source.source_key}
                         {source.is_starter && (
@@ -78,12 +84,16 @@ export default function DrugKbTab() {
                       <td className="py-2 pr-4">{source.priority ?? "—"}</td>
                       <td className="py-2 pr-4 text-xs text-muted-foreground">
                         {source.license_status ?? source.license_note ?? "—"}
-                        {source.license_holder ? ` · ${source.license_holder}` : ""}
+                        {source.license_holder
+                          ? ` · ${source.license_holder}`
+                          : ""}
                       </td>
                       <td className="py-2 pr-4">
                         {formatDate(source.license_expires_at)}
                       </td>
-                      <td className="py-2 pr-4">{formatDate(source.imported_at)}</td>
+                      <td className="py-2 pr-4">
+                        {formatDate(source.imported_at)}
+                      </td>
                       <td className="py-2 pr-4">
                         <OnOffPill on={source.is_active} />
                       </td>

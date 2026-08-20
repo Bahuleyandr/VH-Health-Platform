@@ -12,7 +12,13 @@ import {
 } from "@/lib/api/terminologyAdmin";
 import { useQuery } from "@tanstack/react-query";
 
-import { formatCount, formatDate, OnOffPill, QueryErrorNotice, SectionCard } from "./shared";
+import {
+  formatCount,
+  formatDate,
+  OnOffPill,
+  QueryErrorNotice,
+  SectionCard,
+} from "./shared";
 
 export default function CodeSystemsTab() {
   const systems = useQuery({
@@ -52,7 +58,10 @@ export default function CodeSystemsTab() {
               </thead>
               <tbody>
                 {systems.data.systems.map((system) => (
-                  <tr key={system.system_key} className="border-b last:border-b-0">
+                  <tr
+                    key={system.system_key}
+                    className="border-b last:border-b-0"
+                  >
                     <td className="py-2 pr-4 font-medium text-foreground">
                       {system.system_key}
                       <div className="text-xs font-normal text-muted-foreground">
@@ -62,8 +71,12 @@ export default function CodeSystemsTab() {
                     <td className="py-2 pr-4 text-muted-foreground">
                       {system.version ?? "—"}
                     </td>
-                    <td className="py-2 pr-4">{formatCount(system.concept_count)}</td>
-                    <td className="py-2 pr-4">{formatDate(system.imported_at)}</td>
+                    <td className="py-2 pr-4">
+                      {formatCount(system.concept_count)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatDate(system.imported_at)}
+                    </td>
                     <td className="py-2 pr-4">
                       <OnOffPill on={system.is_active} />
                     </td>
@@ -104,10 +117,17 @@ export default function CodeSystemsTab() {
               </thead>
               <tbody>
                 {coverage.data.coverage.catalog_bindings.map((row) => (
-                  <tr key={row.catalog_type} className="border-b last:border-b-0">
-                    <td className="py-2 pr-4 text-foreground">{row.catalog_type}</td>
+                  <tr
+                    key={row.catalog_type}
+                    className="border-b last:border-b-0"
+                  >
+                    <td className="py-2 pr-4 text-foreground">
+                      {row.catalog_type}
+                    </td>
                     <td className="py-2 pr-4">{row.default_system}</td>
-                    <td className="py-2 pr-4">{formatCount(row.catalog_rows)}</td>
+                    <td className="py-2 pr-4">
+                      {formatCount(row.catalog_rows)}
+                    </td>
                     <td className="py-2 pr-4">{formatCount(row.confirmed)}</td>
                     <td className="py-2 pr-4">{formatCount(row.suggested)}</td>
                     <td className="py-2 pr-4">{row.confirmed_pct}%</td>
