@@ -3,13 +3,14 @@
 // Embeds tab of the BI Dashboards page: gate notice, dashboard cards, and
 // the sandboxed embed viewer with per-dashboard failure states.
 
-import { useState } from "react";
-import Link from "next/link";
-import { ExternalLink, ShieldOff, X } from "lucide-react";
-import { APIError } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
-import type { AnalyticsBiGate, DashboardEntry } from "./types";
+import { APIError } from "@/lib/api";
+import { ExternalLink, ShieldOff, X } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useState } from "react";
+
 import { compactRoles, embedErrorInfo, statusClass } from "./helpers";
+import type { AnalyticsBiGate, DashboardEntry } from "./types";
 
 /**
  * Clear "not enabled" state for the fail-closed embed gate, instead of
@@ -97,6 +98,12 @@ function EmbedFailure({ error }: { error: unknown }) {
  */
 function EmbedFrame({ src, title }: { src: string; title: string }) {
   const [failed, setFailed] = useState(false);
+  // error listener attached via callback ref: onError as a JSX prop on a
+  // noninteractive element trips jsx-a11y/no-noninteractive-element-interactions
+  // (ratchet baseline 0), and error is not a user interaction anyway.
+  const frameRef = useCallback((el: HTMLIFrameElement | null) => {
+    el?.addEventListener("error", () => setFailed(true));
+  }, []);
   if (failed) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
@@ -113,7 +120,7 @@ function EmbedFrame({ src, title }: { src: string; title: string }) {
       title={title}
       sandbox="allow-scripts allow-same-origin allow-downloads"
       referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
+      ref={frameRef}
     />
   );
 }

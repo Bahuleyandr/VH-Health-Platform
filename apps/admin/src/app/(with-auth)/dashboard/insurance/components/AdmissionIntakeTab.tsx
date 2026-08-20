@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { CodeMultiSearchField } from "@/components/terminology/CodeSearchField";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { CodeMultiSearchField } from "@/components/terminology/CodeSearchField";
+import { fetchAdminAPI } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useId, useMemo, useState } from "react";
+
 import {
   fmtDate,
   fmtINR,
@@ -296,7 +297,8 @@ export function AdmissionIntakeTab() {
           admission_id: admission.id,
           request_type: form.request_type,
           primary_diagnosis: form.primary_diagnosis.trim(),
-          icd10_codes: form.icd10_codes.length > 0 ? form.icd10_codes : undefined,
+          icd10_codes:
+            form.icd10_codes.length > 0 ? form.icd10_codes : undefined,
           proposed_procedure: form.proposed_procedure.trim() || undefined,
           expected_admission_date: isoDate(admission.admitted_at),
           expected_los_days: asNumber(form.expected_los_days),

@@ -46,9 +46,9 @@ jest.mock("next/server", () => ({
 }));
 
 import { middleware, config } from "@/middleware";
+import { jwtVerify } from "jose/jwt/verify";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose/jwt/verify";
 
 // Grab references to the mock functions for assertions
 const mockRedirect = NextResponse.redirect as jest.MockedFunction<

@@ -46,7 +46,11 @@ void main() {
             onCodingChanged: onCodingChanged ?? (_) {},
             loadTerminologySettings: settings,
             searchTerminology:
-                ({String? system, required String query, int limit = 20}) async {
+                ({
+                  String? system,
+                  required String query,
+                  int limit = 20,
+                }) async {
                   calls.add(_SearchCall(system, query));
                   return {'concepts': concepts};
                 },

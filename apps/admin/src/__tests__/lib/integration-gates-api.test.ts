@@ -4,7 +4,6 @@
 // server-reserved governed keys) instead of clobbering sibling gate flags.
 
 import { fetchAdminAPI } from "@/lib/api/core";
-import { listTenants, updateTenant } from "@/lib/api/tenants";
 import {
   getIntegrationGates,
   registerSmsTemplate,
@@ -12,6 +11,7 @@ import {
   upsertPaymentGatewayConfig,
   upsertSmsConfig,
 } from "@/lib/api/integrationGates";
+import { listTenants, updateTenant } from "@/lib/api/tenants";
 
 jest.mock("@/lib/api/core", () => ({ fetchAdminAPI: jest.fn() }));
 jest.mock("@/lib/api/tenants", () => ({

@@ -8,12 +8,11 @@ import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// Search callback contract (mirrors MedicalApiService.searchTerminology).
 /// [system] null means settings-driven multi-system search on the backend.
-typedef TerminologySearchFn =
-    Future<Map<String, dynamic>> Function({
-      String? system,
-      required String query,
-      int limit,
-    });
+typedef TerminologySearchFn = Future<Map<String, dynamic>> Function({
+  String? system,
+  required String query,
+  int limit,
+});
 
 /// Settings callback contract (mirrors MedicalApiService.getTerminologySettings).
 typedef TerminologySettingsFn = Future<Map<String, dynamic>> Function();
@@ -313,7 +312,9 @@ class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
                     return ListTile(
                       dense: true,
                       title: Text(display.isEmpty ? code : display),
-                      subtitle: code.isEmpty ? null : Text('$systemLabel $code'),
+                      subtitle: code.isEmpty
+                          ? null
+                          : Text('$systemLabel $code'),
                       onTap: () => _select(item),
                     );
                   },

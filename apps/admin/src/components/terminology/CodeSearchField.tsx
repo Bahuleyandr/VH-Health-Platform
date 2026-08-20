@@ -13,11 +13,11 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   searchTerminology,
   type TerminologyConcept,
 } from "@/lib/api/terminology";
+import { useEffect, useRef, useState } from "react";
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 300;
@@ -59,9 +59,12 @@ function useConceptSearch(system: string) {
     }, DEBOUNCE_MS);
   }
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   return { suggestions, loading, queueSearch, clear };
 }
@@ -129,6 +132,7 @@ export function CodeSearchField({
         value={value}
         disabled={disabled}
         placeholder={placeholder}
+        aria-label={label || placeholder || "Search codes"}
         onChange={(e) => {
           onChange(e.target.value);
           if (!disabled) queueSearch(e.target.value);
@@ -220,6 +224,7 @@ export function CodeMultiSearchField({
         value={draft}
         disabled={disabled}
         placeholder={placeholder}
+        aria-label={label || placeholder || "Search codes"}
         onChange={(e) => {
           setDraft(e.target.value);
           if (!disabled) queueSearch(e.target.value);

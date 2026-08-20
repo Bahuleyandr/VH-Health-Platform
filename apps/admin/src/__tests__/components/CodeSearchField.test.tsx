@@ -2,13 +2,13 @@
 // contract: search errors and empty catalogues leave the input behaving as
 // a plain text field, while a successful search offers pickable suggestions.
 
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import {
   CodeSearchField,
   CodeMultiSearchField,
 } from "@/components/terminology/CodeSearchField";
 import { searchTerminology } from "@/lib/api/terminology";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/api/terminology", () => ({
   searchTerminology: jest.fn(),
@@ -112,9 +112,7 @@ describe("<CodeMultiSearchField />", () => {
     const onChange = jest.fn();
     render(<CodeMultiSearchField values={[]} onChange={onChange} />);
     await userEvent.type(screen.getByRole("textbox"), "myocard");
-    await waitFor(() =>
-      expect(screen.getByText("I21.0")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("I21.0")).toBeInTheDocument());
     await userEvent.click(screen.getByText("I21.0"));
     expect(onChange).toHaveBeenCalledWith(["I21.0"]);
   });

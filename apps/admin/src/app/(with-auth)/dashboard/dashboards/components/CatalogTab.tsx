@@ -3,8 +3,9 @@
 // Catalog tab of the BI Dashboards page: the governed dataset table.
 
 import { LockKeyhole, ShieldCheck } from "lucide-react";
-import type { DatasetEntry } from "./types";
+
 import { compactRoles, governanceClass, label } from "./helpers";
+import type { DatasetEntry } from "./types";
 
 export default function CatalogTab({ datasets }: { datasets: DatasetEntry[] }) {
   return (

@@ -4,13 +4,14 @@
 // catalog query + embed mutation live here; rendering lives in components/.
 "use client";
 
-import { useMemo, useState } from "react";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { fetchAdminAPI } from "@/lib/api";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { BarChart3, TableProperties } from "lucide-react";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
-import EmbedsTab from "./components/EmbedsTab";
+import { useMemo, useState } from "react";
+
 import CatalogTab from "./components/CatalogTab";
+import EmbedsTab from "./components/EmbedsTab";
 import type { CatalogResponse, DashboardEntry } from "./components/types";
 
 type TabKey = "embeds" | "catalog";
