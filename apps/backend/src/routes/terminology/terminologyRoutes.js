@@ -85,6 +85,7 @@ router.put('/settings', async (req, res) => {
         preferred_diagnosis_system: req.body.preferred_diagnosis_system,
         enabled_systems: req.body.enabled_systems,
         snomed_pickers_enabled: req.body.snomed_pickers_enabled,
+        coding_enforcement: req.body.coding_enforcement,
       },
       { actorUid: req.user?.uid || null },
     );
