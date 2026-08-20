@@ -491,6 +491,16 @@ export const envSchema = Joi.object({
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
 
+  // Lab analyzer-code → LOINC mapping enrichment (migration 721). Deployment
+  // kill switch, default off; even when true each tenant must also opt in via
+  // settings.labLoincMapping.enabled AND curated lab_analyzer_code_mappings
+  // rows must exist before any lab_results.loinc_code is stamped at ingest.
+  LAB_LOINC_MAPPING_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('LAB_LOINC_MAPPING_ENABLED'),
+
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,
   // so production must fail closed if the HMAC secrets are not provisioned.

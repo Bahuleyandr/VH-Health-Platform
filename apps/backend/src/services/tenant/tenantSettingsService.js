@@ -286,3 +286,19 @@ export async function getFrontDeskBiometricCaptureSettings(tenantId) {
     provider: raw.provider ? String(raw.provider).trim() || null : null,
   };
 }
+
+// Lab analyzer-code → LOINC mapping enrichment (migration 721). Disabled by
+// default — a tenant opts in via a settings write once its analyzer code
+// mappings are curated. Effective enablement additionally requires the
+// LAB_LOINC_MAPPING_ENABLED env kill switch AND curated active mapping rows
+// (labCodeMappingService.resolveLabLoincMappingGate ANDs env + tenant; no
+// rows means the resolver simply never matches). Defensive like every
+// accessor here: malformed config yields the disabled default, never a
+// throw.
+export async function getLabLoincMappingSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.labLoincMapping;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
