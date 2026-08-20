@@ -109,6 +109,17 @@ router.patch('/:id/sections/:key', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// Replace the draft's ICD-10 code list (WP2 coding enforcement + structured
+// clinical_code_bindings mirror). Draft/ready-for-signoff only.
+router.patch('/:id/codes', requireStaffOrAdmin, wrap(async (req) =>
+  discharge.updateDraftCodes({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    icd10_codes: req.body.icd10_codes,
+    updated_by: req.user?.uid,
+  }),
+));
+
 router.post('/:id/ready', requireStaffOrAdmin, wrap(async (req) =>
   discharge.markReadyForSignoff({
     tenantId: tenantOf(req),

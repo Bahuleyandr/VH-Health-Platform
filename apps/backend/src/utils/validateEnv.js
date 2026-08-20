@@ -491,6 +491,17 @@ export const envSchema = Joi.object({
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
 
+  // Terminology coding enforcement (WP2, migration 720) — env kill-switch for
+  // ICD-10 validation on downstream documents (death certificate, insurance
+  // pre-auth/claim, discharge summary). Effective level is min(env, tenant
+  // tenant_terminology_settings.coding_enforcement[surface]); unset/'off'
+  // (the default) keeps every surface byte-identical to pre-WP2 behavior.
+  TERMINOLOGY_CODING_ENFORCEMENT: Joi.string()
+    .valid('off', 'warn', 'block')
+    .allow('')
+    .optional()
+    .label('TERMINOLOGY_CODING_ENFORCEMENT'),
+
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,
   // so production must fail closed if the HMAC secrets are not provisioned.
