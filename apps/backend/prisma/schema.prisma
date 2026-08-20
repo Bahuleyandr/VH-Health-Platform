@@ -28533,6 +28533,14 @@ model uhi_transactions {
   @@index([tenant_id, transaction_id, received_at, id], map: "idx_uhi_txn_tenant_transaction")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model system_settings {
+  key        String   @id
+  value      String
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
 enum transplant_organ_type {
   heart
   liver
