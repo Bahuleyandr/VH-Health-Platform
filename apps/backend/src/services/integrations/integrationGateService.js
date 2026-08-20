@@ -40,6 +40,7 @@ import {
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
+  getAnalyticsBiSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -72,6 +73,14 @@ function blockingLayer(map, reason) {
   return map[reason] || 'unknown';
 }
 
+// Env layer of the analytics-BI (embedded Metabase) gate. Mirrors
+// metabaseService.isMetabaseEnvConfigured — read here directly from
+// process.env (the sms_provider idiom) so this console module does not
+// import the dashboards service graph.
+function metabaseEnvConfigured() {
+  return Boolean(process.env.METABASE_URL && process.env.METABASE_EMBED_SECRET);
+}
+
 /** Deployment-wide env facts — booleans / enum names only, never values. */
 export function integrationGateEnvFacts() {
   const smsProvider = String(process.env.SMS_PROVIDER || '').trim().toLowerCase();
@@ -91,6 +100,14 @@ export function integrationGateEnvFacts() {
     livekit_enabled: livekitEnabled(),
     file_scan_policy: resolveFileScanPolicy(),
     clinical_continuity_c_d14_approved: CLINICAL_CONTINUITY_C_D14_APPROVED === true,
+    // Embedded BI (slate C2): presence booleans/counts only, never URLs or
+    // secrets. metabase_dashboards_configured counts METABASE_DASH_* env
+    // vars carrying a positive dashboard id (the per-dashboard config layer).
+    metabase_configured: metabaseEnvConfigured(),
+    metabase_dashboards_configured: Object.entries(process.env)
+      .filter(([name]) => name.startsWith('METABASE_DASH_'))
+      .filter(([, value]) => Number.parseInt(value, 10) > 0)
+      .length,
   };
 }
 
@@ -195,9 +212,30 @@ async function ambulanceGpsGate(tenantId) {
   };
 }
 
+// ── analytics_bi (embedded Metabase BI, slate C2) ───────────────────────────
+// Self-contained append-style block (wt/bi-app). Two AND-ed layers:
+//   env           — METABASE_URL + METABASE_EMBED_SECRET both set
+//   tenant_setting— settings.analyticsBi.enabled === true
+// Truth reused, not re-derived: the tenant layer is the same
+// tenantSettingsService accessor metabaseService.buildEmbedUrl consults; the
+// env predicate mirrors its isMetabaseEnvConfigured fail-closed check.
+// Per-dashboard METABASE_DASH_* ids are a per-resource config layer surfaced
+// as a count in integrationGateEnvFacts (metabase_dashboards_configured),
+// not a blocking layer here.
+async function analyticsBiGate(tenantId) {
+  const envConfigured = metabaseEnvConfigured();
+  const settings = await getAnalyticsBiSettings(tenantId);
+  const effective = envConfigured && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envConfigured ? 'tenant_setting' : 'env'),
+    layers: { env: envConfigured, tenant_setting: settings.enabled === true },
+  };
+}
+
 async function tenantGates(tenant) {
   const tenantId = tenant.id;
-  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting] =
+  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting, analyticsBi] =
     await Promise.all([
       paymentGatewayGate(tenantId),
       smsGate(tenantId),
@@ -206,6 +244,7 @@ async function tenantGates(tenant) {
       ambulanceGpsGate(tenantId),
       getPaymentGatewaySettings(tenantId),
       getSmsSettings(tenantId),
+      analyticsBiGate(tenantId),
     ]);
   // Consistency belt: the standalone accessors and the resolver views should
   // agree; the resolver wins, but log if they ever diverge (cache skew).
@@ -226,6 +265,7 @@ async function tenantGates(tenant) {
       ...abdm,
       uhi,
       ambulance_gps: ambulanceGps,
+      analytics_bi: analyticsBi,
     },
   };
 }

@@ -67,6 +67,12 @@
 //       counterpartyParticipantCode?: string,
 //       gatewayBaseUrls?: { sandbox?: string, production?: string },
 //     },
+//     analyticsBi?: {
+//       enabled?: boolean,                // default false — embedded Metabase BI
+//                                         // (signed static embeds). Effective only
+//                                         // with METABASE_URL + METABASE_EMBED_SECRET
+//                                         // env set (metabaseService fails closed).
+//     },
 //     cathQuickWins?: {                     // NL-13 P1e owner-decision inert slots
 //       consent?: { consentType?: string }, // patient_consents.consent_type that counts as cath consent
 //       orderSets?: {                       // clinical_order_sets.family_key per workbench slot
@@ -267,6 +273,20 @@ export async function getUhiSettings(tenantId) {
     enabled: raw.enabled === true,
     environment: raw.environment === 'production' ? 'production' : 'sandbox',
   };
+}
+
+// Embedded analytics BI (NL-10 phase 3 / migration 723 catalog). Disabled by
+// default — Metabase signed embeds turn on per tenant via a settings write,
+// and only take effect when the deployment also sets METABASE_URL +
+// METABASE_EMBED_SECRET (metabaseService ANDs env first, then this flag).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getAnalyticsBiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.analyticsBi;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
 }
 
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {

@@ -372,6 +372,19 @@ export const envSchema = Joi.object({
   METABASE_DASH_DOCTOR_PROD: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DOCTOR_PROD'),
   METABASE_DASH_OR_THROUGHPUT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OR_THROUGHPUT'),
   METABASE_DASH_SAFETY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_SAFETY'),
+  // ── Analytics BI dashboard ids (wt/bi-app, migration 723) ────────────────
+  // Registers the migration-465 metabase_env_var names that were missing
+  // above (the six legacy METABASE_DASH_* names before this block stay for
+  // back-compat; only _DAILY_OPS, _REVENUE_PAYER_MIX, and _LAB_TAT match
+  // catalog rows) plus the three names seeded by migration 723.
+  METABASE_DASH_BED_FLOW: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_BED_FLOW'),
+  METABASE_DASH_OT_UTILIZATION: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OT_UTILIZATION'),
+  METABASE_DASH_ORDERS_TAT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ORDERS_TAT'),
+  METABASE_DASH_QUALITY_FEEDBACK: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_QUALITY_FEEDBACK'),
+  METABASE_DASH_OPERATIONAL_AI_ALERTS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OPERATIONAL_AI_ALERTS'),
+  METABASE_DASH_PHARMACY_OPS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_PHARMACY_OPS'),
+  METABASE_DASH_COLLECTIONS_RCM: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_COLLECTIONS_RCM'),
+  METABASE_DASH_ENCOUNTER_VOLUME: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ENCOUNTER_VOLUME'),
 
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
