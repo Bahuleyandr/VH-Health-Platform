@@ -71,7 +71,8 @@ export type GateKey =
   | "abdm_scan_share"
   | "abdm_hiu"
   | "uhi"
-  | "ambulance_gps";
+  | "ambulance_gps"
+  | "analytics_bi";
 
 export interface IntegrationGateTenantEntry {
   tenant: { id: string; slug: string; name: string | null; status: string };
@@ -91,6 +92,10 @@ export interface IntegrationGateEnvFacts {
   livekit_enabled: boolean;
   file_scan_policy: "required" | "disabled_accepted_risk";
   clinical_continuity_c_d14_approved: boolean;
+  /** Embedded BI (wt/bi-app): METABASE_URL + METABASE_EMBED_SECRET present. */
+  metabase_configured: boolean;
+  /** Count of METABASE_DASH_* env vars carrying a positive dashboard id. */
+  metabase_dashboards_configured: number;
 }
 
 export interface IntegrationGateReport {
@@ -124,7 +129,8 @@ export type TenantGateSettingKey =
   | "abdmEnrolment"
   | "abdmHiu"
   | "uhi"
-  | "ambulanceGpsTracking";
+  | "ambulanceGpsTracking"
+  | "analyticsBi";
 
 export async function setTenantGateFlag(
   tenantId: string,

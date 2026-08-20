@@ -44,6 +44,13 @@ const GATE_ROWS: Array<{
     label: "Ambulance GPS",
     settingKey: "ambulanceGpsTracking",
   },
+  // Embedded BI (wt/bi-app): env layer is METABASE_URL + METABASE_EMBED_SECRET;
+  // per-dashboard METABASE_DASH_* ids surface in the env facts card.
+  {
+    key: "analytics_bi",
+    label: "Analytics BI embeds",
+    settingKey: "analyticsBi",
+  },
 ];
 
 export function TenantGatesCard({

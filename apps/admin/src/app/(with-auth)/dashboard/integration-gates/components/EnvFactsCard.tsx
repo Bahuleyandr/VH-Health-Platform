@@ -64,6 +64,13 @@ export function EnvFactsCard({ env }: { env: IntegrationGateEnvFacts }) {
           label="Clinical continuity (compile-time C-D14)"
           on={env.clinical_continuity_c_d14_approved}
         />
+        <Fact
+          label="Metabase embeds (METABASE_URL + secret)"
+          on={env.metabase_configured === true}
+          detail={`${env.metabase_dashboards_configured ?? 0} dashboard id${
+            env.metabase_dashboards_configured === 1 ? "" : "s"
+          }`}
+        />
       </div>
     </div>
   );

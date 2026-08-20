@@ -217,6 +217,23 @@ function wsOverrideOrigin(): string | null {
   }
 }
 
+/**
+ * Origin of the LAN Metabase deployment (embedded BI iframes), from
+ * `NEXT_PUBLIC_METABASE_ORIGIN`. When unset or unparseable, returns null and
+ * the CSP is emitted WITHOUT a frame-src directive — byte-identical to the
+ * pre-BI policy (frames then fall back to child-src 'self' blob:, which
+ * blocks cross-origin embeds — the dark-ship default).
+ */
+function metabaseFrameOrigin(): string | null {
+  const raw = process.env.NEXT_PUBLIC_METABASE_ORIGIN;
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
 function buildCsp(nonce: string): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
   const wsOrigin = apiUrl.replace(/^http/, "ws");
@@ -236,6 +253,10 @@ function buildCsp(nonce: string): string {
   const scriptSrc = isDev
     ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
     : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
+  // Embedded BI: the Metabase iframe origin joins frame-src ONLY when
+  // NEXT_PUBLIC_METABASE_ORIGIN is configured. `frame-ancestors 'none'`
+  // (below) is about who may frame US and deliberately stays.
+  const metabaseOrigin = metabaseFrameOrigin();
   return [
     "default-src 'self'",
     scriptSrc,
@@ -245,6 +266,7 @@ function buildCsp(nonce: string): string {
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "child-src 'self' blob:",
+    ...(metabaseOrigin ? [`frame-src 'self' ${metabaseOrigin}`] : []),
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
