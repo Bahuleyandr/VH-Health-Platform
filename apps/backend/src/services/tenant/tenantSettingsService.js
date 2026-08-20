@@ -269,6 +269,27 @@ export async function getUhiSettings(tenantId) {
   };
 }
 
+// Drug-KB adapter flags (migration 722, terminology slate C1/WP4). Both
+// disabled by default and BOTH additionally require the deployment-wide
+// DRUG_KB_DETERMINISTIC_MATCHING env kill switch (drugKbLinkService ANDs it):
+//   deterministicMatching — resolve prescription meds to KB drug keys via
+//     drug_kb_catalog_links / ATC bindings / composition ingredients instead
+//     of name-substring only. Off ⇒ the substring path is byte-identical.
+//   counterSaleAdvisory — fail-OPEN advisory DDI screen on OTC counter sales
+//     (warnings in the response, never blocks or fails a sale).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getDrugKbSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.drugKb;
+  const defaults = { deterministicMatching: false, counterSaleAdvisory: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    deterministicMatching: raw.deterministicMatching === true,
+    counterSaleAdvisory: raw.counterSaleAdvisory === true,
+  };
+}
+
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {
   const settings = await getTenantSettings(tenantId);
   const raw = settings.biometricCapture?.frontDeskRegistration;

@@ -39,6 +39,7 @@ import * as devices from '../../../scripts/openapi/schemas/devices.mjs';
 import * as health from '../../../scripts/openapi/schemas/health.mjs';
 import * as pharmacyCounterSale from '../../../scripts/openapi/schemas/pharmacyCounterSale.mjs';
 import * as dietaryKitchen from '../../../scripts/openapi/schemas/dietaryKitchen.mjs';
+import * as drugKb from '../../../scripts/openapi/schemas/drugKb.mjs';
 import * as misReportSchedules from '../../../scripts/openapi/schemas/misReportSchedules.mjs';
 import * as referralFacilities from '../../../scripts/openapi/schemas/referralFacilities.mjs';
 import * as shiftSwapOnCall from '../../../scripts/openapi/schemas/shiftSwapOnCall.mjs';
@@ -90,6 +91,7 @@ const MODULES = [
   health,
   pharmacyCounterSale,
   dietaryKitchen,
+  drugKb,
   misReportSchedules,
   referralFacilities,
   shiftSwapOnCall,
