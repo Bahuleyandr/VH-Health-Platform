@@ -19,6 +19,7 @@ import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumabl
 import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
 import * as hl7 from '../../../scripts/openapi/schemas/hl7.mjs';
 import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
+import * as labCodeMappings from '../../../scripts/openapi/schemas/labCodeMappings.mjs';
 import * as nhcx from '../../../scripts/openapi/schemas/nhcx.mjs';
 import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from '../../../scripts/openapi/schemas/outboxRecovery.mjs';
@@ -69,6 +70,7 @@ const MODULES = [
   clinicalInbox,
   hl7,
   lab,
+  labCodeMappings,
   nhcx,
   carePathways,
   outboxRecovery,
