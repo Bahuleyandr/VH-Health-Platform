@@ -634,7 +634,12 @@ export class StaffAuthService {
       const deviceToken = this.generateDeviceToken();
       await setTenantTx(staff.tenant_id, async (tx) => {
         await query(
-          'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+          // ::text cast is load-bearing: pg_advisory_xact_lock returns VOID,
+          // which Prisma 7's driver adapter cannot deserialize (P2010
+          // UnsupportedNativeDataType) — a bare SELECT of it 500s every
+          // register-device call (first seen dalekdefender 2026-08-21; the
+          // sibling lock above and every other advisory site already cast).
+          'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired',
           [`staff-device-registration:${staff.tenant_id}:${staff.uid}`],
           tx,
         );

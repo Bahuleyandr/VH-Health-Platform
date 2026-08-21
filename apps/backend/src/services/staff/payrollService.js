@@ -629,7 +629,11 @@ async function claimPayrollRunPeriodTx({
     // stale recovery.  It avoids relying on a unique-index race to decide who
     // owns the attempt and lets the supersession ledger change atomically.
     await tx.$executeRawUnsafe(
-      `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`,
+      // ::text cast for uniformity with every other advisory site: through
+      // $executeRaw the void column is discarded, but one refactor to
+      // $queryRaw would hit Prisma 7's P2010 void-deserialize crash (the
+      // staffAuthService register-device incident, 2026-08-21).
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired`,
       `${tid}:${year}:${month}`,
     );
 
