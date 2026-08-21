@@ -9,6 +9,7 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../op_ai_assist_availability.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class OpAiAssistScreen extends StatefulWidget {
@@ -172,9 +173,8 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   int? _intFrom(TextEditingController controller) {
@@ -454,9 +454,8 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
       title: _label('role.feature.op_ai_assist'),
       actions: [
         IconButton(
-          tooltip: AppStrings.of(
-            context,
-          ).lookup('s4.lib.op_ai_assist.refresh_services'),
+          tooltip: AppStrings.of(context)
+              .lookup('s4.lib.op_ai_assist.refresh_services'),
           onPressed: _loadingModules ? null : _loadModules,
           icon: const Icon(Icons.refresh),
         ),
@@ -1011,9 +1010,8 @@ class _ToggleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = enabled ? AppTheme.successGreen : Colors.grey;
-    final label = AppStrings.of(
-      context,
-    ).lookup(enabled ? 's4.lib.op_ai_assist.on' : 's4.lib.op_ai_assist.off');
+    final label = AppStrings.of(context)
+        .lookup(enabled ? 's4.lib.op_ai_assist.on' : 's4.lib.op_ai_assist.off');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -1154,9 +1152,8 @@ class _AccessRestrictedPanel extends StatelessWidget {
                 Expanded(
                   child: AppText(
                     's4.lib.op_ai_assist.op_doctor_assist_unavailable',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],

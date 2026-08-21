@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
@@ -19,18 +20,18 @@ import '../models/staff_appointment.dart';
 import '../../opd/op_doctor_workspace_route.dart';
 import '../../teleconsult/models/staff_teleconsult_route_args.dart';
 import '../../teleconsult/widgets/staff_teleconsult_badge.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 export '../appointment_calendar_helpers.dart';
 
-typedef AppointmentsLoader =
-    Future<Map<String, dynamic>> Function({
-      String? doctorId,
-      required String date,
-      String? status,
-      required int page,
-      required int limit,
-    });
+typedef AppointmentsLoader = Future<Map<String, dynamic>> Function({
+  String? doctorId,
+  required String date,
+  String? status,
+  required int page,
+  required int limit,
+});
 
 typedef AppointmentsRoleLoader = Future<String> Function();
 typedef AppointmentsStaffIdLoader = Future<String?> Function();
@@ -792,9 +793,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: AppStrings.of(
-                              context,
-                            ).lookup('action.close'),
+                            tooltip: AppStrings.of(context)
+                                .lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -806,9 +806,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         controller: patientPhoneCtrl,
                         keyboardType: TextInputType.phone,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.patient.phone'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.patient.phone'),
                           helperText: lookupMessage,
                           suffixIcon: patientLookupBusy
                               ? const Padding(
@@ -872,9 +871,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         controller: patientNameCtrl,
                         readOnly: patientNameReadOnly,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.patient.name'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.patient.name'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.person_outline),
                           ),
@@ -1096,9 +1094,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                           labelText: AppStrings.of(
                                             context,
                                           ).lookup('profile.field.department'),
-                                          hintText: AppStrings.of(context).lookup(
-                                            's4.lib.appointments.any_available_doctor',
-                                          ),
+                                          hintText: AppStrings.of(context)
+                                              .lookup(
+                                                's4.lib.appointments.any_available_doctor',
+                                              ),
                                           prefixIcon: const ExcludeSemantics(
                                             child: Icon(Icons.business),
                                           ),
@@ -1277,9 +1276,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       TextFormField(
                         controller: reasonCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('drug_chart.stop_reason_label'),
+                          labelText: AppStrings.of(context)
+                              .lookup('drug_chart.stop_reason_label'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.subject_outlined),
                           ),
@@ -1299,9 +1297,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       TextFormField(
                         controller: notesCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('appt_queue.notes_optional'),
+                          labelText: AppStrings.of(context)
+                              .lookup('appt_queue.notes_optional'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.notes_outlined),
                           ),
@@ -1453,9 +1450,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 width: searchWidth,
                 child: TextField(
                   decoration: InputDecoration(
-                    hintText: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.appointments.search_patient_or_phone'),
+                    hintText: AppStrings.of(context)
+                        .lookup('s4.lib.appointments.search_patient_or_phone'),
                     prefixIcon: const Icon(Icons.search),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
@@ -1730,9 +1726,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.realtime_status.stale'),
+                          AppStrings.of(context)
+                              .lookup('s4.lib.realtime_status.stale'),
                         ),
                       ),
                     ],
@@ -1884,9 +1879,8 @@ class _StaffAppointmentRescheduleDialogState
               controller: _notesCtrl,
               maxLines: 2,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.front_office_workbench.reschedule_note'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.front_office_workbench.reschedule_note'),
                 prefixIcon: const Icon(Icons.notes_outlined),
               ),
             ),
@@ -2018,9 +2012,8 @@ class _DoctorDepartmentFilterFieldState
           controller: _controller,
           focusNode: _focusNode,
           decoration: InputDecoration(
-            hintText: AppStrings.of(
-              context,
-            ).lookup('s4.lib.appointments.filter_doctor_or_department'),
+            hintText: AppStrings.of(context)
+                .lookup('s4.lib.appointments.filter_doctor_or_department'),
             prefixIcon: const Icon(Icons.manage_search_outlined),
             suffixIcon: _controller.text.trim().isEmpty
                 ? const Icon(Icons.arrow_drop_down)
@@ -2200,9 +2193,8 @@ class _SchedulerSidebar extends StatelessWidget {
               ),
               if (onCollapse != null)
                 IconButton(
-                  tooltip: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.appointments.collapse_queue_panel'),
+                  tooltip: AppStrings.of(context)
+                      .lookup('s4.lib.appointments.collapse_queue_panel'),
                   onPressed: onCollapse,
                   icon: const Icon(Icons.keyboard_double_arrow_left),
                 ),
@@ -2221,16 +2213,14 @@ class _SchedulerSidebar extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.appointments.previous_month'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.appointments.previous_month'),
                 onPressed: onPreviousMonth,
                 icon: const Icon(Icons.chevron_left),
               ),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.appointments.next_month'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.appointments.next_month'),
                 onPressed: onNextMonth,
                 icon: const Icon(Icons.chevron_right),
               ),

@@ -22,14 +22,17 @@ import '../widgets/cath_schedule_strip.dart';
 import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
 
-typedef CathLabCaseLoader =
-    Future<List<CathLabCaseSummary>> Function(DateTime date);
-typedef CathScheduleStripLoader =
-    Future<CathScheduleStrip> Function(DateTime date);
+typedef CathLabCaseLoader = Future<List<CathLabCaseSummary>> Function(
+  DateTime date,
+);
+typedef CathScheduleStripLoader = Future<CathScheduleStrip> Function(
+  DateTime date,
+);
 typedef StemiActivationLoader = Future<List<StemiActivationSummary>> Function();
 typedef StemiActivationAcknowledger = Future<void> Function(int activationId);
-typedef CathLabRealtimeEventStreamFactory =
-    Stream<RealtimeEvent> Function(String channel);
+typedef CathLabRealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
 typedef CathLabClock = DateTime Function();
 typedef CathLabRoleLoader = Future<String> Function();
 
@@ -146,9 +149,8 @@ class _CathLabScreenState extends State<CathLabScreen>
     try {
       final injectedEvents = widget.realtimeEvents;
       if (injectedEvents != null) {
-        _stemiSub = injectedEvents(
-          'staff:code-stemi',
-        ).listen(_handleStemiRealtimeNudge);
+        _stemiSub = injectedEvents('staff:code-stemi')
+            .listen(_handleStemiRealtimeNudge);
         return;
       }
       final realtime = RealtimeClient.instance;
@@ -395,9 +397,8 @@ class _CathLabScreenState extends State<CathLabScreen>
           const SizedBox(height: 20),
           Text(
             s.lookup('s4.lib.cath_lab.tab.schedule'),
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           if (_error != null)
@@ -691,9 +692,8 @@ class _StemiActivationCard extends StatelessWidget {
                       if (activation.activatedAt != null)
                         Text(
                           s.format('s4.lib.cath_lab.stemi.activated_at', {
-                            'time': DateFormat(
-                              'dd MMM yyyy, HH:mm',
-                            ).format(activation.activatedAt!),
+                            'time': DateFormat('dd MMM yyyy, HH:mm')
+                                .format(activation.activatedAt!),
                           }),
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),

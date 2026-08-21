@@ -113,6 +113,58 @@ export const RATE_LIMIT_PROFILES = {
     enforceOnHealthRoutes: true,
     enforceInTest: true
   },
+
+  // SCIM provisioning ingress (/api/v1/scim/v2) — machine-to-machine identity
+  // sync from a tenant's IdP, authenticated by a per-provider bearer that the
+  // route verifies itself (it is NOT a VH JWT). Finding 2026-08-15 873-F3: on
+  // the `default` profile every guessed bearer hashed to its OWN bucket
+  // (defaultKeyGenerator's jwt:<sha256> branch), so token brute-force was
+  // effectively unmetered — per-presented-token keying is only sound for
+  // VERIFIED tokens. The mount therefore keys this profile by SOURCE IP
+  // (keyMode: 'ip' in app.js), which an unauthenticated guesser cannot mint.
+  //
+  // CAPS. 120/min/IP = 2 rps sustained from a single IdP egress IP — enough
+  // for an Azure AD/Okta incremental sync and for a full initial sync of a
+  // few-thousand-user directory to finish in tens of minutes, while capping a
+  // token-guessing loop at 120 attempts/min against a >=20-char secret
+  // (scimCredentialService floor) with a per-attempt SCIM_AUTH_FAILED audit
+  // row. Store-loss posture is FAIL_CLOSED (rateLimitStoreLossPolicy.js):
+  // provisioning is deferrable — IdPs retry — and deprovisioning during a
+  // Redis outage is rare enough to accept a brief 429 window.
+  scimProvisioning: {
+    windowMs: 60 * 1000,
+    max: 120,
+    message: 'Too many SCIM provisioning requests. Please try again shortly.'
+  },
+
+  // Interface-engine ingress (/api/v1/interface-engine) — pre-auth HMAC-signed
+  // connector traffic (NL11-S11). Signature verification burns CPU before any
+  // auth gate, so this surface must stay metered even (especially) while the
+  // store is down: FAIL_CLOSED (rateLimitStoreLossPolicy.js) — sending engines
+  // spool and retry by design, an honest 429 is recoverable. Keyed by source
+  // IP at the mount (keyMode: 'ip'): a stray Authorization header must never
+  // split an unauthenticated sender into per-token buckets. 300/min/IP = 5
+  // msg/s sustained per sending engine, well above any current feed while
+  // bounding unauthenticated HMAC-verification work.
+  interfaceEngineIngress: {
+    windowMs: 60 * 1000,
+    max: 300,
+    message: 'Too many interface-engine requests. Please try again shortly.'
+  },
+
+  // POST /auth/logout — post-auth self-revocation, keyed per uid via
+  // defaultKeyGenerator. Split out of the fail-closed `auth` profile (finding
+  // 2026-08-15 873-F5): token blacklisting is DB-authoritative
+  // (tokenBlacklist.js R12 — Redis is a best-effort cache), so refusing a
+  // logout because the rate-limit store died blocked a security action with no
+  // Redis dependency. Store-loss posture is FAIL_OPEN_UNMETERED
+  // (rateLimitStoreLossPolicy.js); 30/15min per user bounds the DB write cost
+  // of blacklist inserts in normal operation.
+  logout: {
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    message: 'Too many logout requests. Please try again later.'
+  },
   clinicalContinuityPolicyDelivery: {
     windowMs: 60 * 1000,
     max: 30,

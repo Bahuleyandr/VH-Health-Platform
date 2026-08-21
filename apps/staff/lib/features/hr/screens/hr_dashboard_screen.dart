@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -212,9 +213,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       final department = _staffText(
         row,
         const ['department'],
-        fallback: AppStrings.of(
-          context,
-        ).lookup('s4.lib.hr_dashboard.unassigned_department'),
+        fallback: AppStrings.of(context)
+            .lookup('s4.lib.hr_dashboard.unassigned_department'),
       );
       departmentCounts[department] = (departmentCounts[department] ?? 0) + 1;
     }

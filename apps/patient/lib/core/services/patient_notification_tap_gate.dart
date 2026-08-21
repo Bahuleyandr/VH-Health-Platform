@@ -3,8 +3,9 @@ import 'package:vhhealth/core/services/deep_link_service.dart';
 
 typedef PatientSessionRevalidator = Future<bool> Function();
 typedef PatientNotificationNavigator = void Function(String route);
-typedef PatientNotificationRouteResolver =
-    String? Function(Map<String, dynamic> payload);
+typedef PatientNotificationRouteResolver = String? Function(
+  Map<String, dynamic> payload,
+);
 
 /// Holds notification-tap navigation until the current backend session and
 /// hospital readiness have been revalidated.

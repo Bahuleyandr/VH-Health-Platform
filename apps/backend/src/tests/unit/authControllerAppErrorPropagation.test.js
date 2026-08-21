@@ -33,6 +33,7 @@ const passThrough = (_req, _res, next) => next();
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   otpRateLimiter: passThrough,
   authRateLimiter: passThrough,
+  logoutRateLimiter: passThrough,
 }));
 jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
   default: (req, res, next) => {

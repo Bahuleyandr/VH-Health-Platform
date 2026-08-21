@@ -251,134 +251,132 @@ void main() {
     }
   }
 
-  testWidgets(
-    'staff Windows app logs in and opens primary dashboard routes',
-    (tester) async {
-      await ApiConfig.clearSessionIdentity();
-      final previousFlutterError = FlutterError.onError;
-      final previousErrorWidgetBuilder = ErrorWidget.builder;
-      FlutterError.onError = (details) {
-        debugPrint('Staff desktop smoke captured FlutterError:\n$details');
-        previousFlutterError?.call(details);
-      };
-      addTearDown(() => FlutterError.onError = previousFlutterError);
-      addTearDown(() => ErrorWidget.builder = previousErrorWidgetBuilder);
+  testWidgets('staff Windows app logs in and opens primary dashboard routes', (
+    tester,
+  ) async {
+    await ApiConfig.clearSessionIdentity();
+    final previousFlutterError = FlutterError.onError;
+    final previousErrorWidgetBuilder = ErrorWidget.builder;
+    FlutterError.onError = (details) {
+      debugPrint('Staff desktop smoke captured FlutterError:\n$details');
+      previousFlutterError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = previousFlutterError);
+    addTearDown(() => ErrorWidget.builder = previousErrorWidgetBuilder);
 
-      unawaited(app.main());
+    unawaited(app.main());
 
-      await waitFor(
-        tester,
-        find.byType(TextFormField),
-        reason: 'Login form did not render',
-      );
-      ErrorWidget.builder = previousErrorWidgetBuilder;
+    await waitFor(
+      tester,
+      find.byType(TextFormField),
+      reason: 'Login form did not render',
+    );
+    ErrorWidget.builder = previousErrorWidgetBuilder;
 
-      await tester.enterText(find.byType(TextFormField).at(0), '1007');
-      await tester.enterText(find.byType(TextFormField).at(1), 'test1234');
-      await tester.tap(find.byType(ElevatedButton).last);
+    await tester.enterText(find.byType(TextFormField).at(0), '1007');
+    await tester.enterText(find.byType(TextFormField).at(1), 'test1234');
+    await tester.tap(find.byType(ElevatedButton).last);
 
-      await waitFor(
-        tester,
-        find.text('Daily Work'),
-        timeout: const Duration(seconds: 30),
-        reason: 'Dashboard did not render after staff login',
-      );
-      await waitFor(tester, find.text('More tools'));
-      expectCleanScreen(tester, 'dashboard after login');
+    await waitFor(
+      tester,
+      find.text('Daily Work'),
+      timeout: const Duration(seconds: 30),
+      reason: 'Dashboard did not render after staff login',
+    );
+    await waitFor(tester, find.text('More tools'));
+    expectCleanScreen(tester, 'dashboard after login');
 
-      // Phase 1 — bottom nav (Messages / Settings / Profile bottom buttons).
-      const bottomNavLabels = ['Messages', 'Settings', 'Profile'];
-      for (final label in bottomNavLabels) {
-        await probeWithDeadline(label, () async {
-          final opened = await tapOptionalVisibleText(tester, label);
-          if (!opened) return;
-          expectCleanScreen(tester, 'bottom nav "$label"');
+    // Phase 1 — bottom nav (Messages / Settings / Profile bottom buttons).
+    const bottomNavLabels = ['Messages', 'Settings', 'Profile'];
+    for (final label in bottomNavLabels) {
+      await probeWithDeadline(label, () async {
+        final opened = await tapOptionalVisibleText(tester, label);
+        if (!opened) return;
+        expectCleanScreen(tester, 'bottom nav "$label"');
+        await goHome(tester);
+      });
+    }
+
+    // Phase 2 — always-visible quick actions (above the OP/IP tabs and
+    // not part of any service tab or More tools sheet).
+    const alwaysVisibleLabels = ['Check In/Out', 'Shift Schedule'];
+    for (final label in alwaysVisibleLabels) {
+      await probeWithDeadline(label, () async {
+        await goHome(tester);
+        final opened = await tapOptionalVisibleText(tester, label);
+        if (!opened) return;
+        expectCleanScreen(tester, 'quick action "$label"');
+      });
+    }
+
+    // Phase 3 — clinical service tabs (OP and IP). The dashboard renders
+    // only the selected tab's tiles; the test re-selects the right tab
+    // before each tile tap so a goHome that reset
+    // `_clinicalServiceTabIndex` doesn't mask an IP-only label.
+    const clinicalTabs = <String, List<String>>{
+      'OP Services': [
+        'Front Office',
+        'Appointments',
+        'Patient Queue',
+        'AI Review',
+        'OP Patient Records',
+        'Pharmacy (OP)',
+        'Upload Results',
+        'Lab Results (OP)',
+        'Lab Bookings (OP)',
+      ],
+      'IP Services': [
+        'Bed Board',
+        'IP Patient Records',
+        'Pharmacy (IP)',
+        'Upload Results',
+        'Lab Results (IP)',
+        'Lab Bookings (IP)',
+        'Dietary',
+        'Operating Theatre',
+        'Radiology',
+        'Blood Bank',
+      ],
+    };
+
+    for (final entry in clinicalTabs.entries) {
+      final tabLabel = entry.key;
+      for (final tileLabel in entry.value) {
+        await probeWithDeadline('$tabLabel → $tileLabel', () async {
           await goHome(tester);
+          await selectServiceTab(tester, tabLabel);
+          final opened = await tapOptionalVisibleText(tester, tileLabel);
+          if (!opened) return;
+          expectCleanScreen(
+            tester,
+            'clinical tile "$tileLabel" via "$tabLabel"',
+          );
         });
       }
+    }
 
-      // Phase 2 — always-visible quick actions (above the OP/IP tabs and
-      // not part of any service tab or More tools sheet).
-      const alwaysVisibleLabels = ['Check In/Out', 'Shift Schedule'];
-      for (final label in alwaysVisibleLabels) {
-        await probeWithDeadline(label, () async {
-          await goHome(tester);
-          final opened = await tapOptionalVisibleText(tester, label);
-          if (!opened) return;
-          expectCleanScreen(tester, 'quick action "$label"');
-        });
-      }
-
-      // Phase 3 — clinical service tabs (OP and IP). The dashboard renders
-      // only the selected tab's tiles; the test re-selects the right tab
-      // before each tile tap so a goHome that reset
-      // `_clinicalServiceTabIndex` doesn't mask an IP-only label.
-      const clinicalTabs = <String, List<String>>{
-        'OP Services': [
-          'Front Office',
-          'Appointments',
-          'Patient Queue',
-          'AI Review',
-          'OP Patient Records',
-          'Pharmacy (OP)',
-          'Upload Results',
-          'Lab Results (OP)',
-          'Lab Bookings (OP)',
-        ],
-        'IP Services': [
-          'Bed Board',
-          'IP Patient Records',
-          'Pharmacy (IP)',
-          'Upload Results',
-          'Lab Results (IP)',
-          'Lab Bookings (IP)',
-          'Dietary',
-          'Operating Theatre',
-          'Radiology',
-          'Blood Bank',
-        ],
-      };
-
-      for (final entry in clinicalTabs.entries) {
-        final tabLabel = entry.key;
-        for (final tileLabel in entry.value) {
-          await probeWithDeadline('$tabLabel → $tileLabel', () async {
-            await goHome(tester);
-            await selectServiceTab(tester, tabLabel);
-            final opened = await tapOptionalVisibleText(tester, tileLabel);
-            if (!opened) return;
-            expectCleanScreen(
-              tester,
-              'clinical tile "$tileLabel" via "$tabLabel"',
-            );
-          });
+    // Phase 4 — More tools section (HR, Tasks, Directory, Performance, Leave).
+    const moreToolsLabels = [
+      'Leave',
+      'HR Dashboard',
+      'Staff Mgmt',
+      'Performance',
+      'My Tasks',
+      'Staff Directory',
+    ];
+    for (final label in moreToolsLabels) {
+      await probeWithDeadline(label, () async {
+        await goHome(tester);
+        try {
+          await expandMoreTools(tester, label);
+        } on StateError {
+          debugPrint('Staff desktop smoke: skipping absent "$label"');
+          return;
         }
-      }
-
-      // Phase 4 — More tools section (HR, Tasks, Directory, Performance, Leave).
-      const moreToolsLabels = [
-        'Leave',
-        'HR Dashboard',
-        'Staff Mgmt',
-        'Performance',
-        'My Tasks',
-        'Staff Directory',
-      ];
-      for (final label in moreToolsLabels) {
-        await probeWithDeadline(label, () async {
-          await goHome(tester);
-          try {
-            await expandMoreTools(tester, label);
-          } on StateError {
-            debugPrint('Staff desktop smoke: skipping absent "$label"');
-            return;
-          }
-          final opened = await tapOptionalVisibleText(tester, label);
-          if (!opened) return;
-          expectCleanScreen(tester, 'more tools "$label"');
-        });
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 8)),
-  );
+        final opened = await tapOptionalVisibleText(tester, label);
+        if (!opened) return;
+        expectCleanScreen(tester, 'more tools "$label"');
+      });
+    }
+  }, timeout: const Timeout(Duration(minutes: 8)));
 }

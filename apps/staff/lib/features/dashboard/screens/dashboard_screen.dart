@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/platform_info.dart';
@@ -22,6 +23,7 @@ import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../../clinical_ai/op_ai_assist_availability.dart';
 import '../../opd/op_doctor_workspace_route.dart';
+import '../dashboard_due_meds_count.dart';
 import '../dashboard_inpatient_count.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -103,9 +105,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.nursingSuperintendent ||
       _role.isAdminTier;
 
-  bool _hasFeature(String featureId) => RoleFeatures.getFeaturesForRawRole(
-    _rawRole,
-  ).any((feature) => feature.id == featureId);
+  bool _hasFeature(String featureId) =>
+      RoleFeatures.getFeaturesForRawRole(_rawRole)
+          .any((feature) => feature.id == featureId);
 
   bool get _roleHasAttendanceFeature => _hasFeature('attendance');
 
@@ -182,17 +184,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         futures.add(
           ApiClient.get('/clinical/mar/due').then((r) {
             if (!r.isSuccess) return;
-            final raw = r.raw;
-            int count = 0;
-            if (raw is Map<String, dynamic>) {
-              final data = raw['data'];
-              if (data is Map<String, dynamic>) {
-                final list =
-                    data['due'] ?? data['medications'] ?? data['items'];
-                if (list is List) count = list.length;
-              }
-            }
-            _dueMedsCount = count;
+            // Leave _dueMedsCount null (shows "—") if the shape was
+            // unrecognised, rather than reporting a false 0.
+            final count = dashboardDueMedsCountFromRaw(r.raw);
+            if (count != null) _dueMedsCount = count;
           }, onError: (_) {}),
         );
       }

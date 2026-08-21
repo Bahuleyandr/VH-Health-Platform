@@ -207,9 +207,8 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
           : enabled
           ? l.ancReminderOn
           : l.ancReminderOff;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(LiveRegionSnackBar.build(message: message));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(LiveRegionSnackBar.build(message: message));
     } catch (e) {
       if (kDebugMode) debugPrint('ANC supplement reminder toggle failed: $e');
       if (!mounted) return;
@@ -986,9 +985,8 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
   }
 
   String _fmtCalendarDate(BuildContext context, DateTime date) {
-    return DateFormat.yMMMd(
-      Localizations.localeOf(context).toLanguageTag(),
-    ).format(date);
+    return DateFormat.yMMMd(Localizations.localeOf(context).toLanguageTag())
+        .format(date);
   }
 
   Widget _supplementTile(
@@ -1094,9 +1092,8 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
   String _fmtDate(BuildContext context, String iso) {
     final d = DateTime.tryParse(iso);
     if (d == null) return iso;
-    return DateFormat.yMMMd(
-      Localizations.localeOf(context).toLanguageTag(),
-    ).format(d.toLocal());
+    return DateFormat.yMMMd(Localizations.localeOf(context).toLanguageTag())
+        .format(d.toLocal());
   }
 }
 

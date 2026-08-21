@@ -22,6 +22,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -921,8 +922,9 @@ const WEBHOOK_RETURNING = `id, tenant_id, external_event_id, event_type, source,
 
 /**
  * Idempotency-aware webhook intake. If an event with the same
- * (tenant, external_event_id, environment) already exists, returns the
- * existing row + status='duplicate' without re-inserting.
+ * (tenant, external_event_id, environment) already exists, failed or stale
+ * pending work may be reclaimed when requested; otherwise the row is returned
+ * as a duplicate without re-inserting.
  */
 export async function recordWebhookEvent({
   tenantId = null,
@@ -934,6 +936,7 @@ export async function recordWebhookEvent({
   payload = null,
   environment = 'sandbox',
   metadata = null,
+  retryFailed = false,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanExt = safeText(externalEventId, 160);
@@ -944,12 +947,34 @@ export async function recordWebhookEvent({
   // Idempotency check first.
   try {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT ${WEBHOOK_RETURNING} FROM abdm_webhook_events
+      `SELECT ${WEBHOOK_RETURNING},
+              (EXTRACT(EPOCH FROM received_at) * 1000)::bigint AS received_at_epoch_ms
+         FROM abdm_webhook_events
        WHERE tenant_id = $1::uuid AND external_event_id = $2 AND environment = $3
        LIMIT 1`,
       tid, cleanExt, env,
     );
     if (existing[0]) {
+      const receivedAt = epochMsOrNull(existing[0].received_at_epoch_ms);
+      if (retryFailed && (
+        existing[0].status === 'failed'
+        || (existing[0].status === 'pending'
+          && receivedAt != null && receivedAt <= Date.now() - 5 * 60 * 1000)
+      )) {
+        const reclaimed = await prisma.$queryRawUnsafe(
+          `UPDATE abdm_webhook_events
+              SET status = 'pending', processed_at = NULL, failure_reason = NULL,
+                  payload = $3::jsonb, received_at = NOW()
+            WHERE tenant_id = $1::uuid AND id = $2
+              AND (status = 'failed'
+                   OR (status = 'pending' AND received_at <= NOW() - INTERVAL '5 minutes'))
+            RETURNING ${WEBHOOK_RETURNING}`,
+          tid,
+          existing[0].id,
+          JSON.stringify(normalizeJsonObject(payload, 'payload')),
+        );
+        if (reclaimed[0]) return { event: reclaimed[0], duplicate: false, reclaimed: true };
+      }
       return { event: existing[0], duplicate: true };
     }
   } catch (err) {
@@ -979,6 +1004,19 @@ export async function recordWebhookEvent({
          LIMIT 1`,
         tid, cleanExt, env,
       );
+      if (retryFailed && existing[0]?.status === 'failed') {
+        const reclaimed = await prisma.$queryRawUnsafe(
+          `UPDATE abdm_webhook_events
+              SET status = 'pending', processed_at = NULL, failure_reason = NULL,
+                  payload = $3::jsonb, received_at = NOW()
+            WHERE tenant_id = $1::uuid AND id = $2 AND status = 'failed'
+            RETURNING ${WEBHOOK_RETURNING}`,
+          tid,
+          existing[0].id,
+          JSON.stringify(normalizeJsonObject(payload, 'payload')),
+        );
+        if (reclaimed[0]) return { event: reclaimed[0], duplicate: false, reclaimed: true };
+      }
       return { event: existing[0], duplicate: true };
     }
     throw err;

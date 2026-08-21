@@ -20,13 +20,43 @@ import jwt from 'jsonwebtoken';
 import { AppError } from '../../utils/AppError.js';
 import * as snapshotService from './snapshotService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { getAnalyticsBiSettings } from '../tenant/tenantSettingsService.js';
 import {
   getCuratedDashboard,
   listDashboardCatalog,
 } from './analyticsCatalogService.js';
 
-const METABASE_URL = process.env.METABASE_URL || '';
-const METABASE_EMBED_SECRET = process.env.METABASE_EMBED_SECRET || '';
+// Read at call time (not module load) so the env fail-closed gate is
+// observable/testable in every process regardless of import order.
+function metabaseUrl() {
+  return process.env.METABASE_URL || '';
+}
+
+function metabaseEmbedSecret() {
+  return process.env.METABASE_EMBED_SECRET || '';
+}
+
+/** Env layer of the analytics-BI gate: both embed env vars present. */
+export function isMetabaseEnvConfigured() {
+  return Boolean(metabaseUrl() && metabaseEmbedSecret());
+}
+
+/**
+ * Three-layer gate resolution for embedded BI (house AND-of-layers rule):
+ * env configured AND settings.analyticsBi.enabled. Per-dashboard
+ * availability (METABASE_DASH_* id present) stays on the catalog rows.
+ */
+export async function getAnalyticsBiGate(tenantId) {
+  const envConfigured = isMetabaseEnvConfigured();
+  const settings = await getAnalyticsBiSettings(tenantId);
+  const tenantEnabled = settings.enabled === true;
+  return {
+    envConfigured,
+    tenantEnabled,
+    effective: envConfigured && tenantEnabled,
+  };
+}
+
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const DEFAULT_EMBED_TTL_SECONDS = 600;
 const MIN_EMBED_TTL_SECONDS = 60;
@@ -61,13 +91,16 @@ function clampTtlSeconds(ttlSeconds) {
   return Math.max(MIN_EMBED_TTL_SECONDS, Math.min(MAX_EMBED_TTL_SECONDS, seconds));
 }
 
-export async function listDashboards({ role } = {}) {
+export async function listDashboards({ role, tenantId } = {}) {
+  // Gate off (env unconfigured OR tenant flag off) ⇒ every entry reports
+  // unavailable — the same fail-closed posture buildEmbedUrl enforces.
+  const gate = await getAnalyticsBiGate(tenantId);
   const dashboards = await listDashboardCatalog({ role, includeHeld: false });
   return dashboards.map((dashboard) => ({
     key: dashboard.key,
     title: dashboard.title,
     description: dashboard.description,
-    available: dashboard.available,
+    available: dashboard.available && gate.effective,
     status: dashboard.status,
     certificationStatus: dashboard.certificationStatus,
     datasetKeys: dashboard.datasetKeys,
@@ -88,8 +121,17 @@ export async function buildEmbedUrl({
   tenantId = DEFAULT_TENANT,
   role,
 }) {
-  if (!METABASE_URL || !METABASE_EMBED_SECRET) {
+  // Fail-closed order: env first (unconfigured deployment), then the
+  // per-tenant settings.analyticsBi.enabled flag, then catalog/role checks.
+  if (!isMetabaseEnvConfigured()) {
     throw AppError.badRequest('Metabase embedding is not configured (METABASE_URL + METABASE_EMBED_SECRET env required)');
+  }
+  const analyticsBi = await getAnalyticsBiSettings(tenantId);
+  if (analyticsBi.enabled !== true) {
+    throw AppError.forbidden(
+      'Analytics embedding is not enabled for this hospital',
+      'ANALYTICS_BI_TENANT_DISABLED',
+    );
   }
   const dash = await getCuratedDashboard(key, { role });
   if (!dash.metabaseId) {
@@ -106,8 +148,8 @@ export async function buildEmbedUrl({
     },
     exp: Math.round(Date.now() / 1000) + ttl,
   };
-  const token = jwt.sign(payload, METABASE_EMBED_SECRET, { algorithm: 'HS256' });
-  const url = `${METABASE_URL.replace(/\/$/, '')}/embed/dashboard/${token}#bordered=false&titled=false`;
+  const token = jwt.sign(payload, metabaseEmbedSecret(), { algorithm: 'HS256' });
+  const url = `${metabaseUrl().replace(/\/$/, '')}/embed/dashboard/${token}#bordered=false&titled=false`;
   return {
     key,
     title: dash.title,

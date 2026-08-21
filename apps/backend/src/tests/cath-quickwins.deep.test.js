@@ -243,10 +243,11 @@ describeIfDb('NL-13 P1e cath quick wins deep integration', () => {
     await prisma.$queryRawUnsafe(
       `INSERT INTO consent_signatures
          (tenant_id, consent_id, patient_uid, signature_role, version,
-          storage_key, mime_type, file_size, sha256_hash)
+          storage_key, mime_type, file_size, sha256_hash, scan_status)
        VALUES ($1::uuid, $2::int, $3::uuid, 'patient', 1,
                'consents/deep-test-signature.png', 'image/png', 2048,
-               '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')`,
+               '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+               'not_scanned')`,
       TENANT_A,
       consentId,
       PATIENT_A,

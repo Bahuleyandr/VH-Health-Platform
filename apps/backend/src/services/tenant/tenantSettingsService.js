@@ -26,12 +26,58 @@
 //         provider?: string,
 //       },
 //     },
+//     ambulanceGpsTracking?: {
+//       enabled?: boolean,                // default false — no GPS devices yet
+//       retentionDays?: number,           // position-event retention (1-90, default 7)
+//       minSecondsBetweenFixes?: number,  // per-reporter ingest floor (1-300, default 3)
+//     },
+//     paymentGateway?: {
+//       enabled?: boolean,                // default false — online gateway (UPI/cards).
+//                                         // Effective only with PAYMENT_GATEWAY_ENABLED=true
+//                                         // AND an enabled payment_gateway_provider_configs row.
+//     },
+//     sms?: {
+//       enabled?: boolean,                // default false — real SMS gateway sends.
+//                                         // Effective only when SMS_PROVIDER is not the
+//                                         // 'logger' kill switch AND an enabled
+//                                         // sms_provider_configs row (or complete env
+//                                         // credentials) exists; otherwise dry-run.
+//     },
+//     abdmEnrolment?: {
+//       enabled?: boolean,                // default false — ABHA enrolment flows
+//                                         // (Aadhaar-OTP/mobile-OTP). Effective only
+//                                         // with ABDM_ENABLED=true; sandbox unless
+//                                         // ABDM_ENVIRONMENT=production.
+//     },
+//     abdmHiu?: {
+//       enabled?: boolean,                // default false — thin HIU consent/fetch
+//                                         // legs. Effective only with ABDM_ENABLED=true.
+//     },
+//     uhi?: {
+//       enabled?: boolean,                // default false — UHI (DHP/beckn) network
+//                                         // adapter webhook legs. Effective only with
+//                                         // UHI_ENABLED=true; sandbox unless
+//                                         // environment: 'production'.
+//       environment?: 'sandbox'|'production',
+//     },
+//     facilityAssets?: {
+//       enabled?: boolean,                // default false — general facility asset
+//                                         // register (migrations 704/706/710).
+//                                         // Effective only with
+//                                         // FACILITY_ASSETS_ENABLED=true.
+//     },
 //     nhcx?: {
 //       enabled?: boolean,
 //       environment?: 'sandbox'|'production',
 //       participantCode?: string,
 //       counterpartyParticipantCode?: string,
 //       gatewayBaseUrls?: { sandbox?: string, production?: string },
+//     },
+//     analyticsBi?: {
+//       enabled?: boolean,                // default false — embedded Metabase BI
+//                                         // (signed static embeds). Effective only
+//                                         // with METABASE_URL + METABASE_EMBED_SECRET
+//                                         // env set (metabaseService fails closed).
 //     },
 //     cathQuickWins?: {                     // NL-13 P1e owner-decision inert slots
 //       consent?: { consentType?: string }, // patient_consents.consent_type that counts as cath consent
@@ -142,6 +188,149 @@ export async function getCathQuickWinSettings(tenantId) {
 
 export { CATH_QUICK_WIN_SLOTS };
 
+// Ambulance live GPS tracking (migration 683). Disabled by default — the
+// hospital has no GPS devices yet; the feature turns on per tenant via a
+// settings write the day devices arrive. Defensive like every accessor here:
+// malformed config yields the disabled default, never a throw.
+export async function getAmbulanceGpsTrackingSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.ambulanceGpsTracking;
+  const defaults = { enabled: false, retentionDays: 7, minSecondsBetweenFixes: 3 };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  const retentionParsed = Number.parseInt(raw.retentionDays, 10);
+  const intervalParsed = Number.parseInt(raw.minSecondsBetweenFixes, 10);
+  return {
+    enabled: raw.enabled === true,
+    retentionDays: Number.isFinite(retentionParsed) && retentionParsed >= 1 && retentionParsed <= 90
+      ? retentionParsed
+      : defaults.retentionDays,
+    minSecondsBetweenFixes: Number.isFinite(intervalParsed) && intervalParsed >= 1 && intervalParsed <= 300
+      ? intervalParsed
+      : defaults.minSecondsBetweenFixes,
+  };
+}
+
+// Online payment gateway (migrations 693-697). Disabled by default — turning
+// the feature on is a settings write + provider config row, never a
+// migration. Effective enablement additionally requires the
+// PAYMENT_GATEWAY_ENABLED env kill switch and an enabled provider config
+// (paymentGatewayService.resolveGatewayContext ANDs all three). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getPaymentGatewaySettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.paymentGateway;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// SMS gateway (migrations 699/700). Disabled by default — the outbox drain
+// resolves every tenant to the dry-run logger until this settings write AND a
+// provider config row (or complete env credentials) exist; SMS_PROVIDER=logger
+// remains the deployment-wide kill switch
+// (smsProviders/index.js:resolveSmsProviderContext ANDs all of it). Defensive
+// like every accessor here: malformed config yields the disabled default,
+// never a throw.
+export async function getSmsSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.sms;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// ABHA enrolment (migration 701). Disabled by default — enrolment reaches the
+// national ABDM sandbox/production gateway, so it turns on per tenant via a
+// settings write only after the deployment sets ABDM_ENABLED and the operator
+// decides. Defensive like every accessor here: malformed config yields the
+// disabled default, never a throw.
+export async function getAbdmEnrolmentSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmEnrolment;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// Thin HIU legs (migration 703 + the 124 abdmFull consent layer). Disabled by
+// default — same posture as abdmEnrolment. Defensive: malformed config yields
+// the disabled default, never a throw.
+export async function getAbdmHiuSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.abdmHiu;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// UHI (Unified Health Interface / DHP-beckn) adapter (migration 705).
+// Disabled by default — the webhook legs answer the national UHI network, so
+// a tenant opts in via a settings write only after the deployment sets
+// UHI_ENABLED (env is the kill switch, this is the per-hospital enable).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getUhiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.uhi;
+  const defaults = { enabled: false, environment: 'sandbox' };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    enabled: raw.enabled === true,
+    environment: raw.environment === 'production' ? 'production' : 'sandbox',
+  };
+}
+
+// Drug-KB adapter flags (migration 722, terminology slate C1/WP4). Both
+// disabled by default and BOTH additionally require the deployment-wide
+// DRUG_KB_DETERMINISTIC_MATCHING env kill switch (drugKbLinkService ANDs it):
+//   deterministicMatching — resolve prescription meds to KB drug keys via
+//     drug_kb_catalog_links / ATC bindings / composition ingredients instead
+//     of name-substring only. Off ⇒ the substring path is byte-identical.
+//   counterSaleAdvisory — fail-OPEN advisory DDI screen on OTC counter sales
+//     (warnings in the response, never blocks or fails a sale).
+// Defensive like every accessor here: malformed config yields the disabled
+// defaults, never a throw.
+export async function getDrugKbSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.drugKb;
+  const defaults = { deterministicMatching: false, counterSaleAdvisory: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return {
+    deterministicMatching: raw.deterministicMatching === true,
+    counterSaleAdvisory: raw.counterSaleAdvisory === true,
+  };
+}
+
+// Embedded analytics BI (NL-10 phase 3 / migration 723 catalog). Disabled by
+// default — Metabase signed embeds turn on per tenant via a settings write,
+// and only take effect when the deployment also sets METABASE_URL +
+// METABASE_EMBED_SECRET (metabaseService ANDs env first, then this flag).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getAnalyticsBiSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.analyticsBi;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// General facility asset register (migrations 704/706/710). Disabled by
+// default — the register dark-ships like every other #878-wave feature, so a
+// tenant opts in via a settings write only after the deployment sets
+// FACILITY_ASSETS_ENABLED (env is the kill switch, this is the per-hospital
+// enable; facilityAssetService.requireFacilityAssetsEnabled ANDs both).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getFacilityAssetsSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.facilityAssets;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {
   const settings = await getTenantSettings(tenantId);
   const raw = settings.biometricCapture?.frontDeskRegistration;
@@ -158,4 +347,20 @@ export async function getFrontDeskBiometricCaptureSettings(tenantId) {
     modes,
     provider: raw.provider ? String(raw.provider).trim() || null : null,
   };
+}
+
+// Lab analyzer-code → LOINC mapping enrichment (migration 721). Disabled by
+// default — a tenant opts in via a settings write once its analyzer code
+// mappings are curated. Effective enablement additionally requires the
+// LAB_LOINC_MAPPING_ENABLED env kill switch AND curated active mapping rows
+// (labCodeMappingService.resolveLabLoincMappingGate ANDs env + tenant; no
+// rows means the resolver simply never matches). Defensive like every
+// accessor here: malformed config yields the disabled default, never a
+// throw.
+export async function getLabLoincMappingSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.labLoincMapping;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
 }

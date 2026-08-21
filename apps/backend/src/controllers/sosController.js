@@ -8,6 +8,7 @@ import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../services/tenant/tena
 import { isAdmin } from '../utils/roleHelpers.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../utils/responseHelper.js';
+import { AppError } from '../utils/AppError.js';
 
 export const parseNearbyCoordinates = (query = {}) => {
   const rawLatitude = query.latitude ?? query.lat;
@@ -37,13 +38,35 @@ function isAdminRole(role) {
   return isAdmin(role) || String(role || '').trim().toUpperCase() === 'SUPER_ADMIN';
 }
 
+// Self-service SOS identity: SOS surfaces (alerts, my-alerts, cancel,
+// emergency contact, medical info) belong to the person physically holding
+// the phone, so when the acting-as delegation hop rewrote req.user to a
+// dependent, self-service reads/writes key off the pre-hop GUARDIAN actor
+// preserved on req.acting. Responder/admin surfaces keep req.user.
+function selfServiceUid(req) {
+  return req.acting?.actorUid ?? req.user?.uid ?? null;
+}
+
 async function resolveSelfServicePhone(req, requestedPhone) {
   const normalizedRequested = normalizePhone(requestedPhone || '');
   if (isAdminRole(req.user?.role) && normalizedRequested) {
     return normalizedRequested;
   }
 
-  const tokenPhone = normalizePhone(req.user?.phone || '');
+  // Defense in depth for delegated sessions (2026-08-18 P1): an SOS — and its
+  // emergency contact / medical info — belongs to the person physically
+  // holding the phone. When the acting-as hop rewrote req.user to a minor
+  // dependent, resolve from the pre-hop GUARDIAN identity preserved on
+  // req.acting; the dependent's synthetic `DEPEND-<hex>` phone can never
+  // match a real body phone, so without this a guardian viewing a dependent
+  // profile could never raise a hospital-side alert. The patient app also
+  // suppresses `X-Acting-As-Uid` on /sos/* (see vhhealth_core VHHttpClient
+  // actingAsExemptPathPrefixes); this keeps SOS working for older clients.
+  const self = req.acting
+    ? { phone: req.acting.actorPhone, uid: req.acting.actorUid }
+    : { phone: req.user?.phone, uid: req.user?.uid };
+
+  const tokenPhone = normalizePhone(self.phone || '');
   if (tokenPhone) {
     if (normalizedRequested && normalizedRequested !== tokenPhone) {
       const err = new Error('Can only manage SOS data for yourself');
@@ -53,13 +76,13 @@ async function resolveSelfServicePhone(req, requestedPhone) {
     return tokenPhone;
   }
 
-  if (!req.user?.uid) return null;
+  if (!self.uid) return null;
   const rows = await prisma.$queryRawUnsafe(
     `SELECT phone
        FROM users
       WHERE uid = $1::uuid AND tenant_id = $2::uuid
       LIMIT 1`,
-    req.user.uid,
+    self.uid,
     tenantOf(req),
   );
   const resolvedPhone = normalizePhone(rows[0]?.phone || '');
@@ -82,6 +105,13 @@ export const createEmergencyAlert = async (req, res) => {
   }
 
   try {
+    const isTestAlert = req.body?.isTestAlert === true;
+    if (isTestAlert && !isAdminRole(req.user?.role)) {
+      throw AppError.forbidden(
+        'Only an administrator may create an SOS drill',
+        'SOS_DRILL_ROLE_REQUIRED',
+      );
+    }
     const phone = await resolveSelfServicePhone(req, req.body.phone || req.body.phoneNumber);
     if (!phone) {
       return error(res, 'Phone number is required for emergency contact', HTTP_STATUS.BAD_REQUEST);
@@ -90,9 +120,14 @@ export const createEmergencyAlert = async (req, res) => {
     const alertData = {
       ...req.body,
       phone,
+      isTestAlert,
+      drillAuthorization: isTestAlert ? {
+        actorUid: req.user?.uid ?? null,
+        actorRole: String(req.user?.role || '').trim().toUpperCase(),
+      } : null,
       ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
       userAgent: req.headers['user-agent'] || null,
-      createdBy: req.user?.uid || 'patient_app'
+      createdBy: selfServiceUid(req) || 'patient_app'
     };
 
     const result = await sosService.createAlert(alertData);
@@ -122,7 +157,7 @@ export const updateEmergencyContact = async (req, res) => {
     }
 
     // FIX: Corrected function name from updateEmergencyContact to updateEmergencyContacts
-    const result = await sosService.updateEmergencyContacts(phone, req.body, req.user?.uid);
+    const result = await sosService.updateEmergencyContacts(phone, req.body, selfServiceUid(req));
     success(res, result, 'Emergency contact information updated successfully');
 
   } catch (err) {
@@ -147,7 +182,7 @@ export const getEmergencyContact = async (req, res) => {
 export const cancelAlert = async (req, res) => {
   try {
     const { alertId } = req.params;
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const result = await sosService.cancelAlert(alertId, uid);
@@ -163,7 +198,7 @@ export const cancelAlert = async (req, res) => {
 
 export const getMyAlerts = async (req, res) => {
   try {
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
@@ -195,7 +230,7 @@ export const getNearbyServices = async (req, res) => {
 
 export const getMedicalInfo = async (req, res) => {
   try {
-    const uid = req.user?.uid;
+    const uid = selfServiceUid(req);
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const info = await sosService.getMedicalInfo(uid);
@@ -215,7 +250,7 @@ export const getResponderDashboard = async (req, res) => {
     const alerts = await prisma.$queryRawUnsafe(`
       SELECT sa.id, sa.phone, sa.latitude, sa.longitude, sa.alert_type,
              sa.severity, sa.status, sa.message, sa.raised_at,
-             sa.responded_by, sa.responded_at
+             sa.responded_by, sa.responded_at, sa.response_message
       FROM sos_alerts sa
       ${SOS_USER_JOIN}
       WHERE ${SOS_TENANT_FILTER}
@@ -253,23 +288,23 @@ export const getResponderAnalytics = async (req, res) => {
 };
 
 export const respondToAlert = async (req, res) => {
-  try {
-    const { alertId } = req.params;
-    const uid = req.user?.uid;
+  // Enforce the validator chain (responseMessage is required — previously the
+  // chain ran but nothing checked its result, and the message was discarded).
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return error(res, 'Validation failed', HTTP_STATUS.BAD_REQUEST, errors.array());
+  }
 
-    const rows = await prisma.$queryRawUnsafe(`
-      UPDATE sos_alerts
-      SET status = 'RESPONDING', responded_by = $1::uuid, responded_at = NOW(), updated_at = NOW()
-      WHERE id = $2::int AND status = 'ACTIVE'
-        AND EXISTS (
-          SELECT 1 FROM users u
-           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
-             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $3::uuid
-        )
-      RETURNING id, status, responded_at
-    `, uid, parseInt(alertId, 10), tenantOf(req));
-    if (rows.length === 0) return error(res, 'Alert not found or already responded', HTTP_STATUS.NOT_FOUND);
-    success(res, rows[0], 'Alert marked as responding');
+  try {
+    const row = await sosService.respondToAlert({
+      tenantId: tenantOf(req),
+      alertId: req.params.alertId,
+      responderUid: req.user?.uid,
+      responderRole: req.user?.role || null,
+      responseMessage: req.body?.responseMessage,
+    });
+    if (!row) return error(res, 'Alert not found or already responded', HTTP_STATUS.NOT_FOUND);
+    success(res, row, 'Alert marked as responding');
   } catch (err) {
     logger.error('Respond to Alert Error:', err);
     error(res, 'Failed to respond to alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -277,21 +312,21 @@ export const respondToAlert = async (req, res) => {
 };
 
 export const resolveAlert = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return error(res, 'Validation failed', HTTP_STATUS.BAD_REQUEST, errors.array());
+  }
+
   try {
-    const { alertId } = req.params;
-    const rows = await prisma.$queryRawUnsafe(`
-      UPDATE sos_alerts
-      SET status = 'RESOLVED', resolved_at = NOW(), updated_at = NOW()
-      WHERE id = $1::int AND status IN ('ACTIVE', 'RESPONDING')
-        AND EXISTS (
-          SELECT 1 FROM users u
-           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
-             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
-        )
-      RETURNING id, status, resolved_at
-    `, parseInt(alertId, 10), tenantOf(req));
-    if (rows.length === 0) return error(res, 'Alert not found or already resolved', HTTP_STATUS.NOT_FOUND);
-    success(res, rows[0], 'Alert resolved');
+    const row = await sosService.resolveAlert({
+      tenantId: tenantOf(req),
+      alertId: req.params.alertId,
+      actorUid: req.user?.uid ?? null,
+      actorRole: req.user?.role || null,
+      resolutionNotes: req.body?.resolutionNotes ?? null,
+    });
+    if (!row) return error(res, 'Alert not found or already resolved', HTTP_STATUS.NOT_FOUND);
+    success(res, row, 'Alert resolved');
   } catch (err) {
     logger.error('Resolve Alert Error:', err);
     error(res, 'Failed to resolve alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);

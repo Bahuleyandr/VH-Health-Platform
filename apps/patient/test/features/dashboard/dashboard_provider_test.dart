@@ -34,10 +34,39 @@ void main() {
       await fetchedCompleter.future;
       await Future<void>.delayed(Duration.zero);
 
-      expect(invalidated, ['/appointments/uid/uid-1']);
-      expect(fetched, ['/appointments/uid/uid-1']);
+      expect(invalidated, ['/appointments/patient/uid-1']);
+      expect(fetched, ['/appointments/patient/uid-1']);
       expect(provider.todayAppointment?['id'], 17);
       expect(ws.lastAppointmentEvent, isNotNull);
+    },
+  );
+
+  test(
+    'active dependent id keys the appointment feed over the guardian id',
+    () async {
+      final fetched = <String>[];
+      String? activeDependentId = '77';
+      final provider = DashboardProvider(
+        isGuestSession: false,
+        uidProvider: () => 'uid-1',
+        activeDependentIdProvider: () => activeDependentId,
+        cachedGet: (path, {timeout, cacheTtl}) async {
+          fetched.add(path);
+          return _cachedAppointments(const []);
+        },
+      );
+      addTearDown(provider.dispose);
+
+      // Guardian viewing a dependent → the DEPENDENT's feed (P4: the
+      // guardian id 403'd under acting-as and silently emptied the feed).
+      await provider.refreshAppointments();
+      expect(fetched, ['/appointments/patient/77']);
+
+      // Back on the guardian's own profile → the guardian's feed.
+      activeDependentId = null;
+      fetched.clear();
+      await provider.refreshAppointments();
+      expect(fetched, ['/appointments/patient/uid-1']);
     },
   );
 
@@ -59,7 +88,7 @@ void main() {
 
     await provider.refreshAppointments();
 
-    expect(fetched, ['/appointments/uid/uid-1']);
+    expect(fetched, ['/appointments/patient/uid-1']);
     expect(provider.todayAppointment?['id'], 24);
   });
 
@@ -96,7 +125,7 @@ void main() {
 
       timers.first();
       await Future<void>.delayed(Duration.zero);
-      expect(fetched, ['/appointments/uid/uid-1']);
+      expect(fetched, ['/appointments/patient/uid-1']);
 
       acknowledged = true;
       fetched.clear();

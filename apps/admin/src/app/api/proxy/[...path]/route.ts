@@ -1,11 +1,11 @@
 // src/app/api/proxy/[...path]/route.ts
 import { API_BASE_URL } from "@/lib/api-config";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import {
   requiredProxyPermission,
   checkProxyPermission,
 } from "@/lib/proxyPermissions";
 import { getVerifiedTokenRole, isSuperAdminRole } from "@/lib/serverTokenRole";
-import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +43,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/beds",
   "api/v1/wards",
   "api/v1/devices",
+  "api/v1/facility/assets",
   "api/v1/feedback",
   "api/v1/billing",
   "api/v1/emr/",
@@ -95,6 +96,10 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/stroke-pathway",
   "api/v1/downtime/reconciliation/",
   "api/v1/debug/",
+  // Terminology & Knowledge console (slate C1). api/v1/lab (above) already
+  // covers the api/v1/lab/code-mappings family by segment boundary.
+  "api/v1/terminology",
+  "api/v1/drug-kb",
 ];
 
 // Headers that must not be forwarded by proxies

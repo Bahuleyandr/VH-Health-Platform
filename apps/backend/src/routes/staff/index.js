@@ -21,10 +21,11 @@ import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import * as orderService from '../../services/investigation/orderService.js';
 import { createLegacyStaffConsultation } from '../../services/emr/legacyStaffMedicalService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isStaff } from '../../utils/roleHelpers.js';
 import { deleteObject, uploadFileToR2 } from '../../utils/r2Storage.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 const upload = multer({
@@ -180,6 +181,12 @@ staffPrescriptionRoutes.post('/prescriptions/upload', requireStaffMedical, uploa
     const uploadRole = String(req.user?.role || 'staff').toUpperCase();
     const documentType = req.body?.document_type || req.body?.type || 'PRESCRIPTION';
     const fileName = storageSafeName(req.file.originalname || 'document');
+    // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+    // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+    await screenUploadBuffer(req.file.buffer, {
+      subject: 'Document',
+      context: { appointmentId, route: 'staff-appointment-document' },
+    });
     const fileKey = `records/appointments/${appointmentId}/${Date.now()}-${fileName}`;
     const fileUrl = await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
 
@@ -209,6 +216,8 @@ staffPrescriptionRoutes.post('/prescriptions/upload', requireStaffMedical, uploa
     return success(res, normalizeAppointmentDocument(rows[0]), 'Document uploaded successfully', 201);
   } catch (err) {
     logger.error('Staff prescription upload failed:', err);
+    // Screening refusals (422/503) are deliberate caller-facing answers.
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to upload prescription document', { safe: true });
     return error(res, 'Failed to upload prescription document', 500);
   }
 });
@@ -274,6 +283,12 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
     let fileKey = req.body?.file_key || req.body?.fileUrl || null;
     let uploadedFileKey = null;
     if (req.file) {
+      // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+      // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+      await screenUploadBuffer(req.file.buffer, {
+        subject: 'Investigation file',
+        context: { route: 'staff-medical-investigation' },
+      });
       const fileName = storageSafeName(req.file.originalname || req.body?.fileName || 'result');
       fileKey = `investigations/staff/${phone.replace(/^\+/, '')}/${Date.now()}-${fileName}`;
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
@@ -313,6 +328,8 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
     if (err?.code === 'PATIENT_NOT_FOUND') {
       return error(res, 'Patient not found', 404);
     }
+    // Screening refusals (422/503) are deliberate caller-facing answers.
+    if (err?.statusCode) return relayAppError(res, err, 'Failed to upload investigation', { safe: true });
     return error(res, 'Failed to upload investigation', 500);
   }
 });

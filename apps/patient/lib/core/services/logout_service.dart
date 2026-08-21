@@ -217,9 +217,8 @@ class LogoutService {
     //    the revocation above. Same unit as that bound, deliberately — one
     //    socket-shaped ceiling, one knob for tests to shrink.
     try {
-      await Future<void>.sync(
-        _dependencies.disconnectRealtime,
-      ).timeout(PatientRealtimeLifecycle.stopTimeout);
+      await Future<void>.sync(_dependencies.disconnectRealtime)
+          .timeout(PatientRealtimeLifecycle.stopTimeout);
     } catch (e) {
       debugPrint(
         'LogoutService: RealtimeClient disconnect failed or exceeded its '

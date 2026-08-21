@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/services/ed_trauma_api_service.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
@@ -8,33 +9,31 @@ import '../../../l10n/app_strings.dart';
 import '../widgets/ed_continuity_panel.dart';
 
 typedef EdPolicyLoader = Future<Map<String, dynamic>> Function();
-typedef StemiActivationCreator =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> body);
+typedef StemiActivationCreator = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> body,
+);
 typedef EdDestinationHandoffLoader =
     Future<List<Map<String, dynamic>>> Function();
-typedef EdDestinationHandoffRequester =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required String destination,
-      required String intendedRecipientRole,
-      required String reason,
-    });
-typedef EdDestinationHandoffDecider =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required String handoffId,
-      required String decision,
-      String? reason,
-      String? reasonCode,
-    });
-typedef EdDestinationHandoffRerouter =
-    Future<Map<String, dynamic>> Function({
-      required int emergencyVisitId,
-      required String handoffId,
-      required String destination,
-      required String intendedRecipientRole,
-      required String reason,
-    });
+typedef EdDestinationHandoffRequester = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required String destination,
+  required String intendedRecipientRole,
+  required String reason,
+});
+typedef EdDestinationHandoffDecider = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required String handoffId,
+  required String decision,
+  String? reason,
+  String? reasonCode,
+});
+typedef EdDestinationHandoffRerouter = Future<Map<String, dynamic>> Function({
+  required int emergencyVisitId,
+  required String handoffId,
+  required String destination,
+  required String intendedRecipientRole,
+  required String reason,
+});
 
 class EdTraumaWorkbenchScreen extends StatefulWidget {
   const EdTraumaWorkbenchScreen({
@@ -200,9 +199,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
       if (!mounted) return;
       final message = strings.lookup('ed_trauma.stemi.activated');
       _message = message;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     });
   }
 
@@ -337,9 +335,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                 key: const ValueKey('ed-handoff-decline-reason-code'),
                 initialValue: reasonCode,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('ed_trauma.handoff.decline_reason_code'),
+                  labelText: AppStrings.of(context)
+                      .lookup('ed_trauma.handoff.decline_reason_code'),
                 ),
                 items:
                     const [
@@ -367,9 +364,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                 maxLines: 3,
                 onChanged: (value) => reason = value,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('ed_trauma.handoff.reason'),
+                  labelText: AppStrings.of(context)
+                      .lookup('ed_trauma.handoff.reason'),
                 ),
               ),
             ],
@@ -430,9 +426,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                 key: const ValueKey('ed-handoff-reroute-role'),
                 onChanged: (value) => role = value,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('ed_trauma.handoff.receiving_role'),
+                  labelText: AppStrings.of(context)
+                      .lookup('ed_trauma.handoff.receiving_role'),
                 ),
               ),
               const SizedBox(height: 12),
@@ -441,9 +436,8 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
                 maxLines: 3,
                 onChanged: (value) => reason = value,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('ed_trauma.handoff.reason'),
+                  labelText: AppStrings.of(context)
+                      .lookup('ed_trauma.handoff.reason'),
                 ),
               ),
             ],
@@ -581,6 +575,12 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
         leading: const NavigationBackAction(),
         title: Text(s.lookup('ed_trauma.title')),
         actions: [
+          IconButton(
+            key: const ValueKey('ed-trauma-ambulance-tracking'),
+            tooltip: s.lookup('s4.lib.ambulance_tracking.title'),
+            onPressed: () => context.push('/ambulance-tracking'),
+            icon: const Icon(Icons.local_shipping_outlined),
+          ),
           IconButton(
             tooltip: s.actionRefresh,
             onPressed: _loading ? null : _loadPolicy,
@@ -933,9 +933,8 @@ class _DestinationHandoffCard extends StatelessWidget {
                 'visit': handoff['emergency_visit_id'] ?? '',
                 'destination': destination,
               }),
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(

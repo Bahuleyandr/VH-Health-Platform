@@ -9,6 +9,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
@@ -88,7 +89,8 @@ function isExternalProvider(provider) {
 function activeConsent(consent) {
   const status = cleanText(consent?.status).toLowerCase();
   const revoked = Boolean(consent?.revoked_at);
-  const expired = consent?.expires_at ? new Date(consent.expires_at).getTime() < Date.now() : false;
+  const expiresAt = epochMsOrNull(consent?.expires_at_epoch_ms);
+  const expired = expiresAt != null && expiresAt < Date.now();
   return !revoked && !expired && consent?.granted !== false && ['active', 'granted', 'approved'].includes(status);
 }
 
@@ -309,7 +311,8 @@ async function getPatientConsents(patientUid) {
   try {
     return await prisma.$queryRawUnsafe(
       `SELECT consent_type, granted, status, granted_at, revoked_at, expires_at,
-              source, purpose, data_categories, created_at
+              source, purpose, data_categories, created_at,
+              (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
        FROM patient_consents
        WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC

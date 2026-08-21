@@ -87,9 +87,8 @@ class VitalTextField extends StatelessWidget {
               final text = normalizeVitalValue(value ?? '', unit);
               if (text.isEmpty) return null;
               return num.tryParse(text) == null
-                  ? AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.vital_text_field.enter_valid_number')
+                  ? AppStrings.of(context)
+                        .lookup('s4.lib.vital_text_field.enter_valid_number')
                   : null;
             }
           : null,

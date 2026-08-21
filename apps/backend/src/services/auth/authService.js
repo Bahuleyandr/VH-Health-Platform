@@ -1,6 +1,7 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { assertValidAdminPermissions } from '../../config/adminPermissionsCatalog.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma, { setTenant } from '../../lib/prisma.js';
@@ -1000,10 +1001,16 @@ export class AuthService {
   }
 
   static async updateAdminPermissions(adminId, permissions, updatedBy) {
+    // Fail-closed vocabulary allowlist (adminPermissionsCatalog): unknown
+    // strings are rejected, and the portal proxy's platformSuperAdmin
+    // sentinel is rejected by name so it stays structurally ungrantable.
+    // Throws AppError 400 — deliberately outside the try/catch below so the
+    // caller relays it as a validation failure, not a 500.
+    const validated = assertValidAdminPermissions(permissions);
     try {
       const updated = await prisma.admins.update({
         where: { uid: String(adminId) },
-        data: { permissions: permissions ?? [] },
+        data: { permissions: validated },
         select: { uid: true, username: true, permissions: true },
       });
       logger.info(`Admin permissions updated: ${adminId} by ${updatedBy}`);

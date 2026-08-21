@@ -117,8 +117,7 @@ class _SmokeApi {
     if (method == 'POST' && path.endsWith('/auth/staff/register-device')) {
       loginPosts++;
       return _ok({
-        'accessToken':
-            'eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFmZi11aWQiLCJyb2xlIjoiTlVSU0lOR19TVEFGRiJ9.sig',
+        'accessToken': 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFmZi11aWQiLCJyb2xlIjoiTlVSU0lOR19TVEFGRiJ9.sig',
         'refreshToken': 'refresh-token',
         'deviceToken': 'trusted-device-token',
         'staff': {

@@ -22,9 +22,8 @@ import 'package:vhhealth/core/services/patient_session_authority.dart';
 
 void main() {
   test('router derives login state only from a validated backend session', () {
-    final router = File(
-      'lib/core/navigation/app_router.dart',
-    ).readAsStringSync();
+    final router = File('lib/core/navigation/app_router.dart')
+        .readAsStringSync();
 
     // Login state is the backend session and nothing else.
     expect(router, contains('final isLoggedIn = hasBackendSession;'));
@@ -63,9 +62,8 @@ void main() {
   });
 
   test('biometric splash unlock is gated on the same session authority', () {
-    final splash = File(
-      'lib/features/splash/screens/splash_screen.dart',
-    ).readAsStringSync();
+    final splash = File('lib/features/splash/screens/splash_screen.dart')
+        .readAsStringSync();
 
     // The splash screen validates the stored JWT through the authority rather
     // than trusting its presence.

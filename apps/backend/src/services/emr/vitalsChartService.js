@@ -13,6 +13,7 @@ import {
 } from '../clinical/canonicalClinicalPlatformService.js';
 import * as news2Service from '../clinical/news2Service.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 
 const VALID_VITAL_TYPES = [
@@ -1225,7 +1226,9 @@ export async function correctVitals(vitalsId, data) {
       `${field} IS NOT DISTINCT FROM $${index + 3}::${VITAL_CORRECTION_SQL_CASTS[field]}`
     ));
     const guardRows = await tx.$queryRawUnsafe(
-      `SELECT (${statePredicates.join(' AND ')}) AS effective_state_unchanged
+      `SELECT (${statePredicates.join(' AND ')}) AS effective_state_unchanged,
+              (EXTRACT(EPOCH FROM recorded_at) * 1000)::bigint AS recorded_at_epoch_ms,
+              (EXTRACT(EPOCH FROM created_at) * 1000)::bigint AS created_at_epoch_ms
          FROM vitals_chart
         WHERE id = $1::int
           AND tenant_id = $2::uuid
@@ -1264,11 +1267,20 @@ export async function correctVitals(vitalsId, data) {
       };
     }
 
-    const recordedAt = existing.recorded_at ?? existing.created_at;
-    if (!recordedAt) {
+    // Read the correction window's anchor as an absolute instant from the locked
+    // guard row rather than from the delegate read: a timestamptz materialised by
+    // the driver is shifted by the DATABASE SESSION timezone, and this window is
+    // only five minutes — a +5:30 session skews it by 66x the window, which would
+    // either lock nurses out of every correction or silently void the immutability
+    // guarantee entirely. guardRows is the same row under FOR UPDATE and is
+    // already proven non-empty above. The recorded_at-then-created_at coalesce
+    // order and the "no timestamp at all" branch are preserved exactly.
+    const recordedAtMs = epochMsOrNull(guardRows[0].recorded_at_epoch_ms)
+      ?? epochMsOrNull(guardRows[0].created_at_epoch_ms);
+    if (recordedAtMs == null) {
       throw AppError.conflict('Vitals record cannot be corrected without a recorded timestamp');
     }
-    if (Date.now() - new Date(recordedAt).getTime() > VITAL_CORRECTION_WINDOW_MS) {
+    if (Date.now() - recordedAtMs > VITAL_CORRECTION_WINDOW_MS) {
       throw AppError.conflict('Vitals correction window has expired');
     }
 

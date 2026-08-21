@@ -29,6 +29,15 @@ jobs:
       - name: Install
         working-directory: apps/device-gateway
         run: npm ci
+      # Same engine as the backend/admin guards (scripts/check-lockfile-libc.mjs):
+      # npm 11 strips `"libc"` from platform packages when it regenerates a
+      # lockfile (PR #878). This app's image is bookworm-slim (glibc) with
+      # --omit=dev, so the stakes are lockfile integrity rather than a broken
+      # prod image — but the strip must not land silently here either. Own step
+      # so a lint failure cannot mask it; costs milliseconds.
+      - name: Lockfile libc guard (musl/glibc platform constraints intact)
+        working-directory: apps/device-gateway
+        run: npm run check:lockfile-libc
       - name: Lint
         working-directory: apps/device-gateway
         run: npm run lint

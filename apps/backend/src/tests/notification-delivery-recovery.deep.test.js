@@ -304,6 +304,63 @@ describeIfDb('C6.1-D notification delivery recovery', () => {
     expect(outboxCountAfter).toBe(outboxCountBefore);
   }, 60_000);
 
+  test('operator reconciliation writes a real operator_reconciliation receipt (migration 700 CHECK keeps 658 vocabulary)', async () => {
+    // Regression for the 700 rewrite of chk_notification_provider_receipt_source:
+    // the operator path (POST /admin/notifications/outbox/:id/reconcile) INSERTs
+    // receipt_source = 'operator_reconciliation' UNMOCKED here — a CHECK that
+    // drops the 658 value fails this with 23514.
+    const { reconcileNotificationOutboxAttempt } = await import(
+      '../services/notification/notificationOutboxAdminService.js'
+    );
+    const queued = await notificationOutbox.queue(intent(`event:${SUFFIX}:operator`), { strict: true });
+    const [claim] = await notificationOutbox.claimPendingBatch({ tenantId: TENANT_ID, limit: 1 });
+    expect(claim.id).toBe(queued.id);
+    const [attempt] = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: queued.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['push'],
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET lease_expires_at = NOW() - INTERVAL '1 second'
+        WHERE tenant_id = $1::uuid AND id = $2::integer
+          AND claim_token = $3::uuid`,
+      TENANT_ID, queued.id, claim.claim_token,
+    ));
+    await reconcileExpiredClaims({ tenantId: TENANT_ID });
+    expect(await readOutbox(queued.id)).toMatchObject({ status: 'RECONCILIATION_REQUIRED' });
+
+    const reconciled = await reconcileNotificationOutboxAttempt({
+      tenantId: TENANT_ID,
+      id: queued.id,
+      attemptId: attempt.attempt_id,
+      providerReference: `projects/test/messages/operator-${SUFFIX}`,
+      evidence: { provider_console_export_sha256: 'e'.repeat(64) },
+      reason: 'Provider console confirms acceptance; recording operator evidence.',
+      actorUid: ACTOR_UID,
+      actorRole: 'ADMIN',
+    });
+    expect(reconciled.fully_reconciled).toBe(true);
+    expect(reconciled.row).toMatchObject({ status: 'SENT' });
+
+    const receipts = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT receipt_source, outcome, owner_actor_uid::text, owner_reason
+         FROM notification_provider_receipts
+        WHERE tenant_id = $1::uuid AND attempt_id = $2::uuid
+          AND receipt_source = 'operator_reconciliation'`,
+      TENANT_ID, attempt.attempt_id,
+    ));
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      receipt_source: 'operator_reconciliation',
+      outcome: 'acknowledged',
+      owner_actor_uid: ACTOR_UID,
+    });
+  }, 60_000);
+
   test('the 603 database guard blocks late notification intent creation but not factual receipts', async () => {
     await setTenantTx(TENANT_ID, async (tx) => {
       await tx.$executeRawUnsafe(

@@ -74,3 +74,49 @@ spec:
                 name: vhhealth-backend
                 port:
                   number: 80
+---
+# SMS delivery callbacks authenticate with an opaque bearer in the URL path.
+# Give that prefix its own nginx location with access logging disabled so the
+# credential never reaches the controller access log. The application still
+# emits its redacted operational/audit events; snippets remain disabled.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-backend-sms-webhooks
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    nginx.ingress.kubernetes.io/enable-access-log: "false"
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rpm: "600"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.vhhealth.app
+      http:
+        paths:
+          - path: /webhooks/sms
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
+    - host: "*.vhhealth.app"
+      http:
+        paths:
+          - path: /webhooks/sms
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80

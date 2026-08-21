@@ -944,6 +944,13 @@ describe('collectPayment additional branches', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it('rejects sub-paisa payment amounts before opening a transaction', async () => {
+    await expect(
+      svc.collectPayment({ invoice_id: 9, amount: 100.001, mode: 'UPI' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
   it('rejects CASH without a shift (CASH_PAYMENT_REQUIRES_SHIFT)', async () => {
     await expect(
       svc.collectPayment({ invoice_id: 9, amount: 100, mode: 'CASH' }),
@@ -970,6 +977,16 @@ describe('collectPayment additional branches', () => {
     await expect(
       svc.collectPayment({ invoice_id: 9, amount: 500, mode: 'UPI' }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects exactly one paisa above outstanding due', async () => {
+    queryMock.mockResolvedValueOnce([{
+      status: 'ISSUED', patient_uid: PATIENT, amount_due: '100.00',
+    }]);
+    await expect(
+      svc.collectPayment({ invoice_id: 9, amount: 100.01, mode: 'UPI' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects when no patient_uid and no invoice_id', async () => {
@@ -1382,7 +1399,9 @@ describe('refunds', () => {
   });
 
   it('markRefundPaid throws notFound when not approved', async () => {
-    queryMock.mockResolvedValueOnce([]);
+    queryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     await expect(svc.markRefundPaid(1, {})).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -1392,6 +1411,62 @@ describe('refunds', () => {
     expect(r).toMatchObject({ id: 1 });
     // no advance => no balance update exec
     expect(execMock).not.toHaveBeenCalled();
+  });
+
+  it('markRefundPaid cannot be switched to the gateway rail by untrusted options', async () => {
+    queryMock.mockResolvedValueOnce([{ id: 8, advance_id: null, amount: '100' }]);
+
+    await svc.markRefundPaid(8, {
+      paid_by: PATIENT,
+      reference: 'MANUAL-ATTACK',
+      payout_rail: 'gateway',
+      gateway_refund_id: 9876,
+    });
+
+    const update = queryMock.mock.calls.find(call => /UPDATE billing_refunds/.test(call[0]));
+    expect(update.slice(1, 6)).toEqual([
+      PATIENT,
+      'MANUAL-ATTACK',
+      8,
+      'manual',
+      null,
+    ]);
+  });
+
+  it('markGatewayRefundPaid requires an exact locked provider execution leg', async () => {
+    queryMock.mockResolvedValueOnce([]);
+
+    await expect(svc.markGatewayRefundPaid(8, {
+      tenantId: TENANT,
+      gateway_refund_id: 77,
+      provider_refund_id: 'rfnd_verified_77',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID',
+    });
+  });
+
+  it('markGatewayRefundPaid binds exact provider evidence before gateway settlement', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ id: 77 }])
+      .mockResolvedValueOnce([{ id: 8, advance_id: null, amount: '100' }]);
+
+    await svc.markGatewayRefundPaid(8, {
+      tenantId: TENANT,
+      gateway_refund_id: 77,
+      provider_refund_id: 'rfnd_verified_77',
+    });
+
+    expect(queryMock.mock.calls[0][0]).toContain('FOR UPDATE');
+    expect(execMock.mock.calls[0].slice(1)).toEqual(['rfnd_verified_77', 77, TENANT]);
+    const settlement = queryMock.mock.calls.find(call => /UPDATE billing_refunds/.test(call[0]));
+    expect(settlement.slice(1, 6)).toEqual([
+      null,
+      'rfnd_verified_77',
+      8,
+      'gateway',
+      77,
+    ]);
   });
 
   it('markRefundPaid reduces the advance balance when linked to an advance (atomic decrement)', async () => {

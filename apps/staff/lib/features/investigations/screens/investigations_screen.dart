@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/config/staff_role_contract.g.dart';
@@ -376,9 +377,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: AppStrings.of(
-                              context,
-                            ).lookup('action.close'),
+                            tooltip: AppStrings.of(context)
+                                .lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -392,9 +392,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                           readOnly: true,
                           keyboardType: TextInputType.phone,
                           decoration: InputDecoration(
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('reception_counter.patient.phone'),
+                            labelText: AppStrings.of(context)
+                                .lookup('reception_counter.patient.phone'),
                             helperText: [
                               if ((widget.initialPatientName ?? '')
                                   .trim()
@@ -472,9 +471,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                         readOnly: scopedPatientId != null,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('vitals.patient_id_label'),
+                          labelText: AppStrings.of(context)
+                              .lookup('vitals.patient_id_label'),
                           helperText: scopedPatientId != null
                               ? 'Using selected OP patient'
                               : null,
@@ -496,9 +494,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       TextFormField(
                         controller: testNameCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.investigations.test_name'),
+                          labelText: AppStrings.of(context)
+                              .lookup('s4.lib.investigations.test_name'),
                           hintText: AppStrings.of(
                             context,
                           ).lookup('s4.lib.investigations.cbc_x_ray_chest_ecg'),
@@ -514,9 +511,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       DropdownButtonFormField<String>(
                         initialValue: type,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('bed_sheet.field.type'),
+                          labelText: AppStrings.of(context)
+                              .lookup('bed_sheet.field.type'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.category_outlined),
                           ),
@@ -546,9 +542,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       DropdownButtonFormField<String>(
                         initialValue: priority,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('clinical_inbox.priority'),
+                          labelText: AppStrings.of(context)
+                              .lookup('clinical_inbox.priority'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.priority_high_outlined),
                           ),
@@ -603,9 +598,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                               : const Icon(Icons.add, color: Colors.white),
                           label: Text(
                             submitting
-                                ? AppStrings.of(
-                                    context,
-                                  ).lookup('s4.lib.investigations.ordering')
+                                ? AppStrings.of(context)
+                                      .lookup('s4.lib.investigations.ordering')
                                 : AppStrings.of(context).lookup(
                                     's4.lib.investigations.order_investigation',
                                   ),
@@ -635,9 +629,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             backgroundColor: AppTheme.successGreen,
             action: _isScopedOpVisit
                 ? SnackBarAction(
-                    label: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.investigations.prescription'),
+                    label: AppStrings.of(context)
+                        .lookup('s4.lib.investigations.prescription'),
                     textColor: AppTheme.surfaceWhite,
                     onPressed: _continueToPrescription,
                   )
@@ -1258,17 +1251,15 @@ class _SelectedFileRow extends StatelessWidget {
                   file.error ?? _fileSizeLabel(file.sizeBytes),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: color),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: color),
                 ),
               ],
             ),
           ),
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.patient_records.remove_file'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.patient_records.remove_file'),
             onPressed: onRemove,
             icon: const Icon(Icons.close, size: 18),
           ),
@@ -1729,9 +1720,8 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
                       ),
                       child: Text(
                         resultReady
-                            ? AppStrings.of(
-                                context,
-                              ).lookup('s4.lib.investigations.result_ready')
+                            ? AppStrings.of(context)
+                                  .lookup('s4.lib.investigations.result_ready')
                             : status,
                         style: TextStyle(
                           fontSize: 10,
@@ -1856,9 +1846,8 @@ class _InvestigationResultSheetState extends State<_InvestigationResultSheet> {
         reason: reason,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(strings.clinicalInboxReopened)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(strings.clinicalInboxReopened)));
       Navigator.pop(context);
       await widget.onReopened?.call();
     } catch (e) {
@@ -1977,9 +1966,8 @@ class _InvestigationResultSheetState extends State<_InvestigationResultSheet> {
                 const SizedBox(height: 8),
                 _ResultBlock(
                   title: s.clinicalInboxClassification,
-                  body: _textValue(
-                    diagnosticReview['classification'],
-                  ).toUpperCase(),
+                  body: _textValue(diagnosticReview['classification'])
+                      .toUpperCase(),
                 ),
               ],
               if (canReopen && generationId.isNotEmpty) ...[

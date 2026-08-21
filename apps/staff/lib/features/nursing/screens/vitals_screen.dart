@@ -20,6 +20,8 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
+import '../../emr/screens/vitals_chart_screen.dart'
+    show vitalsTemperatureDisplayF;
 
 /// Positive patient identification for quick vitals (STF-4).
 ///
@@ -912,6 +914,41 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   }
 }
 
+/// Normalize one `GET /health/patient/:id/trends` record's `vital_signs`
+/// map to the short keys this tab renders.
+///
+/// The live backend shape (patientHealthService.formatVitalRecord) is
+/// camelCase — `{bloodPressure, heartRate, temperature, bloodSugar, spO2}` —
+/// but this view historically read `blood_pressure`/`pulse`/`spo2`, so the
+/// chips never rendered. Both spellings are tolerated defensively.
+Map<String, dynamic> normalizeTrendVitalSigns(Map<String, dynamic> record) {
+  final raw = record['vital_signs'];
+  final vitals = raw is Map
+      ? Map<String, dynamic>.from(raw)
+      : <String, dynamic>{};
+  dynamic pick(List<String> keys) {
+    for (final k in keys) {
+      final v = vitals[k];
+      if (v != null) return v;
+    }
+    return null;
+  }
+
+  return {
+    'blood_pressure': pick(const ['bloodPressure', 'blood_pressure']),
+    'temperature': pick(const ['temperature']),
+    'blood_sugar': pick(const ['bloodSugar', 'blood_sugar']),
+    'pulse': pick(const ['heartRate', 'heart_rate', 'pulse']),
+    'spo2': pick(const ['spO2', 'spo2']),
+  };
+}
+
+/// Trends temperatures are canonical °C (patient_vitals storage); the chip
+/// labels [VitalUnit.temperature] ('deg F'), so convert exactly once with
+/// the shared EMR helper before display. Non-numeric returns null.
+String? trendTemperatureDisplay(dynamic storedCelsius) =>
+    vitalsTemperatureDisplayF(storedCelsius)?.toStringAsFixed(1);
+
 class _RecentVitalsTab extends StatefulWidget {
   const _RecentVitalsTab();
 
@@ -1036,11 +1073,13 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
       itemCount: records.length,
       itemBuilder: (_, i) {
         final r = records[i] as Map<String, dynamic>;
-        final vitals = r['vital_signs'] as Map<String, dynamic>? ?? {};
+        final vitals = normalizeTrendVitalSigns(r);
+        final bp = vitals['blood_pressure'];
         final measurements = r['measurements'] as Map<String, dynamic>? ?? {};
         final date =
             r['created_at']?.toString() ??
             r['recorded_at']?.toString() ??
+            r['recorded_date']?.toString() ??
             r['date']?.toString() ??
             '';
 
@@ -1075,16 +1114,19 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   spacing: 16,
                   runSpacing: 8,
                   children: [
-                    if (vitals['blood_pressure'] != null)
+                    if (bp is Map)
                       _VitalChip(
                         s.vitalsChartColBp,
-                        '${vitals['blood_pressure']['systolic']}/${vitals['blood_pressure']['diastolic']}',
+                        '${bp['systolic']}/${bp['diastolic']}',
                         VitalUnit.bp,
                       ),
                     if (vitals['temperature'] != null)
                       _VitalChip(
                         s.vitalsChartColTemp,
-                        '${vitals['temperature']}',
+                        // Canonical °C → °F to match the 'deg F' label; a
+                        // non-numeric payload falls back to the raw text.
+                        trendTemperatureDisplay(vitals['temperature']) ??
+                            '${vitals['temperature']}',
                         VitalUnit.temperature,
                       ),
                     if (vitals['pulse'] != null)

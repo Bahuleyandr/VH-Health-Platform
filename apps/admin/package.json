@@ -32,6 +32,7 @@
     "clean:install": "npm run clean && npm ci",
     "check:clinical-ai-bundle": "node scripts/check-clinical-ai-bundle.mjs",
     "check:dead-code": "knip --include files,dependencies,devDependencies,unlisted --reporter compact --no-exit-code",
+    "check:lockfile-libc": "node ../../scripts/check-lockfile-libc.mjs admin",
     "check:no-public-secrets": "node scripts/check-no-public-secrets.mjs",
     "check:pwa-retirement": "node scripts/check-pwa-retirement.mjs",
     "generate:types": "openapi-typescript ../backend/src/docs/openapi.json -o src/lib/openapi.generated.ts",

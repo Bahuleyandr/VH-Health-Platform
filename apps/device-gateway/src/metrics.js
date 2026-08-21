@@ -79,6 +79,24 @@ export const gatewayCredentialEvents = new Counter(
   'Gateway or device credential outcomes without credential material',
   ['kind', 'status'],
 );
+// LIS analyzer transport (ASTM E1394 over TCP + MLLP HL7 ORU). Labels stay
+// bounded: listener names come from operator config, protocol/status/reason
+// from closed in-code sets — never from wire content.
+export const lisConnectionsActive = new Gauge(
+  'lis_connections_active',
+  'Active LIS analyzer TCP connections by listener',
+  ['listener'],
+);
+export const lisMessagesReceived = new Counter(
+  'lis_messages_received_total',
+  'Complete LIS analyzer messages by listener, protocol, and bounded result',
+  ['listener', 'protocol', 'status'],
+);
+export const lisFrameNaks = new Counter(
+  'lis_frame_naks_total',
+  'ASTM frames answered NAK by listener and bounded reason',
+  ['listener', 'reason'],
+);
 
 const all = [
   mllpConnectionsActive,
@@ -96,6 +114,9 @@ const all = [
   gatewayRefusals,
   gatewayReconciliation,
   gatewayCredentialEvents,
+  lisConnectionsActive,
+  lisMessagesReceived,
+  lisFrameNaks,
 ];
 
 export function serializeMetrics() {

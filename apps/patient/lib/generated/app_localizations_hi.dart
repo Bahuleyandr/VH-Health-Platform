@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -65,6 +66,14 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get authSosTriggered => 'SOS अलर्ट शुरू हो गया है!';
+
+  @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
 
   @override
   String get authGuestUserSOS => 'अतिथि_उपयोगकर्ता_sos';
@@ -524,6 +533,11 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get investigationsFilePickerError =>
       'एक फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।';
+
+  @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
 
   @override
   String get triviaTitle => 'स्वास्थ्य रोचक तथ्य';
@@ -2763,6 +2777,15 @@ class AppLocalizationsHi extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'रिमाइंडर हटाएँ';
 
   @override
+  String get medicationReminderUpdateFailed => 'रिमाइंडर अपडेट नहीं हो सका';
+
+  @override
+  String get medicationReminderDeleteFailed => 'रिमाइंडर हटाया नहीं जा सका';
+
+  @override
+  String get medicationReminderPausedLabel => 'रोका गया';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'खुराक: $dosage';
   }
@@ -3395,6 +3418,10 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get splashUpdateButton => 'VH Health अपडेट करें';
+
+  @override
+  String get splashUpdateNoStoreBody =>
+      'अपडेट किया गया संस्करण अभी इस डिवाइस पर डाउनलोड के लिए उपलब्ध नहीं है। VH Health का नवीनतम संस्करण इंस्टॉल करने में सहायता के लिए कृपया अस्पताल के रिसेप्शन से संपर्क करें।';
 
   @override
   String get yourHealthTimelineFilterAll => 'सभी';

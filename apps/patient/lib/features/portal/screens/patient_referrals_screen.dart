@@ -170,9 +170,8 @@ void _showDetails(BuildContext context, PatientReferral referral) {
               referral.department.isEmpty
                   ? l10n.referralsSpecialist
                   : referral.department,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             if (referral.signedAt != null) ...[
               const SizedBox(height: 4),

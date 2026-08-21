@@ -75,55 +75,52 @@ void main() {
     expect(lifecycle.isTearingDown, isFalse);
   });
 
-  test(
-    'a stop AND a final disconnect that BOTH hang still complete the teardown',
-    () async {
-      // THE case the first cut of this suite could not express. In production
-      // both callbacks resolve to the SAME method: `_stop` reaches
-      // `RealtimeClient.instance.disconnect()` via main.dart's `_stopRealtime`
-      // → `RealtimeProvider.disconnect`, and `finalDisconnect` IS
-      // `RealtimeClient.instance.disconnect`. On the motivating case — a dead
-      // or black-holed socket — the first call is parked inside
-      // `await _channel?.sink.close(...)` and has not reached `_channel = null`,
-      // so a second call re-awaits that same pending close.
-      //
-      // Pairing a never-resolving `stop` with an instantly-returning
-      // `finalDisconnect`, as the earlier tests did, is a combination that
-      // CANNOT occur in production — which is why they passed while the escape
-      // hatch still re-entered the wedge and left logout hanging forever.
-      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
-      final lifecycle = PatientRealtimeLifecycle();
-      final wedgedSocket = Completer<void>();
-      var finalDisconnects = 0;
+  test('a stop AND a final disconnect that BOTH hang still complete the teardown', () async {
+    // THE case the first cut of this suite could not express. In production
+    // both callbacks resolve to the SAME method: `_stop` reaches
+    // `RealtimeClient.instance.disconnect()` via main.dart's `_stopRealtime`
+    // → `RealtimeProvider.disconnect`, and `finalDisconnect` IS
+    // `RealtimeClient.instance.disconnect`. On the motivating case — a dead
+    // or black-holed socket — the first call is parked inside
+    // `await _channel?.sink.close(...)` and has not reached `_channel = null`,
+    // so a second call re-awaits that same pending close.
+    //
+    // Pairing a never-resolving `stop` with an instantly-returning
+    // `finalDisconnect`, as the earlier tests did, is a combination that
+    // CANNOT occur in production — which is why they passed while the escape
+    // hatch still re-entered the wedge and left logout hanging forever.
+    PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+    final lifecycle = PatientRealtimeLifecycle();
+    final wedgedSocket = Completer<void>();
+    var finalDisconnects = 0;
 
-      lifecycle.attach(
-        owner: Object(),
-        start: () async {},
-        stop: ({required unsubscribe}) => wedgedSocket.future,
-      );
+    lifecycle.attach(
+      owner: Object(),
+      start: () async {},
+      stop: ({required unsubscribe}) => wedgedSocket.future,
+    );
 
-      lifecycle.beginTeardown();
-      final result = await lifecycle
-          .completeTeardown(() {
-            finalDisconnects += 1;
-            // The same wedge, because it is the same call.
-            return wedgedSocket.future;
-          })
-          .timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => fail(
-              'completeTeardown awaited the escape-hatch disconnect, which '
-              'resolves to the same wedged call as the stop it is escaping',
-            ),
-          );
+    lifecycle.beginTeardown();
+    final result = await lifecycle
+        .completeTeardown(() {
+          finalDisconnects += 1;
+          // The same wedge, because it is the same call.
+          return wedgedSocket.future;
+        })
+        .timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => fail(
+            'completeTeardown awaited the escape-hatch disconnect, which '
+            'resolves to the same wedged call as the stop it is escaping',
+          ),
+        );
 
-      expect(result, PatientRealtimeTeardownResult.timedOut);
-      // The invariant that must NOT be weakened: the disconnect is still
-      // attempted. It is started and left to run, not awaited.
-      expect(finalDisconnects, 1);
-      expect(lifecycle.isTearingDown, isFalse);
-    },
-  );
+    expect(result, PatientRealtimeTeardownResult.timedOut);
+    // The invariant that must NOT be weakened: the disconnect is still
+    // attempted. It is started and left to run, not awaited.
+    expect(finalDisconnects, 1);
+    expect(lifecycle.isTearingDown, isFalse);
+  });
 
   test(
     'a drain that reaches the front of the queue only after the bound expired '

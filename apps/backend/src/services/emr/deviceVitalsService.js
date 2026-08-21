@@ -26,6 +26,7 @@ import {
   readExternalRecoveryResumeState,
 } from '../integrations/externalInterfaceRecoveryService.js';
 import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecoveryService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
@@ -160,7 +161,16 @@ export function extractVitalsFromOru(parsed) {
     const codeField = String(f[3] ?? '');
     const code = codeField.split('^')[0].trim();
     const value = String(f[5] ?? '').trim();
-    return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value };
+    // OBX-6 (units) may be a CE (`identifier^text^system`) — take the
+    // identifier. An absent/empty OBX-6 yields '' and downstream
+    // (obxResultsToVitals) keeps today's behavior: the value is assumed to
+    // already be in the vitals_chart canonical unit (mg/dL, °C, mmHg, /min…)
+    // because many bedside monitors omit units entirely. A known unit is
+    // converted to canonical; an unknown non-empty unit REJECTS the message
+    // (DEVICE_VITALS_UNSUPPORTED_UNIT, 400 → gateway dead-letter) rather than
+    // storing a guess.
+    const units = String(f[6] ?? '').split('^')[0].trim();
+    return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value, units };
   }).filter((o) => o.loinc_code);
 
   let observedAt = null;
@@ -390,7 +400,8 @@ async function countSuppressed({ tenantId, deviceId, reason, db = prisma, strict
 
 async function latestDeviceVitals({ tenantId, patientUid, sourceDevice }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2, respiratory_rate, recorded_at
+    `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2, respiratory_rate, recorded_at,
+            (EXTRACT(EPOCH FROM recorded_at) * 1000)::bigint AS recorded_at_epoch_ms
        FROM vitals_chart
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
@@ -418,8 +429,9 @@ function hasNews2RelevantDelta(vitals = {}, latest = null) {
 }
 
 function withinChartingInterval(latest = null, intervalMinutes = 5) {
-  if (!latest?.recorded_at) return false;
-  const ageMs = Date.now() - new Date(latest.recorded_at).getTime();
+  const recordedAt = epochMsOrNull(latest?.recorded_at_epoch_ms);
+  if (recordedAt == null) return false;
+  const ageMs = Date.now() - recordedAt;
   return ageMs >= 0 && ageMs < intervalMinutes * 60 * 1000;
 }
 

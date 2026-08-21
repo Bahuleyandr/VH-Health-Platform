@@ -67,25 +67,22 @@ void main() {
       expect(await RecentPatientsService.getAll(), isEmpty);
     });
 
-    test(
-      'stores entries in secure storage, never plaintext SharedPreferences (M10)',
-      () async {
-        RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
-        await RecentPatientsService.add('patient-a', 'Alice');
+    test('stores entries in secure storage, never plaintext SharedPreferences (M10)', () async {
+      RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
+      await RecentPatientsService.add('patient-a', 'Alice');
 
-        // The cache is readable through the service…
-        final recents = await RecentPatientsService.getAll();
-        expect(recents.map((entry) => entry['uid']), ['patient-a']);
+      // The cache is readable through the service…
+      final recents = await RecentPatientsService.getAll();
+      expect(recents.map((entry) => entry['uid']), ['patient-a']);
 
-        // …but NOTHING about it lands in plaintext SharedPreferences.
-        final prefs = await SharedPreferences.getInstance();
-        final phiKeys = prefs
-            .getKeys()
-            .where((k) => k.startsWith('recent_patients'))
-            .toList();
-        expect(phiKeys, isEmpty);
-      },
-    );
+      // …but NOTHING about it lands in plaintext SharedPreferences.
+      final prefs = await SharedPreferences.getInstance();
+      final phiKeys = prefs
+          .getKeys()
+          .where((k) => k.startsWith('recent_patients'))
+          .toList();
+      expect(phiKeys, isEmpty);
+    });
 
     test(
       'migrating wipes pre-existing plaintext recents on first write (M10)',

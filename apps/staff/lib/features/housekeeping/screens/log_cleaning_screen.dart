@@ -256,9 +256,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                   setState(() {
                     _selectedZoneId = v;
                     if (v != null) {
-                      final zone =
-                          _zones.firstWhere((z) => (z as Map)['id'] == v)
-                              as Map;
+                      final zone = _zones.firstWhere(
+                        (z) => (z as Map)['id'] == v,
+                      ) as Map;
                       _selectedZoneName = zone['name'] as String?;
                     }
                   });

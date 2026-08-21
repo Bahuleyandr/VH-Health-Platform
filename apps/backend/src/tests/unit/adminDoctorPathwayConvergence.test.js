@@ -27,6 +27,11 @@ const { adminDoctorService } = await import(
   '../../services/doctor/adminDoctorService.js'
 );
 
+// Acting admin's tenant — the mutations now require it (tenant scoping so a
+// tenant-A admin cannot flip/delete a tenant-B doctor). Matches the tenant on
+// the mocked doctor/appointment rows.
+const TENANT_ID = '10000000-0000-4000-8000-000000000001';
+
 function activeAppointment({ livePathway = true } = {}) {
   return {
     id: 71,
@@ -63,7 +68,7 @@ test('bulk deactivate fails closed before doctor or appointment mutation in acti
   });
 
   await expect(
-    adminDoctorService.performBulkOperation('deactivate', [31])
+    adminDoctorService.performBulkOperation('deactivate', [31], {}, TENANT_ID)
   ).rejects.toMatchObject({
     statusCode: 409,
     code: 'DOCTOR_APPOINTMENT_PATHWAY_CONVERGENCE_REQUIRED',
@@ -91,7 +96,7 @@ test('bulk deactivate preserves the legacy shadow-mode cancellation path', async
   });
 
   await expect(
-    adminDoctorService.performBulkOperation('deactivate', [31])
+    adminDoctorService.performBulkOperation('deactivate', [31], {}, TENANT_ID)
   ).resolves.toMatchObject({
     operation: 'deactivate',
     affected_doctors: [{ user_id: 31 }],
@@ -121,7 +126,7 @@ test('availability=false fails closed for an active-mode appointment even before
     adminDoctorService.updateDoctorAvailability(31, {
       is_available: false,
       reason: 'Roster change',
-    })
+    }, TENANT_ID)
   ).rejects.toMatchObject({
     statusCode: 409,
     code: 'DOCTOR_APPOINTMENT_PATHWAY_CONVERGENCE_REQUIRED',
@@ -162,7 +167,7 @@ test('availability=false proceeds when no appointment is affected', async () => 
     adminDoctorService.updateDoctorAvailability(31, {
       is_available: false,
       reason: 'Roster change',
-    })
+    }, TENANT_ID)
   ).resolves.toMatchObject({
     doctor: {
       id: 9,
@@ -192,7 +197,7 @@ test('account deletion cannot raw-reassign an active-mode appointment', async ()
     adminDoctorService.deleteDoctorAccount(31, {
       reason: 'Left service',
       transfer_patients_to: 41,
-    })
+    }, TENANT_ID)
   ).rejects.toMatchObject({
     statusCode: 409,
     code: 'DOCTOR_APPOINTMENT_PATHWAY_CONVERGENCE_REQUIRED',
@@ -226,7 +231,7 @@ test('account deletion preserves shadow-mode transfer and soft-delete behavior',
     adminDoctorService.deleteDoctorAccount(31, {
       reason: 'Left service',
       transfer_patients_to: 41,
-    })
+    }, TENANT_ID)
   ).resolves.toMatchObject({
     doctor: {
       id: 9,
@@ -243,7 +248,7 @@ test('account deletion preserves shadow-mode transfer and soft-delete behavior',
   const appointmentTransfer = executeRawMock.mock.calls.find(
     ([sql]) => sql.includes('UPDATE appointments')
   );
-  expect(appointmentTransfer?.slice(1)).toEqual([41, [9, 31]]);
+  expect(appointmentTransfer?.slice(1)).toEqual([41, [9, 31], TENANT_ID]);
   expect(
     executeRawMock.mock.calls.some(([sql]) => sql.includes('UPDATE doctors'))
   ).toBe(true);

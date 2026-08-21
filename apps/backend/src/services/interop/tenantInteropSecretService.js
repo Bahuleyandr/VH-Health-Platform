@@ -24,6 +24,11 @@ export const VALID_INTEROP_SECRET_KINDS = [
   'nhcx_api_token',
   'nhcx_jwe_private_key',
   'nhcx_callback_secret',
+  // UHI webhook (migration 705): the stored "secret" is the counterparty's
+  // ed25519 PUBLIC verification key (base64 raw), keyed by the tenant's HSP
+  // subscriber id — resolveTenantBySender('uhi_callback', providerId) is the
+  // fail-closed tenant resolution on the pre-RLS UHI mount.
+  'uhi_callback',
 ];
 const KINDS = new Set(VALID_INTEROP_SECRET_KINDS);
 

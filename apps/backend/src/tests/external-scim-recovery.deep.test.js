@@ -7,6 +7,7 @@ process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'i13-scim
 const persistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
 const publishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   blacklistToken: jest.fn(),
   isTokenBlacklisted: jest.fn(),
   isUserTokensRevoked: jest.fn(),

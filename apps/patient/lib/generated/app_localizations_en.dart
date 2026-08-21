@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -66,6 +67,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get authSosTriggered => 'SOS alert has been triggered!';
+
+  @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
 
   @override
   String get authGuestUserSOS => 'guest_user_sos';
@@ -525,6 +534,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get investigationsFilePickerError =>
       'Could not pick a file. Please try again.';
+
+  @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
 
   @override
   String get triviaTitle => 'Health Trivia';
@@ -2755,6 +2769,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'Delete reminder';
 
   @override
+  String get medicationReminderUpdateFailed => 'Unable to update reminder';
+
+  @override
+  String get medicationReminderDeleteFailed => 'Unable to delete reminder';
+
+  @override
+  String get medicationReminderPausedLabel => 'Paused';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'Dosage: $dosage';
   }
@@ -3384,6 +3407,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get splashUpdateButton => 'Update VH Health';
+
+  @override
+  String get splashUpdateNoStoreBody =>
+      'The updated version is not yet available for download on this device. Please contact the hospital reception for help installing the latest version of VH Health.';
 
   @override
   String get yourHealthTimelineFilterAll => 'All';

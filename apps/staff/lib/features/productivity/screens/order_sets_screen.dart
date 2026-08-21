@@ -163,9 +163,8 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
             padding: const EdgeInsets.all(12),
             child: TextField(
               decoration: InputDecoration(
-                hintText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.order_sets.search_pneumonia_sepsis'),
+                hintText: AppStrings.of(context)
+                    .lookup('s4.lib.order_sets.search_pneumonia_sepsis'),
                 prefixIcon: const Icon(Icons.search),
                 border: const OutlineInputBorder(),
                 isDense: true,

@@ -54,6 +54,23 @@ const existingRow = {
   created_at: new Date(),
 };
 
+// correctVitals reads the correction-window anchor from the LOCKED guard row's
+// epoch twins, not from the delegate read — a timestamptz materialised by the
+// driver is shifted by the database session timezone, and the window is only
+// five minutes. Keep both mocks describing the same row so a test cannot pin a
+// timestamp on one and silently exercise the other.
+function setExisting(overrides = {}) {
+  const row = { ...existingRow, ...overrides };
+  const epoch = (v) => (v == null ? null : BigInt(new Date(v).getTime()));
+  findUniqueMock.mockResolvedValue({ ...row });
+  __txClient.$queryRawUnsafe.mockResolvedValue([{
+    effective_state_unchanged: false,
+    recorded_at_epoch_ms: epoch(row.recorded_at),
+    created_at_epoch_ms: epoch(row.created_at),
+  }]);
+  return row;
+}
+
 const findUniqueMock = jest.fn();
 const updateMock = jest.fn();
 const auditCreateMock = jest.fn();
@@ -119,9 +136,7 @@ function resetAll() {
   findUniqueMock.mockReset();
   updateMock.mockReset();
   auditCreateMock.mockReset();
-  __txClient.$queryRawUnsafe.mockReset().mockResolvedValue([{
-    effective_state_unchanged: false,
-  }]);
+  __txClient.$queryRawUnsafe.mockReset();
 
   usersFindUniqueMock.mockImplementation(async ({ where }) => {
     if (where?.uid === PATIENT_UID) return { id: 777 };
@@ -129,7 +144,7 @@ function resetAll() {
     return null;
   });
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__txClient));
-  findUniqueMock.mockResolvedValue({ ...existingRow });
+  setExisting();
   updateMock.mockImplementation(async ({ data }) => ({ ...existingRow, ...data }));
   auditCreateMock.mockResolvedValue({ id: 1 });
   checkVitalAnomaliesMock.mockResolvedValue([{
@@ -293,8 +308,7 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     resetAll();
     const now = Date.parse('2026-08-12T00:00:00.000Z');
     const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
-    findUniqueMock.mockResolvedValue({
-      ...existingRow,
+    setExisting({
       recorded_at: new Date(now - (5 * 60 * 1000)),
       created_at: new Date(now - (5 * 60 * 1000)),
     });
@@ -312,8 +326,7 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     resetAll();
     const now = Date.parse('2026-08-12T00:00:00.000Z');
     const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
-    findUniqueMock.mockResolvedValue({
-      ...existingRow,
+    setExisting({
       recorded_at: new Date(now - (5 * 60 * 1000) - 1),
       created_at: new Date(now - (5 * 60 * 1000) - 1),
     });

@@ -115,6 +115,7 @@ function installModuleGovernanceMock({ evalRows = acceptedEvalRow(), approval = 
         approved_by: approval.approved_by ?? APPROVER,
         payload: approval.payload || pendingApprovalPayload,
         expires_at: approval.expires_at || new Date(Date.now() + 86_400_000).toISOString(),
+        expires_at_epoch_ms: BigInt(new Date(approval.expires_at || Date.now() + 86_400_000).getTime()),
         created_at: new Date().toISOString(),
       }];
     }
@@ -129,6 +130,7 @@ function installModuleGovernanceMock({ evalRows = acceptedEvalRow(), approval = 
         reason: params[4],
         payload: pendingApprovalPayload,
         expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        expires_at_epoch_ms: BigInt(Date.now() + 86_400_000),
         created_at: new Date().toISOString(),
       }];
     }

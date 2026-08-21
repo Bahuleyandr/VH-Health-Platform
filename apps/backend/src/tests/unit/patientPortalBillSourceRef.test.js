@@ -37,6 +37,7 @@ jest.unstable_mockModule('../../services/ai/patientExplainersService.js', () => 
   PATIENT_EXPLAINER_MODULE_KEYS: [],
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordClinicalAuditEvent: jest.fn(),
 }));
 

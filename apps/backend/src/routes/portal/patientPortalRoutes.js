@@ -29,6 +29,7 @@ import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { singleUpload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -99,6 +100,12 @@ async function buildProxyGrantSignatureProof(req) {
   }
   const hash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
   const tenantId = tenantOf(req);
+  // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+  // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+  await screenUploadBuffer(req.file.buffer, {
+    subject: 'Signature image',
+    context: { tenantId, route: 'portal-proxy-grant-signature' },
+  });
   const storageKey = [
     'portal-proxy-grant-signatures',
     tenantId,

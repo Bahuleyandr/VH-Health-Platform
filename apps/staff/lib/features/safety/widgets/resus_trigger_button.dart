@@ -26,19 +26,19 @@ import 'resus_event_panel.dart';
 
 const _kEventKinds = <String>['code_blue', 'rapid_response'];
 
-typedef ResusPatientSearch =
-    Future<List<Map<String, dynamic>>> Function(String query);
+typedef ResusPatientSearch = Future<List<Map<String, dynamic>>> Function(
+  String query,
+);
 
-typedef ResusCreateEvent =
-    Future<Map<String, dynamic>> Function({
-      required String patientUid,
-      String eventKind,
-      String? reason,
-      String? ward,
-      String? bedNumber,
-      int? admissionId,
-      bool isDrill,
-    });
+typedef ResusCreateEvent = Future<Map<String, dynamic>> Function({
+  required String patientUid,
+  String eventKind,
+  String? reason,
+  String? ward,
+  String? bedNumber,
+  int? admissionId,
+  bool isDrill,
+});
 
 class ResusTriggerButton extends StatefulWidget {
   const ResusTriggerButton({

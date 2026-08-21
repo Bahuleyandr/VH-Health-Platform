@@ -111,6 +111,18 @@ describe('radiology createOrder — encounter_id uuid/int resolution (7ded987b c
     expect(await resolveEncounterIdForRadiology('123abc', PATIENT_UID)).toBeNull();
   });
 
+  // ---- tenant/patient scoping (group-1 tenant-shape sweep, PR #875) ----
+
+  it('resolveEncounterIdForRadiology does NOT resolve another patient\'s encounter UUID', async () => {
+    const OTHER_PATIENT_UID = 'd8888888-8888-4888-8888-cccccccc5d99';
+    expect(await resolveEncounterIdForRadiology(ADMISSION_ENCOUNTER_UUID, OTHER_PATIENT_UID)).toBeNull();
+  });
+
+  it('resolveEncounterIdForRadiology does NOT resolve an encounter UUID under a different tenant', async () => {
+    const OTHER_TENANT = 'd8888888-8888-4888-8888-aaaaaaaa5a99';
+    expect(await resolveEncounterIdForRadiology(ADMISSION_ENCOUNTER_UUID, PATIENT_UID, OTHER_TENANT)).toBeNull();
+  });
+
   // ---- createOrder integration (the actual repro) ----
 
   it('createOrder accepts the admission encounter UUID and stores the resolved integer (no 500)', async () => {
@@ -130,6 +142,13 @@ describe('radiology createOrder — encounter_id uuid/int resolution (7ded987b c
     const order = await freshOrder({ encounter_id: RANDOM_UNMATCHED_UUID });
     expect(order.id).toBeTruthy();
     expect(order.encounter_id == null).toBe(true);
+  });
+
+  it('createOrder refuses to persist an integer encounter_id that matches no tenant/patient admission', async () => {
+    const order = await freshOrder({ encounter_id: 999999999 });
+    expect(order.id).toBeTruthy();
+    expect(order.encounter_id == null).toBe(true); // unvalidated candidate never stored
+    expect(order.admission_id == null).toBe(true);
   });
 
   it('createOrder accepts the legacy `usg` alias and STAT priority on the resolved encounter', async () => {

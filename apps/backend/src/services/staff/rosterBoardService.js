@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   ROSTER_DEPARTMENT_POLICIES,
   canManageRosterDepartmentWork,
@@ -155,12 +156,12 @@ function normalizeSnapshot(value) {
 }
 
 async function resolveActor(user) {
-  if (!user?.uid) return { id: Number(user?.id) || null, uid: null };
+  if (!user?.uid) return { id: Number(user?.id) || null, uid: null, tenant_id: null };
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid FROM users WHERE uid = $1::uuid LIMIT 1`,
+    `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
     user.uid
   );
-  return rows[0] || { id: Number(user?.id) || null, uid: user.uid };
+  return rows[0] || { id: Number(user?.id) || null, uid: user.uid, tenant_id: null };
 }
 
 async function getShiftByInput({ shiftId, shiftLabel }) {
@@ -819,7 +820,7 @@ async function resolveRosterRequester(config, actorUser, requestedStaffId = null
 
   const roles = [...new Set([...config.staffRoles, ...config.managerRoles])];
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid, name, role
+    `SELECT id, uid, name, role, tenant_id
        FROM users
       WHERE id = $1::int
         AND is_active = true
@@ -889,14 +890,21 @@ export async function createRosterPreferenceRequest({
     building
   });
 
+  // Stamp tenant_id explicitly from the resolved staff row rather than trusting
+  // the column DEFAULT — a bare prisma.$transaction never sets the
+  // app.current_tenant_id GUC, so the default would land every request on the
+  // default tenant (the reviewer's list filters by tenant and would never see
+  // it). See commit 862b78de for the same fix on the roster boards.
+  const tenantId = requireTenantId(staff.tenant_id);
+
   return prisma.$transaction(async tx => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO staff_shift_roster_requests
-         (request_type, staff_id, staff_uid, department, requested_start_date,
+         (tenant_id, request_type, staff_id, staff_uid, department, requested_start_date,
           requested_end_date, period_type, shift_id, shift_label,
           assignment_target_type, assignment_target_id, assignment_target_label,
           floor, building, priority, reason, metadata, updated_at)
-       VALUES ($1,$2::int,$3::uuid,$4,$5::date,$6::date,$7,$8::int,$9,$10,$11::int,
+       VALUES ($18::uuid,$1,$2::int,$3::uuid,$4,$5::date,$6::date,$7,$8::int,$9,$10,$11::int,
                $12,$13,$14,$15,$16,$17::jsonb,NOW())
        RETURNING *`,
       type,
@@ -915,7 +923,8 @@ export async function createRosterPreferenceRequest({
       target.building || null,
       requestPriority,
       reason || null,
-      JSON.stringify(normalizeSnapshot(metadata))
+      JSON.stringify(normalizeSnapshot(metadata)),
+      tenantId
     );
     const created = rows[0];
     await auditRosterRequest(tx, {
@@ -1045,11 +1054,17 @@ export async function reviewRosterPreferenceRequest({
     });
   }
   const actor = await resolveActor(actorUser);
+  // Scope the by-id read/write to the reviewer's own tenant — a bare
+  // prisma.$transaction leaves the RLS GUC unset, so without this predicate a
+  // reviewer could resolve and mutate another tenant's enumerable request id.
+  const tenantId = requireTenantId(actor.tenant_id);
 
   return prisma.$transaction(async tx => {
     const beforeRows = await tx.$queryRawUnsafe(
-      `SELECT * FROM staff_shift_roster_requests WHERE id = $1::int LIMIT 1`,
-      id
+      `SELECT * FROM staff_shift_roster_requests
+        WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      id,
+      tenantId
     );
     const before = beforeRows[0];
     if (!before) {
@@ -1074,12 +1089,14 @@ export async function reviewRosterPreferenceRequest({
               review_notes = $5,
               updated_at = NOW()
         WHERE id = $1::int
+          AND tenant_id = $6::uuid
         RETURNING *`,
       id,
       status,
       actor.id || null,
       actor.uid || null,
-      reviewNotes || reason || null
+      reviewNotes || reason || null,
+      tenantId
     );
     const after = rows[0];
     await auditRosterRequest(tx, {
@@ -1095,6 +1112,7 @@ export async function reviewRosterPreferenceRequest({
 }
 
 export async function saveRosterBoard({
+  tenantId: rawTenantId,
   department,
   rosterDate,
   shiftId,
@@ -1104,6 +1122,7 @@ export async function saveRosterBoard({
   actorUser,
   reason
 }) {
+  const tenantId = requireTenantId(rawTenantId);
   const config = getDepartmentConfig(department);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
@@ -1133,6 +1152,7 @@ export async function saveRosterBoard({
 
   return prisma.$transaction(tx =>
     saveRosterBoardRecord(tx, {
+      tenantId,
       config,
       date,
       normalizedBoard,
@@ -1143,6 +1163,7 @@ export async function saveRosterBoard({
 }
 
 async function saveRosterBoardRecord(tx, {
+  tenantId,
   config,
   date,
   normalizedBoard,
@@ -1168,10 +1189,19 @@ async function saveRosterBoardRecord(tx, {
     );
 
     const boardRows = await tx.$queryRawUnsafe(
+      // ★ tenant_id is stamped EXPLICITLY, not left to the column DEFAULT.
+      // The default reads app.current_tenant_id and falls back to the default
+      // tenant; inside a bare prisma.$transaction that GUC is never set, so
+      // every tenant's board landed on the default tenant. Two consequences,
+      // and the second is destructive: the swap-tenant predicates added in
+      // this wave gate on this very column (so the feature dies for any
+      // non-default tenant), and the ON CONFLICT target below is the
+      // tenant-scoped unique index — two tenants saving the same department /
+      // date / shift would collide and overwrite each other's roster.
       `INSERT INTO staff_shift_roster_boards
-         (department, roster_date, shift_id, shift_label, shift_start, shift_end,
+         (tenant_id, department, roster_date, shift_id, shift_label, shift_start, shift_end,
           status, notes, created_by, created_by_uid, updated_at)
-       VALUES ($1,$2::date,$3::int,$4,$5::time,$6::time,'draft',$7,$8::int,$9::uuid,NOW())
+       VALUES ($10::uuid,$1,$2::date,$3::int,$4,$5::time,$6::time,'draft',$7,$8::int,$9::uuid,NOW())
        ON CONFLICT (tenant_id, department, roster_date, shift_label)
        DO UPDATE SET
          shift_id = EXCLUDED.shift_id,
@@ -1191,23 +1221,91 @@ async function saveRosterBoardRecord(tx, {
       toTimeText(shift.end_time, '16:00:00'),
       notes || null,
       actor.id || null,
-      actor.uid || null
+      actor.uid || null,
+      tenantId
     );
     const board = boardRows[0];
 
-    await tx.$executeRawUnsafe(
-      `DELETE FROM staff_shift_roster_assignments WHERE roster_id = $1::int`,
+    // A board rewrite replaces every assignment row, so live swap requests
+    // referencing them cannot survive — cancel them first with audit
+    // evidence and party notifications. Settled swaps keep their request +
+    // audit rows: the assignment FKs are ON DELETE SET NULL and migration
+    // 686's chk_staff_shift_swap_live_assignment_refs makes deleting an
+    // assignment under a still-live swap fail closed instead.
+    const liveSwaps = await tx.$queryRawUnsafe(
+      `SELECT s.* FROM staff_shift_swap_requests s
+        WHERE s.status IN ('proposed', 'counterparty_accepted')
+          AND EXISTS (
+            SELECT 1 FROM staff_shift_roster_assignments a
+             WHERE a.roster_id = $1::int
+               AND a.id IN (s.requester_assignment_id, s.counterparty_assignment_id))
+        FOR UPDATE OF s`,
       board.id
+    );
+    for (const liveSwap of liveSwaps) {
+      const cancelledRows = await tx.$queryRawUnsafe(
+        `UPDATE staff_shift_swap_requests
+            SET status = 'cancelled', updated_at = NOW()
+          WHERE id = $1::int
+          RETURNING *`,
+        liveSwap.id
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO staff_shift_swap_request_audit
+           (tenant_id, swap_request_id, actor_id, actor_uid, action, reason,
+            before_snapshot, after_snapshot)
+         VALUES ($1::uuid,$2::int,$3::int,$4::uuid,'cancelled',$5,$6::jsonb,$7::jsonb)`,
+        liveSwap.tenant_id,
+        liveSwap.id,
+        actor.id || null,
+        actor.uid || null,
+        `Roster board ${board.department} ${board.roster_date} ${board.shift_label} was re-saved; the underlying shift assignments were replaced`,
+        JSON.stringify(normalizeSnapshot(liveSwap)),
+        JSON.stringify(normalizeSnapshot(cancelledRows[0]))
+      );
+      await tx.$executeRawUnsafe(
+        // tenant_id stamped from the recipient row, and the recipient lookup
+        // tenant-filtered: the column DEFAULT reads a GUC a bare $transaction
+        // never sets, so these swap-cancellation notices were landing on the
+        // default tenant — invisible to the staff they were addressed to.
+        `INSERT INTO notifications
+           (tenant_id, uid, user_id, phone, title, body, type, priority, data, is_read,
+            created_at, updated_at, recipient_role)
+         SELECT u.tenant_id, u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'SHIFT_SWAP', 'HIGH', $3::jsonb,
+                false, NOW(), NOW(), u.role
+           FROM users u
+          WHERE u.id = ANY($4::int[])
+            AND u.tenant_id = $5::uuid`,
+        'Shift swap cancelled',
+        'Your shift swap request was cancelled because the roster board was re-saved.',
+        JSON.stringify({
+          swap_request_id: liveSwap.id,
+          department: liveSwap.department,
+          source: 'shift_swap_cancelled_roster_resave'
+        }),
+        [Number(liveSwap.requester_id), Number(liveSwap.counterparty_id)]
+          .filter(id => Number.isInteger(id) && id > 0),
+        tenantId
+      );
+    }
+
+    await tx.$executeRawUnsafe(
+      `DELETE FROM staff_shift_roster_assignments
+        WHERE roster_id = $1::int AND tenant_id = $2::uuid`,
+      board.id,
+      tenantId
     );
 
     const insertedAssignments = [];
     for (const item of normalizedAssignments) {
       const rows = await tx.$queryRawUnsafe(
+        // tenant_id stamped explicitly — see the board INSERT above. This is
+        // the column loadSwapAssignment/listSwapCandidates now filter on.
         `INSERT INTO staff_shift_roster_assignments
-           (roster_id, staff_id, staff_uid, staff_role, assignment_target_type,
+           (tenant_id, roster_id, staff_id, staff_uid, staff_role, assignment_target_type,
             assignment_target_id, assignment_target_label, floor, building,
             is_lead, status, notes)
-         VALUES ($1::int,$2::int,$3::uuid,$4,$5,$6::int,$7,$8,$9,$10::boolean,'planned',$11)
+         VALUES ($12::uuid,$1::int,$2::int,$3::uuid,$4,$5,$6::int,$7,$8,$9,$10::boolean,'planned',$11)
          RETURNING *`,
         board.id,
         item.staff.id,
@@ -1219,7 +1317,8 @@ async function saveRosterBoardRecord(tx, {
         item.target.floor || null,
         item.target.building || null,
         item.is_lead,
-        item.notes
+        item.notes,
+        tenantId
       );
       insertedAssignments.push(rows[0]);
     }
@@ -1238,12 +1337,14 @@ async function saveRosterBoardRecord(tx, {
 }
 
 export async function saveRosterDay({
+  tenantId: rawTenantId,
   department,
   rosterDate,
   boards,
   actorUser,
   reason
 }) {
+  const tenantId = requireTenantId(rawTenantId);
   const config = getDepartmentConfig(department);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
@@ -1287,6 +1388,7 @@ export async function saveRosterDay({
     const savedBoards = [];
     for (const normalizedBoard of normalizedBoards) {
       const saved = await saveRosterBoardRecord(tx, {
+        tenantId,
         config,
         date,
         normalizedBoard,
@@ -1304,7 +1406,8 @@ export async function saveRosterDay({
   });
 }
 
-export async function publishRosterBoard({ rosterId, actorUser, reason }) {
+export async function publishRosterBoard({ tenantId: rawTenantId, rosterId, actorUser, reason }) {
+  const tenantId = requireTenantId(rawTenantId);
   const id = Number.parseInt(String(rosterId || ''), 10);
   if (!Number.isInteger(id) || id <= 0) {
     throw Object.assign(new Error('roster id must be valid'), { statusCode: 400 });
@@ -1348,20 +1451,24 @@ export async function publishRosterBoard({ rosterId, actorUser, reason }) {
               published_at = NOW(),
               updated_at = NOW()
         WHERE id = $1::int
+          AND tenant_id = $4::uuid
         RETURNING id, department, roster_date::text AS roster_date, shift_id,
                   shift_label, shift_start::text AS shift_start, shift_end::text AS shift_end,
                   status, notes, published_by, published_by_uid, published_at`,
       id,
       actor.id || null,
-      actor.uid || null
+      actor.uid || null,
+      tenantId
     );
 
     await tx.$executeRawUnsafe(
       `UPDATE staff_shift_roster_assignments
           SET status = 'published', updated_at = NOW()
         WHERE roster_id = $1::int
+          AND tenant_id = $2::uuid
           AND status = 'planned'`,
-      id
+      id,
+      tenantId
     );
 
     let projectionCount = 0;
@@ -1370,18 +1477,21 @@ export async function publishRosterBoard({ rosterId, actorUser, reason }) {
         `UPDATE housekeeping_floor_assignments
             SET status = 'superseded', updated_at = NOW()
           WHERE roster_board_id = $1::int
+            AND tenant_id = $2::uuid
             AND assignment_kind = 'roster'
             AND status = 'active'`,
-        id
+        id,
+        tenantId
       );
 
       const projectionRows = await tx.$queryRawUnsafe(
         `INSERT INTO housekeeping_floor_assignments
-           (staff_id, staff_uid, zone_id, zone_name, floor, building, shift_label,
+           (tenant_id, staff_id, staff_uid, zone_id, zone_name, floor, building, shift_label,
             assigned_by, assigned_by_uid, reason, is_temporary,
             effective_from, effective_to, status, roster_board_id,
             roster_assignment_id, assignment_kind)
-         SELECT a.staff_id,
+         SELECT $5::uuid,
+                a.staff_id,
                 a.staff_uid,
                 a.assignment_target_id,
                 a.assignment_target_label,
@@ -1405,13 +1515,16 @@ export async function publishRosterBoard({ rosterId, actorUser, reason }) {
            FROM staff_shift_roster_assignments a
            JOIN staff_shift_roster_boards b ON b.id = a.roster_id
           WHERE b.id = $1::int
+            AND a.tenant_id = $5::uuid
+            AND b.tenant_id = $5::uuid
             AND a.status = 'published'
             AND a.assignment_target_type = 'housekeeping_zone'
          RETURNING id`,
         id,
         actor.id || null,
         actor.uid || null,
-        reason || null
+        reason || null,
+        tenantId
       );
       projectionCount = projectionRows.length;
     }
@@ -1431,12 +1544,14 @@ export async function publishRosterBoard({ rosterId, actorUser, reason }) {
 }
 
 export async function copyPreviousRosterBoard({
+  tenantId: rawTenantId,
   department,
   targetDate,
   shiftLabel,
   actorUser,
   reason
 }) {
+  const tenantId = requireTenantId(rawTenantId);
   const config = getDepartmentConfig(department);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
@@ -1480,6 +1595,7 @@ export async function copyPreviousRosterBoard({
   );
 
   return saveRosterBoard({
+    tenantId,
     department: config.department,
     rosterDate: date,
     shiftLabel: label,

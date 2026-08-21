@@ -1,6 +1,7 @@
 import prisma, { setTenant } from '../../lib/prisma.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
+import { sendSMS } from '../../services/smsService.js';
 import {
   applyProviderReceiptToCursor,
   beginProviderAttempts,
@@ -13,14 +14,22 @@ import {
   classifyFcmProviderResponse,
   isTerminalRejectionCode,
 } from './terminalRejectionCodes.js';
-import { resolveChannelsForOutboxRow } from './tenantNotificationChannels.js';
+import {
+  DELIVERY_CHANNELS_PAYLOAD_KEY,
+  REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+  resolveChannelsForOutboxRow,
+} from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function payloadObject(row) {
-  return row?.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
-    ? row.payload
-    : {};
+  if (!row?.payload || typeof row.payload !== 'object' || Array.isArray(row.payload)) return {};
+  const {
+    [DELIVERY_CHANNELS_PAYLOAD_KEY]: _deliveryChannels,
+    [REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]: _replayChainStartedAt,
+    ...payload
+  } = row.payload;
+  return payload;
 }
 
 function normalizeTenantId(value) {
@@ -214,13 +223,52 @@ function uncertain(providerCode, err) {
   };
 }
 
+const SMS_OUTCOMES = new Set(['acknowledged', 'rejected', 'uncertain']);
+
+/** Defensive pass-through: sendSMS already returns the receipt shape; a
+ * malformed/absent result must classify as uncertain, never acknowledged. */
+function normalizeSmsProviderResult(result) {
+  if (result && typeof result === 'object' && SMS_OUTCOMES.has(result.outcome)) {
+    return {
+      outcome: result.outcome,
+      providerReference: result.providerReference || null,
+      providerCode: result.providerCode || null,
+      evidence: result.evidence && typeof result.evidence === 'object' ? result.evidence : {},
+    };
+  }
+  return {
+    outcome: 'uncertain',
+    providerReference: null,
+    providerCode: 'sms_provider_result_missing',
+    evidence: {},
+  };
+}
+
 async function deliverLegacyWithProviderReceipt(row, channels, tenantId) {
   const results = {};
   for (const channel of channels) {
     if (channel === 'sms') {
-      results.sms = row.recipient_phone
-        ? rejected('sms_gateway_not_configured')
-        : rejected('phone_missing');
+      if (!row.recipient_phone) {
+        results.sms = rejected('phone_missing');
+        continue;
+      }
+      // Provider seam call (audit F7 successor): sendSMS resolves the
+      // tenant's configured gateway and returns the receipt shape; the
+      // dry-run default classifies as rejected('sms_gateway_not_configured')
+      // so an unconfigured channel still never reaches SENT.
+      try {
+        results.sms = normalizeSmsProviderResult(await sendSMS(
+          row.recipient_phone,
+          `${row.title ? `${row.title}: ` : ''}${row.body || ''}`,
+          {
+            tenantId,
+            templateVersion: row.template_version || null,
+            outboxId: row.id,
+          },
+        ));
+      } catch (err) {
+        results.sms = uncertain(err.code || 'sms_transport_failure', err);
+      }
       continue;
     }
     if (channel !== 'push') {
@@ -317,6 +365,11 @@ export async function deliverNotificationOutboxRow(row) {
         data: payloadObject(row),
         type: row.type || 'general',
         providerReceiptMode: true,
+        smsContext: {
+          tenantId: decision.tenantId,
+          templateVersion: row.template_version || null,
+          outboxId: row.id,
+        },
       })));
     } finally {
       dryRun.restore();

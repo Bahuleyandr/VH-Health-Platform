@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-images-${{ github.ref }}
+  group: release-images
   cancel-in-progress: false
 
 jobs:
@@ -87,21 +87,16 @@ jobs:
             tag_prefix: backend-v
             latest_tag: latest-backend
             image_name: vh-health-platform-backend
-            context: apps/backend
-            dockerfile: apps/backend/Dockerfile
           - app: admin
             tag_prefix: admin-v
             latest_tag: latest-admin
             image_name: vh-health-platform-adminportal
-            context: apps/admin
-            dockerfile: apps/admin/Dockerfile
           - app: staff-web
             tag_prefix: staff-web-v
             latest_tag: latest-staff-web
             image_name: vhhealth-staff-web
-            context: .
-            dockerfile: apps/staff/Dockerfile.web
     env:
+      VH_BUILDKIT_JOB_KEY: ${{ matrix.app }}
       BUILD_BACKEND_INPUT: ${{ inputs.build_backend }}
       BUILD_ADMIN_INPUT: ${{ inputs.build_admin }}
       BUILD_STAFF_WEB_INPUT: ${{ inputs.build_staff_web }}
@@ -250,65 +245,26 @@ jobs:
         if: steps.selection.outputs.selected == 'true'
         run: |
           set -euo pipefail
-          tag_args=(-t "${IMAGE}:${PRIMARY_TAG}")
-          if [ -n "${LATEST_TAG:-}" ]; then
-            tag_args+=(-t "${IMAGE}:${LATEST_TAG}")
+          # The helper owns one exact builder for this matrix entry and removes
+          # it on every exit. A later run retires exact stale names before create.
+          trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup release || exit 1' EXIT
+          node scripts/ci/forgejo-buildkit-builder.mjs prepare release
+
+          # staff-web is amd64-only regardless of RELEASE_PLATFORMS:
+          # Dockerfile.web installs the official Flutter linux tarball, which
+          # is published for x64 ONLY (no linux-arm64 stable tarball exists in
+          # the Flutter release manifest — checked 2026-08-16). Pinned by
+          # check-infra-security-controls.mjs.
+          build_platforms="$RELEASE_PLATFORMS"
+          if [ "${{ matrix.app }}" = "staff-web" ]; then
+            build_platforms="linux/amd64"
           fi
-
-          build_args=()
-          build_context_args=()
-          secret_args=()
-          case "${{ matrix.app }}" in
-            backend)
-              build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66")
-              ;;
-            admin)
-              build_context_args+=(--build-context "backend=apps/backend")
-              build_args+=(
-                --build-arg "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.vhhealth.app}"
-                --build-arg "NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-VH Health Admin}"
-                --build-arg "NEXT_PUBLIC_ALLOWED_ORIGIN=${NEXT_PUBLIC_ALLOWED_ORIGIN:-https://admin.vhhealth.app}"
-                --build-arg "NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}"
-                --build-arg "NEXT_PUBLIC_SENTRY_ENVIRONMENT=${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}"
-                --build-arg "NEXT_PUBLIC_SENTRY_RELEASE=${GITHUB_SHA}"
-                --build-arg "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-0.1}"
-                --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE:-0}"
-                --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE:-0}"
-                --build-arg "SENTRY_UPLOAD_SOURCE_MAPS=false"
-              )
-              if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
-                secret_args+=(--secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN)
-              fi
-              ;;
-            staff-web)
-              build_args+=(
-                --build-arg "VH_BASE_URL=${STAFF_WEB_API_URL:-https://api.vhhealth.app/api/v1}"
-                --build-arg "VH_API_KEY=${STAFF_WEB_API_KEY:-}"
-                --build-arg "APP_NAME=${STAFF_WEB_APP_NAME:-VH Health Staff}"
-                --build-arg "SENTRY_DSN=${SENTRY_DSN_STAFF:-}"
-                --build-arg "SENTRY_ENVIRONMENT=${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}"
-                --build-arg "SENTRY_RELEASE=${GITHUB_SHA}"
-              )
-              ;;
-          esac
-
-          docker buildx create --name vh-release-builder --use >/dev/null 2>&1 || docker buildx use vh-release-builder
-          docker buildx inspect --bootstrap
-          docker buildx build \
-            --pull \
-            --platform "$RELEASE_PLATFORMS" \
-            --metadata-file "output/release-images/${{ matrix.app }}/build-metadata.json" \
-            --push \
-            "${tag_args[@]}" \
-            "${build_context_args[@]}" \
-            "${build_args[@]}" \
-            "${secret_args[@]}" \
-            -f "${{ matrix.dockerfile }}" \
-            "${{ matrix.context }}"
+          echo "BUILD_PLATFORMS=$build_platforms" >> "$GITHUB_ENV"
+          node scripts/ci/forgejo-buildkit-builder.mjs build release
 
           digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/release-images/${{ matrix.app }}/build-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
           if [ -z "$digest" ]; then
-            echo "::error::Docker buildx did not report a pushed image digest"
+            echo "::error::Image build did not report a pushed digest"
             exit 1
           fi
           echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
@@ -355,7 +311,7 @@ jobs:
             echo "Primary tag: \`${PRIMARY_TAG}\`"
             if [ -n "${LATEST_TAG:-}" ]; then echo "Latest tag: \`${LATEST_TAG}\`"; fi
             echo "Digest: \`${IMAGE_DIGEST}\`"
-            echo "Platforms: \`${RELEASE_PLATFORMS}\`"
+            echo "Platforms: \`${BUILD_PLATFORMS:-$RELEASE_PLATFORMS}\`"
             echo "Signed: cosign key from Forgejo secret \`COSIGN_PRIVATE_KEY\`"
           } > "output/release-images/${{ matrix.app }}/SUMMARY.md"
 

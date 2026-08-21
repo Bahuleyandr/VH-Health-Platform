@@ -30,9 +30,8 @@ Iterable<File> _dartFiles(Directory directory) sync* {
 }
 
 void main() {
-  final routerSource = File(
-    'lib/core/navigation/app_router.dart',
-  ).readAsStringSync();
+  final routerSource = File('lib/core/navigation/app_router.dart')
+      .readAsStringSync();
   final declaredRoutes = _matches(
     routerSource,
     RegExp(r"path:\s*'([^']+)'"),
@@ -101,13 +100,11 @@ void main() {
   });
 
   test('medication notifications open the restored reminder surface', () {
-    final source = File(
-      'lib/core/services/deep_link_service.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/services/deep_link_service.dart')
+        .readAsStringSync();
     expect(
-      RegExp(
-        r"case 'MEDICATION_REMINDER':\s*return '/reminders';",
-      ).hasMatch(source),
+      RegExp(r"case 'MEDICATION_REMINDER':\s*return '/reminders';")
+          .hasMatch(source),
       isTrue,
     );
   });

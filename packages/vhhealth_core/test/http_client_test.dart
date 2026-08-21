@@ -307,7 +307,11 @@ void main() {
         await AuthService.setRefreshToken('old-refresh');
 
         String? expiredMessage;
-        VHHttpClient.onSessionExpired = (msg) => expiredMessage = msg;
+        var expiredCount = 0;
+        VHHttpClient.onSessionExpired = (msg) {
+          expiredMessage = msg;
+          expiredCount++;
+        };
 
         VHHttpClient.setClientForTesting(
           MockClient((req) async {
@@ -329,8 +333,61 @@ void main() {
         final resp = await VHHttpClient.get('/ping');
         expect(resp.isUnauthorized, isTrue);
         expect(expiredMessage, isNotNull);
+        // A single 401 must not fire onSessionExpired twice, even though it
+        // travels through both _handleUnauthorized and _checkUnauthorized.
+        expect(expiredCount, 1);
         expect(await AuthService.getJwt(), isNull);
         expect(await AuthService.getRefreshToken(), isNull);
+      },
+    );
+
+    test(
+      'a later, genuine expiry fires again after a valid session resumes',
+      () async {
+        await AuthService.setJwt('old-access');
+        await AuthService.setRefreshToken('old-refresh');
+
+        var expiredCount = 0;
+        VHHttpClient.onSessionExpired = (_) => expiredCount++;
+
+        // First expiry: refresh fails → one notification.
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+        expect(expiredCount, 1);
+
+        // A valid session resumes (successful authenticated response), which
+        // must clear the guard so the next expiry notifies again.
+        await AuthService.setJwt('fresh-access');
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': true, 'data': 'ok'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired again'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+        await VHHttpClient.get('/ping');
+        expect(expiredCount, 2);
       },
     );
   });
@@ -678,46 +735,43 @@ void main() {
   });
 
   group('VHHttpClient — idempotency key (#10)', () {
-    test(
-      'auto-mints a stable Idempotency-Key reused across a 5xx retry',
-      () async {
-        await AuthService.setJwt('access');
+    test('auto-mints a stable Idempotency-Key reused across a 5xx retry', () async {
+      await AuthService.setJwt('access');
 
-        var postCount = 0;
-        final keys = <String?>[];
-        VHHttpClient.setClientForTesting(
-          MockClient((req) async {
-            postCount++;
-            keys.add(req.headers['Idempotency-Key']);
-            if (postCount == 1) {
-              // First attempt 5xx → _sendWithRetry retries the SAME request.
-              return http.Response(
-                jsonEncode({'success': false, 'message': 'flaky'}),
-                500,
-                headers: {'content-type': 'application/json'},
-              );
-            }
+      var postCount = 0;
+      final keys = <String?>[];
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          postCount++;
+          keys.add(req.headers['Idempotency-Key']);
+          if (postCount == 1) {
+            // First attempt 5xx → _sendWithRetry retries the SAME request.
             return http.Response(
-              jsonEncode({'success': true, 'data': {}}),
-              200,
+              jsonEncode({'success': false, 'message': 'flaky'}),
+              500,
               headers: {'content-type': 'application/json'},
             );
-          }),
-        );
+          }
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
-        final resp = await VHHttpClient.post(
-          '/pharmacy-orders/orders/place',
-          body: {'x': 1},
-        );
+      final resp = await VHHttpClient.post(
+        '/pharmacy-orders/orders/place',
+        body: {'x': 1},
+      );
 
-        expect(resp.isSuccess, isTrue);
-        expect(postCount, 2, reason: 'a 5xx must be retried');
-        // Both attempts must carry a non-null, IDENTICAL key so the backend
-        // dedups the retried (possibly lost-2xx) write instead of double-writing.
-        expect(keys[0], isNotNull);
-        expect(keys[0], keys[1]);
-      },
-    );
+      expect(resp.isSuccess, isTrue);
+      expect(postCount, 2, reason: 'a 5xx must be retried');
+      // Both attempts must carry a non-null, IDENTICAL key so the backend
+      // dedups the retried (possibly lost-2xx) write instead of double-writing.
+      expect(keys[0], isNotNull);
+      expect(keys[0], keys[1]);
+    });
 
     test('uses the caller-supplied Idempotency-Key verbatim', () async {
       await AuthService.setJwt('access');

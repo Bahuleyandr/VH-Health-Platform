@@ -91,70 +91,66 @@ void main() {
     );
   }
 
-  test(
-    'ordinary logout waits for a race-time enqueue and blocks before backend POST',
-    () async {
-      await _seedIdentity('staff-current');
+  test('ordinary logout waits for a race-time enqueue and blocks before backend POST', () async {
+    await _seedIdentity('staff-current');
 
-      var backendPosts = 0;
-      VHHttpClient.setClientForTesting(
-        MockClient((request) async {
-          backendPosts += 1;
-          return http.Response(jsonEncode({'success': true}), 200);
-        }),
-      );
+    var backendPosts = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        backendPosts += 1;
+        return http.Response(jsonEncode({'success': true}), 200);
+      }),
+    );
 
-      secureStorage.blockRead('staffId');
-      final service = ConnectivitySyncService.instance;
-      final enqueue = service.enqueue(
-        endpoint: '/health/records',
-        method: 'POST',
-        body: {
-          'patient_uid': 'patient-race',
-          'vital_signs': {'pulse': 91},
-        },
-        contextLabel: 'Vitals for patient-race',
-      );
-      await secureStorage.waitUntilReadBlocked().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () =>
-            throw StateError('Eligible enqueue did not reach the blocked read'),
-      );
+    secureStorage.blockRead('staffId');
+    final service = ConnectivitySyncService.instance;
+    final enqueue = service.enqueue(
+      endpoint: '/health/records',
+      method: 'POST',
+      body: {
+        'patient_uid': 'patient-race',
+        'vital_signs': {'pulse': 91},
+      },
+      contextLabel: 'Vitals for patient-race',
+    );
+    await secureStorage.waitUntilReadBlocked().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          throw StateError('Eligible enqueue did not reach the blocked read'),
+    );
 
-      var logoutCompleted = false;
-      final logout = AuthService.logout().then((result) {
-        logoutCompleted = true;
-        return result;
-      });
-      await Future<void>.delayed(Duration.zero);
+    var logoutCompleted = false;
+    final logout = AuthService.logout().then((result) {
+      logoutCompleted = true;
+      return result;
+    });
+    await Future<void>.delayed(Duration.zero);
 
-      expect(service.isSessionBarrierActive, isTrue);
-      expect(logoutCompleted, isFalse);
+    expect(service.isSessionBarrierActive, isTrue);
+    expect(logoutCompleted, isFalse);
 
-      secureStorage.releaseRead();
-      final enqueuedId = await enqueue.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () =>
-            throw StateError('Eligible enqueue did not quiesce after release'),
-      );
-      final result = await logout.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw StateError(
-          'Logout did not complete its authoritative recheck',
-        ),
-      );
+    secureStorage.releaseRead();
+    final enqueuedId = await enqueue.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          throw StateError('Eligible enqueue did not quiesce after release'),
+    );
+    final result = await logout.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          throw StateError('Logout did not complete its authoritative recheck'),
+    );
 
-      expect(result.isBlocked, isTrue);
-      expect(result.blockingWriteCount, 1);
-      expect(backendPosts, 0);
-      expect(await ApiConfig.getStaffId(), 'staff-current');
-      final rows = await OfflineQueue.debugAllRows();
-      expect(rows, hasLength(1));
-      expect(rows.single['id'], enqueuedId);
-      expect(rows.single['status'], 'pending');
-      expect(rows.single['staff_id'], 'staff-current');
-    },
-  );
+    expect(result.isBlocked, isTrue);
+    expect(result.blockingWriteCount, 1);
+    expect(backendPosts, 0);
+    expect(await ApiConfig.getStaffId(), 'staff-current');
+    final rows = await OfflineQueue.debugAllRows();
+    expect(rows, hasLength(1));
+    expect(rows.single['id'], enqueuedId);
+    expect(rows.single['status'], 'pending');
+    expect(rows.single['staff_id'], 'staff-current');
+  });
 
   test(
     'attested needs-review row permits logout but remains preserved',
@@ -339,32 +335,29 @@ void main() {
     expect(result.serverRevocationFailed, isFalse);
   });
 
-  test(
-    'logout runs notification cleanup after the blocker gate and before revocation',
-    () async {
-      await _seedIdentity('staff-current');
-      final events = <String>[];
-      VHHttpClient.setClientForTesting(
-        MockClient((request) async {
-          events.add('server-revocation');
-          expect(await ApiConfig.getStaffId(), 'staff-current');
-          return http.Response(jsonEncode({'success': true}), 200);
-        }),
-      );
+  test('logout runs notification cleanup after the blocker gate and before revocation', () async {
+    await _seedIdentity('staff-current');
+    final events = <String>[];
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        events.add('server-revocation');
+        expect(await ApiConfig.getStaffId(), 'staff-current');
+        return http.Response(jsonEncode({'success': true}), 200);
+      }),
+    );
 
-      final result = await AuthService.logout(
-        beforeSessionRevocation: () async {
-          events.add('notification-cleanup');
-          expect(await ApiConfig.getStaffId(), 'staff-current');
-        },
-      );
+    final result = await AuthService.logout(
+      beforeSessionRevocation: () async {
+        events.add('notification-cleanup');
+        expect(await ApiConfig.getStaffId(), 'staff-current');
+      },
+    );
 
-      expect(result.isSignedOut, isTrue);
-      expect(result.notificationTeardownFailed, isFalse);
-      expect(events, ['notification-cleanup', 'server-revocation']);
-      expect(await ApiConfig.getStaffId(), isNull);
-    },
-  );
+    expect(result.isSignedOut, isTrue);
+    expect(result.notificationTeardownFailed, isFalse);
+    expect(events, ['notification-cleanup', 'server-revocation']);
+    expect(await ApiConfig.getStaffId(), isNull);
+  });
 
   test('blocked logout does not tear down the notification session', () async {
     await _seedIdentity('staff-current');

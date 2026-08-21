@@ -41,6 +41,9 @@ function consent(type, overrides = {}) {
     granted_at: '2026-04-21T08:00:00.000Z',
     revoked_at: null,
     expires_at: null,
+    // activeConsent() reads the absolute-instant twin (PR #881); keep it in
+    // lockstep with expires_at so overrides stay self-consistent.
+    expires_at_epoch_ms: null,
     ...overrides,
   };
 }

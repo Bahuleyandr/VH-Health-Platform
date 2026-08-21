@@ -273,9 +273,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 children: [
                   Text(
                     AppLocalizations.of(ctx)!.recordsUploadButton,
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(ctx).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
                   TextField(

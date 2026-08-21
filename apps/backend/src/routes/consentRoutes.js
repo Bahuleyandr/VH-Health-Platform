@@ -5,16 +5,19 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import PDFDocument from 'pdfkit';
+import { isScanStatusServable } from '../config/fileScanPolicy.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { singleUpload, validateFileContent, validatePatientUpload } from '../middleware/uploadMiddleware.js';
 import { publishEvent } from '../services/events/eventOutboxService.js';
+import { screenUploadBuffer } from '../services/security/fileScanService.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
 import { logAudit } from '../utils/logAudit.js';
 import { getFileFromR2, uploadFileToR2 } from '../utils/r2Storage.js';
 import { success, error } from '../utils/responseHelper.js';
 import { requiredUUID, requiredString, consentValidator } from '../validators/sharedValidators.js';
+import { epochMsOrNull } from '../utils/dbInstant.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -90,7 +93,8 @@ function isAdminOrClinicalStaff(req) {
 
 function normalizeConsentStatus(row) {
   if (row.revoked_at || row.granted === false || row.status === 'revoked') return 'revoked';
-  if (row.expires_at && new Date(row.expires_at) < new Date()) return 'expired';
+  const consentExpiry = epochMsOrNull(row.expires_at_epoch_ms);
+  if (consentExpiry != null && consentExpiry < Date.now()) return 'expired';
   if (row.granted === true || row.status === 'active') return 'granted';
   return row.status || 'pending';
 }
@@ -126,6 +130,7 @@ function signatureDto(row) {
     signer_name: row.signer_name,
     signer_uid: row.signer_uid,
     captured_at: row.captured_at,
+    scan_status: row.scan_status,
   };
 }
 
@@ -133,6 +138,7 @@ async function getConsentById(consentId, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, consent_type, granted, status, granted_at, revoked_at,
             expires_at, granted_by, notes, purpose, data_categories, version,
+            (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms,
             source, consent_method, witness_name, witness_uid, form_language,
             tenant_id, created_at
        FROM patient_consents
@@ -150,7 +156,7 @@ async function latestConsentSignatures(consentId, tenantId) {
     `SELECT DISTINCT ON (signature_role)
             id, consent_id, patient_uid, signature_role, version, storage_key,
             mime_type, file_size, sha256_hash, captured_by, captured_by_role,
-            signer_name, signer_uid, captured_at
+            signer_name, signer_uid, captured_at, scan_status
        FROM consent_signatures
       WHERE consent_id = $1::int
         AND tenant_id = $2::uuid
@@ -194,6 +200,17 @@ async function renderConsentPdf(consent, signatures) {
           `${sig.signature_role === 'patient' ? 'Patient' : 'Staff witness'} signature` +
             ` | version ${sig.version} | captured ${new Date(sig.captured_at).toISOString()}`,
         );
+        // ALLOWLIST gate before the bytes are embedded into a PDF that will be
+        // served to other users — the same shared servable-set decision as the
+        // generic-upload / messaging / brand-kit gates
+        // (src/config/fileScanPolicy.js). Legacy rows carry 'not_scanned'
+        // (migration 676): embedded under disabled_accepted_risk, withheld
+        // under `required` until actually scanned.
+        if (!isScanStatusServable(sig.scan_status)) {
+          doc.text('[signature image withheld by file-scan policy]');
+          doc.moveDown();
+          continue;
+        }
         try {
           const bytes = await getFileFromR2(sig.storage_key);
           doc.image(Buffer.from(bytes), { fit: [220, 80] });
@@ -253,6 +270,7 @@ router.get('/', async (req, res, next) => {
       `SELECT pc.id, pc.patient_uid, u.name AS patient_name, u.phone AS patient_phone,
               pc.consent_type, pc.granted, pc.status, pc.granted_at, pc.revoked_at,
               pc.expires_at, pc.granted_by, pc.revoked_by, pc.notes, pc.purpose,
+              (EXTRACT(EPOCH FROM pc.expires_at) * 1000)::bigint AS expires_at_epoch_ms,
               pc.data_categories, pc.version, pc.source, pc.created_at, pc.updated_at
        FROM patient_consents pc
        LEFT JOIN users u ON u.uid = pc.patient_uid
@@ -595,6 +613,13 @@ router.post('/:id/signatures', singleUpload, validatePatientUpload, validateFile
       signatureRole,
       `v${version}_${Date.now()}.${signatureExtension(mimeType)}`,
     ].join('/');
+    // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+    // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+    const screened = await screenUploadBuffer(req.file.buffer, {
+      subject: 'Signature image',
+      context: { consentId, signatureRole, tenantId },
+    });
+
     const storageUrl = await uploadFileToR2(req.file.buffer, storageKey, mimeType);
 
     const signerUid = req.body.signer_uid
@@ -613,13 +638,14 @@ router.post('/:id/signatures', singleUpload, validatePatientUpload, validateFile
       `INSERT INTO consent_signatures
          (tenant_id, consent_id, patient_uid, signature_role, version,
           storage_key, storage_url, mime_type, file_size, sha256_hash,
-          captured_by, captured_by_role, signer_name, signer_uid, metadata)
+          captured_by, captured_by_role, signer_name, signer_uid, metadata,
+          scan_status)
        VALUES ($1::uuid, $2::int, $3::uuid, $4, $5::int,
                $6, $7, $8, $9::int, $10,
-               $11::uuid, $12, $13, $14::uuid, $15::jsonb)
+               $11::uuid, $12, $13, $14::uuid, $15::jsonb, $16)
        RETURNING id, consent_id, patient_uid, signature_role, version, storage_key,
                  mime_type, file_size, sha256_hash, captured_by, captured_by_role,
-                 signer_name, signer_uid, captured_at`,
+                 signer_name, signer_uid, captured_at, scan_status`,
       tenantId,
       consentId,
       consent.patient_uid,
@@ -637,7 +663,9 @@ router.post('/:id/signatures', singleUpload, validatePatientUpload, validateFile
       JSON.stringify({
         original_name: req.file.originalname || null,
         consent_type: consent.consent_type,
+        ...screened.metadata,
       }),
+      screened.scanStatus,
     );
 
     await logAudit(req, 'CONSENT_SIGNATURE_CAPTURED', {

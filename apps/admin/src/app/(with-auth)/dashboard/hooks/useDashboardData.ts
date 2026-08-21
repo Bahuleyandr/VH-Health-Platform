@@ -70,12 +70,24 @@ function observedHealth(
 }
 
 function normalizeModuleHealth(
-  modules: Array<{ name: string; status: unknown }> | undefined,
+  modules:
+    | Array<{ name: string; status: unknown }>
+    | Record<string, unknown>
+    | undefined,
 ): Array<{ name: string; status: HealthStatus }> | undefined {
-  return modules?.map((module) => ({
-    name: module.name,
-    status: normalizeHealthStatus(module.status),
-  }));
+  if (modules == null || typeof modules !== "object") return undefined;
+  // The backend's getModuleHealth() returns a name→status record
+  // ({ users: "healthy", ... }); accept an array of { name, status }
+  // entries too so either envelope keeps rendering.
+  const entries = Array.isArray(modules)
+    ? modules.map((module) => [module?.name, module?.status] as const)
+    : Object.entries(modules);
+  return entries
+    .filter(([name]) => typeof name === "string" && name.length > 0)
+    .map(([name, status]) => ({
+      name: String(name),
+      status: normalizeHealthStatus(status),
+    }));
 }
 
 export function useDashboardData() {

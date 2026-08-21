@@ -52,6 +52,7 @@ const publishRevokeAllUserTokensMock = jest.fn();
 const persistRevokeDelegatedTupleMock = jest.fn();
 const publishRevokeDelegatedTupleMock = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
   persistRevokeDelegatedTuple: persistRevokeDelegatedTupleMock,

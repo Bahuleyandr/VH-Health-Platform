@@ -478,3 +478,39 @@ export function emitTransportEvent(kind, { tenantId } = {}) {
     logger.warn('emitTransportEvent failed:', err.message);
   }
 }
+
+/**
+ * Ambulance live GPS fix (config-gated, migration 683). Broadcast only for
+ * fixes that become the new latest position — out-of-order fixes are stored
+ * for the trail without a broadcast. Persisted rows remain the source of
+ * truth; the polling read API serves clients without a socket.
+ */
+export function emitAmbulancePosition({
+  tenantId,
+  ambulanceRequestId,
+  requestNumber = null,
+  status = null,
+  position = {},
+} = {}) {
+  if (!tenantId) {
+    logger.warn('emitAmbulancePosition skipped: tenantId is required');
+    return;
+  }
+  try {
+    broadcast('staff:ambulance-tracking', {
+      kind: 'position',
+      ambulanceRequestId: ambulanceRequestId ?? null,
+      requestNumber,
+      status,
+      latitude: position?.latitude != null ? Number(position.latitude) : null,
+      longitude: position?.longitude != null ? Number(position.longitude) : null,
+      speedKmh: position?.speed_kmh != null ? Number(position.speed_kmh) : null,
+      headingDeg: position?.heading_deg != null ? Number(position.heading_deg) : null,
+      accuracyM: position?.accuracy_m != null ? Number(position.accuracy_m) : null,
+      recordedAt: position?.recorded_at ?? null,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitAmbulancePosition failed:', err.message);
+  }
+}

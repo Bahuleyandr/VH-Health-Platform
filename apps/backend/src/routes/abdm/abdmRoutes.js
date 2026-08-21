@@ -11,9 +11,13 @@ import abdmService from '../../services/abdm/abdmService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
-import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
+import { AppError } from '../../utils/AppError.js';
+import {
+  verifySignedRequest,
+  assertSharedReplayOnce,
+} from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
-import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import { resolveInteropCredentialSnapshot } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import {
   markAuthenticatedAbdmCallback,
@@ -29,10 +33,56 @@ const callbackRouter = Router();
 // Audit 2026-06-18: throttle the unauthenticated ABDM callback surface — each
 // request does DB + HMAC work, so brute-force/DoS must be capped before that.
 callbackRouter.use(genericLimiter);
-const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
+// Every path here must ALSO be present in the app.js raw-body capture list
+// (captureJsonRawBody) — signature verification runs over the exact bytes.
+// The first two are the I16-recovered paths (618 intake, receipt_source
+// non-NULL); the newer Scan & Share + HIU paths record PLAIN 124-shape
+// abdm_webhook_events rows (receipt_source NULL — 618's CHECK pins non-NULL
+// receipt_source to the two I16 paths).
+const ABDM_CALLBACK_PATHS = new Set([
+  '/consent/on-notify',
+  '/health-info/on-request',
+  '/patients/profile/share',
+  '/hiu/consent-requests/on-init',
+  '/hiu/consents/notify',
+  '/hiu/health-info/on-request',
+  '/hiu/health-info/push',
+]);
+const ABDM_CALLBACK_CANONICAL_ROOT = '/api/v1/abdm';
+const ABDM_BOUND_SIGNATURE_VERSION = 'v1';
+const ABDM_LEGACY_SIGNATURE_VERSION = 'legacy';
 const ABDM_CALLBACK_ENVIRONMENT = process.env.ABDM_ENVIRONMENT === 'production'
   ? 'production'
   : 'sandbox';
+
+function resolveAbdmSignatureVersion(value) {
+  const supplied = String(value || '').trim().toLowerCase();
+  if (supplied === ABDM_BOUND_SIGNATURE_VERSION) {
+    return ABDM_BOUND_SIGNATURE_VERSION;
+  }
+  if (!supplied && ABDM_CONFIG.allowLegacyUnboundCallbacks === true) {
+    return ABDM_LEGACY_SIGNATURE_VERSION;
+  }
+  if (!supplied) {
+    throw AppError.unauthorized(
+      'ABDM callback signature version is required',
+      'ABDM_CALLBACK_SIGNATURE_VERSION_REQUIRED',
+    );
+  }
+  if (supplied === ABDM_LEGACY_SIGNATURE_VERSION) {
+    if (ABDM_CONFIG.allowLegacyUnboundCallbacks === true) {
+      return ABDM_LEGACY_SIGNATURE_VERSION;
+    }
+    throw AppError.unauthorized(
+      'Legacy ABDM callback signatures are disabled',
+      'ABDM_CALLBACK_LEGACY_SIGNATURE_DISABLED',
+    );
+  }
+  throw AppError.unauthorized(
+    'ABDM callback signature version is unsupported',
+    'ABDM_CALLBACK_SIGNATURE_VERSION_UNSUPPORTED',
+  );
+}
 
 /**
  * Middleware: Validate ABDM gateway request authenticity.
@@ -67,12 +117,13 @@ async function validateABDMRequest(req, res, next) {
   // aimed at another. A per-tenant row (tenant_interop_secrets) wins; the
   // configured global HIP id is the env-backed DEFAULT tenant (single-tenant
   // unchanged). An unrecognized HIP id is rejected — no blanket global fallback.
-  let tenantId = await resolveTenantBySender('abdm_callback', hipId);
-  let callbackSecret = tenantId ? await getInteropSecret(tenantId, 'abdm_callback') : null;
+  const credential = await resolveInteropCredentialSnapshot('abdm_callback', hipId);
+  let tenantId = credential?.tenant_id ?? null;
+  let callbackSecret = credential?.secret ?? null;
   // CAN-007: a per-tenant callback secret authenticates a SPECIFIC tenant's HIP,
   // so a consent it later names must belong to that tenant (strict). The
   // shared-secret/default fallback is the legacy single-tenant path (not strict).
-  let strictTenant = !!(tenantId && callbackSecret);
+  let strictTenant = !!credential;
   if (!callbackSecret && ABDM_CONFIG.hipId && hipId === ABDM_CONFIG.hipId) {
     tenantId = DEFAULT_TENANT_ID;
     callbackSecret = ABDM_CONFIG.callbackSecret;
@@ -89,17 +140,36 @@ async function validateABDMRequest(req, res, next) {
   const timestamp = req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp;
   const requestId = req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id;
 
+  if (!req.abdmRawBody || !req.abdmRawBody.length) {
+    logger.error('ABDM callback missing raw body capture — check the app.js captureJsonRawBody list');
+    return error(res, 'Unable to verify message signature', 400, {
+      topLevel: { code: 'ABDM_RAW_BODY_MISSING' },
+    });
+  }
+
   try {
+    const signatureVersion = resolveAbdmSignatureVersion(
+      req.headers['x-abdm-signature-version'],
+    );
+    // The signature binds the application-owned public callback path, not
+    // req.originalUrl or X-Forwarded-Prefix. Reverse-proxy prefixes therefore
+    // cannot rewrite signed intent, and query parameters (unused by these
+    // callbacks) are deliberately outside the canonical endpoint identity.
+    const method = req.method;
+    const canonicalPath = `${ABDM_CALLBACK_CANONICAL_ROOT}${req.path}`;
     // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
       secret: callbackSecret,
       signature,
       timestamp,
       requestId,
-      payload: req.body || {},
+      payload: req.abdmRawBody,
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
       replayNamespace: 'abdm-callback',
+      signatureVersion,
+      method,
+      canonicalPath,
     });
     // Cross-replica replay guard (the per-process Map above is defeated by the
     // multi-worker / multi-replica cluster). Fail-closed like HL7: a detected
@@ -111,12 +181,18 @@ async function validateABDMRequest(req, res, next) {
       signature,
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
+      signatureVersion,
+      method,
+      canonicalPath,
     });
     req.abdmAuthEvidence = Object.freeze({
       hipId: String(hipId),
       requestId: String(requestId),
       timestamp: String(timestamp),
       signature: String(signature),
+      signatureVersion,
+      method,
+      canonicalPath,
       authenticatedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -303,6 +379,139 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
     next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// SCAN & SHARE + THIN-HIU CALLBACKS (migrations 702/703).
+//
+// Same authenticity chain as the two legacy paths (validateABDMRequest:
+// x-hip-id tenant resolution → HMAC over exact raw bytes → durable
+// cross-replica replay claim). Handlers lazy-import their services so suites
+// exercising the legacy callbacks never load the new dependency graph, and
+// every service write carries req.tenantId EXPLICITLY (pre-RLS mount).
+// ---------------------------------------------------------------------------
+
+function abdmCallbackHandler(label, run) {
+  return async (req, res, next) => {
+    try {
+      const result = await run(req);
+      return success(res, result.data, result.message, 202);
+    } catch (err) {
+      if (err.isOperational) {
+        return relayAppError(res, err, label);
+      }
+      logger.error(label, { error: err.message });
+      return next(err);
+    }
+  };
+}
+
+/**
+ * POST /abdm/patients/profile/share
+ * Scan & Share: the CM posts a patient-shared profile after the patient scans
+ * a counter QR. Derives a front-desk work item; redeliveries 202 replay-safe.
+ */
+callbackRouter.post('/patients/profile/share', abdmCallbackHandler(
+  'Failed to handle ABDM patient profile share',
+  async (req) => {
+    const { handlePatientProfileShareCallback } = await import('../../services/abdm/abdmShareIntakeService.js');
+    const result = await handlePatientProfileShareCallback({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: {
+        acknowledgement: { status: 'SUCCESS' },
+        requestId: req.body?.requestId || null,
+        tokenNumber: result.tokenNumber,
+      },
+      message: result.duplicate
+        ? 'Patient profile share already received'
+        : 'Patient profile share received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/consent-requests/on-init — gateway ack of consent init. */
+callbackRouter.post('/hiu/consent-requests/on-init', abdmCallbackHandler(
+  'Failed to handle ABDM HIU consent on-init',
+  async (req) => {
+    const { handleHiuConsentOnInit } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuConsentOnInit({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate ? 'Consent on-init already received' : 'Consent on-init received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/consents/notify — CM consent grant/deny/revoke for the HIU. */
+callbackRouter.post('/hiu/consents/notify', abdmCallbackHandler(
+  'Failed to handle ABDM HIU consent notification',
+  async (req) => {
+    const { handleHiuConsentNotify } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuConsentNotify({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate
+        ? 'Consent notification already received'
+        : 'Consent notification received',
+    };
+  },
+));
+
+/** POST /abdm/hiu/health-info/on-request — CM ack of our hi-request. */
+callbackRouter.post('/hiu/health-info/on-request', abdmCallbackHandler(
+  'Failed to handle ABDM HIU health-info on-request',
+  async (req) => {
+    const { handleHiuHealthInfoOnRequest } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuHealthInfoOnRequest({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+    });
+    return {
+      data: { requestId: req.body?.requestId || null, duplicate: result.duplicate },
+      message: result.duplicate ? 'Acknowledgement already received' : 'Acknowledgement received',
+    };
+  },
+));
+
+/**
+ * POST /abdm/hiu/health-info/push — the dataPushUrl leg: the HIP pushes
+ * encrypted FHIR entries; parts decrypt against the session's persisted
+ * receive key, bundles land in R2, references in abdm_hiu_received_bundles.
+ */
+callbackRouter.post('/hiu/health-info/push', abdmCallbackHandler(
+  'Failed to handle ABDM HIU data push',
+  async (req) => {
+    const { handleHiuDataPush } = await import('../../services/abdm/abdmHiuService.js');
+    const result = await handleHiuDataPush({
+      tenantId: req.tenantId,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      body: req.body || {},
+      rawBody: req.abdmRawBody,
+      authenticatedHipId: req.abdmAuthEvidence?.hipId || null,
+    });
+    return {
+      data: {
+        transactionId: result.transactionId,
+        duplicate: result.duplicate,
+        stored: result.stored ?? 0,
+        failed: result.failed ?? 0,
+      },
+      message: result.duplicate ? 'Data push page already received' : 'Data push received',
+    };
+  },
+));
 
 
 // ====================================

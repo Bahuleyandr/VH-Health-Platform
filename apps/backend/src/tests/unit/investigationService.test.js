@@ -42,6 +42,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const recordCanonicalClinicalEventMock = jest.fn();
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  cancelWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   recordClinicalAuditEvent: jest.fn().mockResolvedValue(null),
   currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),

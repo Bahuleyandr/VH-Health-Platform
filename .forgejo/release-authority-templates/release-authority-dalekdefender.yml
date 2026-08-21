@@ -146,43 +146,16 @@ jobs:
           admin_image="ghcr.io/${owner_lc}/vh-health-platform-adminportal"
           tag="dalek-${GITHUB_SHA}"
 
-          docker buildx create --name vh-dalek-builder --use >/dev/null 2>&1 || docker buildx use vh-dalek-builder
-          docker buildx inspect --bootstrap
-
-          docker buildx build \
-            --pull \
-            --platform linux/amd64 \
-            --metadata-file output/dalekdefender/backend-metadata.json \
-            --push \
-            -t "${backend_image}:${tag}" \
-            --build-arg NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66 \
-            -f apps/backend/Dockerfile \
-            apps/backend
-
-          docker buildx build \
-            --pull \
-            --platform linux/amd64 \
-            --build-context backend=apps/backend \
-            --metadata-file output/dalekdefender/admin-metadata.json \
-            --push \
-            -t "${admin_image}:${tag}" \
-            --build-arg NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444 \
-            --build-arg NEXT_PUBLIC_APP_NAME="VH Health Admin" \
-            --build-arg NEXT_PUBLIC_ALLOWED_ORIGIN=https://dalekdefender.hippocampus-monitor.ts.net \
-            --build-arg NEXT_PUBLIC_SENTRY_DSN="${NEXT_PUBLIC_SENTRY_DSN:-}" \
-            --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
-            --build-arg NEXT_PUBLIC_SENTRY_RELEASE="${GITHUB_SHA}" \
-            --build-arg NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1 \
-            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0 \
-            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0 \
-            --build-arg SENTRY_UPLOAD_SOURCE_MAPS=false \
-            -f apps/admin/Dockerfile \
-            apps/admin
+          # The helper owns one exact builder for this job and removes it on
+          # every exit. A later run also retires exact stale names before create.
+          trap 'node scripts/ci/forgejo-buildkit-builder.mjs cleanup dalek || exit 1' EXIT
+          node scripts/ci/forgejo-buildkit-builder.mjs prepare dalek
+          node scripts/ci/forgejo-buildkit-builder.mjs build dalek
 
           backend_digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/dalekdefender/backend-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
           admin_digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/dalekdefender/admin-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
           if [ -z "$backend_digest" ] || [ -z "$admin_digest" ]; then
-            echo "::error::Docker buildx did not report both pushed digests"
+            echo "::error::Image builds did not report both pushed digests"
             exit 1
           fi
           echo "BACKEND_REF=${backend_image}@${backend_digest}" >> "$GITHUB_ENV"

@@ -116,7 +116,7 @@ spec:
             severity: critical
             team: backend
           annotations:
-            summary: "notification_outbox contains terminally failed deliveries requiring operator review"
+            summary: "notification_outbox contains unresolved dead letters requiring operator review"
             runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxdeadletters"
         - alert: NotificationOutboxReconciliationRequired
           expr: max(notification_outbox_reconciliation_required_rows) > 0
@@ -125,8 +125,18 @@ spec:
             severity: critical
             team: backend
           annotations:
-            summary: "Notification provider outcomes are uncertain and require evidence-led reconciliation"
+            summary: "Unresolved notification provider outcomes require evidence-led reconciliation"
             runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxreconciliationrequired"
+        - alert: NotificationOutboxTerminalDeadLetters
+          expr: max(notification_outbox_terminal_dead_letter_rows) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "notification_outbox rows have exhausted the bounded auto-replay path and require operator resolution"
+            description: "The terminal classification uses the durable root replay-chain age, so a replacement generation cannot reset the 24-hour ceiling; missing root-chain provenance fails closed as terminal."
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxterminaldeadletters"
         - alert: NotificationDeliveryCursorPaused
           expr: max by (state) (notification_delivery_paused_cursors) > 0
           for: 5m
@@ -164,6 +174,31 @@ spec:
           annotations:
             summary: "WS Redis fan-out subscriber erroring/reconnecting — the window where broadcasts can be silently dropped (at-most-once)"
             runbook: "docs/RUNBOOK_ONCALL.md#wsbroadcastdrops"
+        # Gap-audit 2026-08 (#873 follow-up): the rate-limit store posture was
+        # only visible on the JSON /health/metrics, which nothing scrapes. The
+        # gauges below come from src/observability/rateLimitPostureMetrics.js.
+        # No absent() arm on purpose: a deployment without Redis configured
+        # emits neither family (MemoryStore / no fan-out — nothing to alert on).
+        - alert: RateLimitStoreDegraded
+          expr: max(vh_rate_limit_store_degraded) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Redis rate-limit store degraded for 5m — fail-closed profiles (auth/otp/sos) are answering 429, fail-open profiles pass unmetered"
+            runbook: "docs/RUNBOOK_ONCALL.md#ratelimitstoredegraded"
+        # min(), not max(): one deaf pod is a real coverage hole even while its
+        # siblings are subscribed — sessions pinned to it miss cross-pod events.
+        - alert: WsFanoutSubscriberDown
+          expr: min(vh_redis_ws_fanout_ready) == 0
+          for: 10m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Cross-pod WS fan-out subscriber is down — realtime broadcasts (vitals/code-blue) are single-process only on at least one pod"
+            runbook: "docs/RUNBOOK_ONCALL.md#wsfanoutsubscriberdown"
         - alert: DbCircuitBreakerOpen
           expr: max(db_circuit_breaker_open) == 1
           for: 2m

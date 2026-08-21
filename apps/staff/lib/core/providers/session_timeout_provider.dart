@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+
 import '../platform_info.dart';
 import '../services/auth_service.dart';
 

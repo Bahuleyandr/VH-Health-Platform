@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+
 import '../../../core/config/role_config.dart';
 import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/api_client.dart';
@@ -624,9 +625,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       if (!mounted) return;
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).bedBoardPrintFailed(e.toString().replaceFirst('Exception: ', '')),
+        AppStrings.of(context)
+            .bedBoardPrintFailed(e.toString().replaceFirst('Exception: ', '')),
       );
     }
   }
@@ -1440,9 +1440,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     final id = _bedId();
     if (id.isEmpty) {
       setState(
-        () => _saveError = AppStrings.of(
-          context,
-        ).bedSheetMissingBedIdCannotSaveNotes,
+        () =>
+            _saveError = AppStrings.of(context)
+                .bedSheetMissingBedIdCannotSaveNotes,
       );
       return;
     }
@@ -1575,9 +1575,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          AppStrings.of(
-                            context,
-                          ).bedNumber(bedNumber.toString()),
+                          AppStrings.of(context)
+                              .bedNumber(bedNumber.toString()),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -1787,12 +1786,10 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                       Expanded(
                         child: Text(
                           isOccupied
-                              ? AppStrings.of(
-                                  context,
-                                ).bedSheetPatientDetailsUnavailable
-                              : AppStrings.of(
-                                  context,
-                                ).bedSheetNoPatientAssigned,
+                              ? AppStrings.of(context)
+                                    .bedSheetPatientDetailsUnavailable
+                              : AppStrings.of(context)
+                                    .bedSheetNoPatientAssigned,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ),

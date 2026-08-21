@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/clinical_print_service.dart';
@@ -26,6 +28,8 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../emr/screens/vitals_chart_screen.dart'
+    show vitalsTemperatureDisplayF, vitalsTemperatureUnitSent;
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
@@ -623,6 +627,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     ctrl.text = value.toString();
   }
 
+  /// Format a °F temperature for prefill: trim to one decimal, dropping a
+  /// trailing ".0" so whole degrees read cleanly.
+  String _formatTemperatureF(double value) {
+    final text = value.toStringAsFixed(1);
+    return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
+  }
+
   String? _cleanAppointmentText(Object? value) {
     final text = value?.toString().trim() ?? '';
     if (text.isEmpty || text.toLowerCase() == 'null') return null;
@@ -790,7 +801,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         _setControllerIfEmpty(_bpSysCtrl, vitals['systolic_bp']);
         _setControllerIfEmpty(_bpDiaCtrl, vitals['diastolic_bp']);
         _setControllerIfEmpty(_pulseCtrl, vitals['heart_rate']);
-        _setControllerIfEmpty(_tempCtrl, vitals['temperature']);
+        // Backend returns canonical °C; this field is labelled/entered in °F.
+        final tempF = vitalsTemperatureDisplayF(vitals['temperature']);
+        _setControllerIfEmpty(
+          _tempCtrl,
+          tempF == null ? null : _formatTemperatureF(tempF),
+        );
         _setControllerIfEmpty(_respRateCtrl, vitals['respiratory_rate']);
         _setControllerIfEmpty(_spo2Ctrl, vitals['spo2']);
         _setControllerIfEmpty(_weightCtrl, vitals['weight_kg']);
@@ -830,7 +846,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       v['pulse'] = int.tryParse(pulse);
     }
     if (temp.isNotEmpty) {
-      v['temperature'] = double.tryParse(temp);
+      final tempValue = double.tryParse(temp);
+      v['temperature'] = tempValue;
+      // The field collects °F — declare the unit so the backend converts to
+      // canonical °C instead of treating the value as °C (see
+      // [vitalsTemperatureUnitSent]).
+      if (tempValue != null) {
+        v['temperature_unit'] = vitalsTemperatureUnitSent;
+      }
     }
     if (_temperatureRoute != null && _temperatureRoute!.isNotEmpty) {
       v['temperature_route'] = _temperatureRoute;
@@ -902,9 +925,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (parsed == null) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.pdf_not_available_yet'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.pdf_not_available_yet'),
       );
       return;
     }
@@ -980,9 +1002,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_appointmentPrescriptionLocked) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.visit_prescription_locked'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.visit_prescription_locked'),
       );
       return;
     }
@@ -1003,9 +1024,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_medications.any((m) => m.days < 1)) {
       ErrorToast.show(
         context,
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.prescriptions.days_must_be_at_least_1'),
+        AppStrings.of(context)
+            .lookup('s4.lib.prescriptions.days_must_be_at_least_1'),
       );
       return;
     }
@@ -1155,9 +1175,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 's4.lib.prescriptions.prescription_pdf_is_ready',
               ),
               action: SnackBarAction(
-                label: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.prescriptions.open_pdf'),
+                label: AppStrings.of(context)
+                    .lookup('s4.lib.prescriptions.open_pdf'),
                 onPressed: () => _openPrescriptionPdf(pdfUrl),
               ),
             ),
@@ -1706,9 +1725,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       rows.sort((a, b) {
         final stockDelta = _stockCount(b).compareTo(_stockCount(a));
         if (stockDelta != 0) return stockDelta;
-        return _extractStrengthFromCatalog(
-          a,
-        ).compareTo(_extractStrengthFromCatalog(b));
+        return _extractStrengthFromCatalog(a)
+            .compareTo(_extractStrengthFromCatalog(b));
       });
       final first = rows.first;
       final strengths = _uniqueStrengths(rows.map(_extractStrengthFromCatalog));
@@ -1745,9 +1763,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     grouped.sort((a, b) {
       final stockDelta = _stockCount(b).compareTo(_stockCount(a));
       if (stockDelta != 0) return stockDelta;
-      return _extractDrugNameFromCatalog(
-        a,
-      ).compareTo(_extractDrugNameFromCatalog(b));
+      return _extractDrugNameFromCatalog(a)
+          .compareTo(_extractDrugNameFromCatalog(b));
     });
     return grouped.take(12).toList(growable: false);
   }
@@ -2548,9 +2565,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               subtitle.isEmpty ? drugName : '$drugName ($subtitle)',
               overflow: TextOverflow.ellipsis,
             ),
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.use_favorite'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.use_favorite'),
             onPressed: () => _applyFavorite(med),
             onDeleted: () => _removeFavorite(med),
           );
@@ -2679,9 +2695,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         _tableTextField(
                           width: notesWidth,
                           value: med.instructions,
-                          hint: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.prescriptions.instructions_hint'),
+                          hint: AppStrings.of(context)
+                              .lookup('s4.lib.prescriptions.instructions_hint'),
                           onChanged: (value) => med.instructions = value,
                         ),
                       ),
@@ -2804,9 +2819,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             setState(() => med.daw = value);
           }),
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.save_favorite'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.save_favorite'),
             visualDensity: VisualDensity.compact,
             onPressed: med.name.trim().isEmpty
                 ? null
@@ -2814,9 +2828,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             icon: const Icon(Icons.star_border, size: 18),
           ),
           IconButton(
-            tooltip: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.delete_row'),
+            tooltip: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.delete_row'),
             visualDensity: VisualDensity.compact,
             onPressed: _medications.length <= 1
                 ? null
@@ -2856,9 +2869,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 controller: textController,
                 focusNode: fieldFocusNode,
                 decoration: InputDecoration(
-                  hintText: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.prescriptions.type_drug_name'),
+                  hintText: AppStrings.of(context)
+                      .lookup('s4.lib.prescriptions.type_drug_name'),
                   isDense: true,
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: loading
@@ -3838,9 +3850,8 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
           final p = _prescriptions[i];
           final meds = p['medications'] as List? ?? [];
           final createdAt = p['created_at'] != null
-              ? DateFormat(
-                  'dd MMM yyyy, hh:mm a',
-                ).format(DateTime.parse(p['created_at']).toLocal())
+              ? DateFormat('dd MMM yyyy, hh:mm a')
+                    .format(DateTime.parse(p['created_at']).toLocal())
               : '';
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -3996,12 +4007,11 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              AppStrings.of(
-                ctx,
-              ).format('s4.dynamic.prescriptions.patient_doctor', {
-                'patient': rx['patient_name'] ?? '',
-                'doctor': rx['doctor_name'] ?? '',
-              }),
+              AppStrings.of(ctx)
+                  .format('s4.dynamic.prescriptions.patient_doctor', {
+                    'patient': rx['patient_name'] ?? '',
+                    'doctor': rx['doctor_name'] ?? '',
+                  }),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 8),
@@ -4012,12 +4022,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 Chip(
                   label: Text(
                     signed
-                        ? AppStrings.of(
-                            ctx,
-                          ).lookup('s4.lib.prescriptions.signed_locked')
-                        : AppStrings.of(
-                            ctx,
-                          ).lookup('s4.lib.prescriptions.draft'),
+                        ? AppStrings.of(ctx)
+                              .lookup('s4.lib.prescriptions.signed_locked')
+                        : AppStrings.of(ctx)
+                              .lookup('s4.lib.prescriptions.draft'),
                     style: TextStyle(
                       color: signed
                           ? AppTheme.successOnSurface
@@ -4105,13 +4113,11 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             const SizedBox(height: 12),
             if (rx['follow_up_date'] != null)
               Text(
-                AppStrings.of(
-                  ctx,
-                ).format('s4.dynamic.prescriptions.follow_up_date', {
-                  'date': DateFormat(
-                    'dd MMM yyyy',
-                  ).format(DateTime.parse(rx['follow_up_date'])),
-                }),
+                AppStrings.of(ctx)
+                    .format('s4.dynamic.prescriptions.follow_up_date', {
+                      'date': DateFormat('dd MMM yyyy')
+                          .format(DateTime.parse(rx['follow_up_date'])),
+                    }),
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
             const SizedBox(height: 16),
@@ -4141,12 +4147,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                             : const Icon(Icons.verified_outlined, size: 18),
                         label: Text(
                           signed
-                              ? AppStrings.of(
-                                  ctx,
-                                ).lookup('s4.lib.prescriptions.signed')
-                              : AppStrings.of(
-                                  ctx,
-                                ).lookup('s4.lib.prescriptions.sign_lock'),
+                              ? AppStrings.of(ctx)
+                                    .lookup('s4.lib.prescriptions.signed')
+                              : AppStrings.of(ctx)
+                                    .lookup('s4.lib.prescriptions.sign_lock'),
                         ),
                       ),
                     ),

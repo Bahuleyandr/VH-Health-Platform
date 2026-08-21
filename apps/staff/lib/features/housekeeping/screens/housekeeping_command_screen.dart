@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class HousekeepingCommandScreen extends StatefulWidget {
@@ -141,9 +142,8 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
           values: {
             'staff': _asText(
               assignment['staff_name'],
-              fallback: AppStrings.of(
-                context,
-              ).lookup('s4.lib.housekeeping_command.this_staff_member'),
+              fallback: AppStrings.of(context)
+                  .lookup('s4.lib.housekeeping_command.this_staff_member'),
             ),
           },
         ),
@@ -233,9 +233,8 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
                   const SizedBox(height: 16),
                   _SectionTitle(
                     icon: Icons.map_outlined,
-                    title: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.housekeeping_command.zone_workload'),
+                    title: AppStrings.of(context)
+                        .lookup('s4.lib.housekeeping_command.zone_workload'),
                     count: _zones.length,
                   ),
                   const SizedBox(height: 8),
@@ -341,9 +340,8 @@ class _DelegationPanel extends StatelessWidget {
             DropdownButtonFormField<int>(
               initialValue: selectedStaffId,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.housekeeping_command.staff_member'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.housekeeping_command.staff_member'),
                 prefixIcon: const Icon(Icons.person_search_outlined),
               ),
               items: staff
@@ -371,9 +369,8 @@ class _DelegationPanel extends StatelessWidget {
             DropdownButtonFormField<int>(
               initialValue: selectedZoneId,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.housekeeping_command.floor_or_zone'),
+                labelText: AppStrings.of(context)
+                    .lookup('s4.lib.housekeeping_command.floor_or_zone'),
                 prefixIcon: const Icon(Icons.location_on_outlined),
               ),
               items: zones
@@ -397,9 +394,8 @@ class _DelegationPanel extends StatelessWidget {
               controller: reasonController,
               maxLines: 2,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('drug_chart.stop_reason_label'),
+                labelText: AppStrings.of(context)
+                    .lookup('drug_chart.stop_reason_label'),
                 prefixIcon: const Icon(Icons.edit_note_outlined),
               ),
             ),

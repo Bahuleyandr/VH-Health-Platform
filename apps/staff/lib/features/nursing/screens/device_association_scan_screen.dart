@@ -9,17 +9,19 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
 typedef ClinicalDeviceLoader = Future<List<Map<String, dynamic>>> Function();
-typedef DeviceAssociationLoader =
-    Future<List<Map<String, dynamic>>> Function({required String patientUid});
-typedef DeviceAssociator =
-    Future<Map<String, dynamic>> Function({
-      required String patientUid,
-      required String deviceCode,
-    });
-typedef DeviceAssociationDisconnector =
-    Future<Map<String, dynamic>> Function(int id);
-typedef DeviceAssociationPatientLoader =
-    Future<Map<String, dynamic>?> Function(String patientUid);
+typedef DeviceAssociationLoader = Future<List<Map<String, dynamic>>> Function({
+  required String patientUid,
+});
+typedef DeviceAssociator = Future<Map<String, dynamic>> Function({
+  required String patientUid,
+  required String deviceCode,
+});
+typedef DeviceAssociationDisconnector = Future<Map<String, dynamic>> Function(
+  int id,
+);
+typedef DeviceAssociationPatientLoader = Future<Map<String, dynamic>?> Function(
+  String patientUid,
+);
 
 enum _DeviceAssocStep { scanPatient, scanDevice, review, associated }
 

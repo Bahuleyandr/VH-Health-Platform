@@ -11,6 +11,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
@@ -109,9 +110,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
           if (mounted) {
             messenger.showSnackBar(
               LiveRegionSnackBar.build(
-                message: AppLocalizations.of(
-                  context,
-                )!.investigationsFileTooLarge,
+                message: AppLocalizations.of(context)!
+                    .investigationsFileTooLarge,
                 backgroundColor: theme.colorScheme.error,
                 behavior: SnackBarBehavior.floating,
               ),
@@ -140,6 +140,26 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final messenger = ScaffoldMessenger.of(context);
+
+    // Uploads stay guardian-only for now: the backend files the report
+    // against the BODY phone and (fail-closed) requires it to match the
+    // caller's own record, and a dependent's synthetic phone is never
+    // typeable. Surface the real reason instead of letting the request
+    // 403 with a misleading "own record" error (P9, 2026-08-18). The
+    // submit button is also disabled in build(); this guards direct calls.
+    final activeDep = context.read<DependentsProvider>().activeDependent;
+    if (activeDep != null) {
+      messenger.showSnackBar(
+        LiveRegionSnackBar.build(
+          message: l10n.investigationsUploadNotAvailableForDependent(
+            activeDep.name,
+          ),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     if (!_formKey.currentState!.validate() || _file == null) {
       messenger.showSnackBar(
@@ -240,6 +260,10 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    // Watch so the banner and the disabled submit button track profile
+    // switches live (see the guardian-only note in _submit).
+    final activeDep = context.watch<DependentsProvider>().activeDependent;
     return Form(
       key: _formKey,
       child: ListView(
@@ -247,6 +271,34 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
         shrinkWrap: true,
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          if (activeDep != null) ...[
+            Card(
+              color: theme.colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        l10n.investigationsUploadNotAvailableForDependent(
+                          activeDep.name,
+                        ),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           if (_isGuest) ...[
             TextFormField(
               controller: _phoneController,
@@ -292,9 +344,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
                 icon: const Icon(Icons.close, size: 16),
                 label: Text(
                   l10n.fileClearSelection,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.error),
                 ),
                 onPressed: _isSubmitting
                     ? null
@@ -306,7 +357,7 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
             ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: _isSubmitting ? null : _submit,
+            onPressed: (_isSubmitting || activeDep != null) ? null : _submit,
             child: _isSubmitting
                 ? const SizedBox(
                     width: 20,

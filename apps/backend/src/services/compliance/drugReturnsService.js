@@ -7,6 +7,7 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { assertControlledDispenseWitness } from '../pharmacy/controlledDispenseWitnessService.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
@@ -94,7 +95,7 @@ export async function listBatches({ tenantId, status, reason, limit = 100 }) {
   return prisma.$queryRawUnsafe(sql, ...args);
 }
 
-export async function addLine({ tenantId, batch_id, ...body }) {
+export async function addLine({ tenantId, batch_id, recorded_by, ...body }) {
   if (!body.drug_name) throw AppError.badRequest('drug_name required');
   if (!body.mfr_batch_no) throw AppError.badRequest('mfr_batch_no required');
   if (body.qty_units == null || body.qty_units <= 0) {
@@ -114,12 +115,38 @@ export async function addLine({ tenantId, batch_id, ...body }) {
     throw AppError.badRequest(`Cannot add lines to batch in status: ${head.status}`);
   }
 
-  // Schedule H1 / X / narcotics need witness for disposal — enforce at
+  // Schedule H1 / X / narcotics need a witness for disposal — enforce at
   // line level so quarantining a mixed batch with a schedule-X drug
-  // can't proceed without naming the witness.
-  const isControlled = body.schedule === 'H1' || body.schedule === 'X' || body.is_narcotic;
-  if (isControlled && !body.witness_name) {
-    throw AppError.badRequest('Witness name required for Schedule H1 / X / narcotic returns');
+  // can't proceed without a witness. Fail closed: the witness must be a
+  // REAL, distinct, active staff member of this tenant with an eligible
+  // pharmacy/medical/nursing role — the same roster validation the
+  // controlled-dispense path uses (assertControlledDispenseWitness). Free
+  // text alone is not evidence on a compliance surface; the stored
+  // witness_name is the canonical roster name, never the caller's string.
+  const isControlled = body.schedule === 'H1' || body.schedule === 'X' || Boolean(body.is_narcotic);
+  let witness = null;
+  if (isControlled && !body.witness_uid) {
+    throw AppError.badRequest(
+      'A verified staff witness (witness_uid) is required for Schedule H1 / X / narcotic returns',
+      'DRUG_RETURN_WITNESS_REQUIRED',
+    );
+  }
+  if (body.witness_uid) {
+    // Validated for controlled lines (mandatory) and for any voluntarily
+    // supplied witness on other lines — a named witness identity must always
+    // be real. `recorded_by` is the authenticated staff member entering the
+    // line; they cannot witness their own entry.
+    if (!recorded_by) {
+      throw AppError.badRequest(
+        'Authenticated recorder identity is required to validate a disposal witness',
+        'DRUG_RETURN_RECORDER_REQUIRED',
+      );
+    }
+    witness = await assertControlledDispenseWitness(prisma, {
+      tenantId: tenantOr(tenantId),
+      witnessUid: body.witness_uid,
+      performedBy: recorded_by,
+    });
   }
 
   const sql = `
@@ -136,8 +163,8 @@ export async function addLine({ tenantId, batch_id, ...body }) {
     body.manufacturer || null, body.mfr_batch_no, body.mfr_date || null,
     body.expiry_date || null, body.qty_units, body.qty_uom || null,
     body.unit_cost_paise || null, body.storage_condition_at_return || null,
-    Boolean(body.is_narcotic), body.witness_uid || null,
-    body.witness_name || null, body.notes || null);
+    Boolean(body.is_narcotic), witness ? witness.uid : null,
+    witness ? witness.name : (body.witness_name || null), body.notes || null);
   return unwrap(rows);
 }
 

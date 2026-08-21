@@ -16,9 +16,14 @@ class PharmacyApiService {
 
   static Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.post(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.post(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -274,6 +279,7 @@ class PharmacyApiService {
     required int originalCatalogId,
     required int finalCatalogId,
     String? reason,
+    String? witnessApprovalId,
   }) async {
     return _post('/pharmacy-orders/dispense-substitution', {
       'patient_uid': patientUid,
@@ -284,7 +290,45 @@ class PharmacyApiService {
       'original_catalog_id': originalCatalogId,
       'final_catalog_id': finalCatalogId,
       'reason': ?reason,
+      'witness_approval_id': ?witnessApprovalId,
     });
+  }
+
+  /// POST /pharmacy-orders/dispense-substitution/witness-approvals
+  ///
+  /// Creates a short-lived pending witness approval bound to the authenticated
+  /// dispenser and the exact prospective Schedule X / narcotic substitution
+  /// payload. The payload must be byte-identical to the eventual dispense body
+  /// (minus witness_approval_id) or consumption fails closed.
+  static Future<Map<String, dynamic>> requestSubstitutionWitnessApproval({
+    required Map<String, dynamic> substitution,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/dispense-substitution/witness-approvals',
+      substitution,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates the second staff member without replacing the dispenser's
+  /// session, then approves the same substitution payload that was requested.
+  static Future<Map<String, dynamic>> approveSubstitutionWitnessApproval({
+    required String approvalId,
+    required Map<String, dynamic> substitution,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/dispense-substitution/witness-approvals/$approvalId/approve',
+      {
+        'substitution': substitution,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   /// GET /pharmacy-orders/orders/:id/dispensable
@@ -307,5 +351,103 @@ class PharmacyApiService {
     return _listFrom(data, [
       'batches',
     ]).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  // ─── Walk-in Counter Point-of-Sale ───────────────────────────────────────
+
+  /// GET /pharmacy-orders/counter-sales/items — sellable items with usable
+  /// stock and the FEFO head batch (number, expiry, MRP unit price).
+  static Future<List<Map<String, dynamic>>> getCounterSaleItems({
+    String? search,
+  }) async {
+    final resp = await _get(
+      '/pharmacy-orders/counter-sales/items',
+      query: {
+        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
+      },
+    );
+    return _listFrom(resp, const [
+      'items',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy-orders/counter-sales — sell: FEFO dispense + schedule
+  /// enforcement + billingV2 PHARMACY invoice + pay-at-counter payment.
+  static Future<Map<String, dynamic>> requestCounterSaleWitnessApproval({
+    required Map<String, dynamic> sale,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals',
+      sale,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates the second staff member without replacing the seller's
+  /// session, then approves the same sale payload that was requested.
+  static Future<Map<String, dynamic>> approveCounterSaleWitnessApproval({
+    required String approvalId,
+    required Map<String, dynamic> sale,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy-orders/counter-sales/witness-approvals/$approvalId/approve',
+      {
+        'sale': sale,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  static Future<Map<String, dynamic>> createCounterSale({
+    required List<Map<String, dynamic>> lines,
+    String? patientUid,
+    String? customerName,
+    String? customerPhone,
+    Map<String, dynamic>? rx,
+    String? witnessApprovalId,
+    required String paymentMode,
+    String? paymentReference,
+    String? notes,
+  }) async {
+    return _post('/pharmacy-orders/counter-sales', {
+      'lines': lines,
+      'patient_uid': ?patientUid,
+      'customer_name': ?customerName,
+      'customer_phone': ?customerPhone,
+      'rx': ?rx,
+      'witness_approval_id': ?witnessApprovalId,
+      'payment_mode': paymentMode,
+      'payment_reference': ?paymentReference,
+      'notes': ?notes,
+    });
+  }
+
+  /// GET /pharmacy-orders/counter-sales — recent sales (newest first).
+  static Future<List<Map<String, dynamic>>> listCounterSales({
+    String? status,
+    String? date,
+  }) async {
+    final resp = await _get(
+      '/pharmacy-orders/counter-sales',
+      query: {'status': ?status, 'date': ?date},
+    );
+    return _listFrom(resp, const [
+      'sales',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy-orders/counter-sales/:id/void — same-day void: billing
+  /// refund + exact per-batch restock (register returns for scheduled lines).
+  static Future<Map<String, dynamic>> voidCounterSale(
+    String id,
+    String reason,
+  ) async {
+    return _post('/pharmacy-orders/counter-sales/$id/void', {'reason': reason});
   }
 }

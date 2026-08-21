@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -22,16 +23,23 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
   bool _isLoading = true;
   String? _error;
   String? _patientId;
+  String? _dependentId;
 
   @override
   void initState() {
     super.initState();
+    // When acting as a dependent, the backend rewrites req.user to that
+    // dependent. Query with the dependent's id so it matches; the guardian's
+    // stored id would 403 / return empty under the acting-as header. Read the
+    // live provider statically (context-free, null-safe) — mirrors how the
+    // acting-as HTTP header resolver is registered.
+    _dependentId = DependentsProvider.instance?.activeDependent?.id.toString();
     _loadPatientId();
   }
 
   Future<void> _loadPatientId() async {
     final storage = VHSecureStorage.instance;
-    final pid = await storage.read(key: 'patient_id');
+    final pid = _dependentId ?? await storage.read(key: 'patient_id');
     final uid = await storage.read(key: 'firebase_uid');
     if (mounted) {
       setState(() => _patientId = pid ?? uid);

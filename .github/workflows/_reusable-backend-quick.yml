@@ -29,7 +29,10 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        # Prod parity: production CNPG pins PostgreSQL 17.10 — keep CI on pg17
+        # until the held PG18 cutover ladder lands (pg18-canary.yml is the
+        # non-required qualification canary).
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -45,6 +48,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
       TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up): with the DB env provisioned,
+      # any skipped test not declared in apps/backend/scripts/jest-skip-floor.json
+      # fails the run (scripts/jest-skip-floor-reporter.cjs).
+      JEST_ENFORCE_SKIP_FLOOR: '1'
       API_KEY: test-api-key
       JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
       NODE_ENV: test
@@ -65,6 +72,24 @@ jobs:
           cache-dependency-path: apps/backend/package-lock.json
 
       - run: npm ci
+
+      # Same guard as the canonical gate's static-checks job — see the comment
+      # there. Mirrored here so a stripped lockfile fails on the ordinary
+      # feature push, not only on the final `[full-ci]` marker commit: a
+      # regenerated package-lock.json is exactly the kind of change that lands
+      # mid-branch, and #878's whole failure mode was discovering it late.
+      - name: Lockfile libc guard (musl/glibc platform constraints intact)
+        run: npm run check:lockfile-libc
+
+      # Second layer behind the UTC session pin in src/lib/prisma.js. A
+      # timestamptz read back through the pg driver is materialised in the
+      # DATABASE SESSION timezone, so comparing one against the process clock is
+      # only correct on a UTC session — two such sites shipped FAIL-OPEN. CI runs
+      # a UTC database, so a relapse is behaviourally invisible here and only the
+      # source shape can be checked. Its own step rather than a link in the
+      # `npm run lint` && chain, so a lint failure cannot mask it.
+      - name: Timestamptz clock-comparison guard (no driver Date vs process clock)
+        run: npm run check:timestamptz-clock
 
       - name: Restore generated Prisma client
         id: prisma-client

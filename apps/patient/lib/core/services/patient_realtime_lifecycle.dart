@@ -4,8 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 
 typedef PatientRealtimeStart = Future<void> Function();
-typedef PatientRealtimeStop =
-    Future<void> Function({required bool unsubscribe});
+typedef PatientRealtimeStop = Future<void> Function({
+  required bool unsubscribe,
+});
 
 /// What [PatientRealtimeLifecycle.completeTeardown] actually achieved.
 ///

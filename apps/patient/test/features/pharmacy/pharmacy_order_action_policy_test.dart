@@ -78,8 +78,7 @@ void main() {
       expect(
         a.canCancel,
         isFalse,
-        reason:
-            'Once pharmacy has started preparation the patient cannot self-cancel',
+        reason: 'Once pharmacy has started preparation the patient cannot self-cancel',
       );
       expect(a.canTrack, isFalse);
     });

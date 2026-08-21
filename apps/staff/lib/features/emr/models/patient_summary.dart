@@ -64,11 +64,23 @@ String latestVitalsLine(Map<String, dynamic>? row) {
     if (sys != null && dia != null) 'BP $sys/$dia',
     if (v(const ['heart_rate', 'pulse']) case final hr?) 'HR $hr',
     if (v(const ['spo2']) case final spo2?) 'SpO2 $spo2%',
-    if (v(const ['temperature', 'temp']) case final t?) 'T $t',
+    if (v(const ['temperature', 'temp']) case final t?) _temperatureDisplay(t),
     if (v(const ['respiratory_rate', 'rr']) case final rr?) 'RR $rr',
     if (v(const ['pain_score']) case final pain?) 'Pain $pain',
   ];
   return parts.join(' · ');
+}
+
+/// vitals_chart temperatures are canonical °C on the read path; the staff app
+/// displays °F wherever the chart does, so convert and carry the unit instead
+/// of the previous ambiguous bare "T 37.2". Values above the 45 °C
+/// plausibility ceiling cannot be Celsius (legacy raw-°F residue) and
+/// non-numeric values have no known unit — both render raw, unit-less, rather
+/// than fabricate a converted number.
+String _temperatureDisplay(dynamic t) {
+  final num? c = t is num ? t : num.tryParse('$t');
+  if (c == null || c > 45) return 'T $t';
+  return 'T ${(c * 9 / 5 + 32).toStringAsFixed(1)} °F';
 }
 
 /// Dedupe + cap allergy items into display strings, severity-suffixed

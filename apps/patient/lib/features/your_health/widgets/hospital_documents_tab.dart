@@ -117,9 +117,8 @@ class _HospitalRecordsPane extends StatelessWidget {
         onRetry: onRetry,
         emptyIcon: Icons.local_hospital_outlined,
         emptyTitle: AppLocalizations.of(context)!.recordsHospitalEmpty,
-        emptySubtitle: AppLocalizations.of(
-          context,
-        )!.recordsHospitalEmptySubtitle,
+        emptySubtitle: AppLocalizations.of(context)!
+            .recordsHospitalEmptySubtitle,
         builder: (context, records) => ListView.builder(
           padding: const EdgeInsets.all(12),
           itemCount: records.length,

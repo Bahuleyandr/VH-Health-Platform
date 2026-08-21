@@ -423,7 +423,7 @@ class HealthSyncService {
       final alreadyGranted = await _health.isHealthDataInBackgroundAuthorized();
       if (alreadyGranted) return true;
 
-      return _health.requestHealthDataInBackgroundAuthorization();
+      return await _health.requestHealthDataInBackgroundAuthorization();
     } catch (e) {
       if (kDebugMode) {
         debugPrint('HealthSyncService: background permission failed: $e');
@@ -1377,7 +1377,7 @@ void healthSyncBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       final service = HealthSyncService.instance;
-      return service.syncForBackground(
+      return await service.syncForBackground(
         scheduledOwnerScope:
             inputData?[HealthSyncService._backgroundOwnerScopeInput] as String?,
       );

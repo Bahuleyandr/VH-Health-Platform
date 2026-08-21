@@ -310,6 +310,26 @@ explicitly accepting duplicate-delivery risk. The original uncertain row is
 never silently retried. Never use **Record acceptance** for a provider ticket
 that merely reports receipt of a support request or for inferred delivery.
 
+## NotificationOutboxTerminalDeadLetters
+
+One or more notification intents have no automatic path left. The bounded
+auto-replay sweep (`notification-outbox-auto-replay`, every 15 minutes) already
+requeues eligible `RECONCILIATION_REQUIRED` rows as new intents — up to two
+generations per chain, within a 24-hour age ceiling and a fail-closed reason
+allowlist — so a terminal row means either the replay chain crossed the bound
+(the row's reason is `auto_replay_exhausted`), the row aged out, its reason is
+outside the allowlist, or a `FAILED` row carries a terminal provider rejection.
+Handle it exactly like **NotificationOutboxDeadLetters**: repair the provider
+or configuration cause, then use the audited operator **Replay** or **Record
+acceptance** actions in **Admin → Notifications → Delivery Health** for the
+named row. Never change outbox state with raw SQL. `SUPPRESSED` rows are NOT
+part of this alert — they are intentional never-send cancellations (payroll
+supersede semantics) and must not be replayed; their volume is visible on
+`notification_outbox_suppressed_rows`. The sweep's kill switch is
+`NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED=false` (default on); each sweep
+requeue is an accepted duplicate-delivery risk recorded in `audit_logs` under
+`NOTIFICATION_OUTBOX_AUTO_REPLAYED`.
+
 ## NotificationDeliveryCursorPaused
 
 A channel is deliberately blocked behind a rejected or uncertain head row so
@@ -418,6 +438,42 @@ migration window.
    migration (`_migrations` table) and the schema-drift check.
 2. A migration mid-apply is transient; a sustained signal means a partition/table the
    fallback is masking should exist — investigate before it hides a real bug.
+
+## RateLimitStoreDegraded
+
+The Redis-backed rate-limit store is degraded (`vh_rate_limit_store_degraded` = 1
+from `/metrics`, same signal as `rate_limit_store` on the JSON `/health/metrics`).
+Per the store-loss decision table (`config/rateLimitStoreLossPolicy.js`),
+fail-closed profiles (auth/otp/sos/dataExport/dashboard/smartFhirOAuth) are
+answering honest 429s and fail-open profiles are passing unmetered. Pods stay
+Ready on purpose — do not restart the fleet for this.
+1. Which failure mode: `vh_rate_limit_store_errors` rising = command failures
+   (breaker open, half-open probes via `vh_rate_limit_store_probes`);
+   flat errors + degraded = connection-level loss (disconnected / never
+   initialized). Check Redis/Sentinel health:
+   `kubectl -n vhhealth get pods -l app=redis`.
+2. Blast radius while down: `vh_rate_limit_store_denied_while_down` (auth-class
+   requests refused) vs `vh_rate_limit_store_passed_unmetered_while_down`
+   (unmetered traffic). Both reset to 0 on recovery.
+3. Recovery is automatic (ioredis retry + breaker half-open probes). If the
+   gauge stays 1 after Redis reports healthy, one successful limiter
+   `increment` closes the breaker — sustained degradation with healthy Redis
+   means the store credentials/ACL or the command timeout budget changed.
+
+## WsFanoutSubscriberDown
+
+At least one backend pod's cross-pod WebSocket fan-out subscriber is down
+(`min(vh_redis_ws_fanout_ready) == 0`): sessions pinned to that pod miss
+cross-pod realtime broadcasts (vitals, code-blue) while everything else keeps
+serving. Distinct from `WsFanoutSubscriberErrorsHigh`, which is the
+error/reconnect-rate proxy for the invisible at-most-once drop window.
+1. Which pod: `/metrics` per-pod series, or `/health/ready`'s
+   `redis_websocket_subscriber` block (873-F10) with its `degraded_since`.
+2. Background reinit re-wires the subscriber when Redis returns
+   (873-F2/F10). If Redis is healthy but a pod stays deaf, a rolling restart
+   of THAT pod restores its subscription — not the fleet.
+3. Correlate with `WsBroadcastDropsDetected` `reason="fanout_local_fallback"`
+   to see whether broadcasts were actually lost during the window.
 
 ## BackendErrorBudgetBurn
 

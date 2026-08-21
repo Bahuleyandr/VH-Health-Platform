@@ -13,6 +13,7 @@ import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { encryptFhirBundle } from './abdmCrypto.js';
 import abdmGateway from './abdmGateway.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 // ---------------------------------------------------------------------------
 // ABDM consent-artefact verification config (#3). Operator-supplied — never a
@@ -876,8 +877,8 @@ class ABDMService {
     return { patientUid: rows[0].uid, tenantId: rows[0].tenant_id };
   }
 
-  _verifyConsentArtefact({ consentRequestId, consentArtefact, signature }) {
-    if (!consentArtefactVerificationEnabled()) {
+  _verifyConsentArtefact({ consentRequestId, consentArtefact, signature, required = false }) {
+    if (!required && !consentArtefactVerificationEnabled()) {
       logger.warn(
         'ABDM consent-artefact signature verification is DISABLED — set ABDM_VERIFY_CONSENT_ARTEFACT=true and ABDM_CM_PUBLIC_KEY before production',
         { consentRequestId },
@@ -1136,8 +1137,13 @@ class ABDMService {
       );
     }
 
-    // Check expiry
-    if (new Date(consent.expiry_date) < new Date()) {
+    // Check expiry. abdm_consents.expiry_date is timestamptz, so read the
+    // absolute-instant twin rather than a driver Date, which is materialised in
+    // the database session timezone (a positive offset made this fail OPEN).
+    // A NULL expiry is treated as expired (fail-closed): a missing consent
+    // expiry denies access rather than granting a consent that never expires.
+    const consentExpiry = epochMsOrNull(consent.expiry_date_epoch_ms);
+    if (consentExpiry == null || consentExpiry < Date.now()) {
       await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
         consentId
@@ -1310,7 +1316,8 @@ class ABDMService {
     // is globally unique) and then scope EVERY subsequent read/write to it.
     const consentResult = await prisma.$queryRawUnsafe(
       `SELECT consent_id, patient_uid, tenant_id::text AS tenant_id, status, hi_types,
-              date_range_from, date_range_to, expiry_date
+              date_range_from, date_range_to, expiry_date,
+              (EXTRACT(EPOCH FROM expiry_date) * 1000)::bigint AS expiry_date_epoch_ms
        FROM abdm_consents
        WHERE consent_id = $1
        LIMIT 1`,
@@ -1357,8 +1364,11 @@ class ABDMService {
       throw AppError.forbidden('Consent is not in GRANTED status', 'CONSENT_NOT_GRANTED');
     }
 
-    // Check consent expiry
-    if (new Date(consent.expiry_date) < new Date()) {
+    // Check consent expiry against the absolute-instant twin (see grantConsent).
+    // A NULL expiry is treated as expired (fail-closed) — no data export on a
+    // consent whose expiry cannot be established.
+    const consentExpiry = epochMsOrNull(consent.expiry_date_epoch_ms);
+    if (consentExpiry == null || consentExpiry < Date.now()) {
       await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1 AND tenant_id = $2::uuid`,
         consentId, tenantId,
@@ -1790,6 +1800,7 @@ class ABDMService {
     const result = await prisma.$queryRawUnsafe(
       `SELECT c.id, c.consent_id, c.patient_uid, c.hip_id, c.hiu_id, c.purpose,
               c.hi_types, c.date_range_from, c.date_range_to, c.expiry_date,
+              (EXTRACT(EPOCH FROM c.expiry_date) * 1000)::bigint AS expiry_date_epoch_ms,
                c.status, c.requester_name, c.consent_artifact, c.granted_at, c.revoked_at,
               u.abha_number AS patient_abha
        FROM abdm_consents c

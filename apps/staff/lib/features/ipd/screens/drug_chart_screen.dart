@@ -1089,9 +1089,8 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
     final notes = <String>[
       if (parsed.notes.isNotEmpty) parsed.notes,
       if (parsed.durationDays != null)
-        AppStrings.of(
-          context,
-        ).drugChartDictatedDurationNote(parsed.durationDays!),
+        AppStrings.of(context)
+            .drugChartDictatedDurationNote(parsed.durationDays!),
     ].join('\n');
     if (notes.trim().isNotEmpty) {
       _appendController(row.notesCtrl, notes);
@@ -1390,9 +1389,8 @@ class _DictationProvenance extends StatelessWidget {
             ),
             if (raw.isNotEmpty)
               Theme(
-                data: Theme.of(
-                  context,
-                ).copyWith(dividerColor: Colors.transparent),
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   dense: true,
                   tilePadding: EdgeInsets.zero,
@@ -1422,8 +1420,9 @@ class _DictationProvenance extends StatelessWidget {
   }
 }
 
-typedef DrugCatalogSearch =
-    Future<List<Map<String, dynamic>>> Function(String query);
+typedef DrugCatalogSearch = Future<List<Map<String, dynamic>>> Function(
+  String query,
+);
 
 class DrugCatalogSearchField extends StatefulWidget {
   final TextEditingController controller;
@@ -1552,19 +1551,16 @@ class _DrugCatalogSearchFieldState extends State<DrugCatalogSearchField> {
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             labelText: AppStrings.of(context).lookup('drug_chart.column.drug'),
-            hintText: AppStrings.of(
-              context,
-            ).lookup('s4.lib.prescriptions.type_drug_name'),
+            hintText: AppStrings.of(context)
+                .lookup('s4.lib.prescriptions.type_drug_name'),
             helperText: _catalogUnavailable
-                ? AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.drug_chart.catalog_unavailable')
+                ? AppStrings.of(context)
+                      .lookup('s4.lib.drug_chart.catalog_unavailable')
                 : null,
             helperMaxLines: 2,
             errorText: _catalogUnavailable
-                ? AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.drug_chart.catalog_unavailable_short')
+                ? AppStrings.of(context)
+                      .lookup('s4.lib.drug_chart.catalog_unavailable_short')
                 : null,
             isDense: true,
             suffixIcon: _loading
@@ -1610,9 +1606,8 @@ class _DrugCatalogSearchFieldState extends State<DrugCatalogSearchField> {
                   final strength = _catalogStrength(row);
                   final form = _catalogForm(row);
                   final s = AppStrings.of(context);
-                  final availability = _text(
-                    row['availability_status'],
-                  ).toLowerCase();
+                  final availability = _text(row['availability_status'])
+                      .toLowerCase();
                   final stockColor = availability == 'may_be_available'
                       ? AppTheme.warningOnSurface
                       : _isCatalogRowInStock(row)

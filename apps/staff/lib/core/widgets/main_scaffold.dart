@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+
 import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../navigation/staff_route_policy.dart';
@@ -14,6 +15,7 @@ import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
 import '../services/clinical_platform_api_service.dart';
 import 'message_unread_badge.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 @visibleForTesting
@@ -251,18 +253,16 @@ class _MainScaffoldState extends State<MainScaffold> {
     if (route == '/notifications') {
       return MessageUnreadBadge(
         unreadCount: unreadAlerts,
-        semanticLabel: AppStrings.of(
-          context,
-        ).lookup('s4.lib.main_scaffold.unread_alerts'),
+        semanticLabel: AppStrings.of(context)
+            .lookup('s4.lib.main_scaffold.unread_alerts'),
         child: child,
       );
     }
     if (route == '/clinical-inbox') {
       return MessageUnreadBadge(
         unreadCount: pendingClinicalTasks,
-        semanticLabel: AppStrings.of(
-          context,
-        ).lookup('s4.lib.main_scaffold.pending_clinical_tasks'),
+        semanticLabel: AppStrings.of(context)
+            .lookup('s4.lib.main_scaffold.pending_clinical_tasks'),
         child: child,
       );
     }

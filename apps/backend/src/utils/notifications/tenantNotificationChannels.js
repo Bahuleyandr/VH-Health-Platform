@@ -22,7 +22,10 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
   ['payslip_ready', 'payslip_ready'],
 ]);
 
-function normalizeChannelList(value) {
+export const DELIVERY_CHANNELS_PAYLOAD_KEY = '__delivery_channels';
+export const REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY = '__replay_chain_started_at_ms';
+
+export function normalizeChannelList(value) {
   if (!Array.isArray(value)) return [];
 
   const channels = [];
@@ -54,9 +57,20 @@ export function legacyChannelsForOutboxRow(row = {}) {
 export function resolveChannelsForOutboxRow(row = {}, settings = {}) {
   const preferenceKey = notificationPreferenceKeyForType(row.type);
   const legacyChannels = legacyChannelsForOutboxRow(row);
+  const deliveryChannels = row?.payload && typeof row.payload === 'object'
+    ? normalizeChannelList(row.payload[DELIVERY_CHANNELS_PAYLOAD_KEY])
+    : [];
   const payloadChannels = row?.payload && typeof row.payload === 'object'
     ? normalizeChannelList(row.payload.channels)
     : [];
+
+  if (deliveryChannels.length > 0) {
+    return {
+      channels: deliveryChannels,
+      preferenceKey,
+      source: preferenceKey ? 'tenant' : 'legacy',
+    };
+  }
 
   if (preferenceKey === 'engagement_campaign' && payloadChannels.length > 0) {
     return { channels: payloadChannels, preferenceKey: preferenceKey || 'engagement_campaign', source: 'tenant' };

@@ -21,6 +21,12 @@ import {
   validatePrescriptionSafety,
   checkAntithromboticInteractions,
 } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import {
+  assertContrastOrderAllowed,
+  hasExplicitContrastStudySignal,
+  isContrastPresumedModality,
+  validateRadiologyContrastSafety,
+} from '../../utils/clinical/contrastAllergyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { queueClinicalAlertFanout } from '../../utils/notifications/clinicalAlertFanout.js';
 import { scheduleMedications } from '../clinical/marService.js';
@@ -130,6 +136,289 @@ const CLINICAL_ORDER_PRIORITY_TO_INVESTIGATION = {
   routine: 'NORMAL',
   prn: 'NORMAL',
 };
+
+// ── Staff CPOE → radiology worklist bridge (PR #875 follow-up) ─────────────
+//
+// CPOE `order_type: 'radiology'` orders used to live ONLY in clinical_orders:
+// they never reached radiology_orders (the worklist radiologyService.getWorklist
+// reads) and never ran the migration-678 contrast/allergy screening gate — the
+// exact R9 "inert gate" disconnect recorded in #875's PR body. The bridge has
+// two halves, mirroring how medication (CDS pre-check + post-commit MAR) and
+// investigation (post-commit lab-worklist materialization) orders already work:
+//
+//   1. Pre-commit (createOrder / createOrdersBulk Phase 0):
+//      runRadiologyContrastGate derives the modality server-side, derives the
+//      contrast intent exactly like radiologyService.parseContrastIntent
+//      (CT/MRI/fluoro presumed contrast-planned, explicit-negation only), runs
+//      validateRadiologyContrastSafety, and applies the same acknowledged
+//      override gate (409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED without one).
+//      Fail-closed: a radiology order whose modality cannot be resolved is a
+//      400 — an unresolvable modality would silently skip the screen, which is
+//      how the gate was inert the first time.
+//   2. Post-commit (dispatchOrderIntegrations, awaited like investigations):
+//      materializeRadiologyOrderForClinicalOrder creates the radiology_orders
+//      worklist row through radiologyService.createOrder — which re-runs the
+//      same screen inside its own tenant transaction and persists the screen
+//      evidence + safety reviews + canonical events on the radiology detail
+//      row. Failure escalates durably via escalateOrderIntegrationFailure
+//      (stage 'integration_dispatch'), never silently.
+//
+// Modality vocabulary mirrors radiologyService (VALID_MODALITIES +
+// MODALITY_ALIASES); free-text inference covers the payloads real clients send
+// (staff CPOE composer + order sets carry only test_name, e.g. "CT Brain
+// Plain", "X-Ray Chest PA" — same conservatism as TEST_TYPE_INFERENCE below).
+const RADIOLOGY_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
+const RADIOLOGY_MODALITY_ALIASES = {
+  usg: 'ultrasound', us: 'ultrasound', sonography: 'ultrasound',
+  'x-ray': 'xray', xr: 'xray',
+  mr: 'mri',
+  mammo: 'mammography', mg: 'mammography',
+  fluoro: 'fluoroscopy',
+};
+// Ordered: specific modalities before the generic x-ray patterns so
+// "CT Chest" never resolves as a chest film. The `ct[_\-\s]` variant matches
+// code-style names ("CT_HEAD", "CT-CHEST") whose underscore defeats \b.
+const RADIOLOGY_MODALITY_TEXT_PATTERNS = [
+  ['ct', /\bct\b|\bct[_-]|\b(?:cect|ncct|hrct)\b|computed\s+tomograph/i],
+  ['mri', /\bmri?\b|\bmri[_-]|\b(?:mrcp|mra)\b|magnetic\s+resonance/i],
+  ['fluoroscopy', /fluoroscop|\bfluoro\b|barium\s+(?:swallow|meal|enema)|\bhsg\b/i],
+  ['mammography', /mammogra|\bmammo\b/i],
+  ['ultrasound', /ultrasound|ultrasonograph|sonograph|doppler|\busg?\b|\bus[_-]/i],
+  ['xray', /x[\s._-]?ray|\bcxr\b|\baxr\b|\bkub\b|radiograph|\bxr\b|\bxr[_-]|chest\s+film/i],
+];
+
+/**
+ * Resolve the radiology modality for a CPOE order's details. Explicit fields
+ * win (details.modality / imaging_modality / study_type, alias-normalised);
+ * otherwise the test-name-ish fields are scanned for modality keywords.
+ * Exported for unit tests. Returns one of RADIOLOGY_MODALITIES or null.
+ */
+export function resolveRadiologyModality(details = {}) {
+  const explicit = firstText(details.modality, details.imaging_modality, details.study_type);
+  if (explicit) {
+    const key = explicit.toLowerCase().replace(/\s+/g, '_');
+    if (RADIOLOGY_MODALITIES.includes(key)) return key;
+    if (RADIOLOGY_MODALITY_ALIASES[key]) return RADIOLOGY_MODALITY_ALIASES[key];
+  }
+  const haystack = [
+    explicit,
+    firstText(details.test_name, details.study, details.name, details.test, details.investigation, details.procedure),
+  ].filter(Boolean).join(' ');
+  if (!haystack) return null;
+  for (const [modality, regex] of RADIOLOGY_MODALITY_TEXT_PATTERNS) {
+    if (regex.test(haystack)) return modality;
+  }
+  return null;
+}
+
+/**
+ * Derive the radiologyService.createOrder-shaped fields from a CPOE radiology
+ * order's details. Pure; exported for unit tests (precedent:
+ * buildMarEntryFromOrderDetails).
+ */
+export function resolveRadiologyOrderFields(details = {}, { notes = null } = {}) {
+  const testName = firstText(
+    details.test_name, details.study, details.name, details.test,
+    details.investigation, details.procedure,
+  );
+  return {
+    modality: resolveRadiologyModality(details),
+    bodyPart: firstText(details.body_part, details.bodyPart, details.region, details.area) || testName,
+    clinicalIndication: firstText(
+      details.reason, details.clinical_indication, details.indication, notes,
+    ) || testName,
+    testName,
+  };
+}
+
+function radiologyContrastStudyTextInputs(details = {}, { notes = null } = {}) {
+  const values = [
+    details.test_name, details.testName, details.study, details.name,
+    details.test, details.investigation, details.procedure,
+    details.body_part, details.bodyPart,
+    details.reason, details.clinical_indication, details.clinicalIndication,
+    details.indication, details.notes, notes,
+  ];
+  return [...new Set(values
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean))];
+}
+
+// Contrast intent for a CPOE radiology order — DERIVED SERVER-SIDE, the exact
+// semantics of radiologyService.parseContrastIntent (PR #875 R9: a gate that
+// waits for a client opt-in field is inert): explicit true / named agent →
+// planned; explicit false → negated (agent alongside is a 400 contradiction);
+// omitted → presumed for CT/MRI/fluoroscopy. Exported for unit tests.
+export function deriveCpoeContrastIntent(details = {}, modality = null) {
+  const contrastAgent = firstText(details.contrast_agent, details.contrastAgent);
+  const rawPlanned = details.contrast_planned ?? details.contrastPlanned;
+  if (rawPlanned === false || rawPlanned === 'false') {
+    if (contrastAgent || hasExplicitContrastStudySignal(details)) {
+      throw AppError.badRequest(
+        'contrast_planned cannot be false when the order names a contrast agent or contrast-enhanced study',
+        'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+      );
+    }
+    return { contrastPlanned: false, contrastAgent: null, intentSource: 'explicitly_negated' };
+  }
+  if (rawPlanned === true || rawPlanned === 'true') {
+    return { contrastPlanned: true, contrastAgent, intentSource: 'explicit' };
+  }
+  if (contrastAgent) {
+    return { contrastPlanned: true, contrastAgent, intentSource: 'agent_named' };
+  }
+  if (hasExplicitContrastStudySignal(details)) {
+    return { contrastPlanned: true, contrastAgent: null, intentSource: 'study_text' };
+  }
+  if (isContrastPresumedModality(modality)) {
+    return { contrastPlanned: true, contrastAgent: null, intentSource: 'modality_presumed' };
+  }
+  return { contrastPlanned: false, contrastAgent: null, intentSource: 'modality_not_presumed' };
+}
+
+const CPOE_CONTRAST_INTENT_CONTRACT = 'cpoe_radiology_contrast_v1';
+const CPOE_CONTRAST_INTENT_SOURCES = new Set([
+  'explicit',
+  'agent_named',
+  'study_text',
+  'modality_presumed',
+  'explicitly_negated',
+  'modality_not_presumed',
+]);
+
+function persistedCpoeContrastIntent(details = {}, modality = null) {
+  const persisted = details.contrast_intent;
+  if (persisted == null) return deriveCpoeContrastIntent(details, modality);
+  if (
+    typeof persisted !== 'object'
+    || Array.isArray(persisted)
+    || persisted.contract !== CPOE_CONTRAST_INTENT_CONTRACT
+    || typeof persisted.planned !== 'boolean'
+    || !CPOE_CONTRAST_INTENT_SOURCES.has(persisted.source)
+  ) {
+    throw AppError.conflict(
+      'Persisted radiology contrast intent is invalid',
+      'RADIOLOGY_CONTRAST_INTENT_INVALID',
+    );
+  }
+  const agent = firstText(persisted.agent);
+  const compatible = deriveCpoeContrastIntent({
+    ...details,
+    contrast_planned: persisted.planned,
+    contrast_agent: agent,
+  }, modality);
+  if (
+    compatible.contrastPlanned !== persisted.planned
+    || compatible.contrastAgent !== agent
+  ) {
+    throw AppError.conflict(
+      'Persisted radiology contrast intent contradicts the clinical order details',
+      'RADIOLOGY_CONTRAST_INTENT_CONTRADICTION',
+    );
+  }
+  return {
+    contrastPlanned: persisted.planned,
+    contrastAgent: agent,
+    intentSource: persisted.source,
+  };
+}
+
+/**
+ * Phase-0 contrast/allergy gate for a CPOE radiology order (pre-commit, plain
+ * prisma — same boundary as runCDSChecks for medications). Throws:
+ *   400 RADIOLOGY_ORDER_MODALITY_REQUIRED   — modality unresolvable (fail-closed)
+ *   400 RADIOLOGY_CONTRAST_INTENT_CONTRADICTION
+ *   409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED  — blocked without a valid override
+ * On success, stamps the derived canonical modality/body_part (and any
+ * normalised override evidence) back into n.details so the persisted order and
+ * the post-commit worklist materialization share ONE derivation.
+ */
+async function runRadiologyContrastGate(n, data = {}) {
+  const fields = resolveRadiologyOrderFields(n.details, { notes: n.notes });
+  if (!fields.modality) {
+    throw AppError.badRequest(
+      'Radiology orders must name their modality: set details.modality '
+      + `(one of ${RADIOLOGY_MODALITIES.join(', ')}; aliases accepted) or use a test_name that names it `
+      + '(e.g. "CT Brain plain"). The modality drives the mandatory contrast/allergy screen and the radiology worklist entry.',
+      'RADIOLOGY_ORDER_MODALITY_REQUIRED',
+    );
+  }
+  // Screening and worklist materialization must consume the same effective
+  // indication. Staff sends it as details.reason, while other callers may use
+  // clinical_indication/indication or the top-level notes fallback. Promote
+  // that normalized value into the existing narrowly matched study-text field
+  // before deriving and persist it with the resulting intent contract.
+  const intentDetails = {
+    ...n.details,
+    clinical_indication: fields.clinicalIndication,
+  };
+  const intent = deriveCpoeContrastIntent({
+    ...intentDetails,
+    contrastStudyTextInputs: radiologyContrastStudyTextInputs(n.details, { notes: n.notes }),
+  }, fields.modality);
+  let screen = null;
+  let override = null;
+  if (intent.contrastPlanned) {
+    screen = await validateRadiologyContrastSafety({
+      patientUid: n.patient_uid,
+      modality: fields.modality,
+      contrastAgent: intent.contrastAgent,
+    });
+    // Same override resolution radiologyService.createOrder accepts. Only the
+    // reason is caller input; attribution is always the authenticated orderer.
+    const overrideInput = data?.override?.reason
+      ? { reason: data.override.reason, approvedBy: data.override.approvedBy ?? data.override.approved_by }
+      : (firstText(n.details?.contrast_override_reason)
+        ? { reason: n.details.contrast_override_reason, approvedBy: n.details.contrast_override_by }
+        : null);
+    override = assertContrastOrderAllowed(screen, overrideInput, n.ordered_by);
+    if (override) {
+      logger.warn('Radiology contrast allergy override used (CPOE order)', {
+        patient_uid: n.patient_uid,
+        modality: fields.modality,
+        contrast_agent: intent.contrastAgent,
+        blockers: screen.blockers.length,
+        approved_by: override.approvedBy,
+      });
+    }
+  }
+  n.details = {
+    ...intentDetails,
+    modality: fields.modality,
+    body_part: fields.bodyPart || 'unspecified',
+    contrast_planned: intent.contrastPlanned,
+    contrast_agent: intent.contrastAgent,
+    contrast_intent_source: intent.intentSource,
+    contrast_intent: {
+      contract: CPOE_CONTRAST_INTENT_CONTRACT,
+      planned: intent.contrastPlanned,
+      agent: intent.contrastAgent,
+      source: intent.intentSource,
+    },
+    ...(override
+      ? { contrast_override_reason: override.reason, contrast_override_by: override.approvedBy }
+      : {}),
+  };
+  return { fields, intent, screen, override };
+}
+
+// Canonical-event payload fragment for a gated radiology order — mirrors the
+// contrast payload radiologyService.createOrder emits so both detail rows'
+// timeline events describe the screen the same way.
+function radiologyGatePayload(gate) {
+  if (!gate) return {};
+  return {
+    modality: gate.fields.modality,
+    body_part: gate.fields.bodyPart || 'unspecified',
+    contrast_planned: gate.intent.contrastPlanned,
+    contrast_agent: gate.intent.contrastAgent,
+    contrast_intent_source: gate.intent.intentSource,
+    contrast_screen_status: gate.screen ? gate.screen.status : null,
+    contrast_allergy_blockers: gate.screen ? gate.screen.blockers.length : 0,
+    contrast_allergy_override: Boolean(gate.override),
+  };
+}
 
 /**
  * Generate `count` sequential unique order numbers: ORD-YYYYMMDD-XXXX.
@@ -758,9 +1047,10 @@ async function dispatchPostCreateSideEffects(order) {
     });
   }
 
-  // Dispatch integrations. Investigation materialization is awaited so
-  // a freshly-saved lab order is present on the lab worklist by the time
-  // the doctor sees the create response; other integrations stay best-effort.
+  // Dispatch integrations. Investigation materialization is awaited so a
+  // freshly-saved order is present on the lab worklist by the time the doctor
+  // sees the response. Radiology materialization is already part of the
+  // clinical-order transaction; other integrations stay best-effort.
   // BE-H1: a dispatch failure that reaches this catch (the MAR-scheduling
   // failure is escalated by its own inner catch and does not re-throw) is
   // escalated durably — never just a log line.
@@ -831,10 +1121,25 @@ export async function createOrder(data) {
     }
   }
 
+  // CPOE → radiology bridge (Phase 0, fail-closed): resolve the modality,
+  // derive contrast intent server-side, and run the migration-678
+  // contrast/allergy screen BEFORE any row is written. Blocked without an
+  // acknowledged override → 409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED, exactly
+  // like ordering through radiologyService directly.
+  let radiologyGate = null;
+  if (n.order_type === 'radiology') {
+    radiologyGate = await runRadiologyContrastGate(n, data);
+  }
+
   // Run CDS safety checks. Blockers reject the order — surface the
   // structured array as `details` so the staff-app CDS modal can show
   // per-blocker context + the override flow.
   const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details, tenantId);
+  if (radiologyGate?.screen) {
+    // Contrast screen warnings ride the same cds_warnings surface the staff
+    // composer already renders; blockers were either absent or overridden.
+    cdsResult.warnings.push(...radiologyGate.screen.warnings);
+  }
   // Fail-closed CDS-exception override (audit 2026-06-18 §4): when the only
   // block is that the automated medication screen could not run, an explicit
   // override-with-reason lets the order through and is recorded on a
@@ -854,10 +1159,10 @@ export async function createOrder(data) {
 
   // Atomic clinical write (canonical timeline invariant): the order detail
   // row + its canonical timeline/audit events (+ medication safety reviews)
-  // persist together or not at all. The downstream side effects (MAR
-  // schedule, ward indent, lab-worklist materialization, STAT push) are
-  // best-effort and run post-commit — they write other tables / call other
-  // services and must never roll back the recorded order.
+  // persist together or not at all. A radiology order also materializes its
+  // receiving worklist row here: success must never expose a clinical order
+  // that radiology cannot see. Other downstream side effects remain
+  // post-commit best-effort.
   // `details` is a Json column — pass the object directly (Prisma serialises).
   // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it
   // explicitly, so we preserve that for clarity.
@@ -887,9 +1192,13 @@ export async function createOrder(data) {
       eventStatus: row.status,
       actorUid: n.ordered_by,
       afterState: { status: row.status },
+      payload: radiologyGatePayload(radiologyGate),
       safety: cdsResult,
       override: overrideApplied ? { reason: cdsOverrideReason } : null,
     });
+    if (row.order_type === 'radiology') {
+      await materializeRadiologyOrderForClinicalOrder(row, { db: tx });
+    }
     await publishOpChildResourceLinkedFromEncounterTx(tx, {
       tenantId: requireTenantId(tenantId),
       encounterId: row.encounter_id,
@@ -971,7 +1280,27 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
         logger.warn(`composition enrich (bulk order create #${i + 1}) failed: ${err.message}`);
       }
     }
+    // CPOE → radiology bridge (Phase 0, fail-closed): same per-item gate as
+    // createOrder. Any failure (unresolvable modality, contrast contradiction,
+    // blocked screen without override) aborts the whole batch before a row is
+    // written, with the offending item index surfaced.
+    let itemRadiologyGate = null;
+    if (normalized.order_type === 'radiology') {
+      try {
+        itemRadiologyGate = await runRadiologyContrastGate(normalized, items[i]);
+      } catch (err) {
+        throw new AppError(
+          `Order #${i + 1}: ${err.message}`,
+          err.statusCode || 400,
+          err.code,
+          { order_index: i, ...(err.details || {}) },
+        );
+      }
+    }
     const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details, tenantId);
+    if (itemRadiologyGate?.screen) {
+      cdsResult.warnings.push(...itemRadiologyGate.screen.warnings);
+    }
     // Fail-closed CDS-exception override (audit 2026-06-18 §4): same per-item
     // override-with-reason path as createOrder. A genuine blocker (or a missing
     // reason) still aborts the whole batch.
@@ -989,6 +1318,7 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
       cds_warnings: cdsResult.warnings,
       cds_blockers: itemOverrideApplied ? cdsResult.blockers : [],
       override: itemOverrideApplied ? { reason: itemOverrideReason } : null,
+      radiology_gate: itemRadiologyGate,
     });
   }
 
@@ -1034,7 +1364,10 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
         eventType: 'order.created',
         eventStatus: row.status,
         actorUid: row.ordered_by,
-        payload: { bulk_order_count: prepared.length },
+        payload: {
+          bulk_order_count: prepared.length,
+          ...radiologyGatePayload(prepared[i].radiology_gate),
+        },
         afterState: { status: row.status },
         safety: row.order_type === 'medication'
           ? {
@@ -1045,6 +1378,9 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
           : null,
         override: prepared[i].override,
       });
+      if (row.order_type === 'radiology') {
+        await materializeRadiologyOrderForClinicalOrder(row, { db: tx });
+      }
       await publishOpChildResourceLinkedFromEncounterTx(tx, {
         tenantId: requireTenantId(tenantId),
         encounterId: row.encounter_id,
@@ -1059,7 +1395,8 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
   });
 
   // Phase 1.5 — post-commit best-effort side effects per order (MAR schedule,
-  // ward indent, lab-worklist materialization, STAT push). Failure here is
+  // ward indent, lab-worklist materialization, STAT push). Radiology was
+  // materialized atomically above. Failure here is
   // logged, never rolls back the committed orders + canonical events.
   for (let i = 0; i < createdRows.length; i += 1) {
     await dispatchPostCreateSideEffects(createdRows[i]);
@@ -1228,6 +1565,76 @@ async function dispatchOrderIntegrations(order) {
   if (order.order_type === 'investigation') {
     await materializeInvestigationForClinicalOrder(order);
   }
+
+}
+
+/**
+ * Materialize a CPOE radiology order onto the radiology worklist inside the
+ * caller's clinical-order transaction. radiologyService re-runs the screen on
+ * that transaction client and persists its detail/canonical evidence there.
+ * Idempotent via the same notes back-reference idiom the lab materializer
+ * uses (`clinical_order_id:<id>`). radiologyService is imported dynamically to
+ * keep its graph out of this module's static imports (admissionService
+ * dietary-recall precedent).
+ */
+async function materializeRadiologyOrderForClinicalOrder(order, { db = prisma } = {}) {
+  const details = parseOrderDetails(order.details);
+  const fields = resolveRadiologyOrderFields(details, { notes: order.notes });
+  if (!fields.modality) {
+    // createOrder gates on a resolvable modality, so this only fires for
+    // legacy pre-bridge rows replayed through this hook.
+    logger.warn(`Radiology order ${order.order_number} has no resolvable modality; radiology worklist row not created`);
+    return null;
+  }
+
+  const existing = await db.$queryRawUnsafe(
+    `SELECT id
+       FROM radiology_orders
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND notes LIKE $3
+      ORDER BY id DESC
+      LIMIT 1`,
+    order.tenant_id,
+    order.patient_uid,
+    `%clinical_order_id:${order.id};%`,
+  );
+  if (existing.length) return existing[0];
+
+  const contrastIntent = persistedCpoeContrastIntent(details, fields.modality);
+
+  const { default: radiologyService } = await import('../radiology/radiologyService.js');
+  const payload = {
+    patient_uid: order.patient_uid,
+    encounter_id: order.encounter_id,
+    modality: fields.modality,
+    body_part: fields.bodyPart || 'unspecified',
+    clinical_indication: fields.clinicalIndication || fields.testName || `${fields.modality} study`,
+    priority: order.priority === 'prn' ? 'routine' : order.priority,
+    ordered_by: order.ordered_by,
+    notes: investigationNotesFromClinicalOrder(order, details),
+    // The pre-commit CPOE gate persists one authoritative derived intent.
+    // Carry it into materialization instead of re-deriving from modality/text,
+    // which can otherwise downgrade contrast-enhanced non-presumed modalities.
+    contrast_planned: contrastIntent.contrastPlanned,
+    ...(contrastIntent.contrastAgent ? { contrast_agent: contrastIntent.contrastAgent } : {}),
+    ...(details.contrast_override_reason
+      ? {
+        contrast_override_reason: details.contrast_override_reason,
+        contrast_override_by: order.ordered_by,
+      }
+      : {}),
+  };
+
+  const row = await radiologyService.createOrder(payload, {
+    tenantId: order.tenant_id,
+    contrastIntent,
+    ...(db === prisma ? {} : { tx: db }),
+  });
+  logger.info(
+    `Radiology order ${order.order_number} materialized on the radiology worklist as radiology_orders #${row.id}`,
+  );
+  return row;
 }
 
 async function materializeInvestigationForClinicalOrder(order) {

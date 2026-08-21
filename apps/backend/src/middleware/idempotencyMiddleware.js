@@ -45,6 +45,20 @@ export function requireIdempotencyKey({
   scope = 'generic',
   onlyWhen = null,
   continuityReceiptRequired = false,
+  // Secret-bearing routes project only non-secret action identity fields here;
+  // the persisted request hash must never become a credential verifier.
+  requestBodyForIdempotency = null,
+  // ★ Set on any route whose handler can emit a 5xx AFTER it has already
+  // committed irreversible effects (stock movements, money, statutory
+  // registers). The default (false) releases the claim on a 5xx so a client
+  // retry re-runs the handler — correct when a 5xx reliably means "nothing
+  // happened", which is true of most routes. It is NOT true of a handler that
+  // commits and then fails while assembling its response: releasing the claim
+  // there is what lets the transport's automatic replay execute the effect a
+  // second time. With this set, the claim is retained and the replay returns
+  // the recorded 5xx instead of running again — the operator reconciles one
+  // uncertain outcome rather than discovering two real ones.
+  retainOnServerError = false,
 } = {}) {
   return async function idempotencyMiddleware(req, res, next) {
     if (onlyWhen && !onlyWhen(req)) return next();
@@ -59,7 +73,9 @@ export function requireIdempotencyKey({
       return error(res, 'Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]', 400);
     }
 
-    const requestBodyHash = hashRequestBody(req.body || {});
+    const requestBodyHash = hashRequestBody(
+      requestBodyForIdempotency ? requestBodyForIdempotency(req) : (req.body || {}),
+    );
     let claim;
     try {
       claim = await claimIdempotencyKey({
@@ -131,11 +147,23 @@ export function requireIdempotencyKey({
     res.json = function patchedJson(body) {
       const out = originalJson(body);
       const status = res.statusCode;
-      if (status >= 500) {
+      if (status >= 500 && !retainOnServerError) {
         // Transient failure — free the claim so the client's retry re-runs the
         // handler instead of being pinned to this 5xx forever.
         releaseIdempotencyKey(claimId).catch((err) => {
           logger.warn('Idempotency release failed:', { error: err.message, claimId });
+        });
+      } else if (status >= 500) {
+        // Effectful route: the handler may already have committed. Retain the
+        // claim so an automatic replay cannot execute the effect twice; the
+        // replay serves this recorded 5xx and a human reconciles.
+        logger.warn('Idempotency claim RETAINED on 5xx (effectful route) — replay will not re-run', {
+          claimId, scope, status,
+        });
+        finaliseIdempotencyKey({
+          id: claimId, status: 'failed', responseStatus: status, responseBody: body,
+        }).catch((err) => {
+          logger.warn('Idempotency finalise failed:', { error: err.message, claimId });
         });
       } else {
         // Deterministic outcome (2xx/3xx success or 4xx client error) — cache it.

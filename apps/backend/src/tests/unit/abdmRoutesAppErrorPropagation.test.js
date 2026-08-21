@@ -30,8 +30,7 @@ const getMyAbhaLinkageMock = jest.fn();
 const logPhiAccessMock = jest.fn();
 const verifySignedRequestMock = jest.fn();
 const assertSharedReplayOnceMock = jest.fn();
-const resolveTenantBySenderMock = jest.fn();
-const getInteropSecretMock = jest.fn();
+const resolveInteropCredentialSnapshotMock = jest.fn();
 const recordAuthenticatedAbdmCallbackMock = jest.fn();
 const markAuthenticatedAbdmCallbackMock = jest.fn();
 
@@ -49,8 +48,7 @@ jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
-  resolveTenantBySender: resolveTenantBySenderMock,
-  getInteropSecret: getInteropSecretMock,
+  resolveInteropCredentialSnapshot: resolveInteropCredentialSnapshotMock,
 }));
 
 // A module stub must mirror EVERY export the router's import graph reaches, or
@@ -95,7 +93,7 @@ const { callbackRouter, patientRouter } = await import('../../routes/abdm/abdmRo
 const globalHandlerSpy = jest.fn();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, body) => { req.abdmRawBody = Buffer.from(body); } }));
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
   req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'PATIENT' };
@@ -118,15 +116,13 @@ beforeEach(() => {
   logPhiAccessMock.mockReset();
   verifySignedRequestMock.mockReset();
   assertSharedReplayOnceMock.mockReset();
-  resolveTenantBySenderMock.mockReset();
-  getInteropSecretMock.mockReset();
+  resolveInteropCredentialSnapshotMock.mockReset();
   recordAuthenticatedAbdmCallbackMock.mockReset();
   markAuthenticatedAbdmCallbackMock.mockReset();
   globalHandlerSpy.mockReset();
   // Callback auth defaults: no per-tenant secret row, so the configured
   // global HIP id path (DEFAULT tenant + config secret) authenticates.
-  resolveTenantBySenderMock.mockResolvedValue(null);
-  getInteropSecretMock.mockResolvedValue(null);
+  resolveInteropCredentialSnapshotMock.mockResolvedValue(null);
   verifySignedRequestMock.mockReturnValue(undefined);
   assertSharedReplayOnceMock.mockResolvedValue(true);
   recordAuthenticatedAbdmCallbackMock.mockResolvedValue({
@@ -240,6 +236,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9', patient: { id: 'abha@sbx' } } });
 
     expect(response.statusCode).toBe(403);
@@ -259,6 +256,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9' } });
 
     expect(response.statusCode).toBe(401);
@@ -275,6 +273,7 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     const response = await request(app)
       .post('/abdm/consent/on-notify')
       .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature-version', 'v1')
       .send({ notification: { consentRequestId: 'cr-9' } });
 
     expect(response.statusCode).toBe(401);

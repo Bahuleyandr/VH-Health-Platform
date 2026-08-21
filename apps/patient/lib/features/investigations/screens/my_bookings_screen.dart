@@ -136,9 +136,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     final customTests = booking['custom_test_names'] as String?;
     final collectionType = booking['collection_type'] ?? 'home';
     final createdAt = booking['created_at'] != null
-        ? DateFormat(
-            'd MMM yyyy, h:mm a',
-          ).format(DateTime.parse(booking['created_at']).toLocal())
+        ? DateFormat('d MMM yyyy, h:mm a')
+              .format(DateTime.parse(booking['created_at']).toLocal())
         : '';
 
     return Card(

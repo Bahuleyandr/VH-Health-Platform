@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -62,6 +63,13 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
     _phoneController.text = _isGuest ? '' : phone;
     _loadPatientId();
     _fetchDepartments();
+    // Load the linked-dependent roster so the "Booking for" selector can
+    // offer self + dependents. Deferred past the first build (ProfileSwitcher
+    // idiom).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isGuest) return;
+      context.read<DependentsProvider>().loadDependents();
+    });
   }
 
   @override
@@ -148,7 +156,16 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
       _showError('Please select a doctor');
       return;
     }
-    if (_patientId == null) {
+    // Booking-for: when a dependent profile is active, the booking targets
+    // the DEPENDENT's identity. Every request already carries the
+    // X-Acting-As-Uid header for the active dependent (DependentsProvider →
+    // VHHttpClient), so the backend authorizes the guardian→minor link and
+    // records the guardian as the booking actor on the audit trail.
+    final activeDependent = context.read<DependentsProvider>().activeDependent;
+    final int? effectivePatientId =
+        activeDependent?.id ??
+        (_patientId == null ? null : int.tryParse(_patientId!));
+    if (effectivePatientId == null) {
       _showError('User session not found. Please log out and log back in.');
       return;
     }
@@ -167,7 +184,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
       final resp = await ApiClient.post(
         '/appointments/book',
         body: {
-          'patient_id': int.parse(_patientId!),
+          'patient_id': effectivePatientId,
           'doctor_id': _selectedDoctor!.id,
           'appointment_date': dateStr,
           'appointment_time': timeStr,
@@ -370,6 +387,54 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
     }
   }
 
+  /// "Booking for" selector — self + linked dependents. Selecting a
+  /// dependent switches the app's active acting-as profile (the platform's
+  /// single guardian→minor delegation mechanism), so the booking below and
+  /// the My-Appointments tab both scope to the selected profile.
+  Widget _buildBookingForSelector(ThemeData theme, ColorScheme cs) {
+    final dependents = context.watch<DependentsProvider>();
+    if (_isGuest || !dependents.hasDependents) return const SizedBox.shrink();
+    final userName = context.watch<UserProvider>().name;
+    final selfLabel = userName.isNotEmpty ? '$userName (you)' : 'Yourself';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<Dependent?>(
+        // Re-key on the active profile so an external switch (dashboard
+        // ProfileSwitcher) is reflected here too.
+        key: ValueKey(dependents.activeDependent?.uid ?? 'self'),
+        initialValue: dependents.activeDependent,
+        decoration: InputDecoration(
+          labelText: 'Booking for',
+          helperText: dependents.isViewingDependent
+              ? 'This appointment will be booked for '
+                    '${dependents.activeDependent!.name}, with you recorded '
+                    'as the booking guardian.'
+              : null,
+          prefixIcon: Icon(
+            dependents.isViewingDependent
+                ? Icons.escalator_warning
+                : Icons.person,
+            color: dependents.isViewingDependent ? cs.tertiary : cs.primary,
+          ),
+        ),
+        items: [
+          DropdownMenuItem<Dependent?>(value: null, child: Text(selfLabel)),
+          ...dependents.dependents.map(
+            (dep) => DropdownMenuItem<Dependent?>(
+              value: dep,
+              child: Text(dep.name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (dep) => context.read<DependentsProvider>().switchTo(dep),
+        style: theme.textTheme.bodyLarge?.copyWith(color: cs.onSurface),
+        dropdownColor: theme.cardColor,
+        iconEnabledColor: cs.primary,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -381,6 +446,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _buildBookingForSelector(theme, cs),
           if (_isGuest) ...[
             Text(l10n.enterYourPhone, style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),

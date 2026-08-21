@@ -239,9 +239,9 @@ class _CathConsumableCaptureSheetState
     final item = _selectedItem;
     if (item == null) {
       setState(
-        () => _error = AppStrings.of(
-          context,
-        ).lookup('s4.lib.cath_lab.consumables.select_required'),
+        () =>
+            _error = AppStrings.of(context)
+                .lookup('s4.lib.cath_lab.consumables.select_required'),
       );
       return;
     }
@@ -282,18 +282,16 @@ class _CathConsumableCaptureSheetState
   String? _quantityValidator(String? value) {
     final quantity = double.tryParse((value ?? '').trim());
     if (quantity == null || quantity <= 0) {
-      return AppStrings.of(
-        context,
-      ).lookup('s4.lib.cath_lab.consumables.quantity_invalid');
+      return AppStrings.of(context)
+          .lookup('s4.lib.cath_lab.consumables.quantity_invalid');
     }
     return null;
   }
 
   String? _requiredValidator(String? value) {
     if ((value ?? '').trim().isNotEmpty) return null;
-    return AppStrings.of(
-      context,
-    ).lookup('s4.lib.cath_lab.consumables.field_required');
+    return AppStrings.of(context)
+        .lookup('s4.lib.cath_lab.consumables.field_required');
   }
 
   @override

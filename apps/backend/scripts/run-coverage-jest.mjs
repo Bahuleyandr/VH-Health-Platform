@@ -94,6 +94,9 @@ const COVERAGE_TESTS = [
   // ── billing: paymentLinkService ──
   'src/tests/unit/paymentLinkServiceCoverage.test.js',
   'src/tests/unit/paymentLinkService.test.js',
+  // Covers the gateway-wave additions (public gateway view + checkout
+  // wording): getPublicPaymentLinkView's resolvePublicGatewayView path.
+  'src/tests/unit/publicPaymentPageView.test.js',
   // ── billing: ediGenerator ──
   'src/tests/unit/ediGenerator.test.js',
   // ── cds: cdsHooksAdapter / encounterCdsHelper + emr/cdsEngine ──
@@ -105,6 +108,7 @@ const COVERAGE_TESTS = [
   // ── RLS: lib/prisma.js + lib/tenantContext.js ──
   'src/tests/unit/prismaCoverage.test.js',
   'src/tests/unit/prismaHardening.test.js',
+  'src/tests/unit/prismaSessionTimeZone.test.js',
   'src/tests/unit/rlsDisabledLogLevel.test.js',
   'src/tests/unit/tenantRlsPosture.test.js',
   'src/tests/unit/tenantRlsConfig.test.js',

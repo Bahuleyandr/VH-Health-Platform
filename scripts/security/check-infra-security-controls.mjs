@@ -30,9 +30,11 @@ const forgejoReleaseImages = read('.forgejo/release-authority-templates/release-
 const forgejoDalekDeploy = read('.forgejo/release-authority-templates/release-authority-dalekdefender.yml');
 const forgejoContainerSupplyChain = read('.forgejo/release-authority-templates/release-authority-container-supply-chain.yml');
 const forgejoSecuritySweep = read('.forgejo/workflows/security-sweep.yml');
+const forgejoBuildkitHelper = read('scripts/ci/forgejo-buildkit-builder.mjs');
 const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-authority-images.yml');
 const githubDalekDeploy = read('.github/workflows/release-authority-dalekdefender.yml');
+const backendIngress = read('infra/kubernetes/apps/backend/ingress.yaml');
 
 const sha256Digest = '@sha256:[a-f0-9]{64}';
 const minimatchPatchCopy =
@@ -70,6 +72,10 @@ check('backend admin IP allowlist fails closed in production', () =>
   backendAllowlist.includes('ADMIN_IP_ALLOWLIST_REQUIRED') &&
   backendAllowlist.includes('isProductionRuntime'));
 
+check('SMS callback path bearer is excluded from ingress access logs', () =>
+  /name:\s*vhhealth-backend-sms-webhooks[\s\S]*?nginx\.ingress\.kubernetes\.io\/enable-access-log:\s*"false"[\s\S]*?path:\s*\/webhooks\/sms\s*\n\s*pathType:\s*Prefix/.test(backendIngress) &&
+  (backendIngress.match(/path:\s*\/webhooks\/sms\s*$/gm) || []).length === 2);
+
 check('admin middleware uses trusted production redirect origin', () =>
   adminMiddleware.includes('trustedRedirectBase') &&
   adminMiddleware.includes('ADMIN_CANONICAL_ORIGIN'));
@@ -85,9 +91,11 @@ check('admin Dockerfile does not persist SENTRY_AUTH_TOKEN as ARG/ENV', () =>
 check('release Dockerfiles use digest-pinned base image defaults', () =>
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
   new RegExp(`^ARG NODE_IMAGE=node:26\.5\.0-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
-  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.44\\.0${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  new RegExp(`^ARG BUILD_IMAGE=debian:12-slim${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  /^ARG FLUTTER_VERSION=3\.47\.0$/m.test(staffWebDockerfile) &&
+  /^ARG FLUTTER_SHA256=[a-f0-9]{64}$/m.test(staffWebDockerfile) &&
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
-  !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
+  !/^FROM (node|nginx|debian|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
 
 check('container npm postinstall hooks remain inside each Docker build context', () =>
   backendPackage.scripts.postinstall ===
@@ -104,8 +112,11 @@ check('container npm postinstall hooks remain inside each Docker build context',
   ]));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
-  const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
-  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
+  const workflowBuilds = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
+  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(workflowBuilds) &&
+    new RegExp(`^  'mirror\\.gcr\\.io/library/node:26\\.5\\.0-alpine${sha256Digest}';$`, 'm')
+      .test(forgejoBuildkitHelper) &&
+    forgejoBuildkitHelper.includes('`NODE_IMAGE=${NODE_IMAGE}`');
 });
 
 check('backend generation stays within the Forgejo runner memory budget', () =>
@@ -116,14 +127,28 @@ check('backend generation stays within the Forgejo runner memory budget', () =>
 check('staff web runtime applies Alpine security updates', () =>
   staffWebDockerfile.includes('RUN apk upgrade --no-cache'));
 
+// Dockerfile.web installs the official Flutter linux tarball, which is
+// published for x64 ONLY (no linux-arm64 stable tarball exists in the Flutter
+// release manifest — checked 2026-08-16). A multi-arch build would run x64
+// toolchain binaries under an arm64 userland and publish an arch it never
+// verified, so both release workflows must keep the staff-web build
+// constrained to linux/amd64 while the Dockerfile stays x64-tarball-only.
+check('staff web image builds stay amd64-only while Flutter ships no linux-arm64 SDK', () =>
+  staffWebDockerfile.includes('this image is linux/amd64-ONLY') &&
+  /file: \.\/apps\/staff\/Dockerfile\.web[\s\S]{0,900}?platforms: linux\/amd64\n/.test(githubReleaseImages) &&
+  forgejoReleaseImages.includes('build_platforms="linux/amd64"'));
+
 check('Forgejo admin image builds provide the backend named context', () =>
   forgejoContainerSupplyChain.includes(
     "build_contexts: '--build-context backend=apps/backend'",
   ) &&
-  forgejoDalekDeploy.includes('--build-context backend=apps/backend') &&
+  forgejoDalekDeploy.includes(
+    'node scripts/ci/forgejo-buildkit-builder.mjs build dalek',
+  ) &&
   forgejoReleaseImages.includes(
-    'build_context_args+=(--build-context "backend=apps/backend")',
-  ));
+    'node scripts/ci/forgejo-buildkit-builder.mjs build release',
+  ) &&
+  (forgejoBuildkitHelper.match(/buildContexts: \['backend=apps\/backend'\]/g) || []).length === 2);
 
 check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
   const workflows = [

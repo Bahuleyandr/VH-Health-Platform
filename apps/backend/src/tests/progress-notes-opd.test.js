@@ -61,7 +61,32 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
     appointmentId = a[0].id;
   });
 
+  /** phiAccessLogger writes AFTER the response (fire-and-forget on
+   *  res 'finish'), so the suite's PHI-audit rows can land after the last
+   *  assertion. Poll for them before teardown — otherwise the transaction
+   *  below deletes hipaa_access_log and then the late insert recreates an FK
+   *  child of tenants just as (or after) the tenant DELETE runs, failing the
+   *  suite with a 23503 (bit CI 2026-08-16). Pattern from
+   *  investigationLabAlertTenantScope.deep.test.js. */
+  async function waitForPhiAuditWrites(expected, timeoutMs = 10000) {
+    if (expected === 0) return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const [row] = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count
+           FROM hipaa_access_log
+          WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+      if (row.count >= expected) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
   afterAll(async () => {
+    // Both tests hit the PHI-logged progress-notes route: the 201 logs CREATE
+    // and the 404 logs ACCESS_DENIED (patient_uid resolved from the body).
+    await waitForPhiAuditWrites(2);
     await setTenantTx(TENANT_ID, async (tx) => {
       await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
       await tx.$executeRawUnsafe(
@@ -106,7 +131,7 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
     if (priorAllowDefaultTenant === undefined) delete process.env.ALLOW_DEFAULT_TENANT;
     else process.env.ALLOW_DEFAULT_TENANT = priorAllowDefaultTenant;
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 30000);
 
   it('saves an OPD progress note bound to the appointment (201, not 500)', async () => {
     const res = await request(app)

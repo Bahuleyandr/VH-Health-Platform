@@ -26,9 +26,8 @@ void main() {
 
   test('the live appointments card remains outside the dashboard', () {
     expect(
-      File(
-        'lib/features/appointments/widgets/appointment_card.dart',
-      ).existsSync(),
+      File('lib/features/appointments/widgets/appointment_card.dart')
+          .existsSync(),
       isTrue,
     );
   });

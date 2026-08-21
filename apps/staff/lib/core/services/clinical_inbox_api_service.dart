@@ -262,9 +262,8 @@ class PostDischargeCrossSignReceipt {
       resolutionActionId: _text(json['resolution_action_id']),
       handoffState: _text(json['handoff_state']),
       currentHandoffState: _text(json['current_handoff_state']),
-      generationSnapshotSha256: _text(
-        json['generation_snapshot_sha256'],
-      ).toLowerCase(),
+      generationSnapshotSha256: _text(json['generation_snapshot_sha256'])
+          .toLowerCase(),
       requestSha256: _text(json['request_sha256']).toLowerCase(),
       canonicalTimelineEventId: _text(json['canonical_timeline_event_id']),
       canonicalAuditEventId: _text(json['canonical_audit_event_id']),
@@ -451,18 +450,16 @@ class ClinicalInboxTask {
       relatedResourceId: _text(json['related_resource_id']),
       assignedToUid: _text(json['assigned_to_uid']),
       assignedToRole: _text(json['assigned_to_role']),
-      slaCompletionSemantics: _text(
-        json['sla_completion_semantics'],
-      ).toLowerCase(),
+      slaCompletionSemantics: _text(json['sla_completion_semantics'])
+          .toLowerCase(),
       pathwayInstanceId: _text(json['pathway_instance_id']),
       pathwayKey: _text(json['pathway_key']),
       pathwayOwnerUid: _text(json['pathway_owner_uid']),
       pathwayAccountableRole: _text(json['pathway_accountable_role']),
       pathwayStageKey: _text(json['pathway_stage_key']),
       diagnosticGenerationId: _text(json['diagnostic_generation_id']),
-      diagnosticClassification: _text(
-        json['diagnostic_classification'],
-      ).toLowerCase(),
+      diagnosticClassification: _text(json['diagnostic_classification'])
+          .toLowerCase(),
       diagnosticGenerationSnapshotSha256: _text(
         json['diagnostic_generation_snapshot_sha256'],
       ).toLowerCase(),
@@ -474,9 +471,8 @@ class ClinicalInboxTask {
       pendingResultAdmissionId: _intValue(json['pending_result_admission_id']),
       pendingResultHandoffId: _text(json['pending_result_handoff_id']),
       pendingResultOwnerActionId: _text(json['pending_result_owner_action_id']),
-      pendingResultHandoffState: _text(
-        json['pending_result_handoff_state'],
-      ).toLowerCase(),
+      pendingResultHandoffState: _text(json['pending_result_handoff_state'])
+          .toLowerCase(),
       pendingResultResolutionActionId: _text(
         json['pending_result_resolution_action_id'],
       ),

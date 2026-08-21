@@ -47,14 +47,20 @@ class PreparedDrainGateDecision {
   final String reasonCode;
 }
 
-typedef PreparedDrainGate =
-    Future<PreparedDrainGateDecision> Function(OfflineCommandEnvelope envelope);
+typedef PreparedDrainGate = Future<PreparedDrainGateDecision> Function(
+  OfflineCommandEnvelope envelope,
+);
 
 SyncDisposition dispositionForStatus(int statusCode) {
   if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;
+  // 404/410 mean the target is gone — retrying can never succeed, so treat
+  // them as terminal (conflict) like the prepared path rather than retrying
+  // forever.
   if (statusCode == 400 ||
       statusCode == 403 ||
+      statusCode == 404 ||
       statusCode == 409 ||
+      statusCode == 410 ||
       statusCode == 422) {
     return SyncDisposition.conflict;
   }

@@ -8,8 +8,10 @@ import 'package:vhhealth_core/services/clinical_continuity_canonical_json.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 
 typedef MinimumVersionStorageRead = Future<String?> Function(String key);
-typedef MinimumVersionStorageWrite =
-    Future<void> Function(String key, String value);
+typedef MinimumVersionStorageWrite = Future<void> Function(
+  String key,
+  String value,
+);
 typedef MinimumVersionStorageDelete = Future<void> Function(String key);
 
 @immutable
@@ -122,12 +124,11 @@ class MinimumVersionPolicyVerifier {
       if (!valid) return null;
       final verifiedSnapshot = Map<String, Object?>.from(
         jsonDecode(
-              ClinicalContinuityCanonicalJson.canonicalize({
-                ...unsigned,
-                'signature': signatureValue,
-              }),
-            )
-            as Map,
+          ClinicalContinuityCanonicalJson.canonicalize({
+            ...unsigned,
+            'signature': signatureValue,
+          }),
+        ) as Map,
       );
 
       return MinimumVersionPolicy._(

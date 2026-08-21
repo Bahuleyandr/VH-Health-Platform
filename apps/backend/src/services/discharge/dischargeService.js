@@ -20,6 +20,12 @@ import {
   publishInpatientSourceEventTx,
   resolveInpatientPathwayModeTx,
 } from '../emr/inpatientPathwayDomainService.js';
+
+// WP2 terminology deps are imported lazily inside createDraft /
+// updateDraftCodes: their static graph reaches terminologyService
+// (prismaReadOnly import), which would force every existing partial
+// lib/prisma.js jest mock in suites that load this service to grow new
+// exports (PR #875 stale-ESM-mock lesson).
 import { PATHWAY_MODES } from '../pathways/pathwayMode.js';
 
 // Section keys we recognise as "discharge medications" for the
@@ -930,6 +936,17 @@ export async function createDraft({
   const scopedTenantId = requireTenantId(tenantId);
   const template = await pickTemplate({ tenantId, template_code, specialty });
 
+  // Coding enforcement (WP2, migration 720): validate supplied ICD-10 codes
+  // BEFORE the draft transaction opens so a 'block' verdict leaves nothing
+  // behind (single-transaction invariant). Default 'off' == no-op.
+  const { validateDocumentCodes } = await import('../terminology/codingEnforcementService.js');
+  const codingVerdict = await validateDocumentCodes({
+    tenantId: scopedTenantId,
+    surface: 'discharge_summary',
+    codes: icd10_codes || [],
+    actorUid: created_by ? String(created_by) : null,
+  });
+
   // Atomic draft creation: admission validation, the header INSERT, and every
   // section INSERT commit together, so a mid-create failure cannot leave a
   // signable partial summary behind (previously each statement ran on plain
@@ -1057,6 +1074,24 @@ export async function createDraft({
         body,
       );
     }
+
+    // Structured coding mirror (WP2, migration 720): persisted inside the
+    // same transaction as the header, so draft + bindings commit atomically.
+    const suppliedCodes = Array.isArray(icd10_codes) ? icd10_codes.filter(Boolean) : [];
+    if (suppliedCodes.length > 0) {
+      const { replaceResourceCodings, legacyIcd10Coding } = await import(
+        '../terminology/clinicalCodeBindingService.js'
+      );
+      await replaceResourceCodings({
+        db: tx,
+        resourceType: 'discharge_summary',
+        resourceId: header.id,
+        tenantId: scopedTenantId,
+        patientUid: String(patient_uid),
+        codings: suppliedCodes.map((code) => legacyIcd10Coding({ code, source: 'manual' })),
+        createdBy: created_by ? String(created_by) : null,
+      });
+    }
     return header;
   });
 
@@ -1074,7 +1109,79 @@ export async function createDraft({
     });
   }
 
-  return getOne({ tenantId, id: summary.id });
+  const result = await getOne({ tenantId, id: summary.id });
+  if (codingVerdict.warnings.length > 0) {
+    result.coding_warnings = codingVerdict.warnings;
+  }
+  return result;
+}
+
+/**
+ * Replace the ICD-10 code list on a draft/ready summary (WP2). Runs the
+ * per-surface coding enforcement gate BEFORE writing; the column update and
+ * the clinical_code_bindings mirror commit in one transaction. Signed or
+ * delivered summaries are immutable medico-legal documents — rejected.
+ */
+export async function updateDraftCodes({ tenantId, id, icd10_codes, updated_by = null }) {
+  const scopedTenantId = requireTenantId(tenantId);
+  const summaryId = positiveInt(id, 'id');
+  if (!Array.isArray(icd10_codes)) {
+    throw AppError.badRequest('icd10_codes must be an array', 'DISCHARGE_SUMMARY_BAD_CODES');
+  }
+  const codes = icd10_codes
+    .map((code) => String(code ?? '').trim())
+    .filter(Boolean);
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, patient_uid FROM discharge_summaries
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    summaryId, scopedTenantId,
+  );
+  if (!rows.length) throw AppError.notFound('Discharge summary not found');
+  const current = rows[0];
+  if (!['draft', 'ready_for_signoff'].includes(String(current.status))) {
+    throw AppError.badRequest(
+      'ICD-10 codes can only be edited before sign-off',
+      'DISCHARGE_SUMMARY_NOT_EDITABLE',
+    );
+  }
+
+  // Enforcement BEFORE any write (block ⇒ 400, nothing persisted).
+  const { validateDocumentCodes } = await import('../terminology/codingEnforcementService.js');
+  const codingVerdict = await validateDocumentCodes({
+    tenantId: scopedTenantId,
+    surface: 'discharge_summary',
+    codes,
+    actorUid: updated_by ? String(updated_by) : null,
+  });
+
+  const { replaceResourceCodings, legacyIcd10Coding } = await import(
+    '../terminology/clinicalCodeBindingService.js'
+  );
+  await setTenantTx(scopedTenantId, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summaries
+          SET icd10_codes = $1::text[], updated_at = NOW()
+        WHERE id = $2::int AND tenant_id = $3::uuid`,
+      codes.length > 0 ? codes : null,
+      summaryId, scopedTenantId,
+    );
+    await replaceResourceCodings({
+      db: tx,
+      resourceType: 'discharge_summary',
+      resourceId: summaryId,
+      tenantId: scopedTenantId,
+      patientUid: String(current.patient_uid),
+      codings: codes.map((code) => legacyIcd10Coding({ code, source: 'manual' })),
+      createdBy: updated_by ? String(updated_by) : null,
+    });
+  });
+
+  const result = await getOne({ tenantId, id: summaryId });
+  if (codingVerdict.warnings.length > 0) {
+    result.coding_warnings = codingVerdict.warnings;
+  }
+  return result;
 }
 
 export async function getOne({ tenantId, id }) {

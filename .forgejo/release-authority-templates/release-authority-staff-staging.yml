@@ -76,7 +76,7 @@ jobs:
           # floating `stable` channel tracks whatever Dart ships that week, so
           # this lane could build a different Flutter than CI validated and, on
           # the release workflows, ship it.
-          flutter-version: 3.44.0
+          flutter-version: 3.47.0
           cache: true
 
       - name: Install Android API 37 toolchain

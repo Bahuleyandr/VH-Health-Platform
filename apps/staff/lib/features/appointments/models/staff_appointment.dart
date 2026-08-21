@@ -117,10 +117,8 @@ class StaffAppointment {
       appointmentDate: date.contains('T') ? date.split('T').first : date,
       appointmentTime: _firstText([json['appointment_time'], json['time']]),
       tokenNumber: _firstText([json['token_number'], json['tokenNumber']]),
-      visitType: _firstText([
-        json['visit_type'],
-        json['visitType'],
-      ]).toUpperCase(),
+      visitType: _firstText([json['visit_type'], json['visitType']])
+          .toUpperCase(),
       teleconsultState: _teleconsultStateFrom(json),
       minutesSinceBooking: _doubleFrom(json['minutes_since_booking']),
       slaBreached: _boolFrom(json['sla_breached']),
@@ -275,10 +273,8 @@ bool _boolFrom(dynamic value) {
 }
 
 StaffTeleconsultLobbyState? _teleconsultStateFrom(Map<String, dynamic> json) {
-  final visitType = _firstText([
-    json['visit_type'],
-    json['visitType'],
-  ]).toUpperCase();
+  final visitType = _firstText([json['visit_type'], json['visitType']])
+      .toUpperCase();
   if (visitType != 'TELE') return null;
   return StaffTeleconsultLobbyState.fromJson(json);
 }

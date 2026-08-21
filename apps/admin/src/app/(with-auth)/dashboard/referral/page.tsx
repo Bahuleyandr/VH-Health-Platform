@@ -17,6 +17,11 @@ type ReferralAuditRow = {
   current_owner_name?: string | null;
   urgency: string;
   status: string;
+  referral_type?: string | null;
+  destination_facility_id?: number | null;
+  destination_facility_name?: string | null;
+  destination_facility_city?: string | null;
+  destination_facility_phone?: string | null;
   closure_status?: string | null;
   closure_reason?: string | null;
   requested_at: string;
@@ -39,7 +44,10 @@ function dateTime(value?: string | null) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
     ? "—"
-    : parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+    : parsed.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
 }
 
 function label(value?: string | null) {
@@ -64,7 +72,9 @@ function badgeClass(value?: string | null) {
 
 function Badge({ value }: { value?: string | null }) {
   return (
-    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${badgeClass(value)}`}>
+    <span
+      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${badgeClass(value)}`}
+    >
       {label(value)}
     </span>
   );
@@ -73,13 +83,18 @@ function Badge({ value }: { value?: string | null }) {
 export default function ReferralPage() {
   const audit = useQuery({
     queryKey: ["referral-closed-loop-audit"],
-    queryFn: async () => rowsFromEnvelope(
-      await fetchAdminAPI<unknown>("/referrals/audit?limit=200"),
-    ),
+    queryFn: async () =>
+      rowsFromEnvelope(
+        await fetchAdminAPI<unknown>("/referrals/audit?limit=200"),
+      ),
   });
   const rows = audit.data ?? [];
-  const openCount = rows.filter((row) => row.closure_status !== "closed").length;
-  const awaitingReceiver = rows.filter((row) => row.status === "pending").length;
+  const openCount = rows.filter(
+    (row) => row.closure_status !== "closed",
+  ).length;
+  const awaitingReceiver = rows.filter(
+    (row) => row.status === "pending",
+  ).length;
   const awaitingOriginator = rows.filter(
     (row) => row.status === "completed" && row.closure_status !== "closed",
   ).length;
@@ -90,8 +105,8 @@ export default function ReferralPage() {
         <div>
           <h1 className="text-3xl font-bold">Referral closed-loop oversight</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Read-only operational evidence from request through named receiver acceptance,
-            signed specialist response, and originator closure.
+            Read-only operational evidence from request through named receiver
+            acceptance, signed specialist response, and originator closure.
           </p>
         </div>
         <button
@@ -100,7 +115,9 @@ export default function ReferralPage() {
           disabled={audit.isFetching}
           className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
         >
-          <RefreshCw className={`h-4 w-4 ${audit.isFetching ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 ${audit.isFetching ? "animate-spin" : ""}`}
+          />
           Refresh
         </button>
       </div>
@@ -113,7 +130,9 @@ export default function ReferralPage() {
 
       {audit.isError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          {audit.error instanceof Error ? audit.error.message : "Could not load referral evidence."}
+          {audit.error instanceof Error
+            ? audit.error.message
+            : "Could not load referral evidence."}
         </div>
       )}
 
@@ -135,42 +154,95 @@ export default function ReferralPage() {
             </thead>
             <tbody>
               {audit.isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">Loading referral evidence…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">No referral evidence found.</td></tr>
-              ) : rows.map((row) => (
-                <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{row.referral_number}</div>
-                    <div className="text-xs text-muted-foreground">#{row.id} · {label(row.urgency)}</div>
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    Loading referral evidence…
                   </td>
-                  <td className="px-4 py-3">
-                    <div>{row.patient_name || "Patient"}</div>
-                    <div className="max-w-52 truncate font-mono text-xs text-muted-foreground">{row.patient_uid}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div>{row.referred_to_department}</div>
-                    <div className="text-xs text-muted-foreground">{row.referred_to_doctor_name || "Named receiver pending"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div>{row.current_owner_name || "Unresolved"}</div>
-                    <div className="text-xs text-muted-foreground">From {row.referring_doctor_name || "originator"}</div>
-                  </td>
-                  <td className="px-4 py-3"><Badge value={row.status} /></td>
-                  <td className="px-4 py-3">
-                    <Badge value={row.closure_status || "open"} />
-                    {row.closure_reason && <div className="mt-1 text-xs text-muted-foreground">{label(row.closure_reason)}</div>}
-                  </td>
-                  <td className="px-4 py-3">{dateTime(row.requested_at)}</td>
-                  <td className="px-4 py-3">
-                    <div>{dateTime(row.first_seen_at)}</div>
-                    {row.minutes_to_first_seen != null && (
-                      <div className="text-xs text-muted-foreground">{row.minutes_to_first_seen} min</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{row.appointment_id ? `#${row.appointment_id}` : "—"}</td>
                 </tr>
-              ))}
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    No referral evidence found.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/30"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{row.referral_number}</div>
+                      <div className="text-xs text-muted-foreground">
+                        #{row.id} · {label(row.urgency)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{row.patient_name || "Patient"}</div>
+                      <div className="max-w-52 truncate font-mono text-xs text-muted-foreground">
+                        {row.patient_uid}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{row.referred_to_department}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.referral_type === "external"
+                          ? row.destination_facility_name
+                            ? [
+                                row.destination_facility_name,
+                                row.destination_facility_city,
+                              ]
+                                .filter(Boolean)
+                                .join(", ")
+                            : "External (unstructured destination)"
+                          : row.referred_to_doctor_name ||
+                            "Named receiver pending"}
+                      </div>
+                      {row.referral_type === "external" &&
+                        row.destination_facility_phone && (
+                          <div className="text-xs text-muted-foreground">
+                            {row.destination_facility_phone}
+                          </div>
+                        )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{row.current_owner_name || "Unresolved"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        From {row.referring_doctor_name || "originator"}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge value={row.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge value={row.closure_status || "open"} />
+                      {row.closure_reason && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {label(row.closure_reason)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">{dateTime(row.requested_at)}</td>
+                    <td className="px-4 py-3">
+                      <div>{dateTime(row.first_seen_at)}</div>
+                      {row.minutes_to_first_seen != null && (
+                        <div className="text-xs text-muted-foreground">
+                          {row.minutes_to_first_seen} min
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.appointment_id ? `#${row.appointment_id}` : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -179,7 +251,13 @@ export default function ReferralPage() {
   );
 }
 
-function Metric({ label: metricLabel, value }: { label: string; value: number }) {
+function Metric({
+  label: metricLabel,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="text-sm text-muted-foreground">{metricLabel}</div>

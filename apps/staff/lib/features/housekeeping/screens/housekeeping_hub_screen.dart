@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import 'log_cleaning_screen.dart';

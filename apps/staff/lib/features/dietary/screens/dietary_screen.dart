@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -361,6 +363,12 @@ class _DietaryScreenState extends State<DietaryScreen> {
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            key: const ValueKey('dietary-kitchen-board'),
+            icon: const Icon(Icons.soup_kitchen),
+            tooltip: s.lookup('s4.lib.kitchen.open'),
+            onPressed: () => context.push('/dietary/kitchen'),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: s.dietaryRefreshTooltip,

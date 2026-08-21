@@ -53,8 +53,7 @@ void main() {
               'role': 'DOCTOR',
             },
             'generation_id': '22222222-2222-4222-8222-222222222222',
-            'generation_snapshot_sha256':
-                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'generation_snapshot_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             'diagnostic_classification': 'abnormal',
             'diagnostic_action_id': '33333333-3333-4333-8333-333333333333',
             'diagnostic_action_kind': 'doctor_disposition',
@@ -148,8 +147,7 @@ void main() {
             'can_cross_sign': false,
             'named_owner': {'uid': 'doctor-9', 'role': 'DOCTOR'},
             'generation_id': '22222222-2222-4222-8222-222222222222',
-            'generation_snapshot_sha256':
-                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'generation_snapshot_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             'diagnostic_classification': 'normal',
             'resolution_action_id': '44444444-4444-4444-8444-444444444444',
             'tracking_task': {'id': 91, 'status': 'completed'},

@@ -48,9 +48,8 @@ bool frontOfficeAppointmentStatusIsTerminal(String status) {
 
 @visibleForTesting
 String frontOfficeAppointmentStatusLabel(String status) {
-  return AppStrings.forLocale(
-    const Locale('en'),
-  ).frontOfficeAppointmentStatusLabel(status);
+  return AppStrings.forLocale(const Locale('en'))
+      .frontOfficeAppointmentStatusLabel(status);
 }
 
 int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
@@ -272,9 +271,8 @@ bool frontOfficeWardImpliesEmergencyPriority(String wardLabel) {
     RegExp(r'[^A-Z0-9]+'),
     ' ',
   );
-  return RegExp(
-        r'(^| )(ER|ICU|EMERGENCY|CASUALTY)( |$)',
-      ).hasMatch(normalized) ||
+  return RegExp(r'(^| )(ER|ICU|EMERGENCY|CASUALTY)( |$)')
+          .hasMatch(normalized) ||
       normalized.contains('INTENSIVE CARE');
 }
 

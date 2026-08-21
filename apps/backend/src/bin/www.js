@@ -21,12 +21,18 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 import http from 'http';
 import app from '../app.js';
 import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants, tenantRlsPostureMustFailClosed } from '../lib/prisma.js';
-import { initRedis, getRedisClient, disconnectRedis, redisIsRequired } from '../lib/redis.js';
+import { initRedis, getRedisClient, disconnectRedis, redisIsRequired, scheduleRedisReinit } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations, verifyMigrationsCurrent } from '../utils/migrations/runMigrations.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
-import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
+import {
+  initWebSocket,
+  initWsFanout,
+  closeWsFanout,
+  isWsFanoutReady,
+  scheduleWsFanoutRewire,
+} from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
@@ -183,7 +189,14 @@ async function prepareApplication() {
   // state is surfaced by `circuitBreakerStatus()` and scraped via
   // /health/metrics.
 
-  // Initialize Redis cache
+  // Initialize Redis cache. initRedis() settles within REDIS_INIT_TIMEOUT_MS
+  // in every configuration (lib/redis.js bounds the initial connect+ping), so
+  // this gate now actually executes: with unreachable Sentinels it used to hang
+  // forever inside ioredis's infinite discovery loop — neither the strict
+  // fail-fast below nor a degraded start, and in k8s a pod that never became
+  // ready and never crash-looped into visibility. Mid-flight connection loss is
+  // NOT this path: it is handled by ioredis's own reconnection (infinite
+  // retryStrategy, proven by the 2026-08-15 failover drill) and never exits.
   try {
     await initRedis();
   } catch (err) {
@@ -192,6 +205,36 @@ async function prepareApplication() {
       throw err;
     }
     logger.warn('Redis initialization failed — running without cache:', err.message);
+    // Degraded start: keep trying in the background (off the request path) so
+    // the shared cache and rate-limit store come back without a pod restart.
+    // Until then the rate limiter applies its per-profile store-loss posture
+    // (config/rateLimitStoreLossPolicy.js).
+    //
+    // 873-F10: the cache/limiter recover through the singleton automatically,
+    // but the WS fan-out subscriber below is boot-wired only — without this
+    // hook a reinit-recovered pod stayed silently deaf to cross-pod clinical
+    // broadcasts (code-blue / vitals) until restart, while reporting ready.
+    // Rewire it on the same background recovery.
+    scheduleRedisReinit({
+      onReconnect: async (client) => {
+        if (isWsFanoutReady()) return; // already wired by someone else
+        try {
+          const initialized = await initWsFanout({ pub: client });
+          if (initialized) {
+            logger.info('WS Redis fan-out restored after background Redis reconnect');
+          }
+        } catch (wsErr) {
+          logger.warn(
+            'WS fan-out rewire after Redis reconnect failed — broadcasts stay single-process '
+              + '(visible as redis_websocket_subscriber on /health/ready):',
+            wsErr.message,
+          );
+          // The reinit hook fires exactly once per recovery — without this the
+          // pod would stay deaf until restart if that one attempt failed.
+          scheduleWsFanoutRewire({ getClient: getRedisClient });
+        }
+      },
+    });
   }
 
   // Wire cross-process WebSocket fan-out onto the Redis bus. The publisher is
@@ -214,6 +257,12 @@ async function prepareApplication() {
       throw err;
     }
     logger.warn('WS Redis fan-out init failed — single-process broadcasts only:', err.message);
+    // PR #874 follow-up: Redis itself is up (this branch is only reached with
+    // a live client) but the fan-out subscriber failed to wire, and nothing
+    // else ever retries it — without this the pod served forever deaf to
+    // cross-pod clinical broadcasts. Bounded background rewire; degraded
+    // state stays visible on /health/ready until it recovers.
+    scheduleWsFanoutRewire({ getClient: getRedisClient });
   }
 
   // Boot-time sweep. Awaited so a rejection is surfaced/handled rather than

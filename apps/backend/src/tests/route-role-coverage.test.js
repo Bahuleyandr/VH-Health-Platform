@@ -45,6 +45,10 @@ const EXEMPT_MOUNTS = {
   // staffRoutes) inherits that first gate (Express runs same-path mounts in order).
   '/api/v1/admin/ed': 'pure 308 redirect to the role-gated /api/v1/ed mount',
   '/api/v1/admin/surgical': 'pure 308 redirect to the role-gated /api/v1/surgical mount',
+  '/api/v1/abdm/enrolment': 'staffRouter.use(requireRole(...PATIENT_REGISTRY_WRITE_ROLES)) at the top of abdmEnrolmentRoutes.js (front-desk assisted ABHA enrolment)',
+  '/api/v1/abdm/hiu': 'router.use(requireRole(...CLINICAL_STAFF_ROUTE_ROLES)) at the top of abdmHiuRoutes.js (thin HIU consent/bundle surface)',
+  '/api/v1/front-desk/abdm/share-intakes': 'router.use(requireRole(...PATIENT_REGISTRY_WRITE_ROLES)) at the top of abdmShareIntakeRoutes.js (Scan & Share work queue)',
+  '/api/v1/facility/assets': 'per-route requireRoles(FACILITY_ASSET_READ_ROLES/FACILITY_ASSET_MANAGE_ROLES) inside facilityAssetRoutes.js — read vs manage arrays differ per route',
   '/api/v1/quality': 'controller-level isStaff/isClinical/isAdmin checks (roleHelpers) — candidate for mount-level requireRole, tracked in PLATFORM_REMEDIATION_PLAN',
   '/api/v1/referrals': 'route-level role checks inside referralRoutes — candidate for mount-level requireRole, tracked in PLATFORM_REMEDIATION_PLAN',
 };

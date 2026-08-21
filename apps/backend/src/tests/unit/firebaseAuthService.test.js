@@ -53,6 +53,7 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
 }));
 
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   revokeAllUserTokens: revokeAllUserTokensMock
 }));
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/api_config.dart';
 import '../services/medical_api_service.dart';
 import '../theme/app_theme.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// Read-only list of every clinical note on a patient — doctor + nurse +

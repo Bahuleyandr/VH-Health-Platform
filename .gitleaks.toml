@@ -122,4 +122,24 @@ regexes = [
   # privileges. The generic-api-key rule classified the historical slash form
   # as a credential, so retain an exact history-only exception.
   '''application/sequence''',
+  # Staff-app auth test fixture: an unsigned alg:none mock JWT returned by
+  # MockClient stubs (header {"alg":"none"}, literal ".sig" signature).
+  # Not a credential; the Flutter 3.47 dart-format rejoin now trips generic-api-key.
+  '''eyJhbGciOiJub25lIn0\.''',
+  # Payment-gateway webhook HMAC unit-test fixtures (PR #878). The working-tree
+  # copies were rewritten to digit-free strings that the
+  # vh-hardcoded-password-assignment rule cannot match, but PR/push range scans
+  # inspect the commit that introduced the original zero-padded placeholders
+  # (same history-only class as owner_acceptance_test.v1 above). Self-describing
+  # test material, never real credentials.
+  '''test-webhook-secret-000000000000''',
+  '''another-secret-000000000000000000''',
+  # Payment-gateway refund-replay + payment-link unit-test fixtures (PR #878
+  # follow-up commit fd084b66). Working-tree copies were rewritten to
+  # low-entropy values the generic-api-key heuristic cannot match, but PR/push
+  # range scans inspect the commit that introduced the originals (same
+  # history-only class as the webhook HMAC fixtures above). Self-describing
+  # test material, never real credentials.
+  '''pgr_persisted_key_1234''',
+  '''abcdefghijklmnop1234567890''',
 ]

@@ -1,0 +1,8 @@
+ATC code,ATC level name
+Z,SYNTHETIC ANATOMICAL GROUP
+Z99,Synthetic therapeutic subgroup
+Z99Z,Synthetic pharmacological subgroup
+Z99ZA,Synthetic chemical subgroup
+Z99ZA01,syntheticdrugine
+Z99ZA02,"fabricol, combinations"
+NOTACODE,should be skipped

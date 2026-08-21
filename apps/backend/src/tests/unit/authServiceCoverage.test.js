@@ -128,6 +128,7 @@ const mockRevokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
 const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
 const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   blacklistToken: mockBlacklistToken,
   isTokenBlacklisted: mockIsTokenBlacklisted,
@@ -944,10 +945,10 @@ describe('AuthService.reactivateAdmin', () => {
 
 describe('AuthService.updateAdminPermissions', () => {
   it('updates permissions and returns them', async () => {
-    mockPrisma.admins.update.mockResolvedValue({ uid: 'a1', username: 'jane', permissions: ['x'] });
+    mockPrisma.admins.update.mockResolvedValue({ uid: 'a1', username: 'jane', permissions: ['userManagement'] });
 
-    const res = await AuthService.updateAdminPermissions('a1', ['x'], 'root');
-    expect(res).toMatchObject({ message: 'Permissions updated', admin: { uid: 'a1', permissions: ['x'] } });
+    const res = await AuthService.updateAdminPermissions('a1', ['userManagement'], 'root');
+    expect(res).toMatchObject({ message: 'Permissions updated', admin: { uid: 'a1', permissions: ['userManagement'] } });
   });
 
   it('defaults permissions to [] when null is passed', async () => {
@@ -958,9 +959,21 @@ describe('AuthService.updateAdminPermissions', () => {
     );
   });
 
+  it('rejects unknown permission strings fail-closed before any DB write', async () => {
+    await expect(AuthService.updateAdminPermissions('a1', ['x'], 'root'))
+      .rejects.toMatchObject({ statusCode: 400, code: 'ADMIN_PERMISSIONS_UNKNOWN_KEY' });
+    expect(mockPrisma.admins.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects the proxy platformSuperAdmin sentinel by name', async () => {
+    await expect(AuthService.updateAdminPermissions('a1', ['platformSuperAdmin'], 'root'))
+      .rejects.toMatchObject({ statusCode: 400, code: 'ADMIN_PERMISSIONS_SENTINEL_REJECTED' });
+    expect(mockPrisma.admins.update).not.toHaveBeenCalled();
+  });
+
   it('rethrows when the update fails (catch branch)', async () => {
     mockPrisma.admins.update.mockRejectedValue(new Error('db down'));
-    await expect(AuthService.updateAdminPermissions('a1', ['x'], 'root')).rejects.toThrow('db down');
+    await expect(AuthService.updateAdminPermissions('a1', ['userManagement'], 'root')).rejects.toThrow('db down');
   });
 });
 

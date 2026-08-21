@@ -176,9 +176,8 @@ class ContinuityPackView extends StatelessWidget {
                     strings.format('continuity.patient.number', {
                       'number': index + 1,
                     }),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ),
             const Divider(),
@@ -228,9 +227,8 @@ class ContinuityPackView extends StatelessWidget {
       children: [
         Text(
           label,
-          style: Theme.of(
-            context,
-          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(context).textTheme.labelLarge
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 2),
         SelectableText(value),

@@ -46,6 +46,15 @@ data:
   # before auth.
   ADMIN_IP_ALLOWLIST: ""
 
+  # Embedded BI (NL-10) — the browser-facing origin of the LAN Metabase
+  # ingress (https://analytics.vhhealth.hospital.local once the optional
+  # metabase module is enabled). Read by middleware.ts to extend the CSP
+  # frame-src so the BI Dashboards page can render signed embeds. Empty =
+  # dark: the CSP stays at frame-src 'self' and no Metabase frame can load.
+  # NOTE: like all NEXT_PUBLIC_* values this is baked at image BUILD time
+  # (see the block comment above) — set it as a build ARG too when enabling.
+  NEXT_PUBLIC_METABASE_ORIGIN: ""
+
   # Backend URL used server-side by /api/proxy, /api/login, /api/refresh
   # (read by getServerBackendUrl() in src/lib/api-config.ts as BACKEND_URL).
   # Points at the in-cluster backend Service to skip the public ingress.

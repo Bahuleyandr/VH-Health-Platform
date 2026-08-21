@@ -71,9 +71,7 @@ function request(path: string, token: string, method = "GET") {
     method,
     headers: {
       cookie: `auth_token=${token}`,
-      ...(method === "GET"
-        ? {}
-        : { origin: "https://admin.vhhealth.app" }),
+      ...(method === "GET" ? {} : { origin: "https://admin.vhhealth.app" }),
     },
   });
 }
@@ -100,6 +98,7 @@ describe("proxy per-admin permission enforcement", () => {
     ["admin/users?limit=10", "userManagement"],
     ["admin/doctors", "doctorManagement"],
     ["beds/occupancy", "departmentManagement"],
+    ["facility/assets", "departmentManagement"],
     ["admin/analytics/dashboard", "viewAuditLogs"],
     ["rbac/admin/audit-log", "adminManagement"],
   ])(
@@ -172,6 +171,67 @@ describe("proxy per-admin permission enforcement", () => {
     mockBackend(["*"]);
     const res = await GET(request("doctors", tokenWithRole("ADMIN")));
     expect(res.status).toBe(200);
+    expect(proxiedCalls()).toHaveLength(1);
+  });
+
+  it("forwards facility assets for a department-management ADMIN", async () => {
+    mockBackend(["departmentManagement"]);
+    const res = await GET(request("facility/assets", tokenWithRole("ADMIN")));
+
+    expect(res.status).toBe(200);
+    expect(proxiedCalls()).toHaveLength(1);
+    expect(proxiedCalls()[0]).toContain("/api/v1/facility/assets");
+  });
+
+  it("keeps tenant entitlements SUPER_ADMIN-only even for a fully-flagged ADMIN", async () => {
+    // No per-admin flag grants the platform sentinel, so an ADMIN holding every
+    // grantable flag is still denied; only SUPER_ADMIN crosses the gate.
+    mockBackend([
+      "userManagement",
+      "doctorManagement",
+      "departmentManagement",
+      "appointmentManagement",
+      "pharmacyAdminRoutes",
+      "notificationManagement",
+      "adminManagement",
+      "viewAuditLogs",
+    ]);
+    const res = await GET(
+      request("admin/entitlements/tenants/t-1", tokenWithRole("ADMIN")),
+    );
+
+    expect(res.status).toBe(403);
+    expect(proxiedCalls()).toHaveLength(0);
+  });
+
+  it("keeps the integration-gates console SUPER_ADMIN-only even for a fully-flagged ADMIN", async () => {
+    // Same PLATFORM_SUPER_ADMIN sentinel pattern as entitlements: no
+    // grantable flag can open the dark-gate console for an ADMIN.
+    mockBackend([
+      "userManagement",
+      "doctorManagement",
+      "departmentManagement",
+      "appointmentManagement",
+      "pharmacyAdminRoutes",
+      "notificationManagement",
+      "viewAuditLogs",
+    ]);
+    const res = await GET(
+      request("admin/integration-gates", tokenWithRole("ADMIN")),
+    );
+
+    expect(res.status).toBe(403);
+    expect(proxiedCalls()).toHaveLength(0);
+  });
+
+  it("lets SUPER_ADMIN through tenant entitlements", async () => {
+    mockBackend([]);
+    const res = await GET(
+      request("admin/entitlements/current", tokenWithRole("SUPER_ADMIN")),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // upstream only, no profile
     expect(proxiedCalls()).toHaveLength(1);
   });
 

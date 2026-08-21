@@ -95,9 +95,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
     try {
       String? zoneName;
       if (_selectedZoneId != null) {
-        final zone =
-            _zones.firstWhere((z) => (z as Map)['id'] == _selectedZoneId)
-                as Map;
+        final zone = _zones.firstWhere(
+          (z) => (z as Map)['id'] == _selectedZoneId,
+        ) as Map;
         zoneName = zone['name'] as String?;
       }
       final evidence = _photo == null

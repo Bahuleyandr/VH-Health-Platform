@@ -200,9 +200,8 @@ class _BurnChartScreenState extends State<BurnChartScreen> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _addRegion([_RegionTemplate? template]) {
@@ -475,9 +474,8 @@ class _BurnChartScreenState extends State<BurnChartScreen> {
                 Expanded(
                   child: Text(
                     s.burnCareDraftTbsa(_draftTbsa.toStringAsFixed(1)),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
                 FilledButton.icon(
@@ -508,9 +506,8 @@ class _BurnChartScreenState extends State<BurnChartScreen> {
         const SizedBox(width: 8),
         Text(
           title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          style: Theme.of(context).textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w800),
         ),
       ],
     );

@@ -8,6 +8,33 @@ import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
+// ── Local notification seam ─────────────────────────────────────────────────
+
+/// Seam over [NotificationScheduler] so widget tests can observe the
+/// cancel/resync side effects without touching platform channels
+/// (same pattern as `AncSupplementReminderScheduler` on the ANC
+/// timeline screen).
+abstract class MedicationReminderNotifications {
+  Future<void> resync(List<Map<String, dynamic>> reminders);
+
+  Future<void> cancelReminder(int id);
+}
+
+class LocalMedicationReminderNotifications
+    implements MedicationReminderNotifications {
+  const LocalMedicationReminderNotifications();
+
+  @override
+  Future<void> resync(List<Map<String, dynamic>> reminders) {
+    return NotificationScheduler.rescheduleAll(reminders);
+  }
+
+  @override
+  Future<void> cancelReminder(int id) {
+    return NotificationScheduler.cancelReminder(id);
+  }
+}
+
 // ── Data model ──────────────────────────────────────────────────────────────
 
 class _Reminder {
@@ -83,7 +110,13 @@ String _frequencyLabel(AppLocalizations l, String value) {
 // ── Screen ──────────────────────────────────────────────────────────────────
 
 class MedicationRemindersScreen extends StatefulWidget {
-  const MedicationRemindersScreen({super.key});
+  const MedicationRemindersScreen({
+    super.key,
+    MedicationReminderNotifications? notifications,
+  }) : notifications =
+           notifications ?? const LocalMedicationReminderNotifications();
+
+  final MedicationReminderNotifications notifications;
 
   @override
   State<MedicationRemindersScreen> createState() =>
@@ -111,7 +144,11 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       _error = null;
     });
     try {
-      final resp = await ApiClient.get('/reminders/medication');
+      // include_inactive: toggled-off reminders stay visible (dimmed)
+      // so the patient can re-enable them instead of recreating them.
+      final resp = await ApiClient.get(
+        '/reminders/medication?include_inactive=true',
+      );
       if (!mounted) return;
       if (resp.isSuccess) {
         final list = resp.dataAsList();
@@ -141,7 +178,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
 
   Future<void> _syncNotifications() async {
     try {
-      await NotificationScheduler.rescheduleAll(
+      await widget.notifications.resync(
         _reminders
             .map(
               (r) => <String, dynamic>{
@@ -160,46 +197,76 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
     }
   }
 
+  /// Flip a reminder's `is_active` via PUT — the same call in both
+  /// directions, so the switch is genuinely reversible (deactivation
+  /// used to go through DELETE, after which the reminder vanished from
+  /// the active-only list and could never be re-enabled). DELETE stays
+  /// reserved for the explicit delete action.
   Future<void> _toggleReminder(_Reminder reminder) async {
+    final l = AppLocalizations.of(context)!;
     try {
-      if (reminder.isActive) {
-        // Deactivate
-        final resp = await ApiClient.delete(
-          '/reminders/medication/${reminder.id}',
-        );
-        if (mounted && resp.isSuccess) {
-          unawaited(_loadReminders());
+      final resp = await ApiClient.put(
+        '/reminders/medication/${reminder.id}',
+        body: {'is_active': !reminder.isActive},
+      );
+      if (!mounted) return;
+      if (resp.isSuccess) {
+        if (reminder.isActive) {
+          // Toggled OFF: cancel pending local notifications right away.
+          // The reload below also resyncs, but a failed reload must not
+          // leave stale medication alerts scheduled.
+          try {
+            await widget.notifications.cancelReminder(reminder.id);
+          } catch (e) {
+            if (kDebugMode) debugPrint('Error cancelling notifications: $e');
+          }
         }
+        // Reload → _syncNotifications reschedules active reminders,
+        // which covers the toggle-ON direction.
+        unawaited(_loadReminders());
       } else {
-        // Reactivate by updating is_active
-        final resp = await ApiClient.put(
-          '/reminders/medication/${reminder.id}',
-          body: {
-            'medication_name': reminder.medicationName,
-            'dosage': reminder.dosage,
-            'frequency': reminder.frequency,
-            'reminder_times': reminder.reminderTimes,
-            'start_date': reminder.startDate,
-          },
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: resp.failureMessage(l.medicationReminderUpdateFailed),
+          ),
         );
-        if (mounted && resp.isSuccess) {
-          unawaited(_loadReminders());
-        }
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Error toggling reminder: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.medicationReminderUpdateFailed),
+        );
+      }
     }
   }
 
   Future<void> _deleteReminder(int id) async {
+    final l = AppLocalizations.of(context)!;
     try {
       final resp = await ApiClient.delete('/reminders/medication/$id');
-      if (mounted && resp.isSuccess) {
-        unawaited(NotificationScheduler.cancelReminder(id));
+      if (!mounted) return;
+      if (resp.isSuccess) {
+        try {
+          await widget.notifications.cancelReminder(id);
+        } catch (e) {
+          if (kDebugMode) debugPrint('Error cancelling notifications: $e');
+        }
         unawaited(_loadReminders());
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: resp.failureMessage(l.medicationReminderDeleteFailed),
+          ),
+        );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Error deleting reminder: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.medicationReminderDeleteFailed),
+        );
+      }
     }
   }
 
@@ -322,6 +389,27 @@ class _ReminderCard extends StatelessWidget {
                               l.medicationReminderAncSupplement,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onSecondaryContainer,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (!reminder.isActive)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              l.medicationReminderPausedLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),

@@ -1,6 +1,7 @@
 // lib/core/utils/cache_file_utils.dart
 
 import 'dart:io';
+
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
@@ -78,7 +79,7 @@ class CacheFileUtils {
         final encrypted = await ApiCacheManager.encryptBytes(
           response.bodyBytes,
         );
-        return ApiCacheManager.writeForSession(session, () async {
+        return await ApiCacheManager.writeForSession(session, () async {
           final file = await _getLocalFile(fileKey);
           await file.writeAsBytes(encrypted, flush: true);
           return file;
@@ -98,7 +99,7 @@ class CacheFileUtils {
     final session = CacheProfileScope.current();
     try {
       final encrypted = await ApiCacheManager.encryptBytes(bytes);
-      return ApiCacheManager.writeForSession(session, () async {
+      return await ApiCacheManager.writeForSession(session, () async {
         final file = await _getLocalFile(fileName);
         await file.writeAsBytes(encrypted, flush: true);
         return file;

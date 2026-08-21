@@ -4,7 +4,17 @@ import prisma from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { normalizeSystemKey } from './terminologyService.js';
 
-const RESOURCE_TYPES = new Set(['diagnosis', 'patient_problem']);
+// Migration 297 originally allowed diagnosis + patient_problem; migration 720
+// widened the CHECK to the downstream document surfaces (WP2). Keep this set
+// in lockstep with chk_clinical_code_bindings_resource_type.
+const RESOURCE_TYPES = new Set([
+  'diagnosis',
+  'patient_problem',
+  'death_certificate',
+  'insurance_preauth',
+  'insurance_claim',
+  'discharge_summary',
+]);
 const SOURCE_VALUES = new Set(['manual', 'who_icd_api', 'fhir_import', 'legacy', 'system']);
 const ICD11_SYSTEM_URI = 'http://id.who.int/icd/release/11/mms';
 const ICD10_SYSTEM_URI = 'http://hl7.org/fhir/sid/icd-10';

@@ -12,10 +12,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
 }));
+// Controllable: the revoke-all Redis positive cache is consulted ONLY while
+// the connection is live (isRedisConnected guard, added with the 2026-08-15
+// Redis-loss drill remediation — mirrors isTokenBlacklisted). Tests of the
+// Redis-hit path flip this to true; everything else runs disconnected.
+let redisConnected = false;
 jest.unstable_mockModule('../../lib/redis.js', () => ({
   cacheGet: cacheGetMock,
   cacheSet: cacheSetMock,
-  isRedisConnected: () => false,
+  isRedisConnected: () => redisConnected,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -36,6 +41,7 @@ jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
 
 const {
   isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
   isUserTokensRevoked,
   persistRevokeDelegatedTuple,
   publishRevokeDelegatedTuple,
@@ -52,6 +58,7 @@ beforeEach(() => {
   cacheSetMock.mockReset();
   pushSessionRevokedMock.mockReset();
   pushDelegatedSessionRevokedMock.mockReset();
+  redisConnected = false;
 });
 
 describe('delegated tuple revocation', () => {
@@ -91,6 +98,43 @@ describe('delegated tuple revocation', () => {
   });
 });
 
+describe('isSubjectDelegationRevoked (delegated subject, recoverable timestamp predicate)', () => {
+  const subjectUid = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+  it('is timestamp-only: no epoch-counter arm, so an old bump cannot deny forever', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(isSubjectDelegationRevoked(subjectUid, 5000)).resolves.toBe(false);
+
+    const [sql, marker, issuedAt, uid] = queryRawUnsafeMock.mock.calls[0];
+    // The predicate compares the epoch BUMP TIMESTAMP against the bearer iat;
+    // the bare `token_epoch > N` counter arm (which never clears) must not
+    // appear — that arm is what made delegated denial permanent.
+    expect(sql).toMatch(/token_epoch_bumped_at > to_timestamp/);
+    expect(sql).not.toMatch(/token_epoch >/);
+    expect(marker).toBe(`user:${subjectUid}`);
+    expect(issuedAt).toBe(5000);
+    expect(uid).toBe(subjectUid);
+  });
+
+  it('returns true when the durable predicate matches (revoke-all after the bearer mint)', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    await expect(isSubjectDelegationRevoked(subjectUid, 5000)).resolves.toBe(true);
+  });
+
+  it('returns false for a non-UUID identity without touching the store', async () => {
+    await expect(isSubjectDelegationRevoked('not-a-uuid', 5000)).resolves.toBe(false);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('fails CLOSED when the durable store is unreachable', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('db down'));
+    await expect(isSubjectDelegationRevoked(subjectUid, 5000)).rejects.toThrow(
+      /Subject delegation revocation store unreachable/,
+    );
+  });
+});
+
 describe('tokenBlacklist revoke-all fallback', () => {
   it('checks the DB revoke marker inclusively against the token iat watermark', async () => {
     cacheGetMock.mockResolvedValueOnce(null);
@@ -113,6 +157,7 @@ describe('tokenBlacklist revoke-all fallback', () => {
   });
 
   it('treats a Redis marker from the same second as token iat as revoked', async () => {
+    redisConnected = true; // the positive cache is only consulted while live
     cacheGetMock.mockResolvedValueOnce({ revokedAt: 1234 });
 
     await expect(isUserTokensRevoked('42', 1234)).resolves.toBe(true);

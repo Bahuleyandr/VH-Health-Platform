@@ -13,7 +13,6 @@ import 'package:vhhealth/features/departments/widgets/departments_empty_state.da
 import 'package:vhhealth/features/departments/widgets/doctor_card.dart';
 import 'package:vhhealth/features/departments/widgets/doctor_detail_sheet.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
-import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class DepartmentsScreen extends StatefulWidget {
   const DepartmentsScreen({super.key});
@@ -31,7 +30,6 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
 
-  late ScaffoldMessengerState _messenger;
   late ThemeData _theme;
   late AppLocalizations _loc;
 
@@ -51,7 +49,6 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _messenger = ScaffoldMessenger.of(context);
     _theme = Theme.of(context);
     _loc = AppLocalizations.of(context)!;
   }
@@ -164,14 +161,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   Future<void> _triggerSOS() async {
-    _messenger.showSnackBar(
-      LiveRegionSnackBar.build(
-        message: _loc.authSosTriggered,
-        backgroundColor: _theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    await SOSService.triggerSOS();
+    // Sending → real outcome (success / honest failure / guest skip); the
+    // pre-await success toast used to fire even when nothing was sent.
+    await SOSService.triggerWithFeedback(context);
   }
 
   @override
@@ -392,9 +384,8 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                                         Padding(
                                           padding: const EdgeInsets.all(16),
                                           child: Text(
-                                            AppLocalizations.of(
-                                              context,
-                                            )!.departmentsNoDoctors,
+                                            AppLocalizations.of(context)!
+                                                .departmentsNoDoctors,
                                             style: _theme.textTheme.bodySmall
                                                 ?.copyWith(
                                                   color: cs.onSurfaceVariant,

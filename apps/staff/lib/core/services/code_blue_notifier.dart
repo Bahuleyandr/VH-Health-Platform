@@ -32,8 +32,31 @@ class CodeBlueNotifier {
   bool _isCodeBlue(RemoteMessage msg) =>
       msg.data['type']?.toString() == 'code_blue';
 
+  /// SOS responder fan-out (backend `type: 'EMERGENCY'` with
+  /// `data.sos_alert_id`). SOS_BROADCAST is an all-staff informational blast
+  /// and is not presented as a responder work item.
+  bool _isSosResponderPush(RemoteMessage msg) {
+    final type = msg.data['type']?.toString().toUpperCase() ?? '';
+    return (type.contains('SOS') || type.contains('EMERGENCY')) &&
+        !type.contains('BROADCAST');
+  }
+
   Future<void> handleForegroundMessage(RemoteMessage message) async {
-    if (_isCodeBlue(message)) await showForMessage(message);
+    if (_isCodeBlue(message)) {
+      await showForMessage(message);
+    } else if (_isSosResponderPush(message)) {
+      await showSosForMessage(message);
+    }
+  }
+
+  /// SOS content ships in the fan-out data payload itself (unlike Code Blue's
+  /// opaque message + authenticated content fetch), so present it directly.
+  Future<void> showSosForMessage(RemoteMessage message) async {
+    if (!_initialized) await initialize();
+    await StaffLocalNotifications.instance.showSosAlertFromData(
+      Map<String, dynamic>.from(message.data),
+      force: true,
+    );
   }
 
   Future<void> showForMessage(RemoteMessage message) async {

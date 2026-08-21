@@ -8,6 +8,7 @@
 import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
 import purgeArchives from '../../admin/purge-archives.js';
+import { notificationOutboxAutoReplayEnabled } from '../config/notificationOutboxConfig.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import {
   isPathwayReconciliationEnabled,
@@ -252,6 +253,15 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // Staff roster deadline escalation — next week's roster must be published
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
+// Shift swap expiry — still-live swap requests whose earliest shift has
+// started can never complete; flip them to expired so they stop blocking
+// fresh proposals on the same roster assignments.
+import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
+import { expireStaleGatewayOrders } from '../services/billing/paymentGatewayService.js';
+// Ambulance GPS position retention — the fix stream (migration 683) is
+// high-volume operational telemetry; keep only the tenant-configured window
+// (default 7 days).
+import { sweepAmbulancePositionEvents } from '../services/ed/ambulanceTrackingService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
@@ -715,6 +725,20 @@ if (process.env.NODE_ENV !== 'test') {
     runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
   )));
 
+  // 🍽️ Daily at 05:00 IST (23:30 UTC) - cut the day's kitchen meal tickets
+  // (one per ACTIVE diet order x meal window for currently admitted
+  // patients; migration 685). One morning cut before the breakfast line
+  // starts; same-day churn is handled synchronously by the diet-order
+  // create/update sync and the manual /dietary/kitchen/generate endpoint.
+  // Idempotent per the live (diet_order, service_date, meal_type) unique.
+  registerCron('30 23 * * *', withJobLock('dietary-meal-ticket-generation', async () => {
+    const { generateMealTickets } = await import('../services/dietary/kitchenService.js');
+    const r = await runForEachTenant('dietary-meal-ticket-generation', (tenantId) => (
+      generateMealTickets({ tenantId, source: 'scheduler' })
+    ));
+    logger.info('dietary-meal-ticket-generation complete', r);
+  }));
+
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
   registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => (
     runForEachTenant('process-scheduled-notifications', tenantId => (
@@ -725,6 +749,18 @@ if (process.env.NODE_ENV !== 'test') {
   // 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
   registerCron('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
     await runForEachTenant('drug-chart-missing-sla', () => runMissingDrugChartSweep());
+  }));
+
+  // ⏱️ Every 5 minutes - Generic overdue closer for workflow_sla_instances:
+  // flips active past-due clocks to 'breached' (breached_at = due_at) so
+  // instances with no linked task (beds, housekeeping, referrals, stroke,
+  // discharge consults, cath-lab, ...) stop sitting 'active' forever. No
+  // notification here — the escalation engine consumes 'breached' status.
+  registerCron('*/5 * * * *', withJobLock('workflow-sla-overdue-sweep', async () => {
+    const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+    await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+      runWorkflowSlaOverdueSweep({ tenantId })
+    ));
   }));
 
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
@@ -740,6 +776,44 @@ if (process.env.NODE_ENV !== 'test') {
       drainNotificationOutbox({ tenantId, limit: 100 })
     ));
   }));
+
+  // ♻️ Every 15 minutes - bounded auto-replay of RECONCILIATION_REQUIRED
+  // notification_outbox rows (audit MEDIUM follow-up to F7/F11). The row
+  // itself is never re-sent (mig-609: the original provider outcome is
+  // unknowable); the sweep reuses the audited operator requeue-as-new-intent
+  // path — new intent with an `:auto-replay:` source-key suffix and
+  // replay_generation + 1 (mig-690), original stamped
+  // 'operator_replay_superseded', paused cursor resumed, audit_logs row with
+  // duplicate_delivery_risk_accepted. Bounds: 2 generations per chain,
+  // >= 30-min backoff, 24-h age ceiling, 25 rows per tenant per tick.
+  // Chains past the bound are stamped terminal once (logger.error +
+  // notification_outbox_auto_replay_total{outcome="exhausted"}) and left for
+  // the operator endpoints. SUPPRESSED rows are terminal-by-design (payroll
+  // supersede semantics) and are deliberately not touched.
+  //
+  // Deliberately slower than the 2-min drain: the input state only arises
+  // after a full 3×5-min retry cycle or a lease expiry, and duplicate-risk
+  // requeues must not be hot-looped. Kill switch mirrors the SOS sweep:
+  // DEFAULT-ON (unset === enabled) so the remediation ships live, but an
+  // operator can stop duplicate-risk requeues without a revert commit +
+  // manual ArgoCD sync. Lazy import keeps the scheduler's eager module graph
+  // (and existing partial-module test mocks) unchanged.
+  if (notificationOutboxAutoReplayEnabled(process.env)) {
+    registerCron('*/15 * * * *', withJobLock('notification-outbox-auto-replay', async () => {
+      const { autoReplayReconciliationRequiredRows } = await import(
+        '../services/notification/notificationOutboxAdminService.js'
+      );
+      const result = await runForEachTenant('notification-outbox-auto-replay', (tenantId) => (
+        autoReplayReconciliationRequiredRows({ tenantId, limit: 25 })
+      ));
+      logger.info('notification-outbox-auto-replay complete', result);
+    }));
+  } else {
+    logger.warn(
+      'Notification outbox auto-replay sweep DISABLED by NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED=false — '
+        + 'RECONCILIATION_REQUIRED rows will not be requeued automatically and need operator replay.',
+    );
+  }
 
   registerCron('*/2 * * * *', withJobLock('fhir-vital-effects-recovery', async () => {
     await runFhirVitalEffectsRecoveryJob({ limitPerTenant: 25 });
@@ -836,6 +910,35 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('*/10 * * * *', withJobLock('unread-critical-notification-escalation', async () => {
     await runForEachTenant('unread-critical-notification-escalation', () => runUnreadCriticalEscalation());
   }));
+
+  // 🆘 Every 2 minutes - escalate never-acknowledged ACTIVE SOS alerts
+  // (HIGH-1): one severity-ladder step per 5-minute window + responder
+  // re-fan-out; stalled-at-CRITICAL alerts page ops and mark the
+  // sos_response_ack SLA instance escalated. Complements (does not replace)
+  // the unread-critical cron above, which watches notification rows — this
+  // watches the alert row itself.
+  //
+  // ★ KILL SWITCH, and it is deliberately DEFAULT-ON (unset === enabled).
+  // This sweep is the HIGH-1 remediation, so an opt-in flag would ship the
+  // fix disabled — the failure mode the flag exists to prevent. But it is
+  // also the one cron that pages the emergency team on a timer, so an
+  // operator must be able to stop it without a revert commit and a second
+  // ArgoCD sync (production sync is manual; a code-only kill is hours).
+  // Set SOS_ALERT_AGE_ESCALATION_ENABLED=false to silence it; alerts still
+  // fan out at creation and remain visible on the SOS dashboard.
+  if (String(process.env.SOS_ALERT_AGE_ESCALATION_ENABLED ?? 'true').toLowerCase() !== 'false') {
+    registerCron('*/2 * * * *', withJobLock('sos-alert-age-escalation', async () => {
+      const { runSosAlertAgeEscalationSweep } = await import('../services/sosEscalationService.js');
+      await runForEachTenant('sos-alert-age-escalation', (tenantId) => (
+        runSosAlertAgeEscalationSweep({ tenantId })
+      ));
+    }));
+  } else {
+    logger.warn(
+      'SOS alert-age escalation sweep DISABLED by SOS_ALERT_AGE_ESCALATION_ENABLED=false — '
+        + 'never-acknowledged SOS alerts will not auto-escalate or re-page responders.',
+    );
+  }
 
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
   registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', () => runForEachTenant('escalate-stuck-orders', () => escalateStuckOrders())));
@@ -967,6 +1070,51 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }));
 
+  // 🪪 Every 5 minutes — ABHA enrolment session expiry (migration 701).
+  // Live sessions past expires_at flip to 'expired' so the one-live-session
+  // partial unique never wedges a patient behind an abandoned OTP txn.
+  registerCron('*/5 * * * *', withJobLock('abha-enrolment-expiry', async () => {
+    const { sweepExpiredEnrolmentSessions } = await import('../services/abdm/abhaEnrolmentService.js');
+    await sweepExpiredEnrolmentSessions();
+  }));
+
+  // 🧾 Every 5 minutes — Scan & Share intake expiry (migration 702). Share
+  // tokens are short-lived; unactioned 'received' intakes expire off the
+  // front-desk queue.
+  registerCron('*/5 * * * *', withJobLock('abdm-share-intake-expiry', async () => {
+    const { sweepExpiredShareIntakes } = await import('../services/abdm/abdmShareIntakeService.js');
+    await sweepExpiredShareIntakes();
+  }));
+
+  // 🔑 Every 5 minutes — tenant-scoped HIU expiry, key scrub and R2 erasure.
+  // Consent dataEraseAt is persisted into request/artifact state; decrypted
+  // bundles remain durable retry pointers until their R2 delete succeeds.
+  registerCron('*/5 * * * *', withJobLock('abdm-hiu-fetch-expiry', async () => {
+    const { sweepExpiredHiuFetchSessions } = await import('../services/abdm/abdmHiuService.js');
+    await runForEachTenant('abdm-hiu-retention', tenantId => (
+      sweepExpiredHiuFetchSessions({ tenantId })
+    ));
+  }));
+
+  // 📧 Hourly at :10 — scheduled MIS report email dispatch (migration 679).
+  // Per-tenant fan-out; runDueMisReportSchedules evaluates each enabled
+  // schedule against the tenant's local clock (settings.timezone, defaulting
+  // Asia/Kolkata), claims due occurrences with a compare-and-set on
+  // last_occurrence_key (so a failed tick's survivors catch up later the same
+  // day without double-sending), renders the snapshot reports and emails them
+  // with per-recipient delivery evidence in mis_report_deliveries. Individual
+  // schedule failures are recorded on their own rows and never abort the
+  // sweep. Lazy import keeps the email/report graph out of the scheduler's
+  // boot path.
+  registerCron('10 * * * *', withJobLock('mis-report-schedule-dispatch', async () => {
+    const { runDueMisReportSchedules } = await import(
+      '../services/dashboards/misReportScheduleService.js'
+    );
+    await runForEachTenant('mis-report-schedule-dispatch', (tenantId) => (
+      runDueMisReportSchedules({ tenantId })
+    ));
+  }));
+
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.
@@ -1048,6 +1196,37 @@ if (process.env.NODE_ENV !== 'test') {
     }),
     { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
   );
+
+  // 🗓️ Hourly at :20 — expire shift swap requests whose earliest shift has
+  // already started (they can never be approved; the live-swap unique indexes
+  // would otherwise keep blocking new proposals on those assignments).
+  registerCron('20 * * * *', withJobLock('shift-swap-expiry', async () => {
+    await runForEachTenant('shift-swap-expiry', tenantId => (
+      expireStaleShiftSwapRequests({ tenantId })
+    ));
+  }));
+
+  // 🗓️ Every 15 min — expire payment gateway orders (migration 694) whose
+  // checkout window lapsed while still created/attempted. Mirrors the
+  // payment-link expiry idiom: idempotent cross-tenant UPDATE; a capture
+  // webhook arriving later still books (capture path ignores expiry — the
+  // provider's money is authoritative).
+  registerCron('*/15 * * * *', withJobLock('payment-gateway-order-expiry', async () => {
+    const { expired } = await expireStaleGatewayOrders();
+    if (expired) logger.info(`Scheduled Task: expired ${expired} payment gateway orders`);
+  }));
+
+  // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).
+  // Position fixes are operational telemetry, not chart content; delete rows
+  // older than the tenant's ambulanceGpsTracking.retentionDays (default 7).
+  // Runs even for tenants with the feature disabled so a later disable still
+  // drains the already-ingested backlog. Self-batched inside the service.
+  registerCron('25 * * * *', withJobLock('ambulance-position-retention', async () => {
+    const result = await runForEachTenant('ambulance-position-retention', tenantId => (
+      sweepAmbulancePositionEvents({ tenantId })
+    ));
+    logger.info('ambulance-position-retention sweep complete', result);
+  }));
 
   // 🗓️ Daily at 03:30 - Apply tenant retention policies to all five audit sinks.
   // The service fails closed unless an active policy explicitly selects erase
@@ -1308,6 +1487,14 @@ export async function runAllScheduledTasksNow() {
     ));
     await runManualTask('drug-chart-missing-sla', () => (
       withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep))
+    ));
+    await runManualTask('workflow-sla-overdue-sweep', () => (
+      withDbAdvisoryLock('workflow-sla-overdue-sweep', () => runWithSuperAdmin(async () => {
+        const { runWorkflowSlaOverdueSweep } = await import('../services/workflow/slaOverdueSweepService.js');
+        await runForEachTenant('workflow-sla-overdue-sweep', (tenantId) => (
+          runWorkflowSlaOverdueSweep({ tenantId })
+        ));
+      }))
     ));
     await runManualTask('unread-critical-notification-escalation', () => (
       withDbAdvisoryLock('unread-critical-notification-escalation', () => (

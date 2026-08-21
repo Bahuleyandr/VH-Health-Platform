@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
@@ -9,8 +10,9 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
 typedef PayrollDeclarationsLoader = Future<List<dynamic>> Function();
-typedef PayrollDeclarationSubmitter =
-    Future<Object?> Function(Map<String, dynamic> data);
+typedef PayrollDeclarationSubmitter = Future<Object?> Function(
+  Map<String, dynamic> data,
+);
 
 class InvestmentDeclarationScreen extends StatefulWidget {
   final PayrollDeclarationsLoader? loadDeclarations;

@@ -6,7 +6,7 @@ import { parseHL7 } from '../services/hl7/hl7Parser.js';
 import { ingestOruMessage } from '../services/lab/labResultsService.js';
 import { authClient } from './testClient.js';
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfTestDb = databaseUrl ? describe : describe.skip;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const RUN_ID = randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();

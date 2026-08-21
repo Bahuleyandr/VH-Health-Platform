@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function read(relativeUrl) {
@@ -10,6 +10,8 @@ describe('production bootstrap and migration-writer ownership', () => {
   const jobSource = read('../../../../../infra/kubernetes/apps/backend/migration-job.yaml');
   const configSource = read('../../../../../infra/kubernetes/apps/backend/configmap.yaml');
   const grantMigration = read('../../migrations/667_runtime_migration_tracker_readiness.sql');
+  const legacyInitDbPath = fileURLToPath(new URL('../../scripts/init-db.js', import.meta.url));
+  const packageScripts = Object.values(JSON.parse(read('../../../package.json')).scripts);
 
   it('does not bind the HTTP socket until application bootstrap resolves', () => {
     const start = wwwSource.indexOf('prepareApplication()\n  .then(() => {');
@@ -29,6 +31,11 @@ describe('production bootstrap and migration-writer ownership', () => {
     expect(migrate).toBeGreaterThan(-1);
     expect(grants).toBeGreaterThan(migrate);
     expect(configSource).toContain('RUN_MIGRATIONS: "false"');
+  });
+
+  it('keeps schema bootstrap authority in the migration runner', () => {
+    expect(existsSync(legacyInitDbPath)).toBe(false);
+    expect(packageScripts.join('\n')).not.toMatch(/\binit-db(?:\.js)?\b/);
   });
 
   it('grants API roles read-only access to the migration tracker', () => {

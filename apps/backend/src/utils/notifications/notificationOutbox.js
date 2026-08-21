@@ -7,9 +7,26 @@ import {
   OPERATOR_REPLAY_SUPERSEDED_REASON,
   TERMINAL_REJECTION_CODES,
 } from './terminalRejectionCodes.js';
+import {
+  DELIVERY_CHANNELS_PAYLOAD_KEY,
+  normalizeChannelList,
+  REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+} from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
+
+// Retry budget for this file's two SERIALIZABLE transactions. See
+// runSerializableTx for why they need one at all. Mirrors
+// SERIALIZABLE_ATTEMPTS / runSerializableCommand in
+// services/downtime/externalRecoveryOperabilityService.js, the house pattern
+// for a serializable command that can lose a race.
+const SERIALIZABLE_ATTEMPTS = 3;
+
+// Full-jitter base. The window a serialization conflict opens is tiny, so the
+// point of sleeping at all is to decorrelate two writers that just collided —
+// an immediate retry tends to re-collide with the same peer.
+const SERIALIZABLE_RETRY_BASE_MS = 10;
 
 const toRecipientIdTextOrNull = (value) => {
   if (typeof value === 'string') {
@@ -125,7 +142,28 @@ function buildIntent(notification) {
   const recipientPhone = String(notification.recipientPhone || '').trim() || null;
   const channel = normalizeChannel(notification);
   const version = templateVersion(notification);
-  const data = canonicalize(notification.data || {});
+  const rawData = canonicalize(notification.data || {});
+  const data = rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+    ? Object.fromEntries(
+      Object.entries(rawData).filter(([key]) => ![
+        DELIVERY_CHANNELS_PAYLOAD_KEY,
+        REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+      ].includes(key)),
+    )
+    : rawData;
+  const deliveryChannels = normalizeChannelList(notification.deliveryChannels);
+  const replayChainStartedAtMs = Number(rawData?.[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]);
+  const internalData = {};
+  if (deliveryChannels.length > 0) {
+    internalData[DELIVERY_CHANNELS_PAYLOAD_KEY] = deliveryChannels;
+  }
+  if (Number.isSafeInteger(replayChainStartedAtMs) && replayChainStartedAtMs > 0) {
+    internalData[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY] = replayChainStartedAtMs;
+  }
+  const storedData = Object.keys(internalData).length > 0
+    && data && typeof data === 'object' && !Array.isArray(data)
+    ? { ...data, ...internalData }
+    : data;
   const hashInput = {
     type: String(notification.type || channel),
     channel,
@@ -144,7 +182,7 @@ function buildIntent(notification) {
     recipientPhone,
     title: hashInput.title,
     body: hashInput.body,
-    data,
+    data: storedData,
     channel,
     sourceKey,
     recipientKey: recipientKey(recipientId, recipientPhone, sourceKey),
@@ -154,24 +192,36 @@ function buildIntent(notification) {
   });
 }
 
-async function queueTx(db, tenantId, intent) {
+// replay_generation is chain bookkeeping (mig-690), deliberately OUTSIDE the
+// rendered-intent hash: a requeued replacement carries the same intent bytes
+// as its original plus generation + 1. Set at INSERT only, clamped to the
+// CHECK backstop; callers other than the replay paths never pass it.
+function normalizeReplayGeneration(value) {
+  const generation = Number(value ?? 0);
+  if (!Number.isSafeInteger(generation) || generation < 0) return 0;
+  return Math.min(generation, 8);
+}
+
+async function queueTx(db, tenantId, intent, { replayGeneration = 0 } = {}) {
   const rows = await db.$queryRawUnsafe(
     `WITH inserted AS (
        INSERT INTO notification_outbox
          (tenant_id, type, recipient_id, recipient_phone, title, body, payload,
           status, created_at, channel, source_event_key, recipient_key,
-          template_version, rendered_intent_hash, ledger_version)
+          template_version, rendered_intent_hash, ledger_version, replay_generation)
        VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text,
                $7::jsonb, 'PENDING', NOW(), $8::text, $9::text, $10::text,
-               $11::text, $12::char(64), 1)
+               $11::text, $12::char(64), 1, $13::smallint)
        ON CONFLICT ON CONSTRAINT ux_notification_outbox_delivery_intent DO NOTHING
        RETURNING id, status, tenant_id::text, channel, source_event_key,
-                 recipient_key, template_version, rendered_intent_hash, false AS duplicate
+                 recipient_key, template_version, rendered_intent_hash,
+                 replay_generation, false AS duplicate
      )
      SELECT * FROM inserted
      UNION ALL
      SELECT id, status, tenant_id::text, channel, source_event_key,
-            recipient_key, template_version, rendered_intent_hash, true AS duplicate
+            recipient_key, template_version, rendered_intent_hash,
+            replay_generation, true AS duplicate
        FROM notification_outbox
       WHERE tenant_id = $1::uuid AND source_event_key = $9::text
         AND recipient_key = $10::text AND channel = $8::text
@@ -181,12 +231,80 @@ async function queueTx(db, tenantId, intent) {
     tenantId, intent.type, intent.recipientId, intent.recipientPhone,
     intent.title, intent.body, JSON.stringify(intent.data), intent.channel,
     intent.sourceKey, intent.recipientKey, intent.templateVersion, intent.renderedIntentHash,
+    normalizeReplayGeneration(replayGeneration),
   );
   return rows[0] || null;
 }
 
+// Prisma reports a raw-SQL failure as P2010 and carries the real SQLSTATE on
+// `meta.code`; the Prisma 7 driver adapter nests it one level deeper. Probe the
+// same chain the other serializable services use — never the message text.
+function sqlState(error) {
+  return (
+    error?.meta?.code
+    || error?.meta?.driverAdapterError?.cause?.originalCode
+    || error?.cause?.code
+    || error?.code
+  );
+}
+
+/**
+ * Is `error` a transient conflict that beginning a NEW transaction — and
+ * therefore taking a FRESH snapshot — can actually resolve?
+ *
+ * 40001 (serialization_failure), 40P01 (deadlock_detected) and Prisma's P2034
+ * are the generic transient classes every SERIALIZABLE caller is required to be
+ * ready for. Deliberately NOT 23505/P2002: the only unique violation these
+ * transactions expect is the delivery-intent collision, and `queueTx` already
+ * absorbs that with ON CONFLICT DO NOTHING. A unique violation that still
+ * escapes is a real defect and must surface to the caller, not be retried and
+ * then re-raised three transactions later.
+ */
+function isRetryableSerializationConflict(error) {
+  return ['40001', '40P01', 'P2034'].includes(String(sqlState(error) || ''));
+}
+
+/**
+ * Run `command` in a tenant-scoped SERIALIZABLE transaction, retrying the whole
+ * transaction on a transient conflict.
+ *
+ * ★ The retry is mandatory rather than defensive. SERIALIZABLE fixes a
+ * transaction's snapshot at its first statement, so two concurrent claimers
+ * racing the same outbox row make Postgres abort one with 40001 by design —
+ * "could not serialize access due to concurrent update" is the contract
+ * working, not a fault. 40001 is retryable by that same contract, so letting it
+ * escape turns a routine lost race into a 500 for the caller.
+ *
+ * Safe because both callers pass a command that is safe to re-run WHOLE: each
+ * is a single statement, an abort rolls back every effect including the
+ * claim-generation bump, and the retry either wins the lease or loses cleanly
+ * (the next snapshot sees the row already CLAIMED and the candidate predicate
+ * excludes it, yielding an empty batch). Do not reach for this around a
+ * transaction with non-idempotent side effects.
+ */
+async function runSerializableTx(tenantId, command, context = {}) {
+  for (let attempt = 1; attempt <= SERIALIZABLE_ATTEMPTS; attempt += 1) {
+    try {
+      return await setTenantTx(tenantId, command, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if (attempt >= SERIALIZABLE_ATTEMPTS || !isRetryableSerializationConflict(error)) throw error;
+      logger.warn('Notification outbox serializable conflict — retrying', {
+        ...context,
+        tenant_id: tenantId,
+        attempt,
+        max_attempts: SERIALIZABLE_ATTEMPTS,
+        sql_state: sqlState(error),
+      });
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.floor(Math.random() * SERIALIZABLE_RETRY_BASE_MS * attempt));
+      });
+    }
+  }
+  throw new Error('Notification outbox serializable command retry exhausted');
+}
+
 class NotificationOutbox {
-  async queue(notification, { tx = null, strict = false } = {}) {
+  async queue(notification, { tx = null, strict = false, replayGeneration = 0 } = {}) {
     try {
       const intent = buildIntent(notification || {});
       const tenantId = await resolveTenantId(notification || {}, tx || prisma);
@@ -198,11 +316,15 @@ class NotificationOutbox {
         if (contexts[0]?.tenant_id !== tenantId) {
           throw new Error('Notification outbox transaction tenant does not match intent tenant');
         }
-        return await queueTx(tx, tenantId, intent);
+        // A caller-supplied transaction is NOT ours to retry — it may already
+        // be aborted, and its other statements are outside our control.
+        return await queueTx(tx, tenantId, intent, { replayGeneration });
       }
-      return await setTenantTx(tenantId, db => queueTx(db, tenantId, intent), {
-        isolationLevel: 'Serializable',
-      });
+      return await runSerializableTx(
+        tenantId,
+        db => queueTx(db, tenantId, intent, { replayGeneration }),
+        { operation: 'queue', channel: intent.channel },
+      );
     } catch (err) {
       if (strict) throw err;
       logger.warn('Notification outbox queue failed:', err.message);
@@ -215,7 +337,7 @@ class NotificationOutbox {
     if (!tid) throw new Error('Notification outbox claim requires tenantId');
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 250);
     const safeLeaseSeconds = Math.min(Math.max(Number(leaseSeconds) || 120, 30), 900);
-    return setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    return runSerializableTx(tid, tx => tx.$queryRawUnsafe(
       `WITH candidates AS (
          SELECT outbox.id
            FROM notification_outbox AS outbox
@@ -269,7 +391,7 @@ class NotificationOutbox {
                   outbox.claimed_at, outbox.lease_expires_at`,
       tid, safeLimit, safeLeaseSeconds,
       TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
-    ), { isolationLevel: 'Serializable' });
+    ), { operation: 'claimPendingBatch', limit: safeLimit });
   }
 
   async markSent(outboxId, { tenantId, claimToken, claimGeneration } = {}) {
@@ -380,6 +502,7 @@ export const __testing__ = Object.freeze({
   canonicalize,
   normalizeTenantId,
   normalizeChannel,
+  normalizeReplayGeneration,
   sourceEventKey,
   recipientKey,
   templateVersion,

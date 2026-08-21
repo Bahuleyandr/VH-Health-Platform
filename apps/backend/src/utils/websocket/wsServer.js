@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
 import {
   isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
   isTokenBlacklisted,
   isUserTokensRevoked,
 } from '../tokenBlacklist.js';
@@ -32,7 +33,139 @@ export function isWsFanoutReady() {
 
 /** Tear down this process's fan-out subscriber (graceful shutdown / tests). */
 export function closeWsFanout() {
+  cancelWsFanoutRewire();
   return fanout.close();
+}
+
+// --- Background fan-out rewire (PR #874 follow-up) -------------------------
+//
+// Closes the LAST degraded-start hole in the fan-out wiring: Redis init
+// SUCCEEDED at boot but initWsFanout itself failed (subscriber duplicate
+// couldn't connect / PSUBSCRIBE rejected / zero-subscription ack). The
+// non-strict posture logged a warning and served anyway — and since nothing
+// ever called initWsFanout again, the pod stayed silently deaf to cross-pod
+// clinical broadcasts (code-blue / vitals) until restart. The sibling holes
+// were already closed: an initRedis failure arms scheduleRedisReinit with an
+// onReconnect rewire hook (873-F10), and a mid-flight subscriber drop is
+// re-subscribed by the adapter's own 'ready' handler — but neither path fires
+// when the boot-time init itself is what failed.
+//
+// Shape mirrors scheduleRedisReinit (unref'd timer, idempotent, loud logs,
+// stop-on-success) with two deliberate differences: exponential backoff with
+// a delay cap instead of a fixed cadence (each failed attempt burns a Redis
+// duplicate connection, so probe fast at first and settle to a slow patrol),
+// and a bounded attempt count — Redis-down recovery is owned by
+// scheduleRedisReinit/ioredis, so an attempt cap here cannot strand the
+// cache; it only stops re-probing a bus that keeps refusing PSUBSCRIBE while
+// the degraded state stays visible on /health/ready
+// (redis_websocket_subscriber), the vh_redis_ws_fanout_ready gauge, and the
+// WsFanoutSubscriberDown alert. Failed attempts also count into
+// recordWsFanoutSubscriberError via the adapter.
+//
+// The adapter owns subscriber creation and failed-initialization cleanup. Its
+// single-flight init also coalesces a reconnect-hook attempt with a timer tick,
+// preventing parallel duplicates and competing PSUBSCRIBEs.
+
+const WS_FANOUT_REWIRE_INITIAL_DELAY_MS = 5_000;
+const WS_FANOUT_REWIRE_MAX_DELAY_MS = 300_000;
+const WS_FANOUT_REWIRE_MAX_ATTEMPTS = 40;
+
+let fanoutRewireTimer = null;
+let fanoutRewireActive = false;
+let fanoutRewireGeneration = 0;
+
+/**
+ * Arm the background rewire loop. Called from bin/www.js when the boot-time
+ * (or reinit-hook) initWsFanout fails on a non-strict start.
+ * @param {object} opts
+ * @param {() => object|null} opts.getClient - returns the live Redis singleton
+ *   (bin/www.js passes lib/redis.js getRedisClient; injected for tests).
+ * @returns {boolean} true when a loop was armed; false when one is already
+ *   running or the fan-out is already wired.
+ */
+export function scheduleWsFanoutRewire({
+  getClient,
+  initialDelayMs = WS_FANOUT_REWIRE_INITIAL_DELAY_MS,
+  maxDelayMs = WS_FANOUT_REWIRE_MAX_DELAY_MS,
+  maxAttempts = WS_FANOUT_REWIRE_MAX_ATTEMPTS,
+} = {}) {
+  if (typeof getClient !== 'function') {
+    throw new TypeError('scheduleWsFanoutRewire requires a getClient function');
+  }
+  if (fanoutRewireActive || fanout.isEnabled()) return false;
+  fanoutRewireActive = true;
+  const rewireGeneration = ++fanoutRewireGeneration;
+  let attempts = 0;
+
+  logger.warn(
+    `WS fan-out degraded at start — retrying subscriber wiring in the background `
+      + `(first attempt in ${initialDelayMs}ms, backoff capped at ${maxDelayMs}ms, `
+      + `up to ${maxAttempts} attempts; broadcasts stay single-process until then)`,
+  );
+
+  const armNext = (delayMs) => {
+    if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+    fanoutRewireTimer = setTimeout(async () => {
+      fanoutRewireTimer = null;
+      if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+      if (fanout.isEnabled()) {
+        // Wired by another path (Redis reinit hook) — stand down quietly.
+        fanoutRewireActive = false;
+        return;
+      }
+      attempts += 1;
+      try {
+        const client = getClient();
+        if (!client) {
+          // Redis itself is gone (again); its recovery is owned elsewhere —
+          // treat as a failed attempt and keep patrolling.
+          throw new Error('Redis client unavailable');
+        }
+        const initialized = await initWsFanout({ pub: client });
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+        if (!initialized) {
+          throw new Error('Redis WebSocket subscriber did not initialize');
+        }
+        fanoutRewireActive = false;
+        logger.info(
+          `WS Redis fan-out restored by background rewire (attempt ${attempts}/${maxAttempts})`,
+        );
+      } catch (err) {
+        if (!fanoutRewireActive || rewireGeneration !== fanoutRewireGeneration) return;
+        if (attempts >= maxAttempts) {
+          fanoutRewireActive = false;
+          logger.error(
+            `WS fan-out background rewire GAVE UP after ${attempts} attempts — cross-pod `
+              + 'broadcasts remain single-process until this pod restarts (visible as '
+              + 'redis_websocket_subscriber on /health/ready, vh_redis_ws_fanout_ready, '
+              + 'and the WsFanoutSubscriberDown alert):',
+            err?.message || err,
+          );
+          return;
+        }
+        logger.warn(
+          `WS fan-out background rewire attempt ${attempts}/${maxAttempts} failed — retrying in ${Math.min(delayMs * 2, maxDelayMs)}ms:`,
+          err?.message || err,
+        );
+        armNext(Math.min(delayMs * 2, maxDelayMs));
+      }
+    }, delayMs);
+    // Never hold the process open for the patrol.
+    fanoutRewireTimer.unref?.();
+  };
+
+  armNext(initialDelayMs);
+  return true;
+}
+
+/** Disarm the rewire loop (graceful shutdown / tests). */
+export function cancelWsFanoutRewire() {
+  fanoutRewireGeneration += 1;
+  if (fanoutRewireTimer) {
+    clearTimeout(fanoutRewireTimer);
+    fanoutRewireTimer = null;
+  }
+  fanoutRewireActive = false;
 }
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
@@ -61,6 +194,9 @@ async function registerDelegatedClientIfLive(
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
+              (dep.birthday IS NULL
+                OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
+                AS is_minor_now,
               dep.is_deleted, dep.deleted_at, dep.merged_into_uid,
               guardian.role AS guardian_role,
               guardian.is_active AS guardian_is_active,
@@ -76,6 +212,11 @@ async function registerDelegatedClientIfLive(
           AND guardian.tenant_id = dep.tenant_id
           AND dep.role = 'PATIENT'
           AND dep.is_minor = TRUE
+          -- Minor status recomputed from date of birth at handshake time:
+          -- delegation ends at 18; a missing birthday falls back to the flag
+          -- (same contract as jwtMiddleware.applyActingAsHop).
+          AND (dep.birthday IS NULL
+               OR dep.birthday > (CURRENT_DATE - INTERVAL '18 years'))
           AND dep.is_active = TRUE
           AND dep.status = 'active'
           AND dep.is_deleted = FALSE
@@ -98,6 +239,7 @@ async function registerDelegatedClientIfLive(
       subject
       && subject.role === 'PATIENT'
       && subject.is_minor === true
+      && subject.is_minor_now === true
       && subject.is_active === true
       && String(subject.status || '').trim().toLowerCase() === 'active'
       && subject.is_deleted === false
@@ -268,9 +410,12 @@ async function authenticateAndRegister(ws, token) {
       // A delegated ticket is authorized as the dependent but owned by the
       // guardian session. Either identity's later revoke-all must stop the
       // handshake. The guardian's token_epoch is not meaningful for the
-      // dependent, so that second check uses the durable timestamp predicate.
+      // dependent, so that second check uses the durable timestamp predicate
+      // (isSubjectDelegationRevoked — including the epoch-bump TIMESTAMP, so a
+      // subject revoke-all severs tickets issued before it without denying
+      // forever; a ticket minted after guardian re-login recovers).
       if (!ownerIsSubject) {
-        const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
+        const subjectRevoked = await isSubjectDelegationRevoked(userId, decoded.iat);
         if (subjectRevoked) {
           ws.close(4001, 'All sessions revoked');
           return;

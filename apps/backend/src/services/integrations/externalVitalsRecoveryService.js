@@ -168,6 +168,11 @@ function extractOru(parsed) {
       loinc_code: String(fields[3] ?? '').split('^')[0].trim(),
       value_numeric: Number.parseFloat(valueText),
       value_text: valueText,
+      // OBX-6 units, same contract as the live ingest path
+      // (deviceVitalsService#extractVitalsFromOru): CE identifier; empty means
+      // assume-canonical; obxResultsToVitals converts known units and refuses
+      // unknown ones (DEVICE_VITALS_UNSUPPORTED_UNIT).
+      units: String(fields[6] ?? '').split('^')[0].trim(),
     };
   });
   return { patientUid, observations };

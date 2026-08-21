@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 
 export const CAMPAIGN_TYPES = Object.freeze([
@@ -563,7 +564,8 @@ async function findPatient(tx, tenantId, patientUid) {
 
 async function checkConsent(tx, { tenantId, patientUid, consentType, maxAgeDays }) {
   const activeRows = await tx.$queryRawUnsafe(
-    `SELECT id, granted_at, expires_at, status
+    `SELECT id, granted_at, expires_at, status,
+            (EXTRACT(EPOCH FROM granted_at) * 1000)::bigint AS granted_at_epoch_ms
        FROM patient_consents
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
@@ -580,9 +582,9 @@ async function checkConsent(tx, { tenantId, patientUid, consentType, maxAgeDays 
   );
 
   const active = activeRows[0];
-  if (active?.granted_at) {
-    const grantedAt = new Date(active.granted_at);
-    const ageMs = Date.now() - grantedAt.getTime();
+  const grantedAtMs = active ? epochMsOrNull(active.granted_at_epoch_ms) : null;
+  if (grantedAtMs != null) {
+    const ageMs = Date.now() - grantedAtMs;
     if (ageMs > maxAgeDays * 24 * 60 * 60 * 1000) {
       return { ok: false, reason: 'stale_consent', consentId: active.id };
     }
@@ -590,7 +592,8 @@ async function checkConsent(tx, { tenantId, patientUid, consentType, maxAgeDays 
   if (active) return { ok: true, consentId: active.id };
 
   const latestRows = await tx.$queryRawUnsafe(
-    `SELECT granted, status, revoked_at, expires_at
+    `SELECT granted, status, revoked_at, expires_at,
+            (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms
        FROM patient_consents
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
@@ -606,7 +609,8 @@ async function checkConsent(tx, { tenantId, patientUid, consentType, maxAgeDays 
   if (latest.revoked_at || String(latest.status || '').toLowerCase() === 'revoked' || latest.granted !== true) {
     return { ok: false, reason: 'revoked_consent' };
   }
-  if (latest.expires_at && new Date(latest.expires_at).getTime() <= Date.now()) {
+  const consentExpiry = epochMsOrNull(latest.expires_at_epoch_ms);
+  if (consentExpiry != null && consentExpiry <= Date.now()) {
     return { ok: false, reason: 'expired_consent' };
   }
   return { ok: false, reason: 'missing_consent' };

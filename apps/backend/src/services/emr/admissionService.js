@@ -71,6 +71,7 @@ import {
   validateOpTransferAdmissionSourceTx,
 } from './inpatientAdmissionSourceValidation.js';
 import { recordEmergencyAdmissionClosureEvidenceTx } from '../ed/edPathwayDomainService.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -2046,7 +2047,8 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
 
   return setTenantTx(requireTenantId(tenantId), async (tx) => {
     const admRows = await tx.$queryRaw`
-      SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
+      SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since,
+             (EXTRACT(EPOCH FROM bed_pending_since) * 1000)::bigint AS bed_pending_since_epoch_ms
       FROM admissions
       WHERE id = ${admissionId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -2193,8 +2195,8 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
           bed_number: bedRows[0].bed_number,
           bed_type: bedRows[0].bed_type,
           bed_pending_since: admission.bed_pending_since,
-          door_to_bed_minutes: admission.bed_pending_since
-            ? Math.round((Date.now() - new Date(admission.bed_pending_since).getTime()) / 60000)
+          door_to_bed_minutes: epochMsOrNull(admission.bed_pending_since_epoch_ms) != null
+            ? Math.round((Date.now() - epochMsOrNull(admission.bed_pending_since_epoch_ms)) / 60000)
             : null,
         },
         ip_address: null,
@@ -3816,6 +3818,26 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
     }
   } catch (e) {
     logger.warn(`dischargePatient: attendant-pass expiry failed for admission ${admissionId}: ${e.message}`);
+  }
+
+  // Dietary meal-ticket recall (Phase 1.5, best-effort — same idiom as the
+  // housekeeping ticket above): a discharged/LAMA/expired patient must not
+  // keep live kitchen tickets. Kitchen-side tickets are cancelled;
+  // dispatched/delivered trays get the flagged do-not-serve recall marker
+  // the ward leg must acknowledge. Failure is logged, never blocks the
+  // discharge — the transitionTicket stale re-check refuses to serve a
+  // discharged patient's tray regardless.
+  try {
+    const { recallTicketsForPatient } = await import('../dietary/kitchenService.js');
+    await recallTicketsForPatient({
+      tenantId: tenantId || phase1.updated.tenant_id,
+      patientUid: phase1.updated.patient_uid,
+      actorUid: dischargedBy,
+      actorRole: options.actorRole || 'DISCHARGE',
+      reason: `admission ended (${discharge_type})`,
+    });
+  } catch (e) {
+    logger.warn(`dischargePatient: dietary meal-ticket recall failed for admission ${admissionId} (continuing): ${e.message}`);
   }
 
   logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${phase1.losDays} days`);

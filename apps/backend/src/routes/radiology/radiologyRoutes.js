@@ -7,7 +7,7 @@ import logger from '../../logging/logger.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { paramId, radiologyOrderValidator } from '../../validators/sharedValidators.js';
+import { paramId, radiologyContrastPlanValidator, radiologyOrderValidator } from '../../validators/sharedValidators.js';
 import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { canSignRadiologyReport } from '../../utils/roleHelpers.js';
 
@@ -61,7 +61,13 @@ router.post('/orders', ...radiologyOrderValidator, validate, async (req, res, ne
       clinical_indication: req.body.clinical_indication,
       priority: req.body.priority,
       ordered_by: req.user?.uid || null,
-      notes: req.body.notes
+      notes: req.body.notes,
+      // Contrast intent + acknowledged allergy-override reason. Attribution
+      // always comes from req.user.uid; caller-selected actor ids are ignored.
+      contrast_planned: req.body.contrast_planned ?? req.body.contrastPlanned,
+      contrast_agent: req.body.contrast_agent ?? req.body.contrastAgent,
+      override: req.body.override,
+      contrast_override_reason: req.body.contrast_override_reason,
     };
 
     const order = await radiologyService.createOrder(orderData, {
@@ -417,6 +423,38 @@ router.get('/:id', async (req, res, next) => {
       return handleOperationalError(res, err);
     }
     logger.error('Failed to get radiology order detail:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * PUT /radiology/:id/contrast
+ * Amend the contrast plan on an order still awaiting acquisition
+ * (protocolling). Runs the same contrast/allergy screen as order creation:
+ * a contrast-relevant allergy hit returns 409 RADIOLOGY_CONTRAST_ALLERGY_BLOCKED
+ * with the matched allergies unless an acknowledged override
+ * ({ override: { reason, approvedBy? } }) is supplied.
+ */
+router.put('/:id/contrast', paramId(), ...radiologyContrastPlanValidator, validate, async (req, res, next) => {
+  try {
+    const result = await radiologyService.setContrastPlan(parseInt(req.params.id, 10), {
+      contrast_planned: req.body.contrast_planned ?? req.body.contrastPlanned,
+      contrast_agent: req.body.contrast_agent ?? req.body.contrastAgent,
+      // Required when the amendment clears an existing contrast plan.
+      reason: req.body.reason ?? req.body.clear_reason,
+      override: req.body.override,
+      contrast_override_reason: req.body.contrast_override_reason,
+      contrast_override_by: req.body.contrast_override_by,
+    }, {
+      tenantId: resolveTenantOrThrow(req),
+      actorUid: req.user?.uid || null,
+      actorRole: actorRole(req),
+    });
+    emitRadiologyEvent('contrast-plan-updated', { tenantId: req.tenantId });
+    return success(res, result, 'Radiology contrast plan updated');
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to update radiology contrast plan:', { error: err.message });
     next(err);
   }
 });

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+
 import '../config/api_config.dart';
 import '../models/api_response.dart';
 import '../models/offline_command_envelope.dart';
@@ -38,6 +40,21 @@ class VHHttpClient {
   /// Set this from the app's root widget to trigger a redirect to login.
   static void Function(String? message)? onSessionExpired;
 
+  /// Guards [onSessionExpired] against double-firing for a single expiry
+  /// event. A single 401 can travel through both [_handleUnauthorized]
+  /// (failed refresh) and the trailing [_checkUnauthorized] on the same
+  /// request; without this the app would receive two redirect-to-login
+  /// callbacks. Reset when a valid session resumes (successful refresh or
+  /// any successful authenticated response) so a later, genuine expiry
+  /// still notifies.
+  static bool _sessionExpiredNotified = false;
+
+  static void _notifySessionExpired(String? message) {
+    if (_sessionExpiredNotified) return;
+    _sessionExpiredNotified = true;
+    onSessionExpired?.call(message ?? 'Session expired. Please log in again.');
+  }
+
   /// When set, returns the UID the current request should be made on
   /// behalf of (e.g. a guardian acting as their minor dependent). When
   /// non-null + non-empty the resolver's return value is sent as the
@@ -50,6 +67,61 @@ class VHHttpClient {
   /// next request — exactly what the "switch back to my profile" UX
   /// action does.
   static String? Function()? actingAsUidProvider;
+
+  /// Path prefixes for which the acting-as delegation header is NEVER sent,
+  /// even while a dependent profile is active.
+  ///
+  /// THE RULE: `X-Acting-As-Uid` exists so PATIENT-RECORD surfaces
+  /// (appointments, records, prescriptions, vitals, pharmacy, investigations,
+  /// portal, …) read and write the active dependent's chart. Surfaces whose
+  /// identity is the PERSON HOLDING THE PHONE — emergency SOS, the guardian's
+  /// own profile and roster management, feedback, device/notification
+  /// registration, step-challenge and wellness attribution, and the whole
+  /// auth/session realm — must always bind to the signed-in guardian no
+  /// matter which profile is being viewed. Sending the header there either
+  /// hard-fails (SOS/profile saves 403 against the dependent's synthetic
+  /// `DEPEND-<hex>` phone) or silently mis-attributes the guardian's own
+  /// activity to the child.
+  ///
+  /// When adding a new endpoint family, classify it: guardian-self → add its
+  /// prefix here; dependent-aware record surface → leave it off this list.
+  static const Set<String> actingAsExemptPathPrefixes = {
+    // Session/token/FCM realm — always the signed-in user's own session.
+    '/auth',
+    // Emergency SOS: alert, cancel, emergency-contact, medical-info,
+    // my-alerts. An emergency belongs to the phone-holder; delegating it
+    // to the dependent identity killed the hospital-side alert (P1).
+    '/sos',
+    // The guardian's own profile + dependent/family roster management
+    // (/users/me, /users/profile, /users/dependents, /users/family-members).
+    '/users',
+    // Feedback is authored by (and scoped to) the guardian.
+    '/feedback',
+    // Device registration/heartbeat/FCM token bind to the physical device.
+    '/devices',
+    // The device owner's notification feed.
+    '/notifications',
+    // Step-challenge walks/leaderboard: the guardian did the walking (P11).
+    '/steps',
+    // Gamification check-ins/points: the guardian's engagement (P11).
+    '/gamification',
+  };
+
+  /// True when [path] belongs to a guardian-self surface (see
+  /// [actingAsExemptPathPrefixes]). Matches whole path segments only, so a
+  /// hypothetical `/sos-extra` is NOT exempt while `/sos` and `/sos/cancel/1`
+  /// are; query strings are ignored.
+  @visibleForTesting
+  static bool isActingAsExemptPath(String path) {
+    var p = path.trim();
+    final queryStart = p.indexOf('?');
+    if (queryStart >= 0) p = p.substring(0, queryStart);
+    if (!p.startsWith('/')) p = '/$p';
+    for (final prefix in actingAsExemptPathPrefixes) {
+      if (p == prefix || p.startsWith('$prefix/')) return true;
+    }
+    return false;
+  }
 
   /// Optional app-level device type provider.
   ///
@@ -89,6 +161,11 @@ class VHHttpClient {
   @visibleForTesting
   static void resetClientForTesting() {
     _client = createPinnedHttpClient();
+    // Reset the session-expiry guard so it does not leak across tests. A
+    // prior test that ended on a genuine expiry leaves the flag latched;
+    // without clearing it here, the next test's first expiry would be
+    // silently suppressed and onSessionExpired would never fire.
+    _sessionExpiredNotified = false;
   }
 
   // ── Convenience HTTP methods ──────────────────────────────────────────
@@ -105,6 +182,7 @@ class VHHttpClient {
   }) async {
     final uri = _buildUri(path, queryParameters);
     final headers = await _headers(
+      path: path,
       auth: auth,
       continuityFacilityId: continuityFacilityId,
       continuityFacilityContext: continuityFacilityContext,
@@ -119,6 +197,7 @@ class VHHttpClient {
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
       // Token was refreshed — retry with new headers
       final retryHeaders = await _headers(
+        path: path,
         auth: true,
         continuityFacilityId: continuityFacilityId,
         continuityFacilityContext: continuityFacilityContext,
@@ -147,7 +226,7 @@ class VHHttpClient {
   }) async {
     final uri = _buildUri(path, queryParameters);
     final headers = _withAdditionalHeaders(
-      await _headers(auth: auth),
+      await _headers(path: path, auth: auth),
       additionalHeaders,
     );
     final response = await _sendWithRetry(
@@ -162,7 +241,7 @@ class VHHttpClient {
         return response;
       }
       final retryHeaders = _withAdditionalHeaders(
-        await _headers(auth: true),
+        await _headers(path: path, auth: true),
         additionalHeaders,
       );
       final retry = await _sendWithRetry(
@@ -225,6 +304,7 @@ class VHHttpClient {
     // instead of double-creating. Covered routes dedup; others ignore it.
     final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
+      path: path,
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
@@ -246,6 +326,7 @@ class VHHttpClient {
         parsed.isUnauthorized &&
         await _handleUnauthorized(parsed)) {
       final retryHeaders = await _headers(
+        path: path,
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
@@ -286,6 +367,7 @@ class VHHttpClient {
     final encoded = body != null ? jsonEncode(body) : null;
     final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
+      path: path,
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
@@ -301,6 +383,7 @@ class VHHttpClient {
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
       final retryHeaders = await _headers(
+        path: path,
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
@@ -336,6 +419,7 @@ class VHHttpClient {
     final encoded = body != null ? jsonEncode(body) : null;
     final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
+      path: path,
       auth: auth,
       json: true,
       idempotencyKey: effectiveKey,
@@ -351,6 +435,7 @@ class VHHttpClient {
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
       final retryHeaders = await _headers(
+        path: path,
         auth: true,
         json: true,
         idempotencyKey: effectiveKey,
@@ -382,6 +467,7 @@ class VHHttpClient {
     final effectiveKey =
         idempotencyKey ?? (body != null ? IdempotencyKey.generate() : null);
     final headers = await _headers(
+      path: path,
       auth: auth,
       json: body != null,
       idempotencyKey: effectiveKey,
@@ -395,6 +481,7 @@ class VHHttpClient {
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
       final retryHeaders = await _headers(
+        path: path,
         auth: true,
         json: body != null,
         idempotencyKey: effectiveKey,
@@ -443,6 +530,7 @@ class VHHttpClient {
     Future<http.Response> send() async {
       final headers =
           await _headers(
+              path: path,
               auth: true,
               json: true,
               idempotencyKey: command.envelope.idempotencyKey,
@@ -517,7 +605,7 @@ class VHHttpClient {
     final uri = _buildUri(path);
 
     Future<ApiResponse> send() async {
-      final headers = await _headers(auth: auth);
+      final headers = await _headers(path: path, auth: auth);
       final req = http.MultipartRequest('POST', uri)
         ..headers.addAll(headers)
         ..fields.addAll(fields)
@@ -600,6 +688,7 @@ class VHHttpClient {
   // ── Helpers ───────────────────────────────────────────────────────────
 
   static Future<Map<String, String>> _headers({
+    required String path,
     bool auth = true,
     bool json = false,
     String? idempotencyKey,
@@ -650,11 +739,14 @@ class VHHttpClient {
       base['X-VH-Continuity-Facility-Context'] = facilityContext;
     }
 
-    // Acting-as delegation header — only attached on authenticated calls.
-    // The provider is null for staff/admin (and for guardians on their
-    // own profile); when set + non-empty the backend rewrites req.user
-    // to the named dependent.
-    if (auth) {
+    // Acting-as delegation header — only attached on authenticated calls to
+    // dependent-aware (patient-record) surfaces. Guardian-self surfaces are
+    // suppressed by path — see [actingAsExemptPathPrefixes] for the rule and
+    // the list (SOS, own profile, feedback, devices, notifications, steps,
+    // gamification, auth). The provider is null for staff/admin (and for
+    // guardians on their own profile); when set + non-empty the backend
+    // rewrites req.user to the named dependent.
+    if (auth && !isActingAsExemptPath(path)) {
       final actingAsUid = actingAsUidProvider?.call();
       if (actingAsUid != null && actingAsUid.isNotEmpty) {
         base['X-Acting-As-Uid'] = actingAsUid;
@@ -805,8 +897,8 @@ class VHHttpClient {
     // If we have a refresh token (staff path), send it in the body.
     // Otherwise fall back to bearer-based rotation (patient/admin path).
     final headers = storedRefresh != null && storedRefresh.isNotEmpty
-        ? await _headers(auth: false, json: true)
-        : await _headers(auth: true, json: true);
+        ? await _headers(path: '/auth/refresh-token', auth: false, json: true)
+        : await _headers(path: '/auth/refresh-token', auth: true, json: true);
     final body = storedRefresh != null && storedRefresh.isNotEmpty
         ? jsonEncode({
             'refreshToken': storedRefresh,
@@ -832,6 +924,8 @@ class VHHttpClient {
       accessToken: newAccess,
       refreshToken: rotatedRefresh,
     );
+    // Session is valid again — allow a future expiry to notify.
+    _sessionExpiredNotified = false;
     if (kDebugMode) debugPrint('VHHttpClient: token refreshed');
     return true;
   }
@@ -852,21 +946,21 @@ class VHHttpClient {
     // Clear both access + refresh — forces a full re-login.
     await AuthService.clearJwt();
     await AuthService.clearRefreshToken();
-    onSessionExpired?.call(
-      response.message ?? 'Session expired. Please log in again.',
-    );
+    _notifySessionExpired(response.message);
     return false;
   }
 
-  /// If the response is 401, notify the app to redirect to login.
+  /// If the response is 401, notify the app to redirect to login. A
+  /// successful authenticated response instead clears the guard so a later
+  /// expiry can notify again.
   static void _checkUnauthorized(ApiResponse response) {
     if (response.isUnauthorized) {
       if (kDebugMode) {
         debugPrint('VHHttpClient: 401 Unauthorized — session expired');
       }
-      onSessionExpired?.call(
-        response.message ?? 'Session expired. Please log in again.',
-      );
+      _notifySessionExpired(response.message);
+    } else if (response.isSuccess) {
+      _sessionExpiredNotified = false;
     }
   }
 }

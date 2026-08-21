@@ -106,6 +106,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "cold-chain": { minRank: STAFF },
   quality: { minRank: STAFF },
   referral: { minRank: STAFF },
+  "referral-facilities": { minRank: ADMIN_ONLY },
+  "facility-assets": { minRank: ADMIN_ONLY },
   productivity: { minRank: STAFF },
   "order-set-studio": { roles: ORDER_SET_STUDIO_ROLES },
   messaging: { minRank: STAFF },
@@ -155,6 +157,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   analytics: { minRank: ADMIN_ONLY },
   operations: { minRank: ADMIN_ONLY },
   dashboards: { minRank: ADMIN_ONLY },
+  "mis-report-schedules": { minRank: ADMIN_ONLY },
   insurance: { minRank: ADMIN_ONLY },
   pmjay: { minRank: ADMIN_ONLY },
   billing: { minRank: ADMIN_ONLY },
@@ -172,19 +175,30 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   integrations: { minRank: ADMIN_ONLY },
   adoption: { minRank: ADMIN_ONLY },
   "developer-portal": { minRank: ADMIN_ONLY },
-  entitlements: { minRank: ADMIN_ONLY },
   abdm: { minRank: ADMIN_ONLY },
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },
   "report-builder": { minRank: ADMIN_ONLY },
-  "admin-management": { minRank: ADMIN_ONLY },
+  // Terminology & Knowledge console (slate C1): code-system imports, binding
+  // curation, tenant coding settings, drug-KB sources, lab code mappings.
+  // Backend gates writes to curator roles; the console itself is ADMIN+.
+  terminology: { minRank: ADMIN_ONLY },
 
   // ── Platform operations (SUPER_ADMIN only) ────────────────────────────────
   // live DB browser — backend databaseRoutes.js is SUPER_ADMIN-only too
   database: { minRank: SUPER_ADMIN_ONLY },
   tenants: { minRank: SUPER_ADMIN_ONLY },
   "feature-flags": { minRank: SUPER_ADMIN_ONLY },
+  // Dark-gate console: reads/flips the most sensitive per-tenant toggles
+  // (payment gateway, SMS/DLT, ABDM) — SUPER_ADMIN-only end to end
+  // (backend requireRole + proxy sentinel gate + this policy + nav).
+  "integration-gates": { minRank: SUPER_ADMIN_ONLY },
   "continuity-facility-context": { minRank: SUPER_ADMIN_ONLY },
+  // entitlements edit tenant license/package/status — a tenant ADMIN must not
+  // self-upgrade; matches the SUPER_ADMIN-only backend gate (entitlementRoutes).
+  entitlements: { minRank: SUPER_ADMIN_ONLY },
+  // admin account lifecycle is SUPER_ADMIN-only + step-up on the backend.
+  "admin-management": { minRank: SUPER_ADMIN_ONLY },
 };
 
 /**

@@ -1,4 +1,5 @@
 import 'api_client.dart';
+
 import 'package:vhhealth_core/services/idempotency_key.dart';
 
 class EdTraumaApiService {

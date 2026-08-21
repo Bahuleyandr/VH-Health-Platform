@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -33,6 +34,12 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
 
   Future<void> _fetchHistory() async {
     final l = AppLocalizations.of(context)!;
+    // When acting as a dependent the backend rewrites req.user to it, so query
+    // with the dependent's id; the guardian's stored id would 403 / be empty.
+    // Read the live provider statically (context-free, null-safe) — mirrors
+    // how the acting-as HTTP header resolver is registered.
+    final dependentId = DependentsProvider.instance?.activeDependent?.id
+        .toString();
     setState(() {
       _loading = true;
       _error = null;
@@ -42,6 +49,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
       // Falls back to firebase_uid, then phone number as last resort.
       final storage = VHSecureStorage.instance;
       final patientId =
+          dependentId ??
           await storage.read(key: 'patient_id') ??
           await storage.read(key: 'firebase_uid') ??
           widget.phone;
@@ -136,15 +144,30 @@ class _VitalsTrendSummary extends StatelessWidget {
       String unit,
       String key, {
       bool higherIsBad = true,
+      double? Function(double)? transform,
     }) {
-      final cur = _toDouble(latest[key]);
-      final prev = _toDouble(previous[key]);
+      var cur = _toDouble(latest[key]);
+      var prev = _toDouble(previous[key]);
+      if (cur == null || prev == null) return;
+      if (transform != null) {
+        cur = transform(cur);
+        prev = transform(prev);
+      }
+      // A null after transform means the value is implausible (legacy
+      // unconverted row) — skip the trend rather than corrupt the arrow.
       if (cur == null || prev == null) return;
       trends.add(_TrendItem(label, cur, prev, unit, higherIsBad));
     }
 
     addTrend('HR', 'bpm', 'heartRate');
-    addTrend('Temp', '°F', 'temperature');
+    // Stored °C → °F so the value and unit label are consistent; implausible
+    // legacy values (> 45 °C-equivalent) are dropped from the comparison.
+    addTrend(
+      'Temp',
+      '°F',
+      'temperature',
+      transform: vitalsHistoryTemperatureTrendF,
+    );
     addTrend('Sugar', 'mg/dL', 'bloodSugar');
     addTrend('Weight', 'kg', 'weight', higherIsBad: false);
     addTrend('SpO2', '%', 'spO2', higherIsBad: false);
@@ -252,6 +275,47 @@ class _VitalsTrendSummary extends StatelessWidget {
   }
 }
 
+/// Stored temperatures are canonical °C — the backend converts the °F the
+/// patient enters on the log form. Convert back to °F for display so the unit
+/// label matches what the patient typed. Mirrors the staff vitals-chart read
+/// path.
+double _celsiusToFahrenheit(double celsius) => celsius * 9 / 5 + 32;
+
+/// Ceiling of the backend's canonical °C plausibility band
+/// (VITAL_PLAUSIBILITY_BOUNDS.temperature.max). A stored value above it is
+/// not a real Celsius reading — it is a legacy row written before the
+/// canonical-unit fix (raw °F, pending the backfill migration) or garbage.
+const double vitalsMaxPlausibleTemperatureC = 45.0;
+
+/// Display projection for one stored patient_vitals temperature.
+///
+/// Canonical °C values convert to °F so the label matches what the patient
+/// typed. Values above [vitalsMaxPlausibleTemperatureC] cannot be °C, so
+/// converting them would fabricate an absurd °F number (98.6 → 209.5);
+/// render them raw and flagged instead. Non-numeric input returns null.
+({String value, String unit, bool flagged})? vitalsHistoryTemperatureDisplay(
+  dynamic stored,
+) {
+  final c = stored is num ? stored.toDouble() : double.tryParse('$stored');
+  if (c == null) return null;
+  if (c > vitalsMaxPlausibleTemperatureC) {
+    return (value: c.toStringAsFixed(1), unit: '⚠ raw', flagged: true);
+  }
+  return (
+    value: _celsiusToFahrenheit(c).toStringAsFixed(1),
+    unit: '°F',
+    flagged: false,
+  );
+}
+
+/// Trend transform for temperature: convert canonical °C to °F, or return
+/// null to drop implausible legacy values from the trend comparison so a
+/// mixed-unit prev/cur pair cannot fabricate a huge delta arrow.
+double? vitalsHistoryTemperatureTrendF(double celsius) =>
+    celsius > vitalsMaxPlausibleTemperatureC
+    ? null
+    : _celsiusToFahrenheit(celsius);
+
 class _TrendItem {
   final String label;
   final double current;
@@ -295,7 +359,13 @@ class _VitalEntryCard extends StatelessWidget {
       items.add(_VitalItem('HR', '${entry['heartRate']}', 'bpm'));
     }
     if (entry['temperature'] != null) {
-      items.add(_VitalItem('Temp', '${entry['temperature']}', '°F'));
+      // Stored value is canonical °C; convert back to °F for display.
+      // Implausible legacy values (> 45 °C-equivalent, i.e. pre-backfill raw
+      // °F rows) render raw and flagged instead of as a fake huge °F number.
+      final temp = vitalsHistoryTemperatureDisplay(entry['temperature']);
+      if (temp != null) {
+        items.add(_VitalItem('Temp', temp.value, temp.unit));
+      }
     }
     if (entry['bloodSugar'] != null) {
       items.add(_VitalItem('Sugar', '${entry['bloodSugar']}', 'mg/dL'));

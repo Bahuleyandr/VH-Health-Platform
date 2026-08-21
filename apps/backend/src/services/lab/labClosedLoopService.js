@@ -13,9 +13,13 @@
 //     the scanned specimen, run through critical detection AND the
 //     rules-authoritative delta/critical-band verdicts at ingestion time.
 //
-// Physical analyzer transports (serial/MLLP listeners) are owner-side
-// deployment work; middleware-capable analyzers POST the same payloads to
-// the HTTP bridge endpoint.
+// Physical analyzer transports now live in-repo: apps/device-gateway's LIS
+// listener profiles (DEVICE_GATEWAY_LIS_LISTENERS, ships dark) terminate
+// ASTM E1381-framed E1394 and MLLP HL7 ORU over TCP, durably spool, and
+// forward to these same HTTP bridge endpoints (/api/v1/lab/interface/ingest
+// and /api/v1/lab/oru/ingest) — see apps/device-gateway/README.md. Serial
+// analyzers attach via a serial-to-TCP adapter. Middleware-capable analyzers
+// can still POST the same payloads to the bridge directly.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -38,6 +42,7 @@ import {
 } from '../ai/labAutoverificationService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { LAB_INTERFACE_INGEST_ROLES } from '../../utils/roleHelpers.js';
+import { applyLoincMappingEnrichment } from './labCodeMappingService.js';
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const ASTM_PRE_RESULT_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED'];
@@ -1058,6 +1063,19 @@ async function ingestAstmInterfaceMessage({
         'LAB_INTERFACE_ASTM_INVALID',
       );
     }
+    // Terminology WP3 (migration 721) — dark LOINC enrichment for ASTM
+    // results (ASTM R records carry raw analyzer codes and never assert a
+    // LOINC). Gated env+tenant, both default off. Fail-open by contract:
+    // the helper never throws AND performs its lookups on the plain prisma
+    // pool — never this tx client — so a mapping-layer failure cannot abort
+    // this clinical transaction.
+    await applyLoincMappingEnrichment({
+      tenantId,
+      sourceKey: String(analyzerCode).trim(),
+      rows: parsed.results,
+      codeKey: 'test_code',
+      loincKey: 'loinc_code',
+    });
     const trusted = await resolveTrustedAstmAnalyzer({
       tx,
       analyzerCode: String(analyzerCode).trim(),
@@ -1108,12 +1126,12 @@ async function ingestAstmInterfaceMessage({
             test_code, test_name, value_text, value_numeric, unit,
             reference_range, reference_range_low, reference_range_high,
             abnormal_flag, status, performed_by_lab, specimen_id, analyzer_id,
-            raw_obx, received_at, interface_message_id, interface_result_index)
+            raw_obx, received_at, interface_message_id, interface_result_index, loinc_code)
          VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::uuid, $6,
                  $7, $8, $9, $10::numeric, $11,
                  $12, $13::numeric, $14::numeric,
                  $15, 'preliminary', $16, $17::int, $18::int,
-                 $19, NOW(), $20::int, $21::int)
+                 $19, NOW(), $20::int, $21::int, $22)
          RETURNING *`,
         tenantId,
         source.bookingId,
@@ -1136,6 +1154,10 @@ async function ingestAstmInterfaceMessage({
         JSON.stringify(parsedResult),
         messageId,
         index + 1,
+        // Dark LOINC enrichment (migration 721) — null unless the gated
+        // mapping layer stamped it above; identical to the pre-721 insert
+        // when the feature is off.
+        parsedResult.loinc_code ?? null,
       );
       const result = rows[0];
       if (!result) throw new Error('ASTM lab result was not persisted');

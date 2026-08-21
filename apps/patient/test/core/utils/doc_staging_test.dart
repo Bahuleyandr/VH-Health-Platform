@@ -18,25 +18,22 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  test(
-    'cold-start purge removes staged plaintext but preserves unrelated temp data',
-    () async {
-      final staged = await DocStaging.writePlaintext('report.pdf', <int>[
-        1,
-        2,
-        3,
-      ]);
-      final unrelated = File(
-        '${tempDir.path}${Platform.pathSeparator}plugin.tmp',
-      );
-      await unrelated.writeAsString('plugin state');
+  test('cold-start purge removes staged plaintext but preserves unrelated temp data', () async {
+    final staged = await DocStaging.writePlaintext('report.pdf', <int>[
+      1,
+      2,
+      3,
+    ]);
+    final unrelated = File(
+      '${tempDir.path}${Platform.pathSeparator}plugin.tmp',
+    );
+    await unrelated.writeAsString('plugin state');
 
-      await DocStaging.purge();
+    await DocStaging.purge();
 
-      expect(await staged.exists(), isFalse);
-      expect(await unrelated.exists(), isTrue);
-    },
-  );
+    expect(await staged.exists(), isFalse);
+    expect(await unrelated.exists(), isTrue);
+  });
 
   test(
     'failure cleanup only deletes files inside the staging directory',

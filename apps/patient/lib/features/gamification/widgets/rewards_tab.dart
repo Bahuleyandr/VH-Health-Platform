@@ -35,9 +35,8 @@ class RewardsTab extends StatelessWidget {
             Icon(
               Icons.card_giftcard,
               size: 48,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.3),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.3),
             ),
             const SizedBox(height: 12),
             Text(
@@ -154,9 +153,8 @@ class RewardsTab extends StatelessWidget {
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 LiveRegionSnackBar.build(
-                                  message: AppLocalizations.of(
-                                    context,
-                                  )!.gamificationVoucherCopied,
+                                  message: AppLocalizations.of(context)!
+                                      .gamificationVoucherCopied,
                                   behavior: SnackBarBehavior.floating,
                                   duration: const Duration(seconds: 2),
                                 ),

@@ -18,6 +18,7 @@ import {
   listDashboardCatalog,
   listDatasetCatalog,
 } from '../../services/dashboards/analyticsCatalogService.js';
+import misReportScheduleRoutes from './misReportScheduleRoutes.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -101,17 +102,23 @@ router.get('/snapshot/lab-tat', requireAdmin, wrap(async (req) =>
   }),
 ));
 
+// ── Scheduled MIS report email delivery (migration 679) ─────────────
+router.use('/mis-report-schedules', requireAdmin, misReportScheduleRoutes);
+
 // ── Metabase embedding ──────────────────────────────────────────────
 router.get('/catalog', requireAdmin, wrap(async (req) => {
-  const [datasets, dashboards] = await Promise.all([
+  const [datasets, dashboards, analyticsBi] = await Promise.all([
     listDatasetCatalog(),
     listDashboardCatalog({ role: roleOf(req), includeHeld: true }),
+    // Three-layer embed gate summary (env + tenant flag) so the admin page
+    // can render a clear "not enabled" state instead of a broken iframe.
+    metabase.getAnalyticsBiGate(tenantOf(req)),
   ]);
-  return { datasets, dashboards };
+  return { datasets, dashboards, analyticsBi };
 }));
 
 router.get('/embed/list', requireAdmin, wrap(async (req) =>
-  metabase.listDashboards({ role: roleOf(req) }),
+  metabase.listDashboards({ role: roleOf(req), tenantId: tenantOf(req) }),
 ));
 
 router.post('/embed/url', requireAdmin, wrap(async (req) =>

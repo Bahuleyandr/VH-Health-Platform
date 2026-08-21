@@ -36,6 +36,7 @@ import {
   completeLabResultIngestCommand,
   finaliseHttpIdempotencyInTx,
 } from './labResultIngestCommandService.js';
+import { applyLoincMappingEnrichment } from './labCodeMappingService.js';
 import { lockResultsInboxResourceTx } from '../results/resultsInboxResourceLock.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -859,6 +860,21 @@ export async function ingestOruMessage(message, {
     );
   }
   const obxRows = normalizeOruObxRows(parsed);
+
+  // Terminology WP3 (migration 721) — dark LOINC enrichment. When the env
+  // kill switch AND the tenant flag are both on and a curated mapping row
+  // matches, stamp the OBX rows whose OBX-3 did not assert LN/LOINC itself.
+  // Fail-open by contract (the helper never throws) and runs on the plain
+  // pool BEFORE the ingest transaction, so it can never abort the clinical
+  // write. Deterministic given the same curated rows, so exact replays of a
+  // completed message still match the stored loinc_code.
+  await applyLoincMappingEnrichment({
+    tenantId,
+    sourceKey: sendingApp,
+    rows: obxRows,
+    codeKey: 'testCode',
+    loincKey: 'loincCode',
+  });
 
   // ORC-2/OBR-2 local linkage is table-explicit. Never infer a local table
   // from a bare integer: investigation and booking sequences can collide.

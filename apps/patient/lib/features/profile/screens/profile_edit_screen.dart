@@ -9,9 +9,11 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
+import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class ProfileEditScreen extends StatefulWidget {
@@ -41,6 +43,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String? _selectedBloodGroup;
   bool _isSubmitting = false;
   bool _isLoading = true;
+  bool _loadFailed = false;
 
   static const _genderOptions = ['MALE', 'FEMALE', 'OTHER'];
   static const _bloodGroupOptions = [
@@ -79,12 +82,28 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   // ───────────────────────────── Fetch Profile ──────────────────────────────
   Future<void> _fetchProfile() async {
+    if (mounted && (_loadFailed || !_isLoading)) {
+      setState(() {
+        _isLoading = true;
+        _loadFailed = false;
+      });
+    }
     try {
-      final response = await ApiClient.get('/users/$_phone');
+      // Self-service route: the directory GET /users/:phone forbids PATIENT.
+      // /users/me binds identity from the JWT and returns the same { user } shape.
+      final response = await ApiClient.get('/users/me');
 
       if (!mounted) return;
 
-      if (response.isSuccess) {
+      if (!response.isSuccess) {
+        setState(() {
+          _loadFailed = true;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      {
         final data = response.dataAsMap();
         final user = data['user'] as Map<String, dynamic>? ?? data;
 
@@ -125,9 +144,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           try {
             _selectedBirthday = DateTime.parse(user['birthday'].toString());
             if (mounted) {
-              _birthdayController.text = MaterialLocalizations.of(
-                context,
-              ).formatMediumDate(_selectedBirthday!);
+              _birthdayController.text = MaterialLocalizations.of(context)
+                  .formatMediumDate(_selectedBirthday!);
             }
           } catch (e) {
             debugPrint('Birthday parse failed: $e');
@@ -136,6 +154,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       }
     } catch (e) {
       debugPrint('Error fetching profile: $e');
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _isLoading = false;
+        });
+      }
+      return;
     }
 
     if (mounted) setState(() => _isLoading = false);
@@ -159,9 +184,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       // Build emergency_contact as string (backend accepts string or object)
       final ecText = _emergencyContactController.text.trim();
 
-      final response = await ApiClient.put(
-        '/users/$_phone',
+      // Self-service route: the directory PUT /users/:phone forbids PATIENT.
+      // POST /users/profile binds the write to the caller's JWT identity; it
+      // requires `phone` in the body (validated, then verified against the
+      // token phone) — send our own so the self-edit passes CAN-001/CAN-002.
+      final response = await ApiClient.post(
+        '/users/profile',
         body: {
+          'phone': _phone,
           'name': InputSanitizer.sanitizeName(_nameController.text.trim()),
           'email': _emailController.text.trim().isNotEmpty
               ? _emailController.text.trim()
@@ -275,20 +305,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   // ────────────────────────────────── SOS ───────────────────────────────────
-  void _triggerSOS() {
-    final messenger = ScaffoldMessenger.of(context);
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-
-    messenger.showSnackBar(
-      LiveRegionSnackBar.build(
-        message: l10n.authSosTriggered,
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    if (kDebugMode) debugPrint('ProfileEdit: SOS triggered');
+  Future<void> _triggerSOS() async {
+    // This FAB used to only SHOW the "triggered" toast without triggering
+    // anything at all. Route it through the real flow: dialer + throwing
+    // backend POST + honest outcome feedback.
+    await SOSService.triggerWithFeedback(context);
   }
 
   // ─────────────────────────── Gender display label ─────────────────────────
@@ -317,7 +338,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       appBar: AppBar(title: Text(l10n.profileEditScreenTitle)),
       body: LogoBackground(
         child: SafeArea(
-          child: _isLoading
+          child: _loadFailed
+              // Surface a retry instead of a silently-empty form when the
+              // profile load fails (hid the /users/:phone 403 before).
+              ? DataStateBuilder<Object>(
+                  isLoading: false,
+                  error: l10n.networkError,
+                  data: const [],
+                  builder: (context, data) => const SizedBox.shrink(),
+                  errorTitle: l10n.profileEditScreenTitle,
+                  errorActionLabel: l10n.commonRetry,
+                  onRetry: _fetchProfile,
+                )
+              : _isLoading
               ? Center(
                   child: CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation(cs.primary),

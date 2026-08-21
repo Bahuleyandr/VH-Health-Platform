@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -12,19 +13,22 @@ import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef TheatreScheduleLoader =
-    Future<List<dynamic>> Function({required String date});
+typedef TheatreScheduleLoader = Future<List<dynamic>> Function({
+  required String date,
+});
 typedef TheatreAvailabilityLoader = Future<List<dynamic>> Function(String date);
-typedef TheatreStatusUpdater =
-    Future<Map<String, dynamic>> Function(int id, String status);
-typedef TheatreSafetyPhaseRecorder =
-    Future<Map<String, dynamic>> Function(
-      int scheduleId,
-      String phase,
-      Map<String, dynamic> evidence,
-    );
-typedef RealtimeEventStreamFactory =
-    Stream<RealtimeEvent> Function(String channel);
+typedef TheatreStatusUpdater = Future<Map<String, dynamic>> Function(
+  int id,
+  String status,
+);
+typedef TheatreSafetyPhaseRecorder = Future<Map<String, dynamic>> Function(
+  int scheduleId,
+  String phase,
+  Map<String, dynamic> evidence,
+);
+typedef RealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
 
 class TheatreScreen extends StatefulWidget {
   final TheatreScheduleLoader? loadSchedule;
@@ -83,9 +87,8 @@ class _TheatreScreenState extends State<TheatreScreen>
   Future<void> _attachRealtime() async {
     final injectedEvents = widget.realtimeEvents;
     if (injectedEvents != null) {
-      _orBoardSub = injectedEvents(
-        'staff:or-board',
-      ).listen(_handleRealtimeNudge);
+      _orBoardSub = injectedEvents('staff:or-board')
+          .listen(_handleRealtimeNudge);
       return;
     }
 
@@ -992,9 +995,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                     room['status']?.toString().toLowerCase() == 'available';
                 final name =
                     room['name']?.toString() ??
-                    AppStrings.of(
-                      context,
-                    ).theatreOtRoom((room['id'] ?? i + 1).toString());
+                    AppStrings.of(context)
+                        .theatreOtRoom((room['id'] ?? i + 1).toString());
 
                 return Card(
                   child: Padding(

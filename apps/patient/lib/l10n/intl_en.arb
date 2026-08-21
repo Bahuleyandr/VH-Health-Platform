@@ -77,6 +77,14 @@
   "@authSosTriggered": {
     "description": "Snack-bar message after SOS is successfully sent"
   },
+  "authSosBackendFailed": "Couldn't send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.",
+  "@authSosBackendFailed": {
+    "description": "Honest failure snack-bar when the SOS backend POST fails; the dialer call remains the safety net"
+  },
+  "authSosGuestSkipped": "Emergency call opened. Sign in to also send an SOS alert to the hospital.",
+  "@authSosGuestSkipped": {
+    "description": "Snack-bar when no SOS alert was sent because the user is a guest / has no stored phone; must not claim the alert was triggered"
+  },
   "authGuestUserSOS": "guest_user_sos",
   "@authGuestUserSOS": {
     "description": "Identifier used when SOS is triggered without a signed-in phone"
@@ -645,6 +653,15 @@
   "investigationsFilePickerError": "Could not pick a file. Please try again.",
   "@investigationsFilePickerError": {
     "description": "Snackbar when file-picker throws"
+  },
+  "investigationsUploadNotAvailableForDependent": "Report uploads aren't available while viewing {name}'s profile. Switch back to your own profile to upload a report.",
+  "@investigationsUploadNotAvailableForDependent": {
+    "description": "Banner + snackbar shown on the investigations Upload tab while a guardian is viewing a dependent profile — uploads only file against the guardian's own record",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   },
   "triviaTitle": "Health Trivia",
   "@triviaTitle": {
@@ -2790,6 +2807,18 @@
   "@medicationReminderDeleteTooltip": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
+  "medicationReminderUpdateFailed": "Unable to update reminder",
+  "@medicationReminderUpdateFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderDeleteFailed": "Unable to delete reminder",
+  "@medicationReminderDeleteFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderPausedLabel": "Paused",
+  "@medicationReminderPausedLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
   "medicationReminderDosageLine": "Dosage: {dosage}",
   "@medicationReminderDosageLine": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
@@ -3666,6 +3695,10 @@
   },
   "splashUpdateButton": "Update VH Health",
   "@splashUpdateButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashUpdateNoStoreBody": "The updated version is not yet available for download on this device. Please contact the hospital reception for help installing the latest version of VH Health.",
+  "@splashUpdateNoStoreBody": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
   "yourHealthTimelineFilterAll": "All",

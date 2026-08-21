@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const PACK_VERSION = 'clinical-ai-pilot-evidence-pack-v1';
@@ -32,7 +33,8 @@ const RISKY_REVIEW_GATE_POLICIES = new Set(['two_person_for_enablement', 'critic
 const PILOT_SIGNOFF_DECISIONS = new Set(['approved', 'hold', 'rejected']);
 
 const SIGNOFF_SELECT = `id, tenant_id, approval_type, module_key, status, requested_by, approved_by,
-        rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at`;
+        rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at,
+        (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS expires_at_epoch_ms`;
 
 function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
@@ -267,10 +269,29 @@ function skippedSectionCount(skippedSections = {}) {
   return Object.keys(skippedSections || {}).length;
 }
 
-function isExpiredDate(value) {
-  if (!value) return false;
-  const expiresAt = new Date(value);
-  return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now();
+/**
+ * Expiry is decided against the absolute instant, not a session-shifted Date.
+ *
+ * `clinical_ai_approvals.expires_at` is a `timestamptz`, and the pg driver
+ * materialises one as a JS Date in the DATABASE SESSION timezone — so
+ * `new Date(row.expires_at).getTime() <= Date.now()` is only correct when that
+ * session happens to be UTC. On a non-UTC server (prod is India/IST) the
+ * comparison skews by the offset, and this flag is not cosmetic: it gates
+ * `stage_expansion_allowed`, the `SIGNOFF_EXPIRED` blocking reason, and the
+ * `CLINICAL_AI_PILOT_SIGNOFF_EXPIRED` throw in `assertSignoffApprovable`. A
+ * pilot signoff could therefore read as live hours after it expired. The
+ * queries select `expires_at_epoch_ms` beside the column instead; that is the
+ * absolute instant and is identical in every session timezone.
+ *
+ * Absence keeps the previous meaning exactly: a NULL or unparseable expiry is
+ * "no expiry was set", which is not expired. The `== null` guard is
+ * load-bearing — `Number(null)` is `0`, which is finite and compares as "long
+ * ago", so a bare `Number.isFinite` check would turn a NULL expiry into an
+ * already-expired one and hard-block the signoff.
+ */
+function isExpiredInstant(expiresAtMs) {
+  if (expiresAtMs == null) return false;
+  return expiresAtMs <= Date.now();
 }
 
 function buildSignoffPayload(pack, data = {}) {
@@ -320,7 +341,7 @@ function summarizeSignoffRow(row) {
   const payload = parsePayload(row.payload);
   const blockers = Array.isArray(payload.blockers) ? payload.blockers : [];
   const skippedSections = payload.skipped_sections || {};
-  const expired = isExpiredDate(row.expires_at);
+  const expired = isExpiredInstant(epochMsOrNull(row.expires_at_epoch_ms));
   const stageExpansionAllowed = (
     row.status === 'approved' &&
     !expired &&

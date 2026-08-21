@@ -24,6 +24,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   blacklistToken: blacklistTokenMock,
 }));
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({

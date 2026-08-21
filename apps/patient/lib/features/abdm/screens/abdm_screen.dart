@@ -12,8 +12,10 @@ import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 /// Links an EXISTING ABHA to the signed-in patient's account.
-typedef LinkAbha =
-    Future<void> Function({required String abhaNumber, String? abhaAddress});
+typedef LinkAbha = Future<void> Function({
+  required String abhaNumber,
+  String? abhaAddress,
+});
 
 class AbdmScreen extends StatefulWidget {
   const AbdmScreen({super.key, this.loadLinkage, this.linkAbha});

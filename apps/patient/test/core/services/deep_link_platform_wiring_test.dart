@@ -4,9 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('Android registers only the bounded local custom-scheme contract', () {
-    final manifest = File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsStringSync();
+    final manifest = File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync();
     final deepLinkFilter = RegExp(
       r'<intent-filter>\s*<action android:name="android.intent.action.VIEW"\s*/>\s*'
       r'<category android:name="android.intent.category.DEFAULT"\s*/>\s*'
@@ -25,9 +24,8 @@ void main() {
 
   test('iOS registers the same scheme without claiming associated domains', () {
     final info = File('ios/Runner/Info.plist').readAsStringSync();
-    final entitlements = File(
-      'ios/Runner/Runner.entitlements',
-    ).readAsStringSync();
+    final entitlements = File('ios/Runner/Runner.entitlements')
+        .readAsStringSync();
 
     expect(info, contains('<key>CFBundleURLTypes</key>'));
     expect(info, contains('<string>com.vh.vhhealth.deeplink</string>'));

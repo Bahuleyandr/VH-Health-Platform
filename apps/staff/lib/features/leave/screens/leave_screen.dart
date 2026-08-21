@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/services/leave_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -86,12 +87,10 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
 
       final results = await Future.wait([
-        LeaveApiService.getLeaveBalance(
-          staffId,
-        ).catchError((_) => <String, dynamic>{}),
-        LeaveApiService.getMyLeaves(
-          staffId,
-        ).catchError((_) => <String, dynamic>{'leaves': []}),
+        LeaveApiService.getLeaveBalance(staffId)
+            .catchError((_) => <String, dynamic>{}),
+        LeaveApiService.getMyLeaves(staffId)
+            .catchError((_) => <String, dynamic>{'leaves': []}),
         LeaveApiService.getReplacementRequests().catchError((_) => <dynamic>[]),
         HrApiService.getStaffList().catchError((_) => <dynamic>[]),
       ]);

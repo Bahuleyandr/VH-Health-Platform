@@ -23,7 +23,8 @@ jest.unstable_mockModule('../services/lab/labCriticalAlertService.js', () => ({
 const { default: prisma } = await import('../lib/prisma.js');
 const { ingestOruMessage } = await import('../services/lab/labResultsService.js');
 
-const describeIfTestDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+const describeIfTestDb =
+  process.env.TEST_DATABASE_URL || process.env.DATABASE_URL ? describe : describe.skip;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const RUN_ID = randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();
 const ACTOR_UID = randomUUID();

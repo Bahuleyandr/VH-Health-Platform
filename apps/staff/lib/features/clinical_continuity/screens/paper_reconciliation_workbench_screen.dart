@@ -699,9 +699,8 @@ class _HeldMessageReleaseDialogState extends State<_HeldMessageReleaseDialog> {
     final fingerprint = widget.item.sourceStateFingerprint;
     if (detail.length < 10 || fingerprint == null) {
       setState(() {
-        _error = AppStrings.of(
-          context,
-        ).lookup('continuity.reconciliation.release_detail_hint');
+        _error = AppStrings.of(context)
+            .lookup('continuity.reconciliation.release_detail_hint');
       });
       return;
     }
@@ -1162,18 +1161,16 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
     if (_action == _PaperAction.transfusion &&
         (!_unitMatch || !_patientMatch || !_groupCompatible || !_expiryOk)) {
       setState(() {
-        _error = AppStrings.of(
-          context,
-        ).lookup('continuity.reconciliation.transfusion_checks_required');
+        _error = AppStrings.of(context)
+            .lookup('continuity.reconciliation.transfusion_checks_required');
       });
       return;
     }
     if (_action == _PaperAction.transfusion &&
         _firstVerifier.text.trim() == _secondVerifier.text.trim()) {
       setState(() {
-        _error = AppStrings.of(
-          context,
-        ).lookup('continuity.reconciliation.verifiers_distinct');
+        _error = AppStrings.of(context)
+            .lookup('continuity.reconciliation.verifiers_distinct');
       });
       return;
     }
@@ -1248,9 +1245,8 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = AppStrings.of(
-          context,
-        ).lookup('continuity.reconciliation.save_failed');
+        _error = AppStrings.of(context)
+            .lookup('continuity.reconciliation.save_failed');
       });
     }
   }
@@ -1454,9 +1450,8 @@ class _ReconciliationDecisionDialogState
     final reason = _reason.text.trim();
     if (reason.isEmpty) {
       setState(() {
-        _error = AppStrings.of(
-          context,
-        ).lookup('continuity.reconciliation.reason_required');
+        _error = AppStrings.of(context)
+            .lookup('continuity.reconciliation.reason_required');
       });
       return;
     }

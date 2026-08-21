@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../l10n/app_strings.dart';
 
 class ShiftCard extends StatelessWidget {

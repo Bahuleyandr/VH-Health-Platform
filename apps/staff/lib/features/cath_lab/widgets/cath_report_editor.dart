@@ -190,9 +190,8 @@ class _CathReportEditorState extends State<CathReportEditor> {
 
   String? _requiredTextValidator(String label, String? value) {
     if ((value ?? '').trim().isNotEmpty) return null;
-    return AppStrings.of(
-      context,
-    ).format('s4.dynamic.cath_lab.report.required', {'label': label});
+    return AppStrings.of(context)
+        .format('s4.dynamic.cath_lab.report.required', {'label': label});
   }
 
   @override

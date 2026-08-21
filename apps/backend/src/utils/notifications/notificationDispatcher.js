@@ -2,12 +2,34 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { sendSMS } from '../../services/smsService.js';
 import { sendEmail } from './sendEmailNotification.js';
 import { notificationOutbox } from './notificationOutbox.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { placeVoiceCall } from './sendVoiceNotification.js';
 import { sendWhatsApp } from './sendWhatsAppNotification.js';
 import { classifyFcmProviderResponse } from './terminalRejectionCodes.js';
+
+const SMS_OUTCOMES = new Set(['acknowledged', 'rejected', 'uncertain']);
+
+/** Defensive pass-through: sendSMS already returns the receipt shape; a
+ * malformed/absent result must classify as uncertain, never acknowledged. */
+function normalizeSmsProviderResult(result) {
+  if (result && typeof result === 'object' && SMS_OUTCOMES.has(result.outcome)) {
+    return {
+      outcome: result.outcome,
+      providerReference: result.providerReference || null,
+      providerCode: result.providerCode || null,
+      evidence: result.evidence && typeof result.evidence === 'object' ? result.evidence : {},
+    };
+  }
+  return {
+    outcome: 'uncertain',
+    providerReference: null,
+    providerCode: 'sms_provider_result_missing',
+    evidence: {},
+  };
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,6 +46,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
  * @param {Object} [options.data] - Extra data for push notifications
  * @param {string} [options.type] - Notification type for in-app storage
  * @param {string} [options.voiceLanguage] - TTS language override (e.g. 'hi-IN')
+ * @param {Object} [options.smsContext] - Drain-supplied SMS delivery
+ *   provenance ({ tenantId, templateVersion, outboxId }) forwarded to the
+ *   provider seam so the adapter can resolve tenant config + DLT template
+ *   registration. Only set on the providerReceiptMode outbox-drain path.
  */
 export async function dispatch({
   userId,
@@ -34,6 +60,7 @@ export async function dispatch({
   type = 'general',
   voiceLanguage = null,
   providerReceiptMode = false,
+  smsContext = null,
 }) {
   const results = {};
 
@@ -226,15 +253,26 @@ export async function dispatch({
     }
   }
 
-  // SMS — plain-text fallback for feature-phone patients. No SMS gateway
-  // is wired yet (smsService is dry-run), so the delivery intent is
-  // persisted to the notification outbox; a future gateway integration
-  // drains PENDING type='sms' rows. fix-deferred: SMS gateway integration.
+  // SMS — plain-text fallback for feature-phone patients. Direct callers
+  // queue a durable outbox intent; the outbox drain re-enters this function
+  // in providerReceiptMode with smsContext, and only THAT path calls the
+  // provider seam (sendSMS resolves the tenant's configured gateway; the
+  // dry-run default classifies as rejected('sms_gateway_not_configured')).
   if (channels.includes('sms')) {
     if (!user.phone) {
       results.sms = providerReceiptMode ? rejected('phone_missing') : 'no_phone';
     } else if (providerReceiptMode) {
-      results.sms = rejected('sms_gateway_not_configured');
+      try {
+        const out = await sendSMS(
+          user.phone,
+          `${title ? `${title}: ` : ''}${body}`,
+          smsContext && typeof smsContext === 'object' ? smsContext : {},
+        );
+        results.sms = normalizeSmsProviderResult(out);
+      } catch (err) {
+        logger.error(`Notification dispatch [sms] failed for ${userId}: ${err.message}`);
+        results.sms = uncertain(err.code || 'sms_transport_failure', err);
+      }
     } else {
       try {
         const queued = await notificationOutbox.queue({

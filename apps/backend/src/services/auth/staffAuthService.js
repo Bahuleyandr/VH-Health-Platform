@@ -59,6 +59,13 @@ const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
 const INSTALLATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TENANT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CONTROLLED_DISPENSE_AUTH_ERROR_CODES = new Set([
+  'INVALID_CREDENTIALS',
+  'ACCOUNT_DEACTIVATED',
+  'STAFF_LOGIN_RATE_LIMITED',
+]);
 
 function installationId(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -141,23 +148,33 @@ export class StaffAuthService {
    * @param {Object} [req] - Express request (for security logging)
    * @param {string} [path] - Request path (for security logging)
    */
-  static async _checkStaffLockout(employeeId, req, path = '/api/v1/auth/staff/login') {
+  static async _checkStaffLockout(
+    employeeId,
+    req,
+    path = '/api/v1/auth/staff/login',
+    { tenantId = null, client = prisma } = {},
+  ) {
+    const lockoutActions = tenantId
+      ? "'STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN', 'CONTROLLED_DISPENSE_WITNESS'"
+      : "'STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN'";
     const lockCheck = await query(`
       SELECT COUNT(*) as cnt FROM auth_logs
       WHERE phone = $1 AND success = false
-        AND action IN ('STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN')
+        AND action IN (${lockoutActions})
+        ${tenantId ? 'AND tenant_id = $2::uuid' : ''}
         AND created_at > NOW() - INTERVAL '15 minutes'
-    `, [employeeId]);
+    `, tenantId ? [employeeId, tenantId] : [employeeId], client);
 
     if (parseInt(lockCheck.rows[0].cnt) >= MAX_LOGIN_ATTEMPTS) {
       logSecurityEvent('ACCOUNT_LOCKED', {
         userName: employeeId,
+        tenantId,
         ip: req?.ip,
         userAgent: req?.headers?.['user-agent'],
         path,
-        reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across all auth methods in 15 minutes`,
+        reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across applicable auth methods in 15 minutes`,
       });
-      trackFailedLogin(req?.ip, employeeId);
+      trackFailedLogin(req?.ip, tenantId ? `${tenantId}:${employeeId}` : employeeId);
       throw AppError.tooMany(
         'Account temporarily locked due to multiple failed attempts',
         'STAFF_LOGIN_RATE_LIMITED',
@@ -229,8 +246,9 @@ export class StaffAuthService {
     password,
     req,
     path = '/api/v1/auth/staff/login',
+    { tenantId = null, client = prisma, authAction = 'STAFF_LOGIN' } = {},
   ) {
-    await this._checkStaffLockout(employeeId, req, path);
+    await this._checkStaffLockout(employeeId, req, path, { tenantId, client });
 
     const result = await query(`
       SELECT
@@ -240,14 +258,31 @@ export class StaffAuthService {
         s.employee_id, s.department, s.position,
         s.is_active AS staff_is_active, s.shift_type
       FROM staff s
-      JOIN users u ON s.user_id = u.uid
+      JOIN users u
+        ON s.user_id = u.uid
+       AND u.tenant_id = s.tenant_id
       WHERE s.employee_id = $1
-    `, [employeeId]);
+        ${tenantId ? 'AND s.tenant_id = $2::uuid AND u.tenant_id = $2::uuid' : ''}
+    `, tenantId ? [employeeId, tenantId] : [employeeId], client);
 
-    if (result.rows.length === 0) {
-      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
+    const staff = result.rows[0];
+    if (
+      !staff
+      || (tenantId && String(staff.tenant_id).toLowerCase() !== String(tenantId).toLowerCase())
+    ) {
+      await this.logAuthAttempt(
+        employeeId,
+        authAction,
+        false,
+        'Invalid employee ID',
+        'password',
+        req,
+        null,
+        { tenantId, client },
+      );
       logSecurityEvent('LOGIN_FAILED', {
         userName: employeeId,
+        tenantId,
         ip: req?.ip,
         userAgent: req?.headers?.['user-agent'],
         path,
@@ -256,13 +291,22 @@ export class StaffAuthService {
       throw AppError.invalidCredentials('Invalid employee ID or password');
     }
 
-    const staff = result.rows[0];
     if (!isActiveStaffIdentity(staff)) {
-      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
+      await this.logAuthAttempt(
+        employeeId,
+        authAction,
+        false,
+        'Account deactivated',
+        'password',
+        req,
+        null,
+        { tenantId, client },
+      );
       logSecurityEvent('LOGIN_FAILED', {
         userId: String(staff.uid),
         userName: employeeId,
         userRole: staff.role,
+        tenantId,
         ip: req?.ip,
         userAgent: req?.headers?.['user-agent'],
         path,
@@ -273,11 +317,21 @@ export class StaffAuthService {
 
     const isPasswordValid = await bcrypt.compare(password, staff.encrypted_password);
     if (!isPasswordValid) {
-      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid password', 'password', req);
+      await this.logAuthAttempt(
+        employeeId,
+        authAction,
+        false,
+        'Invalid password',
+        'password',
+        req,
+        null,
+        { tenantId, client },
+      );
       logSecurityEvent('LOGIN_FAILED', {
         userId: String(staff.uid),
         userName: employeeId,
         userRole: staff.role,
+        tenantId,
         ip: req?.ip,
         userAgent: req?.headers?.['user-agent'],
         path,
@@ -374,6 +428,65 @@ export class StaffAuthService {
       logger.error('Staff authentication error:', error);
       throw error;
     }
+  }
+
+  static async authenticateControlledDispenseWitness({
+    employeeId,
+    password,
+    tenantId,
+    req,
+  } = {}) {
+    const normalizedEmployeeId = String(employeeId || '').trim().toUpperCase();
+    const suppliedPassword = typeof password === 'string' ? password : '';
+    const expectedTenantId = String(tenantId || '').trim().toLowerCase();
+    if (!TENANT_ID_PATTERN.test(expectedTenantId)) {
+      throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    }
+    if (!/^[A-Z0-9-]{3,20}$/.test(normalizedEmployeeId) || suppliedPassword.length < 6) {
+      throw AppError.invalidCredentials('Invalid employee ID or password');
+    }
+
+    const outcome = await setTenant(expectedTenantId, async (client) => {
+      try {
+        await query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired',
+          [`controlled-dispense-witness-auth:${expectedTenantId}:${normalizedEmployeeId}`],
+          client,
+        );
+        const staff = await this._authenticateStaffPassword(
+          normalizedEmployeeId,
+          suppliedPassword,
+          req,
+          req?.originalUrl || '/api/v1/pharmacy/counter-sales/witness-approvals/approve',
+          {
+            tenantId: expectedTenantId,
+            client,
+            authAction: 'CONTROLLED_DISPENSE_WITNESS',
+          },
+        );
+        await this.logAuthAttempt(
+          normalizedEmployeeId,
+          'CONTROLLED_DISPENSE_WITNESS',
+          true,
+          null,
+          'password',
+          req,
+          null,
+          { tenantId: expectedTenantId, client },
+        );
+        return { staff };
+      } catch (error) {
+        if (!CONTROLLED_DISPENSE_AUTH_ERROR_CODES.has(error?.code)) throw error;
+        return { error };
+      }
+    });
+
+    if (outcome.error) throw outcome.error;
+    return {
+      uid: outcome.staff.uid,
+      tenantId: outcome.staff.tenant_id,
+      role: outcome.staff.role,
+    };
   }
 
   static async updateOwnProfile(staffUid, updates, req) {
@@ -1637,13 +1750,35 @@ export class StaffAuthService {
     return { revokedCount };
   }
 
-  static async logAuthAttempt(phone, action, success, failureReason, authMethod, req, deviceInfo = null) {
+  static async logAuthAttempt(
+    phone,
+    action,
+    success,
+    failureReason,
+    authMethod,
+    req,
+    deviceInfo = null,
+    { tenantId = null, client = prisma } = {},
+  ) {
     try {
+      const tenantColumn = tenantId ? ', tenant_id' : '';
+      const tenantValue = tenantId ? ', $9::uuid' : '';
       await query(`
         INSERT INTO auth_logs (
-          phone, action, success, failure_reason, auth_method, ip_address, user_agent, device_info, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-      `, [phone, action, success, failureReason, authMethod, req.ip || '', req.headers['user-agent'], deviceInfo ? String(deviceInfo) : null]);
+          phone, action, success, failure_reason, auth_method, ip_address,
+          user_agent, device_info, created_at${tenantColumn}
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()${tenantValue})
+      `, [
+        phone,
+        action,
+        success,
+        failureReason,
+        authMethod,
+        req.ip || '',
+        req.headers['user-agent'],
+        deviceInfo ? String(deviceInfo) : null,
+        ...(tenantId ? [tenantId] : []),
+      ], client);
     } catch (error) {
       logger.error('Failed to log auth attempt:', error);
     }

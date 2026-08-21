@@ -43,6 +43,9 @@ jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   genericLimiter: (_req, _res, next) => next(),
 }));
+jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
+  resolveInteropCredentialSnapshot: jest.fn().mockResolvedValue(null),
+}));
 // abdmService pulls these in transitively; the route test spies the handler,
 // so stub them to keep the import side-effect-free (no real DB / crypto / SSRF).
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -63,6 +66,22 @@ jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryServic
   recordAuthenticatedAbdmCallback,
   markAuthenticatedAbdmCallback,
 }));
+// The Scan & Share / HIU callback handlers lazy-import their services;
+// unstable_mockModule intercepts the dynamic import too, so the whole
+// migration-702/703 dependency graph stays out of this suite.
+const handlePatientProfileShareCallback = jest.fn();
+const handleHiuDataPush = jest.fn();
+jest.unstable_mockModule('../../services/abdm/abdmShareIntakeService.js', () => ({
+  handlePatientProfileShareCallback,
+  default: { handlePatientProfileShareCallback },
+}));
+jest.unstable_mockModule('../../services/abdm/abdmHiuService.js', () => ({
+  handleHiuDataPush,
+  handleHiuConsentOnInit: jest.fn(),
+  handleHiuConsentNotify: jest.fn(),
+  handleHiuHealthInfoOnRequest: jest.fn(),
+  default: { handleHiuDataPush },
+}));
 
 let abdmService;
 let callbackRouter;
@@ -77,6 +96,14 @@ beforeEach(() => {
   assertSharedReplayOnce.mockReset();
   recordAuthenticatedAbdmCallback.mockReset();
   markAuthenticatedAbdmCallback.mockReset();
+  handlePatientProfileShareCallback.mockReset();
+  handleHiuDataPush.mockReset();
+  handlePatientProfileShareCallback.mockResolvedValue({
+    intake: { id: 21 }, duplicate: false, tokenNumber: 'T-21',
+  });
+  handleHiuDataPush.mockResolvedValue({
+    duplicate: false, transactionId: 'txn-1', stored: 1, failed: 0,
+  });
   recordAuthenticatedAbdmCallback.mockResolvedValue({
     event: { id: '71', external_event_id: 'cr-9', status: 'pending' },
     duplicate: false,
@@ -100,6 +127,7 @@ function buildApp() {
 }
 
 const SIGNATURE = 'a'.repeat(64);
+const SIGNATURE_VERSION = 'v1';
 const TIMESTAMP = '1718800000000';
 const REQUEST_ID = 'abdm-req-123';
 
@@ -108,6 +136,7 @@ function postValidCallback(app) {
     .post('/consent/on-notify')
     .set('x-hip-id', 'TEST_HIP')
     .set('x-abdm-signature', SIGNATURE)
+    .set('x-abdm-signature-version', SIGNATURE_VERSION)
     .set('timestamp', TIMESTAMP)
     .set('request-id', REQUEST_ID)
     .send({
@@ -120,6 +149,16 @@ function postValidCallback(app) {
 }
 
 describe('ABDM callback cross-replica replay protection', () => {
+  it('fails closed when exact raw-body capture is missing', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(callbackRouter);
+    const res = await postValidCallback(app);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ABDM_RAW_BODY_MISSING');
+    expect(verifySignedRequest).not.toHaveBeenCalled();
+  });
+
   it('invokes assertSharedReplayOnce with the abdm-callback replay key on a valid callback', async () => {
     const spy = jest.spyOn(abdmService, 'handleConsentRequest')
       .mockResolvedValue({ consent_id: 'test-consent' });
@@ -128,12 +167,23 @@ describe('ABDM callback cross-replica replay protection', () => {
 
     expect(res.status).toBe(202);
     expect(spy).toHaveBeenCalledTimes(1);
+    expect(Buffer.isBuffer(verifySignedRequest.mock.calls[0][0].payload)).toBe(true);
+    expect(verifySignedRequest.mock.calls[0][0]).toMatchObject({
+      signatureVersion: SIGNATURE_VERSION,
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    });
     expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
     const arg = assertSharedReplayOnce.mock.calls[0][0];
     expect(arg.replayNamespace).toBe('abdm-callback');
     expect(arg.requestId).toBe(REQUEST_ID);
     expect(String(arg.timestamp)).toBe(TIMESTAMP);
     expect(arg.signature).toBe(SIGNATURE);
+    expect(arg).toMatchObject({
+      signatureVersion: SIGNATURE_VERSION,
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    });
     expect(recordAuthenticatedAbdmCallback).toHaveBeenCalledTimes(1);
     expect(assertSharedReplayOnce.mock.invocationCallOrder[0])
       .toBeLessThan(recordAuthenticatedAbdmCallback.mock.invocationCallOrder[0]);
@@ -175,6 +225,82 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
   });
 
+  it('runs the Scan & Share path through the SAME replay chain and hands the resolved tenant to the service', async () => {
+    const res = await request(buildApp())
+      .post('/patients/profile/share')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ requestId: 'req-abc', profile: { patient: { name: 'Asha' } } });
+
+    expect(res.status).toBe(202);
+    expect(res.body.data).toMatchObject({
+      acknowledgement: { status: 'SUCCESS' },
+      requestId: 'req-abc',
+      tokenNumber: 'T-21',
+    });
+    expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
+    expect(handlePatientProfileShareCallback).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: expect.any(String),
+      environment: 'sandbox',
+      body: expect.objectContaining({ requestId: 'req-abc' }),
+    }));
+  });
+
+  it('a replay on the Scan & Share path is rejected before the service runs', async () => {
+    assertSharedReplayOnce.mockRejectedValue(Object.assign(
+      new Error('replay'), { statusCode: 401, code: 'ABDM_CALLBACK_REPLAY' },
+    ));
+
+    const res = await request(buildApp())
+      .post('/patients/profile/share')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ requestId: 'req-abc' });
+
+    expect(res.status).toBe(401);
+    expect(handlePatientProfileShareCallback).not.toHaveBeenCalled();
+  });
+
+  it('an unrecognized HIP id 401s the new paths (tenant fail-closed)', async () => {
+    const res = await request(buildApp())
+      .post('/hiu/health-info/push')
+      .set('x-hip-id', 'SOMEONE_ELSES_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ transactionId: 'txn-1', entries: [] });
+
+    expect(res.status).toBe(401);
+    expect(handleHiuDataPush).not.toHaveBeenCalled();
+    expect(assertSharedReplayOnce).not.toHaveBeenCalled();
+  });
+
+  it('the HIU data-push path rides the same chain and 202-acks', async () => {
+    const res = await request(buildApp())
+      .post('/hiu/health-info/push')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', REQUEST_ID)
+      .send({ transactionId: 'txn-1', pageNumber: 1, pageCount: 1, entries: [] });
+
+    expect(res.status).toBe(202);
+    expect(res.body.data).toMatchObject({ transactionId: 'txn-1', stored: 1 });
+    expect(assertSharedReplayOnce).toHaveBeenCalledTimes(1);
+    expect(handleHiuDataPush).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: expect.any(String),
+      authenticatedHipId: 'TEST_HIP',
+    }));
+  });
+
   it('rejects fail-closed when the shared replay store is unavailable (503)', async () => {
     const spy = jest.spyOn(abdmService, 'handleConsentRequest')
       .mockResolvedValue({ consent_id: 'should-not-happen' });
@@ -189,5 +315,41 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(res.status).toBe(503);
     expect(spy).not.toHaveBeenCalled();
     expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
+  });
+
+  it('derives the canonical application path without query or forwarded proxy prefix', async () => {
+    jest.spyOn(abdmService, 'handleConsentRequest')
+      .mockResolvedValue({ consent_id: 'test-consent' });
+
+    const res = await request(buildApp())
+      .post('/consent/on-notify?admin=true')
+      .set('x-forwarded-prefix', '/hospital-edge')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('x-abdm-signature-version', SIGNATURE_VERSION)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', `${REQUEST_ID}-query`)
+      .send({ notification: { consentRequestId: 'cr-query' } });
+
+    expect(res.status).toBe(202);
+    expect(verifySignedRequest).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'POST',
+      canonicalPath: '/api/v1/abdm/consent/on-notify',
+    }));
+  });
+
+  it('rejects an unversioned callback before HMAC or replay work', async () => {
+    const res = await request(buildApp())
+      .post('/consent/on-notify')
+      .set('x-hip-id', 'TEST_HIP')
+      .set('x-abdm-signature', SIGNATURE)
+      .set('timestamp', TIMESTAMP)
+      .set('request-id', `${REQUEST_ID}-unversioned`)
+      .send({ notification: { consentRequestId: 'cr-unversioned' } });
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('ABDM_CALLBACK_SIGNATURE_VERSION_REQUIRED');
+    expect(verifySignedRequest).not.toHaveBeenCalled();
+    expect(assertSharedReplayOnce).not.toHaveBeenCalled();
   });
 });

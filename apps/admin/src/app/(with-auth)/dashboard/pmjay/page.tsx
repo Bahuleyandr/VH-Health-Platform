@@ -4,11 +4,12 @@
 
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { CodeMultiSearchField } from "@/components/terminology/CodeSearchField";
+import { fetchAdminAPI } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 type Tab = "cases" | "beneficiaries" | "packages";
 
@@ -399,6 +400,7 @@ function NewCaseModal({
     treating_doctor_name: "",
     expected_admission_date: "",
   });
+  const [icd10Codes, setIcd10Codes] = useState<string[]>([]);
 
   const [pkgQuery, setPkgQuery] = useState("");
   const { data: beneficiaries = [] } = useQuery<Beneficiary[]>({
@@ -434,6 +436,7 @@ function NewCaseModal({
           beneficiary_id: form.beneficiary_id,
           package_id: form.package_id,
           primary_diagnosis: form.primary_diagnosis,
+          icd10_codes: icd10Codes.length > 0 ? icd10Codes : undefined,
           treating_doctor_name: form.treating_doctor_name || undefined,
           expected_admission_date: form.expected_admission_date || undefined,
         },
@@ -562,6 +565,13 @@ function NewCaseModal({
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
+          <CodeMultiSearchField
+            label="ICD-10 codes (optional)"
+            values={icd10Codes}
+            onChange={setIcd10Codes}
+            labelClassName="text-xs text-muted-foreground block mb-1"
+            inputClassName="w-full border border-border rounded-lg px-3 py-2 text-sm"
+          />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground block mb-1">

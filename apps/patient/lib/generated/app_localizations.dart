@@ -218,6 +218,18 @@ abstract class AppLocalizations {
   /// **'SOS alert has been triggered!'**
   String get authSosTriggered;
 
+  /// Honest failure snack-bar when the SOS backend POST fails; the dialer call remains the safety net
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.'**
+  String get authSosBackendFailed;
+
+  /// Snack-bar when no SOS alert was sent because the user is a guest / has no stored phone; must not claim the alert was triggered
+  ///
+  /// In en, this message translates to:
+  /// **'Emergency call opened. Sign in to also send an SOS alert to the hospital.'**
+  String get authSosGuestSkipped;
+
   /// Identifier used when SOS is triggered without a signed-in phone
   ///
   /// In en, this message translates to:
@@ -1093,6 +1105,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not pick a file. Please try again.'**
   String get investigationsFilePickerError;
+
+  /// Banner + snackbar shown on the investigations Upload tab while a guardian is viewing a dependent profile — uploads only file against the guardian's own record
+  ///
+  /// In en, this message translates to:
+  /// **'Report uploads aren\'t available while viewing {name}\'s profile. Switch back to your own profile to upload a report.'**
+  String investigationsUploadNotAvailableForDependent(String name);
 
   /// App-bar title for trivia screen
   ///
@@ -5285,6 +5303,24 @@ abstract class AppLocalizations {
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
+  /// **'Unable to update reminder'**
+  String get medicationReminderUpdateFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to delete reminder'**
+  String get medicationReminderDeleteFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get medicationReminderPausedLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
   /// **'Dosage: {dosage}'**
   String medicationReminderDosageLine(String dosage);
 
@@ -6403,6 +6439,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Update VH Health'**
   String get splashUpdateButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'The updated version is not yet available for download on this device. Please contact the hospital reception for help installing the latest version of VH Health.'**
+  String get splashUpdateNoStoreBody;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///

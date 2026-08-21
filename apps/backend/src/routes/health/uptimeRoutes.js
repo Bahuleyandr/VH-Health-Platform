@@ -2,9 +2,10 @@
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
 import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
-import { assertRedisWritable, getRedisClient, redisIsRequired } from '../../lib/redis.js';
+import { assertRedisWritable, getRedisClient, isRedisConfigured, redisIsRequired } from '../../lib/redis.js';
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
+import { rateLimitStoreStatus } from '../../middleware/rateLimitStoreHealth.js';
 import { readMigrationState } from '../../utils/migrations/runMigrations.js';
 import { isWsFanoutReady } from '../../utils/websocket/wsServer.js';
 
@@ -68,9 +69,29 @@ router.get('/live', (_req, res) => {
   });
 });
 
+// 873-F2: first-seen timestamps for RUN-TIME Redis degradation, so the
+// readiness payload can say since-when honestly. Per-process (reset on
+// restart) — the same lifetime as the degradation it describes.
+const degradedSince = {
+  redis: null,
+  redis_websocket_subscriber: null,
+};
+
+/** Test-only: reset the degraded-since latches between cases. */
+export function __resetReadinessDegradedSinceForTests() {
+  degradedSince.redis = null;
+  degradedSince.redis_websocket_subscriber = null;
+}
+
+function markDegraded(name) {
+  if (!degradedSince[name]) degradedSince[name] = Date.now();
+  return new Date(degradedSince[name]).toISOString();
+}
+
 // GET /health/ready — readiness probe for traffic admission.
 router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
   const checks = {};
+  const degraded = {};
 
   try {
     const start = Date.now();
@@ -97,17 +118,66 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
     logger.warn('Readiness probe failed:', err.message);
   }
 
+  // 873-F2: strictness (REDIS_REQUIRE_SENTINEL=true) is a BOOT gate, not a
+  // run-time traffic gate. A strict pod that cannot reach Redis at startup
+  // exits 1 (bin/www.js) and never serves. But once a pod has initialized,
+  // a MID-FLIGHT store outage must NOT fail readiness: this probe used to
+  // 503 on any Redis loss, so kubelet pulled EVERY pod from the Service
+  // within ~15s (period 5 / threshold 3) — the exact hospital-wide outage
+  // the fail-open store-loss posture (rateLimitStoreLossPolicy.js) exists to
+  // prevent. The pod deliberately serves degraded through an outage:
+  // fail-closed limiter profiles answer honest 429s, fail-open profiles pass
+  // unmetered, and the blacklist/cache paths fall to the authoritative DB.
+  // Degradation is reported honestly below (status + `degraded` block with
+  // since-when) instead of being converted into a fleet-wide NotReady.
   if (redisIsRequired()) {
-    try {
-      const start = Date.now();
-      await assertRedisWritable();
-      checks.redis = { status: 'ok', latency_ms: Date.now() - start };
-      checks.redis_websocket_subscriber = isWsFanoutReady()
-        ? { status: 'ok' }
-        : { status: 'error', message: 'Required Redis WebSocket subscriber is unavailable' };
-    } catch (err) {
-      checks.redis = { status: 'error', message: 'Required Redis check failed' };
-      logger.warn('Readiness Redis probe failed:', err.message);
+    const client = getRedisClient();
+    if (!client) {
+      // Never-initialized under strict mode: the boot gate should have
+      // exited before listen; a strict pod with no client at all is in an
+      // impossible-to-serve state, so this remains NOT ready (unchanged —
+      // the boot path itself is pinned by redisInitDeadline.test.js).
+      checks.redis = {
+        status: 'error',
+        message: 'Required Redis client was never initialized',
+      };
+    } else {
+      try {
+        const start = Date.now();
+        await assertRedisWritable();
+        checks.redis = { status: 'ok', latency_ms: Date.now() - start };
+        degradedSince.redis = null;
+      } catch (err) {
+        const since = markDegraded('redis');
+        checks.redis = {
+          status: 'degraded',
+          message: 'Redis store unreachable — serving degraded per the store-loss posture',
+          degraded_since: since,
+        };
+        degraded.redis = { state: 'store_unwritable', since };
+        logger.warn('Readiness Redis probe degraded (still serving):', err.message);
+      }
+    }
+  }
+
+  // 873-F10: the cross-pod WebSocket fan-out subscriber is surfaced in BOTH
+  // strict and non-strict modes (it used to be strict-only, so a non-strict
+  // degraded-start pod that recovered its cache via background reinit could
+  // stay silently deaf to cross-pod code-blue/vitals broadcasts while
+  // reporting ready). Like the store check above it reports degradation
+  // without flipping the HTTP status: a deaf pod still serves API traffic.
+  if (redisIsRequired() || isRedisConfigured()) {
+    if (isWsFanoutReady()) {
+      checks.redis_websocket_subscriber = { status: 'ok' };
+      degradedSince.redis_websocket_subscriber = null;
+    } else {
+      const since = markDegraded('redis_websocket_subscriber');
+      checks.redis_websocket_subscriber = {
+        status: 'degraded',
+        message: 'Redis WebSocket fan-out subscriber unavailable — broadcasts are single-process only',
+        degraded_since: since,
+      };
+      degraded.redis_websocket_subscriber = { state: 'subscriber_unavailable', since };
     }
   }
 
@@ -116,20 +186,28 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
   // table after a migration, or a bypassing role) made `ready` false on EVERY
   // replica simultaneously → a full API outage triggered by a security WARNING,
   // not by the service being unable to serve traffic. Readiness now gates on
-  // DB reachability + the image's required migration set, plus Redis only when
-  // the deployment explicitly opts into strict Sentinel mode. A database ahead
-  // of an old pod remains ready during a rolling deploy, while a new pod with
-  // pending requirements is rejected. RLS posture is still
+  // DB reachability + the image's required migration set. Redis is a boot-time
+  // gate in strict Sentinel mode only; a run-time store outage on an
+  // initialized pod is REPORTED (see the 873-F2 block above) but never fails
+  // readiness — pulling every pod for a cache outage is the outage. A database
+  // ahead of an old pod remains ready during a rolling deploy, while a new pod
+  // with pending requirements is rejected. RLS posture is still
   // surfaced loudly elsewhere: a boot-time ERROR (logTenantRlsRolePosture in
   // bin/www.js) and a live signal on GET /health/metrics (`tenant_rls`), which
   // is where alerting should hang — not on the traffic-admission probe.
 
-  const ready = Object.values(checks).every((c) => c.status === 'ok');
-  res.status(ready ? 200 : 503).json({
-    status: ready ? 'ok' : 'degraded',
+  // 'degraded' checks admit traffic (HTTP 200); only 'error' fails readiness.
+  const ready = Object.values(checks).every(
+    (c) => c.status === 'ok' || c.status === 'degraded',
+  );
+  const anyDegraded = Object.keys(degraded).length > 0;
+  const payload = {
+    status: ready ? (anyDegraded ? 'degraded' : 'ok') : 'degraded',
     timestamp: new Date().toISOString(),
     checks,
-  });
+  };
+  if (anyDegraded) payload.degraded = degraded;
+  res.status(ready ? 200 : 503).json(payload);
 });
 
 // GET /health/deep — full connectivity check (DB, Redis, R2, Firebase)
@@ -262,6 +340,10 @@ router.get('/metrics', requireProductionMonitoringAccess, async (_req, res) => {
     error_rate: totalRequests > 0 ? (totalErrors / totalRequests).toFixed(4) : '0.0000',
     database: dbPoolStats,
     tenant_rls: tenantRls,
+    // Redis-backed rate-limit store posture (Redis-loss drill 2026-08-15):
+    // 'degraded' means fail-closed profiles are answering 429 and fail-open
+    // profiles are passing unmetered. Same operator pattern as circuitBreaker.
+    rate_limit_store: rateLimitStoreStatus(),
     memory: {
       rss_mb: Math.round(memUsage.rss / 1024 / 1024),
       heap_used_mb: Math.round(memUsage.heapUsed / 1024 / 1024),

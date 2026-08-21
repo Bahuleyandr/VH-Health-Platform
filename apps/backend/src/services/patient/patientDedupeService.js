@@ -256,6 +256,10 @@ export async function recordRegistrationDuplicateOverride({
   candidates = [],
   decidedBy = null,
   reason,
+  // Optional transaction client: callers that create the patient row and the
+  // override evidence atomically (registerFromShareIntake) pass their tx so
+  // the evidence commits or rolls back WITH the registration.
+  db = prisma,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const newUid = maybeUuid(newPatientUid, 'newPatientUid');
@@ -270,7 +274,7 @@ export async function recordRegistrationDuplicateOverride({
     if (!existingUid || existingUid === newUid) continue;
     const [primaryUid, secondaryUid] = [existingUid, newUid].sort();
     try {
-      const rows = await prisma.$queryRawUnsafe(
+      const rows = await db.$queryRawUnsafe(
         `INSERT INTO patient_duplicate_candidates
            (tenant_id, primary_uid, secondary_uid, confidence_score,
             match_signals, detected_by, status, decided_by, decided_at,
@@ -306,6 +310,12 @@ export async function recordRegistrationDuplicateOverride({
       );
       if (rows[0]) recorded += 1;
     } catch (err) {
+      if (db !== prisma) {
+        // Transactional caller: a failed statement has already aborted the
+        // underlying Postgres tx — swallowing it here would only poison the
+        // next tx statement (CLAUDE.md Phase-1 rule). Let the tx roll back.
+        throw err;
+      }
       if (isMissingSchemaError(err)) {
         return { recorded, halted: true, reason: 'patient_duplicate_candidates_unavailable' };
       }

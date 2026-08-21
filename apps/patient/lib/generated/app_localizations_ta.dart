@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -67,6 +68,14 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get authSosTriggered => 'SOS எச்சரிக்கை தூண்டப்பட்டது!';
+
+  @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
 
   @override
   String get authGuestUserSOS => 'விருந்தினர்_பயனர்_sos';
@@ -537,6 +546,11 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get investigationsFilePickerError =>
       'ஒரு கோப்பைத் தேர்ந்தெடுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
 
   @override
   String get triviaTitle => 'ஆரோக்கியத் துணுக்குகள்';
@@ -2810,6 +2824,16 @@ class AppLocalizationsTa extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'நினைவூட்டலை நீக்கு';
 
   @override
+  String get medicationReminderUpdateFailed =>
+      'நினைவூட்டலைப் புதுப்பிக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderDeleteFailed => 'நினைவூட்டலை நீக்க முடியவில்லை';
+
+  @override
+  String get medicationReminderPausedLabel => 'இடைநிறுத்தப்பட்டது';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'அளவு: $dosage';
   }
@@ -3455,6 +3479,10 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get splashUpdateButton => 'VH Health புதுப்பி';
+
+  @override
+  String get splashUpdateNoStoreBody =>
+      'புதுப்பிக்கப்பட்ட பதிப்பு இந்த சாதனத்தில் பதிவிறக்கத்திற்கு இன்னும் கிடைக்கவில்லை. VH Health இன் சமீபத்திய பதிப்பை நிறுவ உதவிக்கு மருத்துவமனை வரவேற்பைத் தொடர்பு கொள்ளவும்.';
 
   @override
   String get yourHealthTimelineFilterAll => 'அனைத்தும்';

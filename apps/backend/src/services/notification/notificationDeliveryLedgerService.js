@@ -15,6 +15,10 @@ const RECEIPT_SOURCES = new Set([
   'lease_expiry',
   'owner_reconciliation',
   'operator_reconciliation',
+  // Migration 700: asynchronous delivery-status (DLR) evidence from SMS
+  // providers, correlated to the attempt via the send-time receipt's
+  // provider_reference. Append-only refinement — never flips outbox status.
+  'provider_status_callback',
 ]);
 
 const PROVIDERS = Object.freeze({

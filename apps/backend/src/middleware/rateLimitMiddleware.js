@@ -4,7 +4,9 @@ import crypto from 'crypto';
 import os from 'os';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
+import { storeLossPostureFor } from '../config/rateLimitStoreLossPolicy.js';
 import { initRedis, isRedisConfigured } from '../lib/redis.js';
+import { ResilientRateLimitStore } from './rateLimitStoreHealth.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 
@@ -158,6 +160,26 @@ export const selectStore = (prefix = 'rl:') => {
   });
 };
 
+// Redis-loss drill 2026-08-15 (HIGH): a store error must never reach the
+// Express error chain — express-rate-limit@8 turns it into an undifferentiated
+// 500 per request (`passOnStoreError` defaults false and was never a decision
+// here). Every Redis-backed store is therefore wrapped so that store loss
+// resolves to the profile's DECLARED posture from rateLimitStoreLossPolicy.js:
+// fail-closed profiles answer an honest 429 + short Retry-After, fail-open
+// profiles pass unmetered — and once the store is known-down, requests
+// short-circuit instead of paying a store round-trip (measured 1.2s fresh /
+// 15.2s sustained per request before this). MemoryStore (Redis unset) cannot
+// fail and is never wrapped.
+const resilientStore = (profileName, prefix) => {
+  const inner = selectStore(prefix);
+  if (!inner) return undefined;
+  return new ResilientRateLimitStore({
+    inner,
+    profileName,
+    posture: storeLossPostureFor(profileName),
+  });
+};
+
 const authKeyGenerator = (req) => {
   const uid = req.user?.uid || req.user?.id;
   if (uid) return `auth:u:${String(uid)}`;
@@ -194,7 +216,17 @@ const isRateLimitingDisabled = () =>
 
 /** Uniform JSON 429 response */
 const defaultHandler = (req, res, _next, options) => {
-  const retrySecs = Math.ceil((options.windowMs ?? 0) / 1000);
+  let retrySecs = Math.ceil((options.windowMs ?? 0) / 1000);
+  // Prefer the store's actual reset time when it is sooner than the full
+  // window: a client throttled at minute 14 of a 15-minute window should hear
+  // "60s", not "900s" — and a store-loss denial (ResilientRateLimitStore sets
+  // resetTime to the short RATE_LIMIT_STORE_LOSS_RETRY_AFTER_SECONDS) must say
+  // "temporarily throttled, retry shortly", not "come back in an hour".
+  const resetTime = req.rateLimit?.resetTime;
+  if (resetTime instanceof Date) {
+    const secsUntilReset = Math.ceil((resetTime.getTime() - Date.now()) / 1000);
+    if (secsUntilReset > 0 && secsUntilReset < retrySecs) retrySecs = secsUntilReset;
+  }
   // Optionally tell clients when to retry
   res.set('Retry-After', String(retrySecs));
   res.status(429).json({
@@ -209,6 +241,13 @@ const defaultHandler = (req, res, _next, options) => {
  * ✅ Generate a rate limiter from a named profile.
  * Profiles live in ../config/rateLimitProfiles.js
  * Ensures IPv6 compliance by providing both keyGenerator and keyGeneratorIpFallback.
+ *
+ * THROWS on an unknown profile name (873-F8). It used to fall back silently to
+ * the generic `default` profile, which meant a typo'd name swapped the intended
+ * limiter for a fail-OPEN bucket while storeLossPostureFor() simultaneously
+ * promised unknown ⇒ fail_closed — two opposite postures for the same mistake.
+ * Every call site passes a literal name, so a typo now fails at boot instead
+ * of shipping the wrong posture.
  */
 export const getRateLimiter = (profileName = 'default', {
   keyMode = 'default',
@@ -217,7 +256,13 @@ export const getRateLimiter = (profileName = 'default', {
   storePrefix = null,
   enforceOnMatchedPath = false,
 } = {}) => {
-  const profile = RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
+  const profile = RATE_LIMIT_PROFILES[profileName];
+  if (!profile) {
+    throw new Error(
+      `Unknown rate-limit profile "${profileName}" — add it to RATE_LIMIT_PROFILES `
+        + 'and declare its store-loss posture in rateLimitStoreLossPolicy.js'
+    );
+  }
 
   const baseKeyGen =
     keyMode === 'ip'
@@ -270,13 +315,48 @@ export const getRateLimiter = (profileName = 'default', {
     // IMPORTANT: IPv6-safe config + W3 tenant-scoped bucket
     keyGenerator: keyGen,
 
-    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when Redis is unset
-    store: selectStore(storePrefix || `rl:${profileName}:`),
+    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when
+    // Redis is unset. Wrapped with the declared store-loss posture — see
+    // resilientStore above.
+    store: resilientStore(profileName, storePrefix || `rl:${profileName}:`),
 
     handler: handlerFn,
     skip: skipFn
   });
 };
+
+/**
+ * Kubernetes probe paths under the `/health` mount, MOUNT-RELATIVE.
+ *
+ * TRAP (finding 2026-08-15, P1 873-F1): Express strips the mount prefix for
+ * `app.use('/health', ...)` middleware, so inside a limiter mounted there the
+ * probes read `req.path === '/ready'` / `'/live'` — the default profile's
+ * built-in skip list (`startsWith('/health')`) matches NOTHING, and the k8s
+ * probes (loopback exec readiness + kubelet httpGet liveness,
+ * infra/kubernetes/apps/backend/deployment.yaml) were metered in the shared
+ * `t:default:127.0.0.1` bucket: 3 replicas x 12 hits/min against prod's
+ * 100/15min cap saturated the window in ~3 minutes, turning every pod
+ * NotReady for ~12 of every 15 minutes once synced. These entries are
+ * consumed by healthMountRateLimiter below, which routes them through the
+ * per-pod fail-open `probe` profile instead.
+ */
+export const HEALTH_MOUNT_PROBE_PATHS = Object.freeze(['/ready', '/live']);
+
+/**
+ * Limiter selector for the `/health` mount: k8s probe paths go through the
+ * given probe limiter (per-pod `probe` profile — bounded, fail-open under
+ * store loss), everything else stays on the general limiter. Deliberately NOT
+ * a skip: the probe surfaces remain metered, just in the bucket whose sizing
+ * (rateLimitProfiles.js `probe`) actually accounts for probe cadence. The
+ * non-probe /health surfaces (/metrics, /deep, /version, /ping) keep their
+ * existing metering unchanged.
+ */
+export const healthMountRateLimiter = (probeLimiterMw, generalLimiterMw) =>
+  (req, res, next) => (
+    HEALTH_MOUNT_PROBE_PATHS.includes(req.path)
+      ? probeLimiterMw(req, res, next)
+      : generalLimiterMw(req, res, next)
+  );
 
 /** ✅ Pre-configured Limiters (from profiles) */
 export const genericLimiter = getRateLimiter('default');
@@ -297,7 +377,9 @@ const authRateLimiterConfig = {
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: authKeyGenerator,
-  store: selectStore('rl:auth:'), // W3: replica-safe brute-force counter
+  // W3: replica-safe brute-force counter. fail_closed under store loss —
+  // credential guessing must never be unmetered (rateLimitStoreLossPolicy.js).
+  store: resilientStore('auth', 'rl:auth:'),
   handler: defaultHandler,
   // Count failed credential attempts, not normal successful re-auth. The
   // lockout service still tracks failed attempts per staff account in
@@ -307,6 +389,17 @@ const authRateLimiterConfig = {
 };
 
 export const authRateLimiter = expressRateLimit(authRateLimiterConfig);
+
+/**
+ * ✅ Logout rate limiter — POST /auth/logout self-revocation (873-F5).
+ * Runs after jwtAuth, so defaultKeyGenerator buckets per uid. Split from
+ * authRateLimiter because logout is DB-authoritative (tokenBlacklist.js R12)
+ * and must stay available under rate-limit store loss: the `logout` profile
+ * is fail_open_unmetered where `auth` is fail_closed — see
+ * rateLimitStoreLossPolicy.js. Login/refresh keep the fail-closed auth
+ * limiter untouched.
+ */
+export const logoutRateLimiter = getRateLimiter('logout');
 
 const otpKeyGenerator = (req) => {
   // Hash the contact identifier so a persistent Redis key never exposes the
@@ -327,7 +420,9 @@ export const otpRateLimiter = expressRateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: otpKeyGenerator,
-  store: selectStore('rl:otp:'), // W3: replica-safe OTP counter
+  // W3: replica-safe OTP counter. fail_closed under store loss — OTP floods
+  // must never be unmetered (rateLimitStoreLossPolicy.js).
+  store: resilientStore('otp', 'rl:otp:'),
   handler: defaultHandler,
   skip: isRateLimitingDisabled
 });
@@ -347,7 +442,10 @@ export const sosRateLimiter = expressRateLimit({
     if (uid) return `sos:u:${String(uid)}`;
     return `sos:${ipKeyGenerator(req.ip)}`;
   },
-  store: selectStore('rl:sos:'), // W3: replica-safe SOS counter
+  // W3: replica-safe SOS counter. fail_closed under store loss — the message
+  // already directs real emergencies to call emergency services directly
+  // (rateLimitStoreLossPolicy.js).
+  store: resilientStore('sos', 'rl:sos:'),
   handler: defaultHandler,
   skip: isRateLimitingDisabled
 });

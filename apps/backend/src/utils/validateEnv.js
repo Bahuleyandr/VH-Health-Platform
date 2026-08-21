@@ -12,6 +12,30 @@ import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVe
 // Minimum key length for all at-rest encryption keys (base64-encoded 32 bytes = 44 chars,
 // but Joi.min counts characters; 32 is the floor below which we refuse to boot).
 const MIN_KEY_LENGTH = 32;
+const ABHA_ENROLMENT_SANDBOX_HOST = 'abhasbx.abdm.gov.in';
+const NON_PRODUCTION_HOST_LABEL = /(^|[.-])(dev|sandbox|sbx)([.-]|$)/i;
+
+function rejectProductionAbhaSandboxHost(value, helpers) {
+  if (new URL(value).hostname.toLowerCase() === ABHA_ENROLMENT_SANDBOX_HOST) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
+
+function rejectProductionAbdmNonProductionHost(value, helpers) {
+  const hostname = new URL(value).hostname.toLowerCase();
+  if (
+    hostname === 'localhost'
+    || hostname === '0.0.0.0'
+    || hostname === '[::1]'
+    || hostname.endsWith('.local')
+    || /^127\./.test(hostname)
+    || NON_PRODUCTION_HOST_LABEL.test(hostname)
+  ) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
 
 const ENCRYPTION_KEY_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
@@ -83,6 +107,19 @@ export const envSchema = Joi.object({
     then: Joi.string().min(16).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('REDIS_SENTINEL_PASSWORD'),
+  // Hard deadline for boot-time Redis initialization (lib/redis.js). Without
+  // it, unreachable Sentinels hang initRedis() forever — the strict-mode
+  // fail-fast in bin/www.js never executes and the pod neither becomes ready
+  // nor crash-loops (Redis-loss drill 2026-08-15, Finding 2). Floor of 1s so a
+  // typo can't make every boot fail; ceiling of 5min so it stays a deadline.
+  REDIS_INIT_TIMEOUT_MS: Joi.number().integer().min(1000).max(300000).optional()
+    .label('REDIS_INIT_TIMEOUT_MS'),
+  // Per-command Redis timeout (lib/redis.js). Bounds commands on blackholed
+  // sockets and commands queued behind reconnect backoff — measured unbounded
+  // and 15.2s respectively without it. Floor of 100ms so a typo can't fail
+  // every healthy command.
+  REDIS_COMMAND_TIMEOUT_MS: Joi.number().integer().min(100).max(60000).optional()
+    .label('REDIS_COMMAND_TIMEOUT_MS'),
 
   // Cap on tenant-scoped staff push fan-out (staffPushRecipientService).
   // .max(500) is the Firebase multicast ceiling: sendPushNotification THROWS
@@ -91,6 +128,10 @@ export const envSchema = Joi.object({
   // boot is better than that. The service clamps again at runtime.
   STAFF_PUSH_FANOUT_CAP: Joi.number().integer().min(1).max(500).optional()
     .label('STAFF_PUSH_FANOUT_CAP'),
+  NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('true')
+    .label('NOTIFICATION_OUTBOX_AUTO_REPLAY_ENABLED'),
 
   // ── Clinical credential-gate enforcement flags (see config/privilegeGates.js) ──
   // Each turns ON credential enforcement for one clinical act; default OFF.
@@ -141,6 +182,18 @@ export const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('PATIENT_OUTAGE_COMMUNICATION_JSON'),
+  // Staff hard-upgrade gate, also served by public GET /api/v1/config as
+  // `min_staff_version_code`. 0 disables the gate; otherwise the minimum
+  // accepted staff build number. There is deliberately no signed-envelope
+  // counterpart (the patient coupling above exists because fielded patient
+  // builds fail closed on an unverifiable policy); every staff build
+  // implements the unsigned legacy comparison and fails open on an unusable
+  // /config, so a bare code is safe.
+  MIN_STAFF_VERSION_CODE: Joi.number()
+    .integer()
+    .min(0)
+    .default(0)
+    .label('MIN_STAFF_VERSION_CODE'),
 
   // HTTP server timeouts (REL-4 / B2.4). Defaults: requestTimeout=60s,
   // keepAliveTimeout=61s, headersTimeout=65s. keepAlive < headers is required
@@ -222,14 +275,20 @@ export const envSchema = Joi.object({
   CF_R2_ACCESS_KEY_ID: Joi.string().optional().label('CF_R2_ACCESS_KEY_ID'),
   CF_R2_SECRET_ACCESS_KEY: Joi.string().optional().label('CF_R2_SECRET_ACCESS_KEY'),
 
-  // Malware scanning posture for every file the platform accepts or serves.
+  // Malware scanning posture for every file the platform accepts from a
+  // caller: all byte-ingest paths screen through
+  // services/security/fileScanService.js before anything is stored.
   // `required` (default, fail-closed) refuses an upload outright when the local
   // clamd daemon is unreachable, rather than storing bytes no gate will ever
   // release. `disabled_accepted_risk` is an explicit on-the-record declaration
   // that this deployment runs without a scanner; files are stored and served as
-  // `not_scanned`. There is deliberately no third "best effort" value — that
-  // ambiguity is the defect this setting replaced.
-  // See src/config/fileScanPolicy.js.
+  // `not_scanned`. Serving-side, stores that carry a per-row scan_status
+  // (file_metadata, staff_message_attachments, investigation_files,
+  // consent_signatures, investigation_bookings photos) re-check servability at
+  // read time; the remaining stores enforce the policy at ingest only (see the
+  // fileScanService header for the exact coverage map). There is deliberately
+  // no third "best effort" value — that ambiguity is the defect this setting
+  // replaced. See src/config/fileScanPolicy.js.
   FILE_SCAN_POLICY: Joi.string()
     .valid(...FILE_SCAN_POLICY_VALUES)
     .default(FILE_SCAN_POLICY.REQUIRED)
@@ -237,6 +296,14 @@ export const envSchema = Joi.object({
 
   // Firebase — optional but warn if missing
   FIREBASE_AUTH_ENABLED: Joi.string().valid('true', 'false').optional().label('FIREBASE_AUTH_ENABLED'),
+  // Opt-OUT kill switch for the sos-alert-age-escalation sweep. Unset means
+  // ENABLED — this is the HIGH-1 remediation, so it must not require an env
+  // var to be live. Set 'false' only to stop a misbehaving sweep without
+  // waiting on a revert commit and a second manual production sync.
+  SOS_ALERT_AGE_ESCALATION_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .optional()
+    .label('SOS_ALERT_AGE_ESCALATION_ENABLED'),
   FIREBASE_PROJECT_ID: Joi.string().optional().label('FIREBASE_PROJECT_ID'),
   FIREBASE_CLIENT_EMAIL: Joi.string().email().optional().label('FIREBASE_CLIENT_EMAIL'),
   FIREBASE_PRIVATE_KEY: Joi.string().optional().label('FIREBASE_PRIVATE_KEY'),
@@ -305,6 +372,19 @@ export const envSchema = Joi.object({
   METABASE_DASH_DOCTOR_PROD: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DOCTOR_PROD'),
   METABASE_DASH_OR_THROUGHPUT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OR_THROUGHPUT'),
   METABASE_DASH_SAFETY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_SAFETY'),
+  // ── Analytics BI dashboard ids (wt/bi-app, migration 723) ────────────────
+  // Registers the migration-465 metabase_env_var names that were missing
+  // above (the six legacy METABASE_DASH_* names before this block stay for
+  // back-compat; only _DAILY_OPS, _REVENUE_PAYER_MIX, and _LAB_TAT match
+  // catalog rows) plus the three names seeded by migration 723.
+  METABASE_DASH_BED_FLOW: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_BED_FLOW'),
+  METABASE_DASH_OT_UTILIZATION: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OT_UTILIZATION'),
+  METABASE_DASH_ORDERS_TAT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ORDERS_TAT'),
+  METABASE_DASH_QUALITY_FEEDBACK: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_QUALITY_FEEDBACK'),
+  METABASE_DASH_OPERATIONAL_AI_ALERTS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OPERATIONAL_AI_ALERTS'),
+  METABASE_DASH_PHARMACY_OPS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_PHARMACY_OPS'),
+  METABASE_DASH_COLLECTIONS_RCM: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_COLLECTIONS_RCM'),
+  METABASE_DASH_ENCOUNTER_VOLUME: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_ENCOUNTER_VOLUME'),
 
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
@@ -424,6 +504,38 @@ export const envSchema = Joi.object({
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
 
+  // Terminology coding enforcement (WP2, migration 720) — env kill-switch for
+  // ICD-10 validation on downstream documents (death certificate, insurance
+  // pre-auth/claim, discharge summary). Effective level is min(env, tenant
+  // tenant_terminology_settings.coding_enforcement[surface]); unset/'off'
+  // (the default) keeps every surface byte-identical to pre-WP2 behavior.
+  TERMINOLOGY_CODING_ENFORCEMENT: Joi.string()
+    .valid('off', 'warn', 'block')
+    .allow('')
+    .optional()
+    .label('TERMINOLOGY_CODING_ENFORCEMENT'),
+
+  // Lab analyzer-code → LOINC mapping enrichment (migration 721). Deployment
+  // kill switch, default off; even when true each tenant must also opt in via
+  // settings.labLoincMapping.enabled AND curated lab_analyzer_code_mappings
+  // rows must exist before any lab_results.loinc_code is stamped at ingest.
+  LAB_LOINC_MAPPING_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('LAB_LOINC_MAPPING_ENABLED'),
+
+  // Drug-KB deterministic matching (migration 722) — deployment-wide kill
+  // switch for the formulary→KB link adapter AND the OTC counter-sale
+  // advisory. Off/unset (default) keeps the name-substring matching path
+  // byte-identical; each tenant must additionally opt in via
+  // settings.drugKb.deterministicMatching / settings.drugKb.counterSaleAdvisory.
+  DRUG_KB_DETERMINISTIC_MATCHING: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('DRUG_KB_DETERMINISTIC_MATCHING'),
+
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,
   // so production must fail closed if the HMAC secrets are not provisioned.
@@ -538,6 +650,79 @@ export const envSchema = Joi.object({
     .default(600)
     .label('TELECONSULT_TOKEN_TTL_SECONDS'),
 
+  // Online payment gateway (UPI + cards) deployment-wide kill switch.
+  // Default OFF. Provider credentials are strictly per-tenant rows
+  // (payment_gateway_provider_configs, encryptField ciphertext) — no env
+  // credentials exist, so enabling requires no additional env keys; the
+  // dry_run provider needs no credentials at all.
+  PAYMENT_GATEWAY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PAYMENT_GATEWAY_ENABLED'),
+
+  // General facility asset register (migrations 704/706/710) deployment-wide
+  // kill switch. Default OFF (dark-shipped). Effective enablement additionally
+  // requires the per-tenant tenants.settings.facilityAssets.enabled flag
+  // (facilityAssetService.requireFacilityAssetsEnabled ANDs both, fail closed).
+  // No credentials involved — enabling requires no additional env keys.
+  FACILITY_ASSETS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('FACILITY_ASSETS_ENABLED'),
+
+  // SMS gateway (migrations 699/700). Unset = dry-run everywhere (DEFAULT
+  // OFF); 'logger' is the explicit deployment-wide kill switch (tenant
+  // configs ignored); 'msg91'/'twilio' enable an env-credential fallback for
+  // tenants without their own sms_provider_configs row — per-tenant rows
+  // always win, and tenants.settings.sms.enabled still gates every real
+  // send. A named env provider must carry complete credentials.
+  SMS_PROVIDER: Joi.string()
+    .valid('msg91', 'twilio', 'logger')
+    .optional()
+    .label('SMS_PROVIDER'),
+  MSG91_AUTH_KEY: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_AUTH_KEY'),
+  MSG91_SENDER_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(20).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_SENDER_ID'),
+  MSG91_DLT_ENTITY_ID: Joi.when('SMS_PROVIDER', {
+    is: 'msg91',
+    then: Joi.string().min(1).max(40).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('MSG91_DLT_ENTITY_ID'),
+  TWILIO_SMS_FROM: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_SMS_FROM'),
+  // Shared Twilio account credentials (also used by the WhatsApp/voice
+  // channels, which only soft-check them at send time) become REQUIRED when
+  // the deployment names twilio as the env SMS provider.
+  TWILIO_ACCOUNT_SID: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_ACCOUNT_SID'),
+  TWILIO_AUTH_TOKEN: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TWILIO_AUTH_TOKEN'),
+  PUBLIC_BASE_URL: Joi.when('SMS_PROVIDER', {
+    is: 'twilio',
+    then: Joi.when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().uri({ scheme: ['https'] }).required(),
+      otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).required(),
+    }),
+    otherwise: Joi.string().uri({ scheme: ['http', 'https'] }).allow('').optional(),
+  }).label('PUBLIC_BASE_URL'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',
@@ -549,6 +734,13 @@ export const envSchema = Joi.object({
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CALLBACK_SECRET'),
+  // The endpoint-unbound callback contract exists only as an explicit sandbox
+  // migration seam. Production must never boot with downgrade acceptance.
+  ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().valid('false').default('false'),
+    otherwise: Joi.string().valid('true', 'false').default('false'),
+  }).label('ABDM_CALLBACK_ALLOW_LEGACY_UNBOUND'),
   // CAN-026: Consent-Manager artefact signature verification is a mandatory
   // trust layer for the national health network — an ABDM-enabled deployment
   // must run with it ON and a CM public key present, so it can't silently accept
@@ -563,6 +755,86 @@ export const envSchema = Joi.object({
     then: Joi.string().min(1).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CM_PUBLIC_KEY'),
+  // ABDM completion (migrations 701-703): the environment is EXPLICIT — the
+  // gateway previously hardcoded X-CM-ID 'sbx'. Defaults stay sandbox; a
+  // production deployment sets ABDM_ENVIRONMENT=production and MUST then name
+  // its Consent-Manager id (no production default exists on purpose).
+  ABDM_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('ABDM_ENVIRONMENT'),
+  ABDM_CM_ID: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_CM_ID'),
+  ABDM_GATEWAY_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/gateway'),
+  }).label('ABDM_GATEWAY_URL'),
+  ABDM_BRIDGE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbdmNonProductionHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://dev.abdm.gov.in/devservice/v1'),
+  }).label('ABDM_BRIDGE_URL'),
+  // ABHA enrolment API base (v3). Sandbox keeps the known-safe default;
+  // production must name a non-sandbox host explicitly so Aadhaar/mobile/OTP
+  // material cannot cross environments through a forgotten URL override.
+  ABHA_ENROLMENT_BASE_URL: Joi.when('ABDM_ENVIRONMENT', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .custom(rejectProductionAbhaSandboxHost)
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['https'] })
+      .default('https://abhasbx.abdm.gov.in/abha/api/v3'),
+  }).label('ABHA_ENROLMENT_BASE_URL'),
+  // Thin-HIU identity; defaults to ABDM_HIP_ID in abdmConfig when unset.
+  ABDM_HIU_ID: Joi.string().allow('').optional().label('ABDM_HIU_ID'),
+
+  // UHI (Unified Health Interface / DHP-beckn) adapter — migration 705.
+  // Deployment kill switch, default OFF (ship-disabled, zero live
+  // credentials). When enabled, the network identity + signing key become
+  // mandatory (ABDM_ENABLED conditional-Joi precedent); the gateway public
+  // key stays optional because per-tenant verification keys live in
+  // tenant_interop_secrets (kind 'uhi_callback').
+  UHI_ENABLED: Joi.string().valid('true', 'false').default('false').label('UHI_ENABLED'),
+  UHI_GATEWAY_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://gateway.uhi.abdm.gov.in/api/v1')
+    .label('UHI_GATEWAY_URL'),
+  UHI_SUBSCRIBER_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SUBSCRIBER_ID'),
+  UHI_SIGNING_PRIVATE_KEY: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_PRIVATE_KEY'),
+  UHI_SIGNING_KEY_ID: Joi.when('UHI_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('UHI_SIGNING_KEY_ID'),
+  UHI_GATEWAY_PUBLIC_KEY: Joi.string().allow('').optional().label('UHI_GATEWAY_PUBLIC_KEY'),
+  UHI_ENVIRONMENT: Joi.string()
+    .valid('sandbox', 'production')
+    .default('sandbox')
+    .label('UHI_ENVIRONMENT'),
 }).unknown(true);
 
 // Validate the current environment variables

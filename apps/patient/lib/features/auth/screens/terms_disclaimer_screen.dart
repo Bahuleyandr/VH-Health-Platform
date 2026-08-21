@@ -68,9 +68,8 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
     padding: const EdgeInsets.only(top: 24, bottom: 8),
     child: Text(
       text,
-      style: Theme.of(
-        context,
-      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+      style: Theme.of(context).textTheme.titleLarge
+          ?.copyWith(fontWeight: FontWeight.bold),
     ),
   );
 

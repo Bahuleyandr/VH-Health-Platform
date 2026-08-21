@@ -1,4 +1,5 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/utils/color_contrast.dart';
@@ -125,9 +126,8 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                         color: accessibleAccent,
                         // Screen-reader label ("Back", localised by Flutter
                         // for all supported app locales).
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).backButtonTooltip,
+                        tooltip: MaterialLocalizations.of(context)
+                            .backButtonTooltip,
                       ),
                       const SizedBox(width: 8),
                       // Hero icon

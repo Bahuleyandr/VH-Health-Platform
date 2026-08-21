@@ -543,9 +543,8 @@ class _PatientNextStepFields extends StatelessWidget {
                   validator: (value) {
                     final text = value?.trim() ?? '';
                     if (text.isEmpty) return null;
-                    final validShape = RegExp(
-                      r'^\d{4}-\d{2}-\d{2}$',
-                    ).hasMatch(text);
+                    final validShape = RegExp(r'^\d{4}-\d{2}-\d{2}$')
+                        .hasMatch(text);
                     final parsed = DateTime.tryParse('${text}T00:00:00Z');
                     return validShape && parsed != null
                         ? null

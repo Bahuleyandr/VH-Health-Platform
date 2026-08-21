@@ -806,14 +806,13 @@ String _rangeLabel(LabResultTrend trend, String? unit, AppLocalizations l10n) {
 
 String _formatDateTime(BuildContext context, DateTime? value) {
   if (value == null) return AppLocalizations.of(context)!.notAvailable;
-  return DateFormat.yMMMd(
-    Localizations.localeOf(context).toString(),
-  ).add_jm().format(value);
+  return DateFormat.yMMMd(Localizations.localeOf(context).toString())
+      .add_jm()
+      .format(value);
 }
 
 String _formatShortDate(BuildContext context, DateTime? value) {
   if (value == null) return AppLocalizations.of(context)!.notAvailable;
-  return DateFormat.MMMd(
-    Localizations.localeOf(context).toString(),
-  ).format(value);
+  return DateFormat.MMMd(Localizations.localeOf(context).toString())
+      .format(value);
 }

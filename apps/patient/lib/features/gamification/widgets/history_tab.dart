@@ -40,9 +40,8 @@ class HistoryTab extends StatelessWidget {
             Icon(
               Icons.history,
               size: 48,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.3),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.3),
             ),
             const SizedBox(height: 12),
             Text(
@@ -108,9 +107,8 @@ class HistoryTab extends StatelessWidget {
               try {
                 final parsed = DateTime.tryParse(dateStr);
                 if (parsed != null) {
-                  formattedDate = DateFormat(
-                    'dd MMM yyyy, HH:mm',
-                  ).format(parsed);
+                  formattedDate = DateFormat('dd MMM yyyy, HH:mm')
+                      .format(parsed);
                 }
               } catch (_) {
                 formattedDate = dateStr;

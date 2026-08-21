@@ -6,6 +6,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class ReportsAdminQueueScreen extends StatefulWidget {
@@ -313,12 +314,11 @@ String _priorityLabel(AppStrings s, String priority) => switch (priority) {
 };
 
 typedef _LoadDetail = Future<Map<String, dynamic>> Function();
-typedef _SaveUpdate =
-    Future<Map<String, dynamic>> Function({
-      required String? status,
-      required String? internalNote,
-      required String? publicUpdate,
-    });
+typedef _SaveUpdate = Future<Map<String, dynamic>> Function({
+  required String? status,
+  required String? internalNote,
+  required String? publicUpdate,
+});
 
 class _ReportList extends StatelessWidget {
   const _ReportList({
@@ -745,9 +745,8 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                       ? _status
                       : widget.statuses.first,
                   decoration: InputDecoration(
-                    labelText: AppStrings.of(
-                      context,
-                    ).lookup('clinical_inbox.status'),
+                    labelText: AppStrings.of(context)
+                        .lookup('clinical_inbox.status'),
                   ),
                   items: widget.statuses
                       .map(
@@ -764,9 +763,8 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                   controller: _publicUpdateCtrl,
                   maxLines: 2,
                   decoration: InputDecoration(
-                    labelText: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.reports_admin_queue.public_update'),
+                    labelText: AppStrings.of(context)
+                        .lookup('s4.lib.reports_admin_queue.public_update'),
                     hintText: AppStrings.of(context).lookup('label.optional'),
                   ),
                 ),

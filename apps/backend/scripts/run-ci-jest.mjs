@@ -8,8 +8,12 @@ import { parseShardSpec, chunkBelongsToShard } from './lib/jestShard.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');
-const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 8);
-const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 4096);
+// PR #878's full gate showed two independent eight-file processes reaching
+// the 4 GB V8 heap after their seventh full-app suite. Six-file processes keep
+// lifetimes below that boundary, while the 6 GB ceiling preserves headroom for
+// unusually heavy combinations. Every file still runs exactly once.
+const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 6);
+const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 6144);
 const testTimeoutMs = Number(process.env.JEST_TEST_TIMEOUT_MS || 60000);
 const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
 const endChunk = process.env.JEST_CI_END_CHUNK

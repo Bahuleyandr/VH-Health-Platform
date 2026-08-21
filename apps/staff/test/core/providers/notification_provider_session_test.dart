@@ -135,9 +135,11 @@ void main() {
     final fetched = Completer<List<dynamic>>();
     final provider = NotificationProvider(
       messaging: messaging,
-      registerDevice:
-          ({required fcmToken, required platform, required phone}) async =>
-              _audience(staffUidA),
+      registerDevice: ({
+        required fcmToken,
+        required platform,
+        required phone,
+      }) async => _audience(staffUidA),
       unregisterDevice: () async {},
       phoneLoader: () async => null,
       staffUidLoader: () async => staffUidA,
@@ -267,59 +269,56 @@ void main() {
     },
   );
 
-  test(
-    'message gate fails closed for missing, expired, or server-revoked authority',
-    () async {
-      final sessionStore = _testSessionStore();
-      final audience = _audience(staffUidA);
-      await sessionStore.markActive(audience);
+  test('message gate fails closed for missing, expired, or server-revoked authority', () async {
+    final sessionStore = _testSessionStore();
+    final audience = _audience(staffUidA);
+    await sessionStore.markActive(audience);
 
-      expect(
-        await mayPresentStaffPush(
-          message: const RemoteMessage(data: {'type': 'code_blue'}),
-          sessionStore: sessionStore,
-          claimsLoader: () async => _claims(staffUidA),
-          authorityValidator: (_) async => true,
+    expect(
+      await mayPresentStaffPush(
+        message: const RemoteMessage(data: {'type': 'code_blue'}),
+        sessionStore: sessionStore,
+        claimsLoader: () async => _claims(staffUidA),
+        authorityValidator: (_) async => true,
+      ),
+      isFalse,
+    );
+    expect(
+      await mayPresentStaffPush(
+        message: _message(audience),
+        sessionStore: sessionStore,
+        claimsLoader: () async => StaffJwtClaims(
+          staffUid: staffUidA,
+          tenantId: tenantA,
+          tokenEpoch: '4',
+          sessionEpoch: 'session-family-1',
+          expiresAt: DateTime.utc(2020),
         ),
-        isFalse,
-      );
-      expect(
-        await mayPresentStaffPush(
-          message: _message(audience),
-          sessionStore: sessionStore,
-          claimsLoader: () async => StaffJwtClaims(
-            staffUid: staffUidA,
-            tenantId: tenantA,
-            tokenEpoch: '4',
-            sessionEpoch: 'session-family-1',
-            expiresAt: DateTime.utc(2020),
-          ),
-          authorityValidator: (_) async => true,
+        authorityValidator: (_) async => true,
+      ),
+      isFalse,
+    );
+    expect(
+      await mayPresentStaffPush(
+        message: _message(
+          _audience(staffUidA, sessionEpoch: 'old-session-family'),
         ),
-        isFalse,
-      );
-      expect(
-        await mayPresentStaffPush(
-          message: _message(
-            _audience(staffUidA, sessionEpoch: 'old-session-family'),
-          ),
-          sessionStore: sessionStore,
-          claimsLoader: () async => _claims(staffUidA),
-          authorityValidator: (_) async => true,
-        ),
-        isFalse,
-      );
-      expect(
-        await mayPresentStaffPush(
-          message: _message(audience),
-          sessionStore: sessionStore,
-          claimsLoader: () async => _claims(staffUidA),
-          authorityValidator: (_) async => false,
-        ),
-        isFalse,
-      );
-    },
-  );
+        sessionStore: sessionStore,
+        claimsLoader: () async => _claims(staffUidA),
+        authorityValidator: (_) async => true,
+      ),
+      isFalse,
+    );
+    expect(
+      await mayPresentStaffPush(
+        message: _message(audience),
+        sessionStore: sessionStore,
+        claimsLoader: () async => _claims(staffUidA),
+        authorityValidator: (_) async => false,
+      ),
+      isFalse,
+    );
+  });
 
   test('listeners install only after backend ownership is claimed', () async {
     final messaging = _FakeNotificationMessaging();
@@ -469,54 +468,53 @@ void main() {
     },
   );
 
-  test(
-    'forced teardown without a loaded token fails closed when token deletion fails',
-    () async {
-      final messaging = _FakeNotificationMessaging(
-        token: null,
-        deleteTokenError: StateError('firebase unavailable'),
-      );
-      final persistence = _FakeSessionPersistence();
-      final sessionStore = StaffNotificationSessionStore(
-        persistence: persistence,
-      );
-      var surfaceCleanupCalls = 0;
-      final provider = NotificationProvider(
-        messaging: messaging,
-        registerDevice:
-            ({required fcmToken, required platform, required phone}) async =>
-                _audience(staffUidA),
-        unregisterDevice: () async {},
-        phoneLoader: () async => null,
-        staffUidLoader: () async => staffUidA,
-        isAuthenticated: () async => true,
-        notificationClaimsLoader: () async => _claims(staffUidA),
-        notificationAuthorityValidator: (_) async => true,
-        platformLoader: () => 'android',
-        sessionStore: sessionStore,
-        clearDeliveredNotifications: () async {
-          surfaceCleanupCalls += 1;
-        },
-        supportsPush: true,
-      );
-      addTearDown(provider.dispose);
-      addTearDown(messaging.close);
+  test('forced teardown without a loaded token fails closed when token deletion fails', () async {
+    final messaging = _FakeNotificationMessaging(
+      token: null,
+      deleteTokenError: StateError('firebase unavailable'),
+    );
+    final persistence = _FakeSessionPersistence();
+    final sessionStore = StaffNotificationSessionStore(
+      persistence: persistence,
+    );
+    var surfaceCleanupCalls = 0;
+    final provider = NotificationProvider(
+      messaging: messaging,
+      registerDevice: ({
+        required fcmToken,
+        required platform,
+        required phone,
+      }) async => _audience(staffUidA),
+      unregisterDevice: () async {},
+      phoneLoader: () async => null,
+      staffUidLoader: () async => staffUidA,
+      isAuthenticated: () async => true,
+      notificationClaimsLoader: () async => _claims(staffUidA),
+      notificationAuthorityValidator: (_) async => true,
+      platformLoader: () => 'android',
+      sessionStore: sessionStore,
+      clearDeliveredNotifications: () async {
+        surfaceCleanupCalls += 1;
+      },
+      supportsPush: true,
+    );
+    addTearDown(provider.dispose);
+    addTearDown(messaging.close);
 
-      await provider.beginAuthenticatedSession();
-      expect(await sessionStore.isActiveFor(staffUidA), isFalse);
+    await provider.beginAuthenticatedSession();
+    expect(await sessionStore.isActiveFor(staffUidA), isFalse);
 
-      await expectLater(
-        provider.endAuthenticatedSession(unregisterBackend: false),
-        throwsA(isA<StateError>()),
-      );
+    await expectLater(
+      provider.endAuthenticatedSession(unregisterBackend: false),
+      throwsA(isA<StateError>()),
+    );
 
-      expect(messaging.deleteTokenCalls, 1);
-      expect(surfaceCleanupCalls, 1);
-      expect(await sessionStore.isActiveFor(staffUidA), isFalse);
-      expect(messaging.activeForegroundListeners, 0);
-      expect(messaging.activeRefreshListeners, 0);
-    },
-  );
+    expect(messaging.deleteTokenCalls, 1);
+    expect(surfaceCleanupCalls, 1);
+    expect(await sessionStore.isActiveFor(staffUidA), isFalse);
+    expect(messaging.activeForegroundListeners, 0);
+    expect(messaging.activeRefreshListeners, 0);
+  });
 
   test(
     'durable inactive marker survives restart until account B registers',
@@ -531,9 +529,11 @@ void main() {
       );
       final accountA = NotificationProvider(
         messaging: accountAMessaging,
-        registerDevice:
-            ({required fcmToken, required platform, required phone}) async =>
-                _audience(staffUidA),
+        registerDevice: ({
+          required fcmToken,
+          required platform,
+          required phone,
+        }) async => _audience(staffUidA),
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
@@ -628,9 +628,11 @@ void main() {
       var surfaceCleanupCalls = 0;
       final provider = NotificationProvider(
         messaging: messaging,
-        registerDevice:
-            ({required fcmToken, required platform, required phone}) async =>
-                _audience(staffUidA),
+        registerDevice: ({
+          required fcmToken,
+          required platform,
+          required phone,
+        }) async => _audience(staffUidA),
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,

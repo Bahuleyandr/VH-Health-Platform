@@ -1,7 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -268,9 +271,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _createOrder() async {
-    final orderCreatedMessage = AppStrings.of(
-      context,
-    ).lookup('s4.lib.pharmacy.order_created');
+    final orderCreatedMessage = AppStrings.of(context)
+        .lookup('s4.lib.pharmacy.order_created');
     final formKey = GlobalKey<FormState>();
     final phoneCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
@@ -336,9 +338,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: AppStrings.of(
-                              context,
-                            ).lookup('action.close'),
+                            tooltip: AppStrings.of(context)
+                                .lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -350,12 +351,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         controller: phoneCtrl,
                         keyboardType: TextInputType.phone,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('reception_counter.patient.phone'),
-                          hintText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.pharmacy.10_digit_mobile_number'),
+                          labelText: AppStrings.of(context)
+                              .lookup('reception_counter.patient.phone'),
+                          hintText: AppStrings.of(context)
+                              .lookup('s4.lib.pharmacy.10_digit_mobile_number'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.phone_outlined),
                           ),
@@ -376,9 +375,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       TextFormField(
                         controller: noteCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.pharmacy.order_note'),
+                          labelText: AppStrings.of(context)
+                              .lookup('s4.lib.pharmacy.order_note'),
                           hintText: AppStrings.of(context).lookup(
                             's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note',
                           ),
@@ -390,9 +388,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         minLines: 3,
                         maxLines: 5,
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? AppStrings.of(
-                                context,
-                              ).lookup('s4.lib.pharmacy.order_note_required')
+                            ? AppStrings.of(context)
+                                  .lookup('s4.lib.pharmacy.order_note_required')
                             : null,
                       ),
                       const SizedBox(height: 8),
@@ -552,9 +549,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               TextField(
                 controller: notesController,
                 decoration: InputDecoration(
-                  labelText: AppStrings.of(
-                    context,
-                  ).lookup('appt_queue.notes_optional'),
+                  labelText: AppStrings.of(context)
+                      .lookup('appt_queue.notes_optional'),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -771,9 +767,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _openCatalogEditor([Map<String, dynamic>? item]) async {
     if (!_canManageFormulary) {
       _snack(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.pharmacy.only_incharge_admin_change_formulary'),
+        AppStrings.of(context)
+            .lookup('s4.lib.pharmacy.only_incharge_admin_change_formulary'),
         isError: true,
       );
       return;
@@ -892,9 +887,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             ),
                           ),
                           IconButton(
-                            tooltip: AppStrings.of(
-                              context,
-                            ).lookup('action.close'),
+                            tooltip: AppStrings.of(context)
+                                .lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -909,17 +903,15 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           labelText: AppStrings.of(
                             context,
                           ).lookup('s4.lib.pharmacy.drug_name_with_strength'),
-                          hintText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.pharmacy.paracetamol_650_mg'),
+                          hintText: AppStrings.of(context)
+                              .lookup('s4.lib.pharmacy.paracetamol_650_mg'),
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.medication_outlined),
                           ),
                         ),
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? AppStrings.of(
-                                context,
-                              ).lookup('s4.lib.pharmacy.drug_name_required')
+                            ? AppStrings.of(context)
+                                  .lookup('s4.lib.pharmacy.drug_name_required')
                             : null,
                       ),
                       const SizedBox(height: 12),
@@ -929,9 +921,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: genericCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.generic_name'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.generic_name'),
                               ),
                             ),
                           ),
@@ -940,12 +931,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: categoryCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('vitals_chart.category'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.analgesic_hint'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('vitals_chart.category'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.analgesic_hint'),
                               ),
                             ),
                           ),
@@ -961,9 +950,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 labelText: AppStrings.of(
                                   context,
                                 ).lookup('s4.lib.pharmacy.pack_strength_note'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.10_tablets_strip'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.10_tablets_strip'),
                               ),
                             ),
                           ),
@@ -976,9 +964,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                     decimal: true,
                                   ),
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.unit_price'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.unit_price'),
                                 prefixText: '₹ ',
                               ),
                             ),
@@ -992,9 +979,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: manufacturerCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.manufacturer'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.manufacturer'),
                               ),
                             ),
                           ),
@@ -1004,9 +990,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               controller: stockCtrl,
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.stock_quantity'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.stock_quantity'),
                               ),
                             ),
                           ),
@@ -1016,9 +1001,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               controller: reorderCtrl,
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.reorder_level'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.reorder_level'),
                               ),
                             ),
                           ),
@@ -1098,9 +1082,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _removeCatalogItem(Map<String, dynamic> item) async {
     if (!_canManageFormulary) {
       _snack(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.pharmacy.only_incharge_admin_remove_formulary'),
+        AppStrings.of(context)
+            .lookup('s4.lib.pharmacy.only_incharge_admin_remove_formulary'),
         isError: true,
       );
       return;
@@ -1110,9 +1093,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
     if (id == null) {
       _snack(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.pharmacy.could_not_identify_formulary_item'),
+        AppStrings.of(context)
+            .lookup('s4.lib.pharmacy.could_not_identify_formulary_item'),
         isError: true,
       );
       return;
@@ -1121,9 +1103,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final name =
         item['name']?.toString() ??
         AppStrings.of(context).lookup('s4.lib.pharmacy.this_drug');
-    final removedMessage = AppStrings.of(
-      context,
-    ).lookup('s4.lib.pharmacy.drug_removed_from_formulary');
+    final removedMessage = AppStrings.of(context)
+        .lookup('s4.lib.pharmacy.drug_removed_from_formulary');
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1163,16 +1144,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _runExpiryScan() async {
     if (!_canManageInventory) {
       _snack(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.pharmacy.only_stores_incharge_admin_run_expiry'),
+        AppStrings.of(context)
+            .lookup('s4.lib.pharmacy.only_stores_incharge_admin_run_expiry'),
         isError: true,
       );
       return;
     }
-    final completedMessage = AppStrings.of(
-      context,
-    ).lookup('s4.lib.pharmacy.expiry_scan_completed');
+    final completedMessage = AppStrings.of(context)
+        .lookup('s4.lib.pharmacy.expiry_scan_completed');
     try {
       await PharmacyApiService.runExpiryScan();
       _snack(completedMessage);
@@ -1185,18 +1164,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _openInventoryItemEditor() async {
     if (!_canManageInventory) {
       _snack(
-        AppStrings.of(
-          context,
-        ).lookup('s4.lib.pharmacy.only_stores_incharge_admin_add_inventory'),
+        AppStrings.of(context)
+            .lookup('s4.lib.pharmacy.only_stores_incharge_admin_add_inventory'),
         isError: true,
       );
       return;
     }
 
     final formKey = GlobalKey<FormState>();
-    final inventoryItemAddedMessage = AppStrings.of(
-      context,
-    ).lookup('s4.lib.pharmacy.inventory_item_added');
+    final inventoryItemAddedMessage = AppStrings.of(context)
+        .lookup('s4.lib.pharmacy.inventory_item_added');
     final skuCtrl = TextEditingController();
     final displayCtrl = TextEditingController();
     final genericCtrl = TextEditingController();
@@ -1284,9 +1261,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             ),
                           ),
                           IconButton(
-                            tooltip: AppStrings.of(
-                              context,
-                            ).lookup('action.close'),
+                            tooltip: AppStrings.of(context)
+                                .lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -1301,18 +1277,15 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: skuCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.sku_code'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.para_650_tab'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.sku_code'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.para_650_tab'),
                               ),
                               validator: (value) =>
                                   (value?.trim().isEmpty ?? true)
-                                  ? AppStrings.of(
-                                      context,
-                                    ).lookup('s4.lib.pharmacy.sku_required')
+                                  ? AppStrings.of(context)
+                                        .lookup('s4.lib.pharmacy.sku_required')
                                   : null,
                             ),
                           ),
@@ -1322,9 +1295,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: displayCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.display_name'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.display_name'),
                                 hintText: AppStrings.of(context).lookup(
                                   's4.lib.pharmacy.paracetamol_650_mg_tablet',
                                 ),
@@ -1346,9 +1318,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: genericCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.generic_name'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.generic_name'),
                               ),
                             ),
                           ),
@@ -1357,9 +1328,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: brandCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.brand_name'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.brand_name'),
                               ),
                             ),
                           ),
@@ -1368,9 +1338,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: manufacturerCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.manufacturer'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.manufacturer'),
                               ),
                             ),
                           ),
@@ -1383,12 +1352,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: formCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.form'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.tablet_hint'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.form'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.tablet_hint'),
                               ),
                             ),
                           ),
@@ -1397,12 +1364,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: strengthCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.strength'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.650_mg'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.strength'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.650_mg'),
                               ),
                             ),
                           ),
@@ -1411,12 +1376,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: unitCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.unit_label'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.tablet_hint'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.unit_label'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.tablet_hint'),
                               ),
                             ),
                           ),
@@ -1429,12 +1392,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: packCtrl,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.pack_size'),
-                                hintText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.10_tablets_strip'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.pack_size'),
+                                hintText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.10_tablets_strip'),
                               ),
                             ),
                           ),
@@ -1443,9 +1404,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: DropdownButtonFormField<String?>(
                               initialValue: scheduleClass,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('theatre.tab.schedule'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('theatre.tab.schedule'),
                               ),
                               items: const [
                                 DropdownMenuItem<String?>(
@@ -1484,9 +1444,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               controller: reorderLevelCtrl,
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.reorder_level'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.reorder_level'),
                               ),
                             ),
                           ),
@@ -1496,9 +1455,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               controller: reorderQtyCtrl,
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
-                                labelText: AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.reorder_quantity'),
+                                labelText: AppStrings.of(context)
+                                    .lookup('s4.lib.pharmacy.reorder_quantity'),
                               ),
                             ),
                           ),
@@ -1678,6 +1636,21 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                 if (_canWorkPharmacyOrders) ...[
                   const SizedBox(width: 4),
                   ElevatedButton.icon(
+                    onPressed: () => context.push('/pharmacy/counter-sale'),
+                    icon: const Icon(
+                      Icons.point_of_sale,
+                      color: Color(0xFFE65100),
+                    ),
+                    label: const AppText('s4.lib.counter_sale.open'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.cardSurface,
+                      foregroundColor: const Color(0xFFE65100),
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  ElevatedButton.icon(
                     onPressed: _createOrder,
                     icon: const Icon(Icons.add, color: Color(0xFFE65100)),
                     label: const AppText('s4.lib.pharmacy.new_order'),
@@ -1794,9 +1767,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         child: TextField(
                           controller: _catalogSearchCtrl,
                           decoration: InputDecoration(
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.pharmacy.search_formulary'),
+                            labelText: AppStrings.of(context)
+                                .lookup('s4.lib.pharmacy.search_formulary'),
                             hintText: AppStrings.of(context).lookup(
                               's4.lib.pharmacy.drug_generic_or_strength',
                             ),
@@ -1817,9 +1789,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       if (_catalogSearchCtrl.text.isNotEmpty) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          tooltip: AppStrings.of(
-                            context,
-                          ).lookup('patient_records.clear_tooltip'),
+                          tooltip: AppStrings.of(context)
+                              .lookup('patient_records.clear_tooltip'),
                           onPressed: () {
                             _catalogSearchCtrl.clear();
                             _loadCatalog(search: '');
@@ -1849,9 +1820,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               height: 260,
               child: EmptyState(
                 icon: Icons.inventory_2_outlined,
-                title: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.pharmacy.no_formulary_drugs_found'),
+                title: AppStrings.of(context)
+                    .lookup('s4.lib.pharmacy.no_formulary_drugs_found'),
               ),
             )
           else
@@ -1928,9 +1898,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         child: TextField(
                           controller: _inventorySearchCtrl,
                           decoration: InputDecoration(
-                            labelText: AppStrings.of(
-                              context,
-                            ).lookup('s4.lib.pharmacy.search_inventory'),
+                            labelText: AppStrings.of(context)
+                                .lookup('s4.lib.pharmacy.search_inventory'),
                             hintText: AppStrings.of(context).lookup(
                               's4.lib.pharmacy.sku_drug_brand_or_generic',
                             ),
@@ -1951,9 +1920,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       if (_inventorySearchCtrl.text.isNotEmpty) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          tooltip: AppStrings.of(
-                            context,
-                          ).lookup('patient_records.clear_tooltip'),
+                          tooltip: AppStrings.of(context)
+                              .lookup('patient_records.clear_tooltip'),
                           onPressed: () {
                             _inventorySearchCtrl.clear();
                             _loadInventory(search: '');
@@ -2011,9 +1979,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                 height: 260,
                 child: EmptyState(
                   icon: Icons.warehouse_outlined,
-                  title: AppStrings.of(
-                    context,
-                  ).lookup('s4.lib.pharmacy.no_inventory_items_found'),
+                  title: AppStrings.of(context)
+                      .lookup('s4.lib.pharmacy.no_inventory_items_found'),
                 ),
               )
             else
@@ -2267,16 +2234,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             if (_canManageFormulary) ...[
               const SizedBox(width: 8),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.pharmacy.edit_formulary_drug'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.pharmacy.edit_formulary_drug'),
                 onPressed: () => _openCatalogEditor(item),
                 icon: const Icon(Icons.edit_outlined),
               ),
               IconButton(
-                tooltip: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.pharmacy.remove_from_formulary_2'),
+                tooltip: AppStrings.of(context)
+                    .lookup('s4.lib.pharmacy.remove_from_formulary_2'),
                 onPressed: () => _removeCatalogItem(item),
                 icon: Icon(
                   Icons.delete_outline,

@@ -52,6 +52,21 @@ describe("proxy path allowlist", () => {
     );
   });
 
+  it("forwards only the facility asset route family", async () => {
+    const response = await GET(request("facility/assets/17/events?limit=20"));
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      "/api/v1/facility/assets/17/events?limit=20",
+    );
+
+    fetchMock.mockClear();
+    const lookalike = await GET(request("facility/assets-internal/17"));
+    expect(lookalike.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps segment-boundary lookalikes blocked", async () => {
     const response = await GET(request("stemi-pathway-internal/activations"));
 
@@ -66,6 +81,25 @@ describe("proxy path allowlist", () => {
     const response = await GET(request("patients/abc/timeline"));
 
     expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards the Terminology & Knowledge console families (slate C1)", async () => {
+    for (const path of [
+      "terminology/code-systems",
+      "terminology/settings",
+      "drug-kb/status",
+      "lab/code-mappings/coverage",
+    ]) {
+      fetchMock.mockClear();
+      const response = await GET(request(path));
+      expect(response.status).toBe(200);
+      expect(String(fetchMock.mock.calls[0][0])).toContain(`/api/v1/${path}`);
+    }
+
+    fetchMock.mockClear();
+    const lookalike = await GET(request("terminology-internal/code-systems"));
+    expect(lookalike.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

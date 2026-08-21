@@ -38,12 +38,10 @@ void main() {
       StaffCaptureCallSite.nursingAssessmentDraftStorage: (
         file:
             'apps/staff/lib/features/nursing/screens/nursing_notes_screen.dart',
-        token:
-            'captureCallSite: StaffCaptureCallSite.nursingAssessmentDraftStorage',
+        token: 'captureCallSite: StaffCaptureCallSite.nursingAssessmentDraftStorage',
       ),
       StaffCaptureCallSite.opConsultationDraftStorage: (
-        file:
-            'apps/staff/lib/features/opd/screens/op_doctor_workspace_screen.dart',
+        file: 'apps/staff/lib/features/opd/screens/op_doctor_workspace_screen.dart',
         token:
             'captureCallSite: StaffCaptureCallSite.opConsultationDraftStorage',
       ),
@@ -64,9 +62,9 @@ void main() {
       if (file.path.endsWith('staff_clinical_action_gateway.dart')) continue;
       final source = file.readAsStringSync();
       observed.addAll(
-        RegExp(
-          r'StaffCaptureCallSite\.([A-Za-z0-9_]+)',
-        ).allMatches(source).map((match) => match.group(1)!),
+        RegExp(r'StaffCaptureCallSite\.([A-Za-z0-9_]+)')
+            .allMatches(source)
+            .map((match) => match.group(1)!),
       );
     }
 
@@ -149,15 +147,13 @@ void main() {
         actionId: OfflineActionIds.marAdministrationBackfill,
       ),
       (
-        screen:
-            'apps/staff/lib/features/investigations/screens/specimen_scan_screen.dart',
+        screen: 'apps/staff/lib/features/investigations/screens/specimen_scan_screen.dart',
         intent:
             'apps/staff/lib/features/investigations/specimen_scan_intent.dart',
         actionId: OfflineActionIds.labSpecimenCollectionBackfill,
       ),
       (
-        screen:
-            'apps/staff/lib/features/bloodbank/screens/transfusion_scan_screen.dart',
+        screen: 'apps/staff/lib/features/bloodbank/screens/transfusion_scan_screen.dart',
         intent:
             'apps/staff/lib/features/bloodbank/transfusion_scan_intent.dart',
         actionId: OfflineActionIds.bloodTransfusionVerificationBackfill,
@@ -187,18 +183,15 @@ void main() {
         symbols: ['_administerOffline', 'showMarAdministrationOfflineFallback'],
       ),
       (
-        file:
-            'apps/staff/lib/features/investigations/screens/specimen_scan_screen.dart',
+        file: 'apps/staff/lib/features/investigations/screens/specimen_scan_screen.dart',
         symbols: ['showSpecimenCollectionOfflineFallback'],
       ),
       (
-        file:
-            'apps/staff/lib/features/bloodbank/screens/transfusion_scan_screen.dart',
+        file: 'apps/staff/lib/features/bloodbank/screens/transfusion_scan_screen.dart',
         symbols: ['showTransfusionVerificationOfflineFallback'],
       ),
       (
-        file:
-            'apps/staff/lib/features/opd/screens/op_doctor_workspace_screen.dart',
+        file: 'apps/staff/lib/features/opd/screens/op_doctor_workspace_screen.dart',
         symbols: ['OnlineOnlyActionGuard.require', '_completeAppointment'],
       ),
       (
@@ -210,8 +203,7 @@ void main() {
         symbols: ['OnlineOnlyActionGuard.require', '_showSignOffForm'],
       ),
       (
-        file:
-            'apps/staff/lib/features/investigations/screens/lab_bookings_screen.dart',
+        file: 'apps/staff/lib/features/investigations/screens/lab_bookings_screen.dart',
         symbols: ['OnlineOnlyActionGuard.require', '_showUploadResultDialog'],
       ),
       (
@@ -228,8 +220,7 @@ void main() {
         symbols: ['OnlineOnlyActionGuard.require', 'Future<void> _discharge'],
       ),
       (
-        file:
-            'apps/staff/lib/features/clinical_inbox/screens/clinical_inbox_screen.dart',
+        file: 'apps/staff/lib/features/clinical_inbox/screens/clinical_inbox_screen.dart',
         symbols: ['OnlineOnlyActionGuard.require', 'OnlineOnlyActionState'],
       ),
       (

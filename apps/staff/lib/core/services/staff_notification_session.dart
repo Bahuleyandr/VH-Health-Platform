@@ -137,13 +137,13 @@ class StaffNotificationEnvelope {
 }
 
 typedef StaffNotificationClaimsLoader = Future<StaffJwtClaims?> Function();
-typedef StaffNotificationAuthorityValidator =
-    Future<bool> Function(StaffNotificationAudience audience);
-typedef StaffCodeBlueContentFetcher =
-    Future<Map<String, dynamic>?> Function(
-      StaffNotificationAudience audience,
-      String reference,
-    );
+typedef StaffNotificationAuthorityValidator = Future<bool> Function(
+  StaffNotificationAudience audience,
+);
+typedef StaffCodeBlueContentFetcher = Future<Map<String, dynamic>?> Function(
+  StaffNotificationAudience audience,
+  String reference,
+);
 
 class StaffNotificationSessionStore {
   StaffNotificationSessionStore({NotificationSessionPersistence? persistence})
@@ -216,9 +216,8 @@ Future<Map<String, dynamic>?> codeBlueContentForMessage({
   if (envelope == null ||
       reference.isEmpty ||
       reference.length > 2048 ||
-      !RegExp(
-        r'^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$',
-      ).hasMatch(reference)) {
+      !RegExp(r'^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
+          .hasMatch(reference)) {
     return null;
   }
   return (contentFetcher ?? _fetchCodeBlueContentFromServer)(

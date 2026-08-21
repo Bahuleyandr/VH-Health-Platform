@@ -374,9 +374,8 @@ class VerifiedClinicalContinuitySet {
         Map<String, Object?>.from(json['provenance']! as Map),
       ),
       signingKeyFingerprints: Map.unmodifiable(
-        Map<String, Object?>.from(
-          json['signingKeyFingerprints']! as Map,
-        ).map((key, value) => MapEntry(key, value! as String)),
+        Map<String, Object?>.from(json['signingKeyFingerprints']! as Map)
+            .map((key, value) => MapEntry(key, value! as String)),
       ),
       floors: ClinicalContinuityFloors.fromJson(
         Map<String, Object?>.from(json['floors']! as Map),

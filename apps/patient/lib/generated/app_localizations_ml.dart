@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -67,6 +68,14 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get authSosTriggered => 'SOS അലേർട്ട് പ്രവർത്തനക്ഷമമാക്കി!';
+
+  @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
 
   @override
   String get authGuestUserSOS => 'അതിഥി_ഉപയോക്താവ്_sos';
@@ -535,6 +544,11 @@ class AppLocalizationsMl extends AppLocalizations {
   @override
   String get investigationsFilePickerError =>
       'ഒരു ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
 
   @override
   String get triviaTitle => 'ആരോഗ്യ അറിവുകൾ';
@@ -2802,6 +2816,17 @@ class AppLocalizationsMl extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'ഓർമ്മപ്പെടുത്തൽ നീക്കുക';
 
   @override
+  String get medicationReminderUpdateFailed =>
+      'റിമൈൻഡർ അപ്ഡേറ്റ് ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderDeleteFailed =>
+      'റിമൈൻഡർ നീക്കം ചെയ്യാൻ കഴിഞ്ഞില്ല';
+
+  @override
+  String get medicationReminderPausedLabel => 'താൽക്കാലികമായി നിർത്തി';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'ഡോസ്: $dosage';
   }
@@ -3445,6 +3470,10 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get splashUpdateButton => 'VH Health അപ്ഡേറ്റ് ചെയ്യുക';
+
+  @override
+  String get splashUpdateNoStoreBody =>
+      'അപ്ഡേറ്റ് ചെയ്ത പതിപ്പ് ഈ ഉപകരണത്തിൽ ഡൗൺലോഡിനായി ഇതുവരെ ലഭ്യമല്ല. VH Health ന്റെ ഏറ്റവും പുതിയ പതിപ്പ് ഇൻസ്റ്റാൾ ചെയ്യാൻ സഹായത്തിനായി ആശുപത്രി റിസപ്ഷനുമായി ബന്ധപ്പെടുക.';
 
   @override
   String get yourHealthTimelineFilterAll => 'എല്ലാം';

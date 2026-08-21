@@ -122,9 +122,15 @@ wrapRoutesWithValidation(
         firebaseAuthController.completeProfile
       ],
       
-      // Link Firebase Account
+      // Link Firebase Account — verifies a live OTP pre-auth (body carries
+      // { phone, idToken, otp }), so it takes the same per-phone otp limiter
+      // as firebase-login/request-otp/verify-otp (873-F4). Without it the
+      // route rode the fail-open patient umbrella at 100/15min, leaving the
+      // 6-digit code brute-forceable at HTTP level (and unmetered under store
+      // loss); the otp profile is 3/10min and fail-closed.
       [
         '/link-account',
+        otpRateLimiter,
         ...phoneValidator,
         handleValidation,
         firebaseAuthController.linkAccount

@@ -225,9 +225,8 @@ class _AchievementGridState extends State<AchievementGrid> {
         children: [
           Text(
             '$unlocked of ${kAchievements.length} badges earned',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
           GridView.count(

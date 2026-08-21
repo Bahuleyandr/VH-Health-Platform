@@ -8,8 +8,9 @@ import 'package:vhhealth_core/models/api_response.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
-typedef MinimumVersionConfigRequest =
-    Future<ApiResponse> Function(Duration timeout);
+typedef MinimumVersionConfigRequest = Future<ApiResponse> Function(
+  Duration timeout,
+);
 typedef MinimumVersionClock = DateTime Function();
 
 enum MinimumVersionGateReason {

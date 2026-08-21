@@ -274,6 +274,24 @@ export const radiologyOrderValidator = [
   requiredString('body_part', 100),
   optionalString('clinical_indication', 500),
   optionalString('notes', 500),
+  body('contrast_planned').optional({ nullable: true })
+    .isBoolean().withMessage('contrast_planned must be a boolean'),
+  optionalString('contrast_agent', 120),
+  // Acknowledged contrast-allergy override (mirrors the prescription CDS
+  // override shape): { override: { reason, approvedBy? } }. The service
+  // enforces the >=5-char reason rule; here we only shape-check.
+  optionalString('override.reason', 500),
+];
+
+/** Contrast plan amendment — PUT /radiology/:id/contrast (routes/radiology/radiologyRoutes.js → radiologyService.setContrastPlan). */
+export const radiologyContrastPlanValidator = [
+  body('contrast_planned').optional({ nullable: true })
+    .isBoolean().withMessage('contrast_planned must be a boolean'),
+  optionalString('contrast_agent', 120),
+  // Required by the service when the amendment clears an existing contrast
+  // plan (contrast_planned true → false); shape-checked only here.
+  optionalString('reason', 500),
+  optionalString('override.reason', 500),
 ];
 
 /** Blood bank request — POST /blood-bank/request (routes/bloodbank/bloodBankRoutes.js → bloodBankService.createRequest). */

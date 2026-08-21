@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizeUploadMimeType } from '../../middleware/uploadMiddleware.js';
+import { screenUploadBuffer } from '../security/fileScanService.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
@@ -560,6 +561,12 @@ export async function uploadCredentialDocument({
     String(credential.id),
     `v${version}_${Date.now()}_${safeName}`,
   ].join('/');
+  // Screen BEFORE anything is stored (FILE_SCAN_POLICY, shared with every
+  // ingest path). Refusals throw 422/503 AppErrors and nothing is written.
+  await screenUploadBuffer(file.buffer, {
+    subject: 'Credential document',
+    context: { credentialId: credential.id, tenantId: tid, route: 'staff-credential-document' },
+  });
   const storageUrl = await uploadFileToR2(file.buffer, storageKey, mimeType);
   const actorUid = maybeUuid(context.actorUid, 'actorUid');
   const rows = await prisma.$queryRawUnsafe(

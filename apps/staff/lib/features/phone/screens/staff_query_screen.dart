@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../phone/services/staff_phone_api_service.dart';
+
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class StaffQueryScreen extends StatefulWidget {
@@ -89,9 +90,8 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       DropdownButtonFormField<String>(
                         initialValue: _category,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('vitals_chart.category'),
+                          labelText: AppStrings.of(context)
+                              .lookup('vitals_chart.category'),
                         ),
                         items: const [
                           DropdownMenuItem(
@@ -126,9 +126,8 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       DropdownButtonFormField<String>(
                         initialValue: _priority,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('clinical_inbox.priority'),
+                          labelText: AppStrings.of(context)
+                              .lookup('clinical_inbox.priority'),
                         ),
                         items: const [
                           DropdownMenuItem(
@@ -155,9 +154,8 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       TextFormField(
                         controller: _subjectCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('s4.lib.messaging_inbox.subject'),
+                          labelText: AppStrings.of(context)
+                              .lookup('s4.lib.messaging_inbox.subject'),
                         ),
                         textInputAction: TextInputAction.next,
                         validator: (v) => (v ?? '').trim().isEmpty
@@ -168,9 +166,8 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       TextFormField(
                         controller: _bodyCtrl,
                         decoration: InputDecoration(
-                          labelText: AppStrings.of(
-                            context,
-                          ).lookup('timeline.details'),
+                          labelText: AppStrings.of(context)
+                              .lookup('timeline.details'),
                         ),
                         minLines: 4,
                         maxLines: 8,

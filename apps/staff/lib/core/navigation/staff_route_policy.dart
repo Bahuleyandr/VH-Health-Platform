@@ -102,6 +102,12 @@ class StaffRoutePolicy {
       anyFeatureIds: {'pharmacy_orders'},
       externalEntry: true,
     ),
+    // Walk-in counter point-of-sale: same holders as the pharmacy workspace
+    // (selling is further gated server-side to dispensing roles).
+    StaffRouteMetadata(
+      '/pharmacy/counter-sale',
+      anyFeatureIds: {'pharmacy_orders'},
+    ),
     StaffRouteMetadata('/profile', anyFeatureIds: {'profile'}),
     StaffRouteMetadata('/settings', anyFeatureIds: {'settings'}),
     StaffRouteMetadata('/phone/more', anyGates: _signedIn),
@@ -117,6 +123,13 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/billing-desk', anyFeatureIds: {'billing_desk'}),
     StaffRouteMetadata('/ward-mode', anyFeatureIds: {'ward_mode'}),
     StaffRouteMetadata('/ed-trauma', anyFeatureIds: {'ed_trauma_workbench'}),
+    // Ambulance live tracking: ED workbench holders (live view) plus the
+    // SOS-responder roster, which carries DRIVER — the crew role that posts
+    // positions. Mirrors backend AMBULANCE_TRACKING_ROUTE_ROLES.
+    StaffRouteMetadata(
+      '/ambulance-tracking',
+      anyFeatureIds: {'ed_trauma_workbench', 'sos_response'},
+    ),
     StaffRouteMetadata('/patient-records', anyFeatureIds: {'patient_records'}),
     StaffRouteMetadata('/prescriptions', anyFeatureIds: {'prescriptions'}),
     StaffRouteMetadata(
@@ -234,6 +247,12 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/staff-directory', anyFeatureIds: {'staff_directory'}),
     StaffRouteMetadata('/schedule', anyFeatureIds: {'schedule'}),
     StaffRouteMetadata('/duty-preference', anyFeatureIds: {'duty_preference'}),
+    // Shift swaps + on-call: reached from the schedule screen's shift
+    // actions; backend enforces per-department swap/on-call authority.
+    StaffRouteMetadata(
+      '/shift-swaps',
+      anyFeatureIds: {'schedule', 'duty_preference'},
+    ),
     StaffRouteMetadata(
       '/handover',
       anyFeatureIds: {'handover'},
@@ -257,6 +276,21 @@ class StaffRoutePolicy {
       '/safety/resus/:eventId',
       anyFeatureIds: {'safety_center'},
       anyGates: _clinical,
+    ),
+    // SOS responder loop mirrors backend emergencyResponderRoutes RBAC
+    // (rbacConfig.js): EMERGENCY_RESPONDER, SECURITY, DRIVER, ADMIN, CMO,
+    // MEDICAL_SUPERINTENDENT (+ SUPER_ADMIN via requireRole's bypass) — the
+    // generated sos_response contract group pins the exact roster.
+    // externalEntry lets the EMERGENCY push notification deep-link here.
+    StaffRouteMetadata(
+      '/sos-response',
+      anyFeatureIds: {'sos_response'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/sos-response/:alertId',
+      anyFeatureIds: {'sos_response'},
+      externalEntry: true,
     ),
     StaffRouteMetadata('/audit-logs', anyFeatureIds: {'audit_logs'}),
     StaffRouteMetadata(
@@ -284,6 +318,13 @@ class StaffRoutePolicy {
       anyFeatureIds: {'blood_bank'},
     ),
     StaffRouteMetadata('/dietary', anyFeatureIds: {'dietary'}),
+    // Kitchen board + ward tray tracking: kitchen staff via the dietary
+    // feature; ward staff reach the tray leg via the IP command-board
+    // feature (backend gates kitchen-phase transitions to dietary roles).
+    StaffRouteMetadata(
+      '/dietary/kitchen',
+      anyFeatureIds: {'dietary', 'patient_command_board'},
+    ),
     StaffRouteMetadata('/dental', anyFeatureIds: {'dental_charting'}),
     StaffRouteMetadata('/physiotherapy', anyFeatureIds: {'physiotherapy'}),
     StaffRouteMetadata('/transplant', anyFeatureIds: {'transplant_program'}),
@@ -358,9 +399,10 @@ class StaffRoutePolicy {
                 false,
           )
         : metadata.anyFeatureIds.any(
-            RoleFeatures.getFeaturesForRole(
-              role,
-            ).map((feature) => feature.id).toSet().contains,
+            RoleFeatures.getFeaturesForRole(role)
+                .map((feature) => feature.id)
+                .toSet()
+                .contains,
           );
     if (featureAllowed) {
       return const StaffRouteDecision.allow();

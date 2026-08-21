@@ -430,9 +430,9 @@ void main() {
     await expectLater(OfflineQueue.database, throwsA(anything));
     await OfflineQueue.resetForTesting();
     raw = await sqflite.openDatabase(path);
-    final columns = (await raw.rawQuery(
-      'PRAGMA table_info(pending_writes)',
-    )).map((row) => row['name']).toSet();
+    final columns = (await raw.rawQuery('PRAGMA table_info(pending_writes)'))
+        .map((row) => row['name'])
+        .toSet();
     final retained = (await raw.query('pending_writes')).single;
     expect(columns, isNot(contains('client_event_id')));
     expect(retained['id'], 704);
@@ -509,9 +509,9 @@ Future<void> _expectCompleteV6Schema(sqflite.Database db) async {
 
 Future<Map<String, Set<Object?>>> _schemaSnapshot(sqflite.Database db) async {
   return {
-    'pending': (await db.rawQuery(
-      'PRAGMA table_info(pending_writes)',
-    )).map((row) => row['name']).toSet(),
+    'pending': (await db.rawQuery('PRAGMA table_info(pending_writes)'))
+        .map((row) => row['name'])
+        .toSet(),
     'sequence': (await db.rawQuery(
       'PRAGMA table_info(offline_write_sequences)',
     )).map((row) => row['name']).toSet(),

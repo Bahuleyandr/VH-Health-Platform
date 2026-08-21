@@ -172,6 +172,41 @@ describe('I09 durable sequenced spool integrity', () => {
     }
   });
 
+  it('appends the torn-tail reconciliation event exactly once across repeated drain ticks', async () => {
+    const torn = await recoveryRuntime();
+    try {
+      await accept(torn.runtime, message('TORN-ONCE-1'));
+      await appendFile(partition(torn.runtime).journalFile, '{"partial":');
+      const restarted = await recoveryRuntime({ dir: torn.dir, backend: torn.backend });
+      const spool = partition(restarted.runtime);
+
+      // The drain supervisor re-observes resume state on every tick, before
+      // the held-state early-return. Before the fix the in-memory tornTail
+      // flag was never reset and the repair append had no dedupe, so every
+      // tick appended another fsynced torn_tail reconciliation event forever.
+      await restarted.runtime.drainPartition(restarted.runtime.enrollments[0]);
+      await restarted.runtime.drainPartition(restarted.runtime.enrollments[0]);
+      const events = (await readFile(spool.journalFile, 'utf8')).trim().split('\n').map(JSON.parse);
+      expect(events.filter((event) => event.type === 'reconciliation')).toHaveLength(1);
+      expect(spool.manifest).toMatchObject({
+        local_reconciliation_state: 'reconciliation_required_retention_gap',
+        local_reconciliation_reason: 'torn_tail',
+      });
+      // A clean re-load resets the in-memory flag.
+      expect(spool.tornTail).toBe(false);
+
+      // A second torn incident while the partition is already held for
+      // torn_tail dedupes the same way block() does: quarantined, no
+      // duplicate reconciliation event.
+      await appendFile(spool.journalFile, '{"partial-again":');
+      await restarted.runtime.drainPartition(restarted.runtime.enrollments[0]);
+      const after = (await readFile(spool.journalFile, 'utf8')).trim().split('\n').map(JSON.parse);
+      expect(after.filter((event) => event.type === 'reconciliation')).toHaveLength(1);
+    } finally {
+      await rm(torn.dir, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a restored foreign PVC and generation mismatch', async () => {
     const fixture = await recoveryRuntime();
     try {

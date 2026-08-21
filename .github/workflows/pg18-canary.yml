@@ -1,0 +1,31 @@
+name: PG18 Qualification Canary
+
+# NON-REQUIRED qualification canary — manual dispatch only, never part of the
+# `Merge Gate` / `Full Merge Gate` required contexts.
+#
+# Production CNPG pins PostgreSQL 17.10 (infra/kubernetes/base/cnpg/
+# cluster.yaml), so the canonical CI gates run the matching
+# pgvector/pgvector:pg17 service image. The PG18 cutover is a held,
+# operator-gated ladder (docs/CNPG_POSTGRES_18_QUALIFICATION.md) blocked on
+# Kubernetes 1.34; this dispatch runs the full backend lint+test matrix
+# against pg18 so the ladder can qualify application behavior (e.g. the
+# SQLSTATE 23001-vs-23503 ON DELETE RESTRICT skew that bit during #878)
+# ahead of the actual cutover.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pg18-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-on-pg18:
+    name: Backend lint + tests on PostgreSQL 18 (canary)
+    uses: ./.github/workflows/_reusable-backend-lint-test.yml
+    with:
+      postgres_image: pgvector/pgvector:pg18
+      notification_label: PG18 canary

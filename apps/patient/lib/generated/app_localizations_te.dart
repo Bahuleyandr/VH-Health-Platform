@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -67,6 +68,14 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get authSosTriggered => 'SOS హెచ్చరిక ప్రేరేపించబడింది!';
+
+  @override
+  String get authSosBackendFailed =>
+      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+
+  @override
+  String get authSosGuestSkipped =>
+      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
 
   @override
   String get authGuestUserSOS => 'అతిథి_వినియోగదారు_sos';
@@ -533,6 +542,11 @@ class AppLocalizationsTe extends AppLocalizations {
   @override
   String get investigationsFilePickerError =>
       'ఒక ఫైల్‌ను ఎంచుకోలేకపోయింది. దయచేసి మళ్ళీ ప్రయత్నించండి.';
+
+  @override
+  String investigationsUploadNotAvailableForDependent(String name) {
+    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+  }
 
   @override
   String get triviaTitle => 'ఆరోగ్య ఆసక్తికరమైన విషయాలు';
@@ -2791,6 +2805,15 @@ class AppLocalizationsTe extends AppLocalizations {
   String get medicationReminderDeleteTooltip => 'రిమైండర్ తొలగించండి';
 
   @override
+  String get medicationReminderUpdateFailed => 'రిమైండర్‌ను నవీకరించలేకపోయాము';
+
+  @override
+  String get medicationReminderDeleteFailed => 'రిమైండర్‌ను తొలగించలేకపోయాము';
+
+  @override
+  String get medicationReminderPausedLabel => 'పాజ్ చేయబడింది';
+
+  @override
   String medicationReminderDosageLine(String dosage) {
     return 'మోతాదు: $dosage';
   }
@@ -3424,6 +3447,10 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get splashUpdateButton => 'VH Health అప్‌డేట్ చేయండి';
+
+  @override
+  String get splashUpdateNoStoreBody =>
+      'అప్‌డేట్ చేసిన వెర్షన్ ఈ పరికరంలో డౌన్‌లోడ్ కోసం ఇంకా అందుబాటులో లేదు. VH Health తాజా వెర్షన్ ఇన్‌స్టాల్ చేయడంలో సహాయం కోసం దయచేసి ఆసుపత్రి రిసెప్షన్‌ను సంప్రదించండి.';
 
   @override
   String get yourHealthTimelineFilterAll => 'అన్నీ';

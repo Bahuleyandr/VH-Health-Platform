@@ -24,12 +24,10 @@ bool _resolves(String route, Set<String> patterns) {
 }
 
 void main() {
-  final routerSource = File(
-    'lib/core/navigation/app_router.dart',
-  ).readAsStringSync();
-  final roleConfigSource = File(
-    'lib/core/config/role_config.dart',
-  ).readAsStringSync();
+  final routerSource = File('lib/core/navigation/app_router.dart')
+      .readAsStringSync();
+  final roleConfigSource = File('lib/core/config/role_config.dart')
+      .readAsStringSync();
   final declaredRoutes = _matches(
     routerSource,
     RegExp(r"path:\s*'([^']+)'"),

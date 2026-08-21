@@ -46,9 +46,9 @@ jest.mock("next/server", () => ({
 }));
 
 import { middleware, config } from "@/middleware";
+import { jwtVerify } from "jose/jwt/verify";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose/jwt/verify";
 
 // Grab references to the mock functions for assertions
 const mockRedirect = NextResponse.redirect as jest.MockedFunction<
@@ -117,6 +117,7 @@ beforeEach(() => {
   delete process.env.ADMIN_IP_ALLOWLIST;
   delete process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
   delete process.env.NEXT_PUBLIC_WS_URL;
+  delete process.env.NEXT_PUBLIC_METABASE_ORIGIN;
   (process.env as Record<string, string>).NODE_ENV = "test";
   // By default, jwtVerify should NOT be called (no secretKey)
   mockJwtVerify.mockReset();
@@ -301,7 +302,7 @@ describe("ROLE_RANK ordering", () => {
       role: "ADMIN",
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    const req = makeRequest("/dashboard/admin-management", token);
+    const req = makeRequest("/dashboard/settings", token);
     await middleware(req);
 
     expect(mockNext).toHaveBeenCalledTimes(1);
@@ -332,7 +333,6 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/analytics",
     "/dashboard/settings",
     "/dashboard/audit",
-    "/dashboard/admin-management",
     "/dashboard/clinical-governance",
   ];
 
@@ -628,12 +628,16 @@ describe("middleware — default-deny route policy", () => {
     expect(redirectUrl.pathname).toBe("/dashboard");
   });
 
-  it("denies SUPER_ADMIN-only segments to plain ADMIN (tenants)", async () => {
+  it.each([
+    "/dashboard/tenants",
+    "/dashboard/entitlements",
+    "/dashboard/admin-management",
+  ])("denies SUPER_ADMIN-only segment %s to plain ADMIN", async (path) => {
     const token = fakeJwt({
       role: "ADMIN",
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    const req = makeRequest("/dashboard/tenants", token);
+    const req = makeRequest(path, token);
     await middleware(req);
 
     expect(mockRedirect).toHaveBeenCalledTimes(1);
@@ -757,6 +761,73 @@ describe("middleware — CSP header (M9)", () => {
       `connect-src 'self' ${apiUrl} ${apiUrl.replace(/^http/, "ws")} ` +
         "https://*.sentry.io https://*.ingest.sentry.io",
     );
+  });
+
+  // Embedded BI (wt/bi-app): frame-src exists ONLY when the Metabase origin
+  // env is configured; without it the emitted policy is byte-identical to
+  // the pre-BI CSP (no frame-src directive at all).
+  it("omits frame-src entirely when NEXT_PUBLIC_METABASE_ORIGIN is unset", async () => {
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const csp = cspCall![1] as string;
+    expect(csp).not.toContain("frame-src");
+    // frame-ancestors 'none' (who may frame US) is untouched.
+    expect(csp).toContain("frame-ancestors 'none'");
+    // The directive tail around the omitted frame-src is byte-identical to
+    // the pre-BI policy.
+    expect(csp).toContain(
+      "child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    );
+  });
+
+  it("adds frame-src 'self' + the Metabase origin when NEXT_PUBLIC_METABASE_ORIGIN is set", async () => {
+    process.env.NEXT_PUBLIC_METABASE_ORIGIN =
+      "https://analytics.vhhealth.hospital.local";
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const csp = cspCall![1] as string;
+    const frameSrc = csp
+      .split(";")
+      .find((d: string) => d.trim().startsWith("frame-src"))!;
+    expect(frameSrc.trim()).toBe(
+      "frame-src 'self' https://analytics.vhhealth.hospital.local",
+    );
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it("normalizes the Metabase env value to its origin and ignores garbage", async () => {
+    process.env.NEXT_PUBLIC_METABASE_ORIGIN =
+      "https://analytics.vhhealth.hospital.local/some/path";
+    let res = (await middleware(makeRequest("/login"))) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    let csp = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    )![1] as string;
+    expect(csp).toContain(
+      "frame-src 'self' https://analytics.vhhealth.hospital.local",
+    );
+    expect(csp).not.toContain("/some/path");
+
+    // Unparseable value ⇒ fall back to no frame-src (fail closed).
+    process.env.NEXT_PUBLIC_METABASE_ORIGIN = "not a url";
+    res = (await middleware(makeRequest("/login"))) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    csp = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    )![1] as string;
+    expect(csp).not.toContain("frame-src");
   });
 
   it("DROPS 'unsafe-eval' from script-src in production (M-ADM-2)", async () => {

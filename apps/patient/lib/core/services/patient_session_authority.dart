@@ -7,8 +7,10 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 
 typedef PatientSessionClock = DateTime Function();
 typedef PatientSessionStorageRead = Future<String?> Function(String key);
-typedef PatientSessionStorageWrite =
-    Future<void> Function(String key, String value);
+typedef PatientSessionStorageWrite = Future<void> Function(
+  String key,
+  String value,
+);
 
 /// Local authority for protected Patient routes and decrypted device caches.
 ///

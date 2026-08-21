@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show BiometricAuthResult, BiometricAuthService;
+
 import '../../../core/navigation/app_router.dart';
 import '../../../core/providers/locale_provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
@@ -18,10 +19,12 @@ import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
-typedef SettingsRegisteredDeviceRemover =
-    Future<Map<String, dynamic>> Function(String deviceId);
-typedef SettingsDeviceRemovalRevocation =
-    Future<bool> Function(String deviceId);
+typedef SettingsRegisteredDeviceRemover = Future<Map<String, dynamic>> Function(
+  String deviceId,
+);
+typedef SettingsDeviceRemovalRevocation = Future<bool> Function(
+  String deviceId,
+);
 
 /// Completes a Settings-triggered forced sign-out through the same ordered,
 /// deduplicated teardown used by server revocation. Session-scoped providers

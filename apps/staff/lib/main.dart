@@ -13,6 +13,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
+
 import 'firebase_options.dart';
 import 'core/config/c0a_reconciliation_config.dart';
 import 'core/config/api_config.dart';
@@ -49,6 +50,7 @@ import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'features/clinical_continuity/services/staff_continuity_repository.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
+
 import 'package:vhhealth_core/services/biometric_auth_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/models/clinical_continuity.dart';

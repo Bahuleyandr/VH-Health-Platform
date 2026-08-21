@@ -402,6 +402,75 @@ describe('recordWebhookEvent — idempotency', () => {
     expect(result.event.id).toBe(1);
   });
 
+  it('reclaims failed intake when an authenticated callback is retried', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 4, external_event_id: 'EVT-RETRY', status: 'failed', received_at: new Date(),
+      received_at_epoch_ms: BigInt(Date.now()),
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 4, external_event_id: 'EVT-RETRY', status: 'pending', received_at: new Date(),
+      received_at_epoch_ms: BigInt(Date.now()),
+    }]);
+    const result = await recordWebhookEvent({
+      tenantId: TENANT,
+      externalEventId: 'EVT-RETRY',
+      eventType: 'hiu_data_push',
+      payload: { pageNumber: 1 },
+      retryFailed: true,
+    });
+    expect(result).toMatchObject({ duplicate: false, reclaimed: true });
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain("SET status = 'pending'");
+  });
+
+  // The retry window is decided from `received_at_epoch_ms`, the absolute
+  // instant twin, not from `received_at` (PR #881). The failed-status case above
+  // short-circuits on `status === 'failed'` before the twin is read, so this
+  // branch had no coverage at all: a dropped twin makes every stale pending
+  // intake look freshly received and silently blocks the retry.
+  it('reclaims a pending intake once its 5-minute receive window has lapsed', async () => {
+    const receivedAt = new Date(Date.now() - 6 * 60 * 1000);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, external_event_id: 'EVT-STALE', status: 'pending',
+      received_at: receivedAt.toISOString(),
+      received_at_epoch_ms: BigInt(receivedAt.getTime()),
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, external_event_id: 'EVT-STALE', status: 'pending',
+    }]);
+
+    const result = await recordWebhookEvent({
+      tenantId: TENANT,
+      externalEventId: 'EVT-STALE',
+      eventType: 'hiu_data_push',
+      payload: { pageNumber: 2 },
+      retryFailed: true,
+    });
+
+    expect(result).toMatchObject({ duplicate: false, reclaimed: true });
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain("SET status = 'pending'");
+  });
+
+  it('leaves a freshly received pending intake alone', async () => {
+    const receivedAt = new Date(Date.now() - 60 * 1000);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 6, external_event_id: 'EVT-FRESH', status: 'pending',
+      received_at: receivedAt.toISOString(),
+      received_at_epoch_ms: BigInt(receivedAt.getTime()),
+    }]);
+
+    const result = await recordWebhookEvent({
+      tenantId: TENANT,
+      externalEventId: 'EVT-FRESH',
+      eventType: 'hiu_data_push',
+      payload: { pageNumber: 3 },
+      retryFailed: true,
+    });
+
+    expect(result).toMatchObject({ duplicate: true });
+    // No reclaim UPDATE was attempted.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
   it('inserts when event is new', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // dedup lookup
     queryUnsafeMock.mockResolvedValueOnce([{

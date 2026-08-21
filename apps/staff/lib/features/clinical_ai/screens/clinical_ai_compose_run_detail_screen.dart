@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
@@ -97,9 +98,8 @@ class _ClinicalAiComposeRunDetailScreenState
       await ClinicalAiApiService.resumeDischargeCompose(widget.runId);
       if (!mounted) return;
       final s = AppStrings.of(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.clinicalAiComposeRunResumed)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(s.clinicalAiComposeRunResumed)));
       await _load();
     } catch (err) {
       if (!mounted) return;
@@ -371,16 +371,14 @@ class _ChildCard extends StatelessWidget {
                     ),
                     if (critical > 0)
                       _SmallChip(
-                        label: AppStrings.of(
-                          context,
-                        ).clinicalAiComposeCriticalCount(critical),
+                        label: AppStrings.of(context)
+                            .clinicalAiComposeCriticalCount(critical),
                         color: Colors.red,
                       ),
                     if (high > 0)
                       _SmallChip(
-                        label: AppStrings.of(
-                          context,
-                        ).clinicalAiComposeHighCount(high),
+                        label: AppStrings.of(context)
+                            .clinicalAiComposeHighCount(high),
                         color: Colors.orange,
                       ),
                   ],

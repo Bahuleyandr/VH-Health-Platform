@@ -13,7 +13,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: loggerWarnMock, error: jest.fn() },
 }));
 
-const { relayAppError } = await import('../../utils/responseHelper.js');
+const { error, relayAppError } = await import('../../utils/responseHelper.js');
 const { AppError } = await import('../../utils/AppError.js');
 
 const GENERIC_5XX = 'An internal server error occurred. Please try again later.';
@@ -28,6 +28,8 @@ function mockRes() {
 afterAll(() => { process.env.NODE_ENV = 'test'; });
 
 describe('relayAppError opts.safe under NODE_ENV=production', () => {
+  beforeEach(() => loggerWarnMock.mockClear());
+
   test('5xx AppError WITHOUT safe: message genericised (baseline)', () => {
     const res = mockRes();
     relayAppError(res, new AppError('Bed sync backend unavailable', 503, 'BED_SYNC_DOWN'), 'Bed error');
@@ -55,4 +57,20 @@ describe('relayAppError opts.safe under NODE_ENV=production', () => {
     relayAppError(res, AppError.conflict('Bed already occupied', 'BED_OCCUPIED'), 'Bed error', { safe: true });
     expect(res.json.mock.calls[0][0].message).toBe('Bed already occupied');
   });
+
+  test.each(['dlr', 'twilio-status'])(
+    'redacts the SMS callback bearer from production 5xx log context on %s',
+    (route) => {
+      const bearer = 'tok_callback_bearer_must_never_be_logged';
+      const res = mockRes();
+      res.req.originalUrl = `/webhooks/sms/${route}/${bearer}?To=%2B919876543210`;
+
+      error(res, 'Delivery status processing failed', 500);
+
+      const logged = JSON.stringify(loggerWarnMock.mock.calls);
+      expect(logged).toContain(`/webhooks/sms/${route}/[REDACTED]`);
+      expect(logged).not.toContain(bearer);
+      expect(logged).not.toContain('9876543210');
+    },
+  );
 });

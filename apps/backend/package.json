@@ -22,6 +22,8 @@
     "check:no-default-tenant-fallback": "node scripts/check-no-default-tenant-fallback.mjs",
     "check:clinical-ai-external-regions": "node scripts/check-clinical-ai-external-region-guards.mjs",
     "check:vital-bounds": "node ../../scripts/generate-vital-bounds.mjs --check",
+    "check:lockfile-libc": "node ../../scripts/check-lockfile-libc.mjs backend",
+    "check:timestamptz-clock": "node scripts/check-timestamptz-clock-comparisons.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "check:continuity-action-registry": "node scripts/check-clinical-continuity-action-registry.mjs",
     "dr:cross-site:preflight": "node scripts/dr-cross-site-preflight.mjs",
@@ -195,6 +197,10 @@
   "jest": {
     "testEnvironment": "node",
     "transform": {},
+    "reporters": [
+      "default",
+      "<rootDir>/scripts/jest-skip-floor-reporter.cjs"
+    ],
     "setupFiles": [
       "<rootDir>/src/scripts/testing/jest.setup.cjs"
     ],
@@ -349,10 +355,10 @@
         "branches": 55
       },
       "src/services/billing/paymentLinkService.js": {
-        "statements": 61,
-        "lines": 61,
-        "functions": 61,
-        "branches": 46
+        "statements": 75,
+        "lines": 75,
+        "functions": 80,
+        "branches": 55
       },
       "src/services/emr/cdsEngine.js": {
         "statements": 80,
@@ -386,6 +392,7 @@
     "minimatch": "10.2.5",
     "postcss": "8.5.25",
     "@prisma/dev": "0.24.16",
+    "deepmerge-ts": "^8.0.1",
     "find-my-way": "9.7.0",
     "valibot": "1.4.2",
     "rollup": "^2.80.0",

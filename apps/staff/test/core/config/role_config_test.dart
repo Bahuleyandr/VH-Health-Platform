@@ -196,9 +196,10 @@ void main() {
 
   group('RoleFeatures.getFeaturesForRole', () {
     test('exact backend roles do not inherit lossy archetype authority', () {
-      Set<String> idsFor(String rawRole) => RoleFeatures.getFeaturesForRawRole(
-        rawRole,
-      ).map((feature) => feature.id).toSet();
+      Set<String> idsFor(String rawRole) =>
+          RoleFeatures.getFeaturesForRawRole(rawRole)
+              .map((feature) => feature.id)
+              .toSet();
 
       expect(idsFor('TECHNICIAN'), contains('cath_lab'));
       expect(idsFor('TECHNICIAN'), isNot(contains('patient_records')));
@@ -211,9 +212,10 @@ void main() {
     });
 
     test('emergency and critical-care roles keep safety + HR self-service', () {
-      Set<String> idsFor(String rawRole) => RoleFeatures.getFeaturesForRawRole(
-        rawRole,
-      ).map((feature) => feature.id).toSet();
+      Set<String> idsFor(String rawRole) =>
+          RoleFeatures.getFeaturesForRawRole(rawRole)
+              .map((feature) => feature.id)
+              .toSet();
 
       // Backend allows any staff role on the resuscitation surface and
       // allowSelf HR self-service; the old phone_self_service gate wrongly
@@ -282,9 +284,8 @@ void main() {
       );
       expect(ids, contains('cath_lab'));
       expect(
-        RoleFeatures.getFeaturesForRole(
-          StaffRole.dutyDoctor,
-        ).map((feature) => feature.id),
+        RoleFeatures.getFeaturesForRole(StaffRole.dutyDoctor)
+            .map((feature) => feature.id),
         contains('cath_lab'),
       );
       expect(ids, isNot(contains('theatre')));
@@ -294,39 +295,36 @@ void main() {
       expect(ids, isNot(contains('staff_management')));
     });
 
-    test(
-      'generic/IP nurses get scoped ward tools and only generic nurses reach cath imaging',
-      () {
-        final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
-        final ids = feats.map((f) => f.id).toSet();
-        final ipIds = RoleFeatures.getFeaturesForRole(
-          StaffRole.ipStaffNurse,
-        ).map((f) => f.id).toSet();
-        final handover = feats.singleWhere((f) => f.id == 'handover');
-        expect(ids, isNot(contains('front_office_workbench')));
-        expect(ids, isNot(contains('appointments')));
-        expect(ids, isNot(contains('admissions')));
-        expect(ids, contains('patient_command_board'));
-        expect(ids, contains('clinical_inbox'));
-        expect(ids, contains('ward_mode'));
-        expect(ids, contains('ophthalmology'));
-        expect(ids, isNot(contains('vitals')));
-        expect(ids, contains('nursing_notes'));
-        expect(handover.titleKey, 'role.feature.handover');
-        expect(strings.lookup(handover.titleKey), 'Shift Handover');
-        expect(ids, contains('clinical_ai_review_queue'));
-        expect(ids, contains('cath_lab'));
-        expect(ipIds, isNot(contains('cath_lab')));
-        expect(ids, contains('device_association'));
-        expect(ipIds, contains('device_association'));
-        expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
-      },
-    );
+    test('generic/IP nurses get scoped ward tools and only generic nurses reach cath imaging', () {
+      final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
+      final ids = feats.map((f) => f.id).toSet();
+      final ipIds = RoleFeatures.getFeaturesForRole(StaffRole.ipStaffNurse)
+          .map((f) => f.id)
+          .toSet();
+      final handover = feats.singleWhere((f) => f.id == 'handover');
+      expect(ids, isNot(contains('front_office_workbench')));
+      expect(ids, isNot(contains('appointments')));
+      expect(ids, isNot(contains('admissions')));
+      expect(ids, contains('patient_command_board'));
+      expect(ids, contains('clinical_inbox'));
+      expect(ids, contains('ward_mode'));
+      expect(ids, contains('ophthalmology'));
+      expect(ids, isNot(contains('vitals')));
+      expect(ids, contains('nursing_notes'));
+      expect(handover.titleKey, 'role.feature.handover');
+      expect(strings.lookup(handover.titleKey), 'Shift Handover');
+      expect(ids, contains('clinical_ai_review_queue'));
+      expect(ids, contains('cath_lab'));
+      expect(ipIds, isNot(contains('cath_lab')));
+      expect(ids, contains('device_association'));
+      expect(ipIds, contains('device_association'));
+      expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
+    });
 
     test('OP nursing roles get OP appointment workflow access', () {
-      final opStaffIds = RoleFeatures.getFeaturesForRole(
-        StaffRole.opStaffNurse,
-      ).map((f) => f.id).toSet();
+      final opStaffIds = RoleFeatures.getFeaturesForRole(StaffRole.opStaffNurse)
+          .map((f) => f.id)
+          .toSet();
       final opInchargeIds = RoleFeatures.getFeaturesForRole(
         StaffRole.opIncharge,
       ).map((f) => f.id).toSet();
@@ -442,35 +440,30 @@ void main() {
       expect(anaesthetistIds, isNot(contains('op_ai_assist')));
     });
 
-    test(
-      'admin + superAdmin get governance tools but not doctor-only OP AI Assist',
-      () {
-        final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
-        final superFeats = RoleFeatures.getFeaturesForRole(
-          StaffRole.superAdmin,
-        );
-        expect(
-          adminFeats.map((f) => f.id).toSet(),
-          equals(superFeats.map((f) => f.id).toSet()),
-        );
-        final ids = adminFeats.map((f) => f.id).toSet();
-        expect(ids, contains('hr_dashboard'));
-        expect(ids, contains('staff_roster'));
-        expect(ids, contains('staff_management'));
-        expect(ids, contains('pharmacy_orders'));
-        expect(ids, contains('clinical_ai_review_queue'));
-        expect(ids, contains('dental_charting'));
-        expect(ids, isNot(contains('op_ai_assist')));
-        expect(ids, isNot(contains('staff_directory')));
-        expect(ids, contains('staff_diagnostics'));
-        expect(ids, contains('theatre'));
-        expect(ids, contains('ophthalmology'));
-        expect(ids, contains('blood_bank'));
-        expect(ids, contains('front_office_workbench'));
-        expect(ids, isNot(contains('reception_counter')));
-        expect(ids, contains('ward_mode'));
-      },
-    );
+    test('admin + superAdmin get governance tools but not doctor-only OP AI Assist', () {
+      final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
+      final superFeats = RoleFeatures.getFeaturesForRole(StaffRole.superAdmin);
+      expect(
+        adminFeats.map((f) => f.id).toSet(),
+        equals(superFeats.map((f) => f.id).toSet()),
+      );
+      final ids = adminFeats.map((f) => f.id).toSet();
+      expect(ids, contains('hr_dashboard'));
+      expect(ids, contains('staff_roster'));
+      expect(ids, contains('staff_management'));
+      expect(ids, contains('pharmacy_orders'));
+      expect(ids, contains('clinical_ai_review_queue'));
+      expect(ids, contains('dental_charting'));
+      expect(ids, isNot(contains('op_ai_assist')));
+      expect(ids, isNot(contains('staff_directory')));
+      expect(ids, contains('staff_diagnostics'));
+      expect(ids, contains('theatre'));
+      expect(ids, contains('ophthalmology'));
+      expect(ids, contains('blood_bank'));
+      expect(ids, contains('front_office_workbench'));
+      expect(ids, isNot(contains('reception_counter')));
+      expect(ids, contains('ward_mode'));
+    });
 
     test('medical superintendent keeps doctor-facing OP AI Assist access', () {
       final ids = RoleFeatures.getFeaturesForRole(
@@ -527,9 +520,9 @@ void main() {
       );
 
       for (final role in StaffRole.values) {
-        final payrollFeatures = RoleFeatures.getFeaturesForRole(
-          role,
-        ).where((feature) => feature.id == 'payroll').toList();
+        final payrollFeatures = RoleFeatures.getFeaturesForRole(role)
+            .where((feature) => feature.id == 'payroll')
+            .toList();
 
         expect(
           payrollFeatures.isNotEmpty,
@@ -543,38 +536,35 @@ void main() {
       }
     });
 
-    test(
-      'reception roles get the front office workbench, OPD appointments, and IP admissions',
-      () {
-        final receptionistIds = RoleFeatures.getFeaturesForRole(
-          StaffRole.receptionist,
-        ).map((f) => f.id).toSet();
-        final inchargeIds = RoleFeatures.getFeaturesForRole(
-          StaffRole.receptionIncharge,
-        ).map((f) => f.id).toSet();
+    test('reception roles get the front office workbench, OPD appointments, and IP admissions', () {
+      final receptionistIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.receptionist,
+      ).map((f) => f.id).toSet();
+      final inchargeIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.receptionIncharge,
+      ).map((f) => f.id).toSet();
 
-        expect(
-          receptionistIds,
-          containsAll([
-            'front_office_workbench',
-            'billing_desk',
-            'cath_lab',
-            'appointments',
-            'admissions',
-          ]),
-        );
-        expect(
-          inchargeIds,
-          containsAll([
-            'front_office_workbench',
-            'billing_desk',
-            'appointments',
-            'admissions',
-          ]),
-        );
-        expect(inchargeIds, isNot(contains('cath_lab')));
-      },
-    );
+      expect(
+        receptionistIds,
+        containsAll([
+          'front_office_workbench',
+          'billing_desk',
+          'cath_lab',
+          'appointments',
+          'admissions',
+        ]),
+      );
+      expect(
+        inchargeIds,
+        containsAll([
+          'front_office_workbench',
+          'billing_desk',
+          'appointments',
+          'admissions',
+        ]),
+      );
+      expect(inchargeIds, isNot(contains('cath_lab')));
+    });
 
     test(
       'maternity + calculators mirror the backend ip_flow clinical gate',
@@ -621,9 +611,8 @@ void main() {
           );
         }
 
-        final maternityTile = RoleFeatures.getFeaturesForRole(
-          StaffRole.nurse,
-        ).singleWhere((f) => f.id == 'maternity');
+        final maternityTile = RoleFeatures.getFeaturesForRole(StaffRole.nurse)
+            .singleWhere((f) => f.id == 'maternity');
         expect(maternityTile.route, '/maternity');
         expect(strings.lookup(maternityTile.titleKey), 'Maternity & Labour');
         final calculatorsTile = RoleFeatures.getFeaturesForRole(
@@ -637,9 +626,9 @@ void main() {
 
         for (final rawRole in ['ICU_STAFF', 'ICU_INCHARGE']) {
           final role = StaffRole.fromString(rawRole);
-          final ids = RoleFeatures.getFeaturesForRole(
-            role,
-          ).map((feature) => feature.id).toSet();
+          final ids = RoleFeatures.getFeaturesForRole(role)
+              .map((feature) => feature.id)
+              .toSet();
           expect(RoleFeatures.hasMaternity(role), isTrue, reason: rawRole);
           expect(
             RoleFeatures.hasClinicalCalculators(role),
@@ -668,9 +657,9 @@ void main() {
 
     test('legacy appointment queue is consolidated into front office', () {
       for (final role in StaffRole.values) {
-        final ids = RoleFeatures.getFeaturesForRole(
-          role,
-        ).map((feature) => feature.id).toSet();
+        final ids = RoleFeatures.getFeaturesForRole(role)
+            .map((feature) => feature.id)
+            .toSet();
         expect(
           ids,
           isNot(contains('appointment_queue')),
@@ -693,9 +682,9 @@ void main() {
     });
 
     test('front-office and billing roles get workbench features', () {
-      final billingIds = RoleFeatures.getFeaturesForRole(
-        StaffRole.billingStaff,
-      ).map((f) => f.id).toSet();
+      final billingIds = RoleFeatures.getFeaturesForRole(StaffRole.billingStaff)
+          .map((f) => f.id)
+          .toSet();
       final admissionIds = RoleFeatures.getFeaturesForRole(
         StaffRole.admissionOfficer,
       ).map((f) => f.id).toSet();
@@ -720,9 +709,9 @@ void main() {
         StaffRole.nursingSuperintendent,
         StaffRole.opStaffNurse,
       ]) {
-        final ids = RoleFeatures.getFeaturesForRole(
-          role,
-        ).map((feature) => feature.id).toSet();
+        final ids = RoleFeatures.getFeaturesForRole(role)
+            .map((feature) => feature.id)
+            .toSet();
         expect(
           ids,
           isNot(contains('admissions')),
@@ -733,9 +722,9 @@ void main() {
 
     test('role-specific feature gates are enforced for every role', () {
       for (final role in StaffRole.values) {
-        final ids = RoleFeatures.getFeaturesForRole(
-          role,
-        ).map((feature) => feature.id).toSet();
+        final ids = RoleFeatures.getFeaturesForRole(role)
+            .map((feature) => feature.id)
+            .toSet();
 
         expect(
           ids.contains('front_office_workbench'),
@@ -881,51 +870,43 @@ void main() {
 
     test('new operational roles get focused bottom navigation', () {
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.nurse,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.nurse)
+            .map((item) => item.route),
         contains('/patient-command-board'),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.nurse,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.nurse)
+            .map((item) => item.route),
         isNot(contains('/appointments')),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.doctor,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.doctor)
+            .map((item) => item.route),
         contains('/appointments?context=op&scope=my&workspace=doctor'),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.doctor,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.doctor)
+            .map((item) => item.route),
         isNot(contains('/appointments')),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.anaesthetist,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.anaesthetist)
+            .map((item) => item.route),
         contains('/theatre'),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.anaesthetist,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.anaesthetist)
+            .map((item) => item.route),
         isNot(contains('/appointments')),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.billingStaff,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.billingStaff)
+            .map((item) => item.route),
         containsAll(['/billing-desk', '/front-office']),
       );
       expect(
-        RoleFeatures.getBottomNavForRole(
-          StaffRole.admissionOfficer,
-        ).map((item) => item.route),
+        RoleFeatures.getBottomNavForRole(StaffRole.admissionOfficer)
+            .map((item) => item.route),
         containsAll(['/front-office', '/emr/admissions']),
       );
     });
@@ -1000,9 +981,9 @@ void main() {
       expect(doctorRoutes, isNot(contains('/billing-desk')));
       expect(doctorRoutes, isNot(contains('/emr/admissions')));
 
-      final nurseRoutes = RoleFeatures.getWorkbenchNavForRole(
-        StaffRole.nurse,
-      ).map((item) => item.route).toSet();
+      final nurseRoutes = RoleFeatures.getWorkbenchNavForRole(StaffRole.nurse)
+          .map((item) => item.route)
+          .toSet();
       expect(nurseRoutes, isNot(contains('/front-office')));
       expect(nurseRoutes, isNot(contains('/emr/admissions')));
       expect(nurseRoutes, contains('/patient-records'));
@@ -1020,9 +1001,9 @@ void main() {
 
     test('workbench side bar gates match role predicates for every role', () {
       for (final role in StaffRole.values) {
-        final routes = RoleFeatures.getWorkbenchNavForRole(
-          role,
-        ).map((item) => item.route).toSet();
+        final routes = RoleFeatures.getWorkbenchNavForRole(role)
+            .map((item) => item.route)
+            .toSet();
 
         expect(
           routes.contains('/front-office'),
@@ -1068,12 +1049,12 @@ void main() {
     });
 
     test('staff governance navigation consolidates rosters into the hub', () {
-      final hrRoutes = RoleFeatures.getWorkbenchNavForRole(
-        StaffRole.hr,
-      ).map((item) => item.route).toSet();
-      final adminRoutes = RoleFeatures.getWorkbenchNavForRole(
-        StaffRole.admin,
-      ).map((item) => item.route).toSet();
+      final hrRoutes = RoleFeatures.getWorkbenchNavForRole(StaffRole.hr)
+          .map((item) => item.route)
+          .toSet();
+      final adminRoutes = RoleFeatures.getWorkbenchNavForRole(StaffRole.admin)
+          .map((item) => item.route)
+          .toSet();
       final medicalSuperRoutes = RoleFeatures.getWorkbenchNavForRole(
         StaffRole.medicalSuperintendent,
       ).map((item) => item.route).toSet();

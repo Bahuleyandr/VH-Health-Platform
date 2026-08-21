@@ -1,6 +1,7 @@
 // src/utils/responseHelper.js
 
 import logger from '../logging/logger.js';
+import { redactSensitiveQueryParams } from './urlRedaction.js';
 
 const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
@@ -65,6 +66,7 @@ const GENERIC_4XX = 'Request could not be processed.';
 export function sanitizeErrorMessage(message, statusCode, opts = {}) {
   const raw = typeof message === 'string' ? message : String(message ?? '');
   const safe = opts.safe === true;
+  const safeContext = redactSensitiveQueryParams(opts.context);
 
   // F-1 — even in non-prod, scrub messages that match leak patterns
   // (stack frames, Prisma internals, filesystem paths). Devs can still
@@ -77,7 +79,7 @@ export function sanitizeErrorMessage(message, statusCode, opts = {}) {
       logger.warn('responseHelper: scrubbed leaky error message (non-prod)', {
         original: raw,
         statusCode,
-        context: opts.context,
+        context: safeContext,
       });
       return statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX;
     }
@@ -89,7 +91,7 @@ export function sanitizeErrorMessage(message, statusCode, opts = {}) {
     if (raw && raw !== GENERIC_5XX) {
       logger.warn('responseHelper: scrubbed 5xx message before sending', {
         original: raw,
-        context: opts.context,
+        context: safeContext,
       });
     }
     return GENERIC_5XX;
@@ -100,7 +102,7 @@ export function sanitizeErrorMessage(message, statusCode, opts = {}) {
     logger.warn('responseHelper: scrubbed leaky error message', {
       original: raw,
       statusCode,
-      context: opts.context,
+      context: safeContext,
     });
     return statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX;
   }

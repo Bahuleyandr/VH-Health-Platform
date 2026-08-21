@@ -26,6 +26,18 @@ on:
         required: false
         type: string
         default: Backend CI
+      # Prod parity (2026-08-18): production CNPG pins PostgreSQL 17.10
+      # (infra/kubernetes/base/cnpg/cluster.yaml), so the default CI service
+      # image is pg17 — CI previously ran pg18 and a real SQLSTATE-class
+      # behavioral difference (23001 vs 23503 on ON DELETE RESTRICT) bit
+      # during #878. The PG18 cutover is a held, operator-gated ladder
+      # (docs/CNPG_POSTGRES_18_QUALIFICATION.md); until it lands, only the
+      # non-required pg18-canary.yml dispatch overrides this input.
+      postgres_image:
+        description: Postgres service container image for DB-backed jobs.
+        required: false
+        type: string
+        default: pgvector/pgvector:pg17
     secrets:
       DISCORD_WEBHOOK_URL:
         required: false
@@ -94,7 +106,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: ${{ inputs.postgres_image }}
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -109,6 +121,17 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Deep suites historically guarded on TEST_DATABASE_URL alone; the corpus
+      # convention is `TEST_DATABASE_URL || DATABASE_URL`, but export both here
+      # (mirroring _reusable-backend-quick.yml) so no suite can silently skip
+      # in the canonical gate on a single-form guard.
+      TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up): with the full DB env
+      # provisioned, any skipped test not declared in
+      # apps/backend/scripts/jest-skip-floor.json fails the run
+      # (scripts/jest-skip-floor-reporter.cjs) — silent env-guard skips can
+      # never pass green in the gate again.
+      JEST_ENFORCE_SKIP_FLOOR: '1'
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -120,6 +143,29 @@ jobs:
           cache-dependency-path: apps/backend/package-lock.json
 
       - run: npm ci
+
+      # PR #878: npm 11.14.1 regenerated package-lock.json and silently stripped
+      # `"libc"` from all 26 platform-specific optional packages (@img/sharp-*,
+      # @unrs/resolver-binding-*). The prod image is node:26.5.0-alpine (musl)
+      # and apps/backend/Dockerfile runs `npm ci`, so without `libc` a musl
+      # install also pulls glibc binaries into the image — and NO job here could
+      # see it, because these runners are ubuntu-latest (glibc) and the Alpine
+      # image is built post-merge by release-images.yml. Its own step rather
+      # than a link in the `npm run lint` && chain: it is a lockfile-integrity
+      # gate, not a source-lint one, and an earlier lint failure must not mask
+      # it. Costs milliseconds — a JSON parse.
+      - name: Lockfile libc guard (musl/glibc platform constraints intact)
+        run: npm run check:lockfile-libc
+
+      # Second layer behind the UTC session pin in src/lib/prisma.js. A
+      # timestamptz read back through the pg driver is materialised in the
+      # DATABASE SESSION timezone, so comparing one against the process clock is
+      # only correct on a UTC session — two such sites shipped FAIL-OPEN. CI runs
+      # a UTC database, so a relapse is behaviourally invisible here and only the
+      # source shape can be checked. Its own step rather than a link in the
+      # `npm run lint` && chain, so a lint failure cannot mask it.
+      - name: Timestamptz clock-comparison guard (no driver Date vs process clock)
+        run: npm run check:timestamptz-clock
 
       - name: Restore generated Prisma client
         id: prisma-client
@@ -241,7 +287,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: ${{ inputs.postgres_image }}
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -256,6 +302,11 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Same rationale as static-checks: deep-suite guards must never skip in
+      # the canonical gate because only one of the two DB env names was set.
+      TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      # Skip-floor enforcement (HIGH-3 follow-up) — see static-checks.
+      JEST_ENFORCE_SKIP_FLOOR: '1'
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

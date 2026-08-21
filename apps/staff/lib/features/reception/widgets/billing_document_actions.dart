@@ -17,9 +17,8 @@ Future<void> printBillingDocument({
   final invoiceId = billingInvoiceId(invoice);
   if (invoiceId == null) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(s.billingInvoiceIdMissing)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(s.billingInvoiceIdMissing)));
     return;
   }
 
