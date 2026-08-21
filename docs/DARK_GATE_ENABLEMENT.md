@@ -22,6 +22,11 @@ merge for you. Env switches live in the backend deployment configmap
 (`infra/kubernetes/apps/backend/`); changing them is an ArgoCD deploy + sync,
 not an API call.
 
+When a new gate darkens endpoints that an admin dashboard page still calls on
+load, add a matching entry to `EXPECTED_DARK_GATE_RESPONSES` in
+`apps/admin/e2e/route-crawl.spec.ts` — otherwise the nightly Smoke E2E route
+crawl flags the intended 503/403 and breaks.
+
 ---
 
 ## 1. Payment gateway — sandbox → live (Razorpay)
