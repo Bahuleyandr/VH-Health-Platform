@@ -556,6 +556,15 @@ CREATE TRIGGER payroll_tenant_kek_replacement_guard
 BEFORE UPDATE OF wrapped_key_material ON public.encryption_keys
 FOR EACH ROW EXECUTE FUNCTION public.guard_payroll_tenant_kek_replacement();
 
+-- The attempt/result backfills above queue DEFERRABLE INITIALLY DEFERRED
+-- FK-check trigger events that would otherwise fire only at COMMIT — and
+-- Postgres refuses to ALTER a table with pending trigger events (SQLSTATE
+-- 55006), which the RLS loop below must do. Fire them now; on a fresh
+-- database the backfills copy zero rows and this is a no-op, which is why
+-- every empty-DB CI run passed while the first populated database
+-- (dalekdefender, 2026-08-21) failed here.
+SET CONSTRAINTS ALL IMMEDIATE;
+
 DO $$
 DECLARE
   table_name text;
