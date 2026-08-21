@@ -16,6 +16,8 @@ param(
   [string]$DoctorUid = "55555555-5555-4555-8555-555555555555",
   [string]$PatientPhone = "8811000101",
   [string]$DoctorPhone = "8811000102",
+  [string]$SosAdminUid = "66666666-6666-4666-8666-666666666666",
+  [string]$SosAdminPhone = "8811000103",
   [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
   [string]$ApiKey = "vhhealth-local-api-key",
   [string]$PgHost = "127.0.0.1",
@@ -46,6 +48,7 @@ function Normalize-SmokePhone {
 
 $NormalizedPatientPhone = Normalize-SmokePhone $PatientPhone
 $NormalizedDoctorPhone = Normalize-SmokePhone $DoctorPhone
+$NormalizedSosAdminPhone = Normalize-SmokePhone $SosAdminPhone
 
 function Assert-Command {
   param([string]$Name)
@@ -286,7 +289,8 @@ Invoke-Psql @"
 INSERT INTO users (uid, phone, name, email, role, is_active, status, updated_at)
 VALUES
   ('$PatientUid'::uuid, '$NormalizedPatientPhone', 'Patient Smoke $stamp', 'patient-smoke-$stamp@example.test', 'PATIENT', true, 'active', NOW()),
-  ('$DoctorUid'::uuid, '$NormalizedDoctorPhone', 'Doctor Smoke $stamp', 'doctor-smoke-$stamp@example.test', 'DOCTOR', true, 'active', NOW())
+  ('$DoctorUid'::uuid, '$NormalizedDoctorPhone', 'Doctor Smoke $stamp', 'doctor-smoke-$stamp@example.test', 'DOCTOR', true, 'active', NOW()),
+  ('$SosAdminUid'::uuid, '$NormalizedSosAdminPhone', 'SOS Drill Admin Smoke $stamp', 'sos-admin-smoke-$stamp@example.test', 'ADMIN', true, 'active', NOW())
 ON CONFLICT (uid) DO UPDATE SET
   phone = EXCLUDED.phone,
   name = EXCLUDED.name,
@@ -324,6 +328,7 @@ WHERE NOT EXISTS (SELECT 1 FROM investigation_test_catalog WHERE code = 'PATIENT
 
 $patientId = [int](Invoke-Psql "SELECT id FROM users WHERE uid = '$PatientUid'::uuid;")
 $doctorId = [int](Invoke-Psql "SELECT id FROM users WHERE uid = '$DoctorUid'::uuid;")
+$sosAdminId = [int](Invoke-Psql "SELECT id FROM users WHERE uid = '$SosAdminUid'::uuid;")
 $testId = [int](Invoke-Psql "SELECT id FROM investigation_test_catalog WHERE code = 'PATIENT_SMOKE_CBC' ORDER BY id LIMIT 1;")
 
 Invoke-Psql @"
@@ -345,6 +350,7 @@ VALUES (
 "@ | Out-Null
 
 $script:PatientToken = New-SmokeToken -Uid $PatientUid -UserId $patientId -Phone $PatientPhone
+$script:SosAdminToken = New-SmokeToken -Uid $SosAdminUid -UserId $sosAdminId -Phone $SosAdminPhone -Role "ADMIN"
 $results = [System.Collections.Generic.List[object]]::new()
 
 Invoke-SmokeRequest $results "dashboard_summary" "GET" "/api/v1/dashboard?phone=$PatientPhone" | Out-Null
@@ -413,6 +419,12 @@ Invoke-SmokeRequest $results "feedback_quick_rating" "POST" "/api/v1/feedback/qu
 Invoke-SmokeRequest $results "feedback_my_feedback" "GET" "/api/v1/feedback/my-feedback" | Out-Null
 Invoke-SmokeRequest $results "feedback_my_stats" "GET" "/api/v1/feedback/my-stats" | Out-Null
 
+# SOS drills (isTestAlert = true) are admin-authorized only since the drill
+# provenance contract (sosController SOS_DRILL_ROLE_REQUIRED + migration 709):
+# a patient sending isTestAlert now gets 403. Create the drill with the seeded
+# ADMIN identity targeting the patient's phone — the alert still belongs to
+# the patient (resolveSelfServicePhone honours the requested phone for admins),
+# so my-alerts/cancel below keep exercising the patient surface.
 $sosCreate = Invoke-SmokeRequest $results "sos_create_test" "POST" "/api/v1/sos/" @{
   phone = $PatientPhone
   latitude = 13.0827
@@ -421,7 +433,7 @@ $sosCreate = Invoke-SmokeRequest $results "sos_create_test" "POST" "/api/v1/sos/
   severity = "low"
   message = "Patient smoke test alert $stamp"
   isTestAlert = $true
-}
+} -AuthToken $script:SosAdminToken
 $sosJson = Get-JsonContent $sosCreate
 $sosAlertId = Get-JsonProperty (Get-JsonProperty $sosJson "data") "alert_id"
 Invoke-SmokeRequest $results "sos_my_alerts" "GET" "/api/v1/sos/my-alerts" | Out-Null

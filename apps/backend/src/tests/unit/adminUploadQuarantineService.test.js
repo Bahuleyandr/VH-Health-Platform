@@ -59,13 +59,38 @@ afterEach(() => {
   else process.env.FILE_SCAN_POLICY = previousPolicy;
 });
 
+const ATTACHMENT_UUID = '2e9c1d34-0000-4000-8000-000000000002';
+
 describe('parseUploadFileId', () => {
   it('addresses both real stores and keeps bare ids back-compatible', () => {
     expect(parseUploadFileId('generic:12')).toEqual({ source: 'generic', id: 12 });
-    expect(parseUploadFileId('attachment:7')).toEqual({ source: 'attachment', id: 7 });
+    expect(parseUploadFileId(`attachment:${ATTACHMENT_UUID}`)).toEqual({
+      source: 'attachment',
+      id: ATTACHMENT_UUID,
+    });
     expect(parseUploadFileId('34')).toEqual({ source: 'generic', id: 34 });
     expect(parseUploadFileId('uploads:1')).toBeNull();
     expect(parseUploadFileId('DROP TABLE')).toBeNull();
+  });
+
+  it('accepts only the id shape each store can actually hold (int vs uuid)', () => {
+    // staff_message_attachments.id is a uuid — an integer can never address a row
+    expect(parseUploadFileId('attachment:7')).toBeNull();
+    // file_metadata.id is an integer — a uuid can never address a row
+    expect(parseUploadFileId(`generic:${ATTACHMENT_UUID}`)).toBeNull();
+    expect(parseUploadFileId(ATTACHMENT_UUID)).toBeNull(); // bare uuid is ambiguous → rejected
+    // uuid case-insensitive on input, normalized to lowercase for the query
+    expect(parseUploadFileId(`attachment:${ATTACHMENT_UUID.toUpperCase()}`)).toEqual({
+      source: 'attachment',
+      id: ATTACHMENT_UUID,
+    });
+    // malformed uuids / injection shapes
+    expect(parseUploadFileId('attachment:2e9c1d34-0000-4000-8000')).toBeNull();
+    expect(parseUploadFileId(`attachment:${ATTACHMENT_UUID}'; DROP TABLE--`)).toBeNull();
+    expect(parseUploadFileId('attachment:')).toBeNull();
+    expect(parseUploadFileId(null)).toBeNull();
+    expect(parseUploadFileId(undefined)).toBeNull();
+    expect(parseUploadFileId('')).toBeNull();
   });
 });
 
@@ -128,20 +153,56 @@ describe('rescanFile — can never mint a permanently-blocked status', () => {
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1); // load only, no write
   });
 
-  it("required: a clean scan stamps 'clean' on the addressed attachment row", async () => {
+  it("required: a clean scan stamps 'clean' on the addressed attachment row (uuid id round-trips)", async () => {
     process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.REQUIRED;
     queryRawUnsafeMock
-      .mockResolvedValueOnce([failedRow])
-      .mockResolvedValueOnce([{ id: 5 }]);
+      .mockResolvedValueOnce([{ ...failedRow, id: ATTACHMENT_UUID }])
+      .mockResolvedValueOnce([{ id: ATTACHMENT_UUID }]);
     getFileFromR2Mock.mockResolvedValue(Buffer.from('bytes'));
     scanBufferVerdictMock.mockResolvedValue({ outcome: 'clean', signature: null, detail: null });
 
-    const result = await rescanFile('attachment:5');
+    const result = await rescanFile(`attachment:${ATTACHMENT_UUID}`);
 
     expect(result).toMatchObject({ success: true, scan_status: FILE_SCAN_STATUS.CLEAN });
+    // load addresses the uuid store with a uuid-cast param
+    const load = queryRawUnsafeMock.mock.calls[0];
+    expect(load[0]).toContain('FROM staff_message_attachments');
+    expect(load[0]).toContain('$1::uuid');
+    expect(load[1]).toBe(ATTACHMENT_UUID);
+    // stamp writes back through the same uuid addressing
     const stamp = queryRawUnsafeMock.mock.calls[1];
     expect(stamp[0]).toContain('UPDATE staff_message_attachments');
+    expect(stamp[0]).toContain('$2::uuid');
     expect(stamp[1]).toBe(FILE_SCAN_STATUS.CLEAN);
+    expect(stamp[2]).toBe(ATTACHMENT_UUID);
+  });
+
+  it('generic rows keep integer addressing with an explicit ::int cast through load and stamp', async () => {
+    process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK;
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([failedRow])
+      .mockResolvedValueOnce([{ id: 5 }]);
+
+    const result = await rescanFile('generic:5');
+
+    expect(result).toMatchObject({ success: true, updated: 1 });
+    const load = queryRawUnsafeMock.mock.calls[0];
+    expect(load[0]).toContain('FROM file_metadata');
+    expect(load[0]).toContain('$1::int');
+    expect(load[1]).toBe(5);
+    const stamp = queryRawUnsafeMock.mock.calls[1];
+    expect(stamp[0]).toContain('UPDATE file_metadata');
+    expect(stamp[0]).toContain('$2::int');
+    expect(stamp[2]).toBe(5);
+  });
+
+  it('rejects an id whose shape cannot address its store without touching the database', async () => {
+    const result = await rescanFile('attachment:5'); // attachment ids are uuids
+
+    expect(result.success).toBe(false);
+    expect(result.updated).toBe(0);
+    expect(result.message).toMatch(/invalid file id/i);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it("required: an infected scan stamps 'quarantined'", async () => {

@@ -38,19 +38,31 @@ const QUARANTINED_PREDICATE =
   "LOWER(TRIM(COALESCE(scan_status, ''))) = 'quarantined'";
 
 // Composite ids keep the two stores unambiguous through the REST surface:
-// 'generic:<id>' → file_metadata, 'attachment:<id>' → staff_message_attachments.
+// 'generic:<int>' → file_metadata, 'attachment:<uuid>' → staff_message_attachments.
 // A bare number is accepted as file_metadata for back-compat.
+//
+// The id SHAPE is store-specific because the underlying key types differ:
+// file_metadata.id is an integer (SERIAL) while staff_message_attachments.id
+// is a uuid. The quarantine listing emits exactly these composite forms, so
+// parse → load → stamp must round-trip both. A uuid on the generic side or an
+// integer on the attachment side can never address a real row and is rejected
+// here rather than deep in a query error.
 const SOURCE_GENERIC = 'generic';
 const SOURCE_ATTACHMENT = 'attachment';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function parseUploadFileId(raw) {
   const text = String(raw ?? '').trim();
-  const match = /^(?:(generic|attachment):)?(\d+)$/.exec(text);
-  if (!match) return null;
-  return {
-    source: match[1] || SOURCE_GENERIC,
-    id: Number(match[2]),
-  };
+  const genericMatch = /^(?:generic:)?(\d+)$/.exec(text);
+  if (genericMatch) {
+    return { source: SOURCE_GENERIC, id: Number(genericMatch[1]) };
+  }
+  const attachmentMatch = /^attachment:(.+)$/.exec(text);
+  if (attachmentMatch && UUID_RE.test(attachmentMatch[1])) {
+    return { source: SOURCE_ATTACHMENT, id: attachmentMatch[1].toLowerCase() };
+  }
+  return null;
 }
 
 /* -----------------------------------------------------------------------------
@@ -201,11 +213,15 @@ export async function getHipaaAuditReport({ limit = 50, offset = 0, startDate = 
    Admin Actions
 ----------------------------------------------------------------------------- */
 
+// The two stores key differently: staff_message_attachments.id is a uuid,
+// file_metadata.id an integer. parseUploadFileId already guarantees the id
+// value matches its store; the explicit ::uuid / ::int casts keep the bound
+// parameter's type unambiguous either way.
 async function loadUploadRow({ source, id }) {
   if (source === SOURCE_ATTACHMENT) {
     const rows = await safeQuery(
       `SELECT id, file_name, storage_key, scan_status
-         FROM staff_message_attachments WHERE id = $1`,
+         FROM staff_message_attachments WHERE id = $1::uuid`,
       [id],
       'uploads.rescan.load_attachment',
     );
@@ -213,7 +229,7 @@ async function loadUploadRow({ source, id }) {
   }
   const rows = await safeQuery(
     `SELECT id, file_name, storage_key, scan_status
-       FROM file_metadata WHERE id = $1`,
+       FROM file_metadata WHERE id = $1::int`,
     [id],
     'uploads.rescan.load_generic',
   );
@@ -221,11 +237,13 @@ async function loadUploadRow({ source, id }) {
 }
 
 async function stampScanStatus({ source, id }, scanStatus) {
-  const table = source === SOURCE_ATTACHMENT ? 'staff_message_attachments' : 'file_metadata';
+  const isAttachment = source === SOURCE_ATTACHMENT;
+  const table = isAttachment ? 'staff_message_attachments' : 'file_metadata';
+  const idCast = isAttachment ? 'uuid' : 'int';
   const rows = await safeQuery(
     `UPDATE ${table}
         SET scan_status = $1, updated_at = NOW()
-      WHERE id = $2
+      WHERE id = $2::${idCast}
       RETURNING id`,
     [scanStatus, id],
     'uploads.rescan.stamp',
@@ -251,7 +269,7 @@ async function stampScanStatus({ source, id }, scanStatus) {
 export async function rescanFile(fileId) {
   const target = parseUploadFileId(fileId);
   if (!target) {
-    return { success: false, updated: 0, message: 'Invalid file id (expected generic:<id> or attachment:<id>)' };
+    return { success: false, updated: 0, message: 'Invalid file id (expected generic:<int> or attachment:<uuid>)' };
   }
 
   const row = await loadUploadRow(target);

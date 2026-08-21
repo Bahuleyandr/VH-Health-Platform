@@ -267,6 +267,26 @@ if ($doctorId) {
 Invoke-SmokeRequest $results "system_settings_get" "GET" "/api/v1/system/settings" | Out-Null
 Invoke-SmokeRequest $results "system_settings_put" "PUT" "/api/v1/system/settings" @{
   maintenanceMode = $false
+  sessionTimeoutMinutes = 61
+} | Out-Null
+
+# Persistence round-trip: settings live in the system_settings table
+# (migration 724). Before that table existed the backend swallowed the
+# missing relation and answered 200 from a per-process in-memory object, so
+# these checks read green while every request errored in the Postgres logs.
+# A re-read must return the non-default value the PUT just wrote.
+$settingsAfterPut = Invoke-SmokeRequest $results "system_settings_get_after_put" "GET" "/api/v1/system/settings"
+$persistedValue = $null
+if ($settingsAfterPut -and $settingsAfterPut.Content) {
+  try {
+    $persistedValue = ($settingsAfterPut.Content | ConvertFrom-Json).data.sessionTimeoutMinutes
+  } catch {
+    $persistedValue = $null
+  }
+}
+Add-Result $results "system_settings_persisted" $(if ($persistedValue -eq 61) { "OK" } else { "FAIL" }) ($persistedValue -eq 61) "sessionTimeoutMinutes=$persistedValue (expected 61)"
+Invoke-SmokeRequest $results "system_settings_put_restore" "PUT" "/api/v1/system/settings" @{
+  sessionTimeoutMinutes = 60
 } | Out-Null
 Invoke-SmokeRequest $results "clinical_ai_status" "GET" "/api/v1/admin/clinical-ai/status?days=1" | Out-Null
 Invoke-SmokeRequest $results "clinical_ai_modules" "GET" "/api/v1/admin/clinical-ai/modules" | Out-Null
