@@ -1,14 +1,6 @@
 name: Deploy Patient App - Staging
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/patient/**'
-      - 'packages/vhhealth_core/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'scripts/codegen.mjs'
   workflow_dispatch:
 
 permissions:
@@ -19,9 +11,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-authority:
+    name: Verify release authority
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, commit, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ secrets.RELEASE_AUTHORITY_GITHUB_TOKEN }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+        run: >
+          node scripts/check-release-authority.mjs
+          --provider forgejo
+          --intent staging
+          --commit "$GITHUB_SHA"
+          --event "$GITHUB_EVENT_NAME"
+          --ref "$GITHUB_REF"
+          --evidence-file output/release-authority/forgejo-patient-staging.json
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
+        with:
+          name: release-authority-forgejo-patient-staging-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
+
   build-and-distribute:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    needs: release-authority
+    if: needs.release-authority.outputs.authorized == 'true'
     env:
       FIREBASE_APP_ID_PATIENT: ${{ secrets.FIREBASE_APP_ID_PATIENT }}
       FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

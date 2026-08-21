@@ -10,7 +10,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { changedFilesForBranchPush } from './stage-selection.mjs';
+import { changedFilesForBranchPush, stagesForChangedFiles } from './stage-selection.mjs';
+
+test('release-authority changes select security, contracts, and infra', () => {
+  const stages = ['security', 'contracts', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
+  assert.deepEqual(
+    stagesForChangedFiles(['infra/release-authority.json'], stages),
+    ['security', 'contracts', 'infra'],
+  );
+  assert.deepEqual(
+    stagesForChangedFiles(['scripts/check-release-authority.test.mjs'], stages),
+    ['security', 'contracts', 'infra'],
+  );
+});
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();

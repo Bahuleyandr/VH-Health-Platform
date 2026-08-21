@@ -7,8 +7,8 @@
 # next to PHI. This Kyverno ClusterPolicy verifies keyless-cosign signatures
 # at admission, keyed to the GitHub-OIDC identities of the ONLY two workflows
 # allowed to publish runnable images:
-#   - .github/workflows/release-images.yml      (signed releases)
-#   - .github/workflows/deploy-dalekdefender.yml (test-rig deploys)
+#   - .github/workflows/release-authority-images.yml      (signed releases)
+#   - .github/workflows/release-authority-dalekdefender.yml (test-rig deploys)
 #
 # PREREQUISITE (operator): install Kyverno ≥ 1.12 first —
 #   kubectl create ns kyverno
@@ -63,7 +63,7 @@ spec:
               entries:
                 - keyless:
                     issuer: "https://token.actions.githubusercontent.com"
-                    subjectRegExp: "^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/(release-images|deploy-dalekdefender)\\.yml@.*$"
+                    subjectRegExp: "^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/release-authority-(images|dalekdefender)\\.yml@.*$"
                     rekor:
                       url: https://rekor.sigstore.dev
                 # Audit 2026-06-18 (CRITICAL): GitHub Actions is billing-blocked, so

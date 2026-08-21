@@ -24,6 +24,7 @@ test('clean Linux --install runner propagates installed manifest tools to every 
   assert.equal(installs, 1);
   for (const script of [
     'scripts/check-prod-digests-pinned.test.mjs',
+    'scripts/check-release-authority.test.mjs',
     'scripts/check-prod-helm-image-inventory.test.mjs',
     'scripts/check-redis-ha-contract.test.mjs',
     'scripts/operator-lifecycle-preflight.test.mjs',
@@ -39,6 +40,10 @@ test('clean Linux --install runner propagates installed manifest tools to every 
     assert.ok(invocation, `${script} was not invoked`);
     assert.deepEqual(invocation.options.env, installedEnv, `${script} did not receive installed tools`);
   }
+
+  const releaseAuthority = calls.find(({ args }) =>
+    args.includes('scripts/check-release-authority.mjs'));
+  assert.ok(releaseAuthority, 'scripts/check-release-authority.mjs was not invoked');
 
   const bootstrapSmoke = calls.find(({ args }) =>
     args.includes('scripts/sealed-secrets-bootstrap-smoke.mjs'));

@@ -22,7 +22,6 @@ const MODES = {
       GROUPS.registryPassword,
       'COSIGN_PRIVATE_KEY',
       'COSIGN_PASSWORD',
-      'COSIGN_PUBLIC_KEY',
     ],
   },
   'dalek-deploy': {
@@ -42,7 +41,6 @@ const MODES = {
       GROUPS.registryPassword,
       'COSIGN_PRIVATE_KEY',
       'COSIGN_PASSWORD',
-      'COSIGN_PUBLIC_KEY',
     ],
   },
   'post-deploy-smoke': {

@@ -9,11 +9,7 @@ name: Release Container Images
 # Application manually — a committed bump deploys nothing on its own.
 #
 # Triggers:
-#   - push to main                 → validates workflow wiring, no publish
-#   - push of tag `backend-v*`     → tags `backend-v1.2.3` + `latest-backend`
-#   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
-#   - push of tag `staff-web-v*`   → tags `staff-web-v1.2.3` + `latest-staff-web`
-#   - workflow_dispatch            → manual publish
+#   - workflow_dispatch on main    → publish the already-parity-verified input tag
 #
 # Image registry:
 #   ghcr.io/<lowercase-owner>/vh-health-platform-backend
@@ -27,14 +23,12 @@ name: Release Container Images
 # Scanning:       Trivy (fails build on fixable CRITICAL/HIGH vulns)
 
 on:
-  push:
-    branches: [main]
-    tags:
-      - 'backend-v*'
-      - 'admin-v*'
-      - 'staff-web-v*'
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: 'Existing mirrored release tag, for example backend-v1.2.3'
+        required: true
+        type: string
       build_backend:
         description: 'Build backend image'
         required: false
@@ -56,38 +50,74 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write       # cosign keyless signing via OIDC
-  packages: write       # push to ghcr.io
-  contents: read        # actions/checkout
-  actions: read         # codeql-action/upload-sarif workflow-run lookup
-  attestations: write   # provenance / SBOM attestations
-  security-events: write # Trivy SARIF upload
+  contents: read
 
 env:
   REGISTRY: ghcr.io
   RELEASE_SCAN_PLATFORM: linux/amd64
 
 jobs:
-  main-push-notice:
-    name: Release images skipped on main push
+  release-authority:
+    name: Verify release authority
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: release-authority-main
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
     steps:
-      - name: Explain release trigger policy
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, tag, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_FORGEJO_TOKEN }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+          RELEASE_AUTHORITY_TAG: ${{ inputs.release_tag }}
         run: |
-          {
-            echo "Release image publishing is restricted to version tags and manual dispatch."
-            echo "Use backend-v* / admin-v* / staff-web-v* tags, or workflow_dispatch, when a signed GHCR release image is required."
-          } >> "$GITHUB_STEP_SUMMARY"
+          args=(
+            --provider github
+            --intent image-release
+            --commit "$GITHUB_SHA"
+            --event "$GITHUB_EVENT_NAME"
+            --ref "$GITHUB_REF"
+            --evidence-file output/release-authority/github-release-images.json
+          )
+          if [ -n "${RELEASE_AUTHORITY_TAG:-}" ]; then args+=(--tag "$RELEASE_AUTHORITY_TAG"); fi
+          node scripts/check-release-authority.mjs "${args[@]}"
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-authority-github-images-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
 
   build-backend:
     name: Build + sign backend image
     runs-on: ubuntu-latest
+    environment: release-authority-main
     timeout-minutes: 45
+    needs: release-authority
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
     # Publish backend images only for backend release tags or explicit manual dispatch.
     if: |
-      startsWith(github.ref, 'refs/tags/backend-v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.build_backend)
+      needs.release-authority.outputs.authorized == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      startsWith(inputs.release_tag, 'backend-v') &&
+      inputs.build_backend
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
@@ -123,14 +153,8 @@ jobs:
         with:
           images: ${{ steps.images.outputs.backend }}
           tags: |
-            # main branch → main-<sha> + latest
-            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # backend-v* tag → backend-v1.2.3 + latest-backend
-            type=match,pattern=backend-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/backend-v') }}
-            type=raw,value=latest-backend,enable=${{ startsWith(github.ref, 'refs/tags/backend-v') }}
-            # workflow_dispatch → manual-<sha>
-            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ inputs.release_tag }}
+            type=raw,value=latest-backend
           labels: |
             org.opencontainers.image.title=VH Health Backend
             org.opencontainers.image.description=Node/Express API for VH Health platform
@@ -241,7 +265,7 @@ jobs:
           IMAGE: ${{ steps.images.outputs.backend }}
         run: |
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-authority-images\.yml@.*$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
@@ -260,7 +284,7 @@ jobs:
       - name: Upload build-emitted image ref
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-ref-backend-${{ github.ref_name }}
+          name: image-ref-backend-${{ inputs.release_tag }}
           path: output/image-ref/image-ref.txt
 
       - name: Write build summary
@@ -292,11 +316,22 @@ jobs:
   build-admin:
     name: Build + sign admin image
     runs-on: ubuntu-latest
+    environment: release-authority-main
     timeout-minutes: 45
+    needs: release-authority
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
     # Publish admin images only for admin release tags or explicit manual dispatch.
     if: |
-      startsWith(github.ref, 'refs/tags/admin-v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.build_admin)
+      needs.release-authority.outputs.authorized == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      startsWith(inputs.release_tag, 'admin-v') &&
+      inputs.build_admin
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
@@ -332,11 +367,8 @@ jobs:
         with:
           images: ${{ steps.images.outputs.admin }}
           tags: |
-            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=match,pattern=admin-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/admin-v') }}
-            type=raw,value=latest-admin,enable=${{ startsWith(github.ref, 'refs/tags/admin-v') }}
-            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ inputs.release_tag }}
+            type=raw,value=latest-admin
           labels: |
             org.opencontainers.image.title=VH Health Admin Portal
             org.opencontainers.image.description=Next.js admin portal for VH Health platform
@@ -457,7 +489,7 @@ jobs:
           IMAGE: ${{ steps.images.outputs.admin }}
         run: |
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-authority-images\.yml@.*$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
@@ -476,7 +508,7 @@ jobs:
       - name: Upload build-emitted image ref
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-ref-admin-${{ github.ref_name }}
+          name: image-ref-admin-${{ inputs.release_tag }}
           path: output/image-ref/image-ref.txt
 
       - name: Write build summary
@@ -508,11 +540,22 @@ jobs:
   build-staff-web:
     name: Build + sign staff web image
     runs-on: ubuntu-latest
+    environment: release-authority-main
     timeout-minutes: 60
+    needs: release-authority
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
     # Publish staff-web images only for staff-web release tags or explicit manual dispatch.
     if: |
-      startsWith(github.ref, 'refs/tags/staff-web-v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.build_staff_web)
+      needs.release-authority.outputs.authorized == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      startsWith(inputs.release_tag, 'staff-web-v') &&
+      inputs.build_staff_web
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
@@ -547,11 +590,8 @@ jobs:
         with:
           images: ${{ steps.images.outputs.staff_web }}
           tags: |
-            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=match,pattern=staff-web-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/staff-web-v') }}
-            type=raw,value=latest-staff-web,enable=${{ startsWith(github.ref, 'refs/tags/staff-web-v') }}
-            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ inputs.release_tag }}
+            type=raw,value=latest-staff-web
           labels: |
             org.opencontainers.image.title=VH Health Staff Web
             org.opencontainers.image.description=Flutter web staff app for LAN-only Clinical AI rollout
@@ -670,7 +710,7 @@ jobs:
           IMAGE: ${{ steps.images.outputs.staff_web }}
         run: |
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-authority-images\.yml@.*$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${DIGEST}"
           echo "cosign verify passed for ${IMAGE}@${DIGEST}"
@@ -689,7 +729,7 @@ jobs:
       - name: Upload build-emitted image ref
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-ref-staff-web-${{ github.ref_name }}
+          name: image-ref-staff-web-${{ inputs.release_tag }}
           path: output/image-ref/image-ref.txt
 
       - name: Write build summary
@@ -727,7 +767,7 @@ jobs:
       - name: Generate deploy instructions
         env:
           OWNER: ${{ github.repository_owner }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ inputs.release_tag }}
           BACKEND_DIGEST: ${{ needs.build-backend.outputs.image-digest }}
           BACKEND_TAGS: ${{ needs.build-backend.outputs.image-tags }}
           BACKEND_RESULT: ${{ needs.build-backend.result }}
@@ -778,10 +818,10 @@ jobs:
             echo '```bash'
             echo "COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs \\"
             echo "  --tag ${REF} --expected-digest ${BACKEND_DIGEST:-<from this run>}"
-            echo "git push"
+            echo "git diff --binary -- infra/kubernetes/apps/kustomization.yaml > release-digest-pin.patch"
             echo '```'
             echo ""
-            echo "(The Forgejo release-images / release-pin-digests workflows normally run this and commit the bump.)"
+            echo "The governed pin workflows upload that verification evidence and patch for a reviewed branch/PR; no workflow pushes directly to main."
             echo ""
             echo "Prod sync is MANUAL — no Application has automated sync, so the committed bump stays inert until an operator syncs it:"
             echo ""
@@ -793,12 +833,12 @@ jobs:
             echo ""
             echo '```bash'
             echo "cosign verify \\"
-            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
+            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-authority-images.yml@.*' \\"
             echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
             echo "  ghcr.io/${owner_lc}/vh-health-platform-backend@${BACKEND_DIGEST:-<digest>}"
             echo ""
             echo "cosign verify \\"
-            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
+            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-authority-images.yml@.*' \\"
             echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
             echo "  ghcr.io/${owner_lc}/vhhealth-staff-web@${STAFF_WEB_DIGEST:-<digest>}"
             echo '```'

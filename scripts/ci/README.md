@@ -121,8 +121,11 @@ Provider wrappers:
 - `.github/workflows/ci.yml`
 
 Those wrappers should stay thin: prepare the runner, then call this orchestrator
-or the same first-party scripts used locally. GitHub remains an optional mirror;
-Forgejo is the canonical CI/CD target.
+or the same first-party scripts used locally. Forgejo remains the primary CI
+target, but release authority is separately `HELD` and provider-neutral under
+[`infra/release-authority.json`](../../infra/release-authority.json). GitHub or
+Forgejo may become the release authority only through the reviewed activation
+contract in [`infra/RELEASE_AUTHORITY.md`](../../infra/RELEASE_AUTHORITY.md).
 
 Forgejo specialty gates:
 
@@ -136,26 +139,39 @@ Forgejo specialty gates:
 - `ci-warehouse.yml`: migration-built analytics warehouse dbt build and
   optional-module kustomize render.
 
-Forgejo CD surfaces:
+Forgejo CD surfaces — **none are registered today.** Forgejo activation is
+deferred by owner decision, so these live in
+[`.forgejo/release-authority-templates/`](../../.forgejo/release-authority-templates/)
+rather than `.forgejo/workflows/`. Forgejo Actions only reads the latter, so
+none of them has a dispatcher and none can be triggered. They describe what the
+Forgejo lane *would* do once owners select Forgejo through
+[`infra/RELEASE_AUTHORITY.md`](../../infra/RELEASE_AUTHORITY.md), and every one
+would still be gated on `scripts/check-release-authority.mjs` and dispatched from
+protected `main` — never from a tag push:
 
-- `deploy-patient-staging.yml` / `deploy-staff-staging.yml`: build debug APKs,
+- `release-authority-patient-staging.yml` / `release-authority-staff-staging.yml`: build debug APKs,
   upload Forgejo artifacts, and distribute through Firebase CLI when Firebase
   secrets are configured.
-- `release-patient.yml` / `release-staff.yml`: build signed APK/AAB artifacts
-  for `patient-v*` and `staff-v*` tags, then publish them to Forgejo releases.
-- `release-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, verify,
-  and GitOps-pin backend/admin/staff-web release images for `backend-v*`,
-  `admin-v*`, and `staff-web-v*` tags.
-- `release-pin-digests.yml`: manual verified digest-pin repair path for
+- `release-authority-patient.yml` / `release-authority-staff.yml`: build signed APK/AAB artifacts
+  for authorized `patient-v*` and `staff-v*` releases, then publish them to
+  Forgejo releases.
+- `release-authority-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, verify,
+  and GitOps-pin backend/admin/staff-web release images for authorized
+  `backend-v*`, `admin-v*`, and `staff-web-v*` releases.
+- `release-authority-pin-digests.yml`: verified digest-pin repair path for
   operators.
-- `deploy-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
+- `release-authority-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
   images to the Dalekdefender test rig by digest.
+- `release-authority-container-supply-chain.yml`: image build and scan. Inert
+  like the rest, so Forgejo runs no container **image** scan today; the blocking
+  Trivy **filesystem** scan in `security-sweep.yml` is unaffected.
 
 Forgejo CD prerequisite checks live in
 `scripts/ci/forgejo-deploy-preflight.mjs` so local operators and workflows use
 the same secret contract. The image path is intentionally strict: image release
-and Dalekdefender deploy require registry auth plus `COSIGN_PRIVATE_KEY`,
-`COSIGN_PASSWORD`, and `COSIGN_PUBLIC_KEY`. The remote pin step runs only when
+and Dalekdefender deploy require registry auth plus `COSIGN_PRIVATE_KEY` and
+`COSIGN_PASSWORD`; the derived public key must match the repository-tracked
+`infra/forgejo/signing/cosign.pub` before publication. The remote pin step runs only when
 `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, and `DALEKDEFENDER_SSH_KEY` are all
 configured. Missing transport credentials make that pin step a warning-backed
 clean skip; they never bypass image build, scan, signing, or verification.

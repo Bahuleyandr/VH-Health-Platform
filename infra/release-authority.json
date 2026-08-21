@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "state": "HELD",
+  "mainBranch": "main",
+  "selectedProvider": null,
+  "releaseSignerProvider": null,
+  "argoSourceProvider": null,
+  "providers": {
+    "github": {
+      "selected": false,
+      "apiKind": "github",
+      "repository": "Bahuleyandr/VH-Health-Platform",
+      "repositoryUrl": "https://github.com/Bahuleyandr/VH-Health-Platform",
+      "apiBaseUrl": "https://api.github.com",
+      "tokenEnvironment": "RELEASE_AUTHORITY_GITHUB_TOKEN",
+      "executionBoundary": {
+        "mode": "protected-environment",
+        "environment": "release-authority-main"
+      },
+      "signer": {
+        "kind": "sigstore-keyless",
+        "identityPrefix": "https://github.com/Bahuleyandr/VH-Health-Platform/.github/workflows/release-authority-images.yml@"
+      }
+    },
+    "forgejo": {
+      "selected": false,
+      "apiKind": "forgejo",
+      "repository": "bahuleyan/VH-Health-Platform",
+      "repositoryUrl": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform",
+      "apiBaseUrl": "https://forgejo.hippocampus-monitor.ts.net/api/v1",
+      "tokenEnvironment": "RELEASE_AUTHORITY_FORGEJO_TOKEN",
+      "executionBoundary": {
+        "mode": "inert-template",
+        "templateRoot": ".forgejo/release-authority-templates"
+      },
+      "signer": {
+        "kind": "cosign-key-pair",
+        "publicKeyPath": "infra/forgejo/signing/cosign.pub"
+      }
+    }
+  },
+  "argo": {
+    "apiUrlEnvironment": "RELEASE_AUTHORITY_ARGO_API_URL",
+    "tokenEnvironment": "RELEASE_AUTHORITY_ARGO_TOKEN",
+    "applications": [
+      "vhhealth-apps",
+      "vhhealth-platform",
+      "vhhealth-kube-prometheus",
+      "vhhealth-loki"
+    ],
+    "sourceManifests": [
+      "infra/kubernetes/base/argocd/applications/apps.yaml",
+      "infra/kubernetes/base/argocd/applications/platform.yaml",
+      "infra/kubernetes/base/argocd/applications/monitoring.yaml"
+    ]
+  },
+  "tagPatterns": {
+    "image-release": "^(backend|admin|staff-web)-v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+    "patient-release": "^patient-v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+    "staff-release": "^staff-v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+    "digest-pin": "^(backend|admin|staff-web)-v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+    "staging-images": "^(backend|admin|staff-web)-v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+  },
+  "historicalWorkflowContainment": {
+    "state": "PENDING",
+    "legacyWorkflowPaths": [
+      ".github/workflows/release-images.yml",
+      ".github/workflows/release-pin-digests.yml",
+      ".github/workflows/release-patient.yml",
+      ".github/workflows/release-staff.yml",
+      ".github/workflows/deploy-patient-staging.yml",
+      ".github/workflows/deploy-staff-staging.yml",
+      ".github/workflows/deploy-staging.yml",
+      ".github/workflows/deploy-dalekdefender.yml",
+      ".forgejo/workflows/container-supply-chain.yml",
+      ".forgejo/workflows/release-images.yml",
+      ".forgejo/workflows/release-pin-digests.yml",
+      ".forgejo/workflows/release-patient.yml",
+      ".forgejo/workflows/release-staff.yml",
+      ".forgejo/workflows/deploy-patient-staging.yml",
+      ".forgejo/workflows/deploy-staff-staging.yml",
+      ".forgejo/workflows/deploy-dalekdefender.yml"
+    ],
+    "activationEvidence": {
+      "githubLegacyWorkflowDisablement": null,
+      "forgejoLegacyWorkflowDisablement": null,
+      "githubReleaseTagProtection": null,
+      "forgejoReleaseTagProtection": null,
+      "publicationCredentialRotation": null
+      ,"githubProtectedEnvironmentPolicy": null
+      ,"forgejoCredentialBrokerPolicy": null
+    }
+  },
+  "workflowContracts": [
+    {
+      "path": ".github/workflows/release-authority-images.yml",
+      "provider": "github",
+      "intent": "image-release",
+      "guardedJobs": ["build-backend", "build-admin", "build-staff-web"]
+    },
+    {
+      "path": ".github/workflows/release-authority-pin-digests.yml",
+      "provider": "github",
+      "intent": "digest-pin",
+      "guardedJobs": ["pin-digests"]
+    },
+    {
+      "path": ".github/workflows/release-authority-patient.yml",
+      "provider": "github",
+      "intent": "patient-release",
+      "guardedJobs": ["build"]
+    },
+    {
+      "path": ".github/workflows/release-authority-staff.yml",
+      "provider": "github",
+      "intent": "staff-release",
+      "guardedJobs": ["build", "windows-msix"]
+    },
+    {
+      "path": ".github/workflows/release-authority-patient-staging.yml",
+      "provider": "github",
+      "intent": "staging",
+      "guardedJobs": ["build-and-distribute"]
+    },
+    {
+      "path": ".github/workflows/release-authority-staff-staging.yml",
+      "provider": "github",
+      "intent": "staging",
+      "guardedJobs": ["build-and-distribute"]
+    },
+    {
+      "path": ".github/workflows/release-authority-staging-images.yml",
+      "provider": "github",
+      "intent": "staging-images",
+      "guardedJobs": ["pin-and-summarize"]
+    },
+    {
+      "path": ".github/workflows/release-authority-dalekdefender.yml",
+      "provider": "github",
+      "intent": "dalek-staging",
+      "guardedJobs": ["build-sign-scan", "deploy"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-container-supply-chain.yml",
+      "provider": "forgejo",
+      "intent": "container-publication",
+      "executable": false,
+      "guardedJobs": [],
+      "guardedSteps": [
+        {
+          "job": "image",
+          "name": "Registry push and cosign signature gate"
+        }
+      ]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-images.yml",
+      "provider": "forgejo",
+      "intent": "image-release",
+      "executable": false,
+      "guardedJobs": ["image", "pin-prod-digest"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-pin-digests.yml",
+      "provider": "forgejo",
+      "intent": "digest-pin",
+      "executable": false,
+      "guardedJobs": ["pin-digests"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-patient.yml",
+      "provider": "forgejo",
+      "intent": "patient-release",
+      "executable": false,
+      "guardedJobs": ["build"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-staff.yml",
+      "provider": "forgejo",
+      "intent": "staff-release",
+      "executable": false,
+      "guardedJobs": ["build"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-patient-staging.yml",
+      "provider": "forgejo",
+      "intent": "staging",
+      "executable": false,
+      "guardedJobs": ["build-and-distribute"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-staff-staging.yml",
+      "provider": "forgejo",
+      "intent": "staging",
+      "executable": false,
+      "guardedJobs": ["build-and-distribute"]
+    },
+    {
+      "path": ".forgejo/release-authority-templates/release-authority-dalekdefender.yml",
+      "provider": "forgejo",
+      "intent": "dalek-staging",
+      "executable": false,
+      "guardedJobs": ["build-scan-sign", "deploy"]
+    }
+  ]
+}

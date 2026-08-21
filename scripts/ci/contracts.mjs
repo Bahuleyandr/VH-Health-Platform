@@ -8,6 +8,8 @@ import { run } from './lib.mjs';
  * multi-minute backend and Flutter stages.
  */
 export function runContractsStage() {
+  run(process.execPath, ['--test', 'scripts/check-release-authority.test.mjs']);
+  run(process.execPath, ['scripts/check-release-authority.mjs', '--contract']);
   run(process.execPath, ['--test', 'scripts/ci/check-client-paths.test.mjs']);
   run(process.execPath, ['scripts/ci/check-client-paths.mjs', '--verbose']);
 }
