@@ -17,6 +17,11 @@ set -euo pipefail
 
 NAMESPACE="${VH_DEPLOY_NAMESPACE:-vhhealth}"
 KUBECTL="${KUBECTL:-/usr/local/bin/kubectl}"
+CURL="${CURL:-curl}"
+# The rig's localhost bridge to the backend Service (tailscale-serve's :8444
+# source — see README). The verify step curls it directly because the kubectl
+# service proxy cannot send X-Forwarded-Proto (see verify_backend_version).
+VERIFY_URL="${VH_DEPLOY_VERIFY_URL:-http://127.0.0.1:30090/health/version}"
 ROLLOUT_TIMEOUT="${VH_DEPLOY_ROLLOUT_TIMEOUT:-300s}"
 
 read -r BACKEND_REF
@@ -161,8 +166,17 @@ verify_backend_version() {
   local expected_commit="$1"
   local payload compact deployed_commit
 
-  if ! payload="$(kubectl get --raw "/api/v1/namespaces/${NAMESPACE}/services/http:vhhealth-backend:5000/proxy/health/version")"; then
-    echo "::error::Unable to read /health/version through the Kubernetes service proxy." >&2
+  # NOT the kubectl service proxy: with NODE_ENV=production the backend's
+  # HTTPS-redirect middleware 301s any request that lacks
+  # X-Forwarded-Proto: https (the k8s probes set that header in the manifest;
+  # `kubectl get --raw` cannot), so the proxied read never returns the version
+  # JSON and a HEALTHY rollout gets rolled back (observed 2026-08-21: pod
+  # booted clean, verify failed, wrapper reverted). This script runs on the
+  # rig, where the documented localhost bridge to the backend Service listens
+  # on 127.0.0.1:30090 (tailscale-serve's :8444 source — see README) — curl it
+  # directly with the header the middleware requires.
+  if ! payload="$("$CURL" -fsS --max-time 20 -H 'X-Forwarded-Proto: https' "$VERIFY_URL")"; then
+    echo "::error::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL})." >&2
     return 1
   fi
 

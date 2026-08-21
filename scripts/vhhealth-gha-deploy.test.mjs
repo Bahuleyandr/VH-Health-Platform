@@ -44,10 +44,6 @@ if [[ "$*" == *"get deploy/vhhealth-backend"*"GIT_COMMIT"* ]]; then
   printf '%s' '1111111111111111111111111111111111111111'
   exit 0
 fi
-if [[ "$*" == *"get --raw"*"/health/version"* ]]; then
-  printf '%s' '{"status":"ok","commit":"1111111111111111111111111111111111111111"}'
-  exit 0
-fi
 if [[ "$*" == *"rollout status deploy/vhhealth-backend"* ]]; then
   count_file="$FAKE_KUBECTL_STATE/backend-count"
   count=0
@@ -66,12 +62,30 @@ exit 0
   );
   chmodSync(fakeKubectl, 0o755);
 
+  // The verify step curls the rig localhost bridge (it can send the
+  // X-Forwarded-Proto header the kubectl service proxy cannot); stub curl
+  // like kubectl. This scenario never reaches the deploy-side verify (the
+  // backend rollout fails first); the rollback-side verify must see the
+  // restored commit.
+  const fakeCurl = path.join(stateDir, 'curl');
+  writeFileSync(
+    fakeCurl,
+    String.raw`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
+printf '%s' '{"status":"ok","commit":"1111111111111111111111111111111111111111"}'
+`,
+    { mode: 0o755 }
+  );
+  chmodSync(fakeCurl, 0o755);
+
   const result = spawnBash([
     '-c',
-    'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" "$3"',
+    'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" CURL="$3" "$4"',
     'vhhealth-deploy-test',
     bashPath(fakeKubectl),
     bashPath(stateDir),
+    bashPath(fakeCurl),
     bashPath(helper),
   ], {
     encoding: 'utf8',
@@ -119,31 +133,44 @@ if [[ "$*" == *"get deploy/vhhealth-backend"*"GIT_COMMIT"* ]]; then
   printf '%s' '1111111111111111111111111111111111111111'
   exit 0
 fi
-if [[ "$*" == *"get --raw"*"/health/version"* ]]; then
-  count_file="$FAKE_KUBECTL_STATE/version-count"
-  count=0
-  [[ -f "$count_file" ]] && count="$(cat "$count_file")"
-  count=$((count + 1))
-  printf '%s' "$count" > "$count_file"
-  if [[ "$count" -eq 1 ]]; then
-    printf '%s' '{"status":"ok","commit":"3333333333333333333333333333333333333333"}'
-  else
-    printf '%s' '{"status":"ok","commit":"1111111111111111111111111111111111111111"}'
-  fi
-  exit 0
-fi
 exit 0
 `,
     { mode: 0o755 }
   );
   chmodSync(fakeKubectl, 0o755);
 
+  // Version scenarios live on the curl stub now (the wrapper verifies via the
+  // localhost bridge with X-Forwarded-Proto, not the kubectl service proxy):
+  // first verify sees the WRONG commit (deploy-side failure under test),
+  // every later verify sees the restored one (rollback-side success).
+  const fakeCurl = path.join(stateDir, 'curl');
+  writeFileSync(
+    fakeCurl,
+    String.raw`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
+count_file="$FAKE_KUBECTL_STATE/version-count"
+count=0
+[[ -f "$count_file" ]] && count="$(cat "$count_file")"
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+if [[ "$count" -eq 1 ]]; then
+  printf '%s' '{"status":"ok","commit":"3333333333333333333333333333333333333333"}'
+else
+  printf '%s' '{"status":"ok","commit":"1111111111111111111111111111111111111111"}'
+fi
+`,
+    { mode: 0o755 }
+  );
+  chmodSync(fakeCurl, 0o755);
+
   const result = spawnBash([
     '-c',
-    'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" "$3"',
+    'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" CURL="$3" "$4"',
     'vhhealth-deploy-test',
     bashPath(fakeKubectl),
     bashPath(stateDir),
+    bashPath(fakeCurl),
     bashPath(helper),
   ], {
     encoding: 'utf8',
