@@ -58,6 +58,18 @@ const EXPECTED_DARK_GATE_RESPONSES: Array<{
     pathIncludes: "/api/v1/admin/devices/continuity-facility-context/grants",
     bodyCode: "CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE",
   },
+  // PR #897 dark-gated the facility asset register fail-closed behind
+  // FACILITY_ASSETS_ENABLED (default off): every /api/v1/facility/assets*
+  // endpoint answers 503 FACILITY_ASSETS_NOT_ENABLED by design while the env
+  // switch is off. The /dashboard/facility-assets page still fires its list +
+  // custodian GETs on load; both match this one entry. The crawl must not
+  // re-flag the intended dark response.
+  {
+    method: "GET",
+    status: 503,
+    pathIncludes: "/api/v1/facility/assets",
+    bodyCode: "FACILITY_ASSETS_NOT_ENABLED",
+  },
 ];
 
 function isExpectedDarkGateResponse(
