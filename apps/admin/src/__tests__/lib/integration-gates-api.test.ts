@@ -93,6 +93,17 @@ describe("tenant gate flag flip (settings PATCH is a full replace)", () => {
     });
   });
 
+  it("creates the facilityAssets gate object when the tenant has none yet", async () => {
+    listTenantsMock.mockResolvedValue({ tenants: [TENANT], count: 1 });
+    updateTenantMock.mockResolvedValue(TENANT);
+
+    await setTenantGateFlag(TENANT.id, "facilityAssets", true);
+
+    const sent = updateTenantMock.mock.calls[0][1].settings;
+    expect(sent.facilityAssets).toEqual({ enabled: true });
+    expect(sent.sms).toEqual({ enabled: true }); // siblings untouched
+  });
+
   it("flips the analyticsBi gate flag through the same settings merge (wt/bi-app)", async () => {
     listTenantsMock.mockResolvedValue({ tenants: [TENANT], count: 1 });
     updateTenantMock.mockResolvedValue(TENANT);

@@ -44,6 +44,11 @@ const GATE_ROWS: Array<{
     label: "Ambulance GPS",
     settingKey: "ambulanceGpsTracking",
   },
+  {
+    key: "facility_assets",
+    label: "Facility asset register",
+    settingKey: "facilityAssets",
+  },
   // ── Terminology & knowledge gates (slate C1; appended block). Their
   // tenant layers live in tenant_terminology_settings / nested settings
   // shapes the generic {enabled} flip cannot write, so the flags are managed

@@ -34,6 +34,7 @@ import {
   listSmsTemplateRegistrations,
 } from '../notification/smsProviderConfigService.js';
 import { resolveSmsProviderContext } from '../../utils/notifications/smsProviders/index.js';
+import { isFacilityAssetsEnvEnabled } from '../facility/facilityAssetService.js';
 import { livekitEnabled } from '../telemedicine/teleconsultProvisioningService.js';
 import { listTenants } from '../tenant/tenantService.js';
 import {
@@ -41,6 +42,7 @@ import {
   getAbdmHiuSettings,
   getAmbulanceGpsTrackingSettings,
   getAnalyticsBiSettings,
+  getFacilityAssetsSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -102,6 +104,7 @@ export function integrationGateEnvFacts() {
     uhi_has_subscriber_identity: Boolean(
       UHI_CONFIG.subscriberId && UHI_CONFIG.signingPrivateKey && UHI_CONFIG.signingKeyId,
     ),
+    facility_assets_enabled: isFacilityAssetsEnvEnabled(),
     // Read-only env facts (operator/hardware-blocked dark stack).
     livekit_enabled: livekitEnabled(),
     file_scan_policy: resolveFileScanPolicy(),
@@ -211,6 +214,17 @@ async function uhiGate(tenantId) {
     blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
     layers: { env: envEnabled, tenant_setting: settings.enabled === true },
     environment: settings.environment,
+  };
+}
+
+async function facilityAssetsGate(tenantId) {
+  const envEnabled = isFacilityAssetsEnvEnabled();
+  const settings = await getFacilityAssetsSettings(tenantId);
+  const effective = envEnabled && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
+    layers: { env: envEnabled, tenant_setting: settings.enabled === true },
   };
 }
 
@@ -438,13 +452,17 @@ async function analyticsBiGate(tenantId) {
 
 async function tenantGates(tenant) {
   const tenantId = tenant.id;
-  const [paymentGateway, sms, abdm, uhi, ambulanceGps, paymentSetting, smsSetting, analyticsBi] =
+  const [
+    paymentGateway, sms, abdm, uhi, ambulanceGps, facilityAssets,
+    paymentSetting, smsSetting, analyticsBi,
+  ] =
     await Promise.all([
       paymentGatewayGate(tenantId),
       smsGate(tenantId),
       abdmGates(tenantId),
       uhiGate(tenantId),
       ambulanceGpsGate(tenantId),
+      facilityAssetsGate(tenantId),
       getPaymentGatewaySettings(tenantId),
       getSmsSettings(tenantId),
       analyticsBiGate(tenantId),
@@ -475,6 +493,7 @@ async function tenantGates(tenant) {
       ...abdm,
       uhi,
       ambulance_gps: ambulanceGps,
+      facility_assets: facilityAssets,
       // Terminology & knowledge gates (slate C1; appended block).
       terminology_coding: terminologyCoding,
       lab_loinc_mapping: labLoincMapping,

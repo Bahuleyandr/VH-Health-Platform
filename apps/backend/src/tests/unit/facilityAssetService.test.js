@@ -29,6 +29,14 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx,
 }));
 
+// Dark-ship gate: this suite exercises the domain guards, so the gate is held
+// OPEN (env switch on + tenant flag on) except in the dedicated gate tests.
+process.env.FACILITY_ASSETS_ENABLED = 'true';
+const getFacilityAssetsSettings = jest.fn(async () => ({ enabled: true }));
+jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
+  getFacilityAssetsSettings,
+}));
+
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const ACTOR_UID = '22222222-2222-4222-8222-222222222222';
 
@@ -449,5 +457,49 @@ describe('facilityAssetService — pagination', () => {
     await expect(service.listFacilityAssetEvents(TENANT_ID, 7, { limit: 201 }))
       .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
     expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});
+
+describe('facilityAssetService — dark-ship gate (env AND tenant flag, fail closed)', () => {
+  it('503s FACILITY_ASSETS_NOT_ENABLED before any DB work when the env switch is off', async () => {
+    getFacilityAssetsSettings.mockClear();
+    process.env.FACILITY_ASSETS_ENABLED = 'false';
+    try {
+      await expect(service.listFacilityAssets(TENANT_ID))
+        .rejects.toMatchObject({ statusCode: 503, code: 'FACILITY_ASSETS_NOT_ENABLED' });
+      await expect(service.createFacilityAsset(TENANT_ID, {
+        assetTag: 'GEN-02', name: 'Generator', category: 'generator',
+      }, { actorUid: ACTOR_UID, actorRole: 'ADMIN' }))
+        .rejects.toMatchObject({ statusCode: 503, code: 'FACILITY_ASSETS_NOT_ENABLED' });
+      expect(getFacilityAssetsSettings).not.toHaveBeenCalled();
+      expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+      expect(setTenantTx).not.toHaveBeenCalled();
+    } finally {
+      process.env.FACILITY_ASSETS_ENABLED = 'true';
+    }
+  });
+
+  it('403s FACILITY_ASSETS_DISABLED before any DB work when the tenant flag is off', async () => {
+    getFacilityAssetsSettings.mockResolvedValueOnce({ enabled: false });
+    await expect(service.listFacilityAssets(TENANT_ID))
+      .rejects.toMatchObject({ statusCode: 403, code: 'FACILITY_ASSETS_DISABLED' });
+    getFacilityAssetsSettings.mockResolvedValueOnce({ enabled: false });
+    await expect(service.transitionFacilityAssetStatus(TENANT_ID, 7, {
+      toStatus: 'under_repair', expectedVersion: 1,
+    }, { actorUid: ACTOR_UID, actorRole: 'ADMIN' }))
+      .rejects.toMatchObject({ statusCode: 403, code: 'FACILITY_ASSETS_DISABLED' });
+    expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
+  });
+
+  it('isFacilityAssetsEnvEnabled reads the kill switch strictly (only the string "true")', () => {
+    process.env.FACILITY_ASSETS_ENABLED = 'false';
+    expect(service.isFacilityAssetsEnvEnabled()).toBe(false);
+    delete process.env.FACILITY_ASSETS_ENABLED;
+    expect(service.isFacilityAssetsEnvEnabled()).toBe(false);
+    process.env.FACILITY_ASSETS_ENABLED = '1';
+    expect(service.isFacilityAssetsEnvEnabled()).toBe(false);
+    process.env.FACILITY_ASSETS_ENABLED = 'true';
+    expect(service.isFacilityAssetsEnvEnabled()).toBe(true);
   });
 });
