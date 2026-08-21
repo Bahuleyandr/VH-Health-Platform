@@ -81,6 +81,7 @@ export type GateKey =
   | "abdm_hiu"
   | "uhi"
   | "ambulance_gps"
+  | "facility_assets"
   // Terminology & knowledge gates (slate C1; appended block).
   | "terminology_coding"
   | "lab_loinc_mapping"
@@ -104,6 +105,7 @@ export interface IntegrationGateEnvFacts {
   uhi_enabled: boolean;
   uhi_environment: "sandbox" | "production";
   uhi_has_subscriber_identity: boolean;
+  facility_assets_enabled: boolean;
   livekit_enabled: boolean;
   file_scan_policy: "required" | "disabled_accepted_risk";
   clinical_continuity_c_d14_approved: boolean;
@@ -151,6 +153,7 @@ export type TenantGateSettingKey =
   | "abdmHiu"
   | "uhi"
   | "ambulanceGpsTracking"
+  | "facilityAssets"
   | "analyticsBi";
 
 export async function setTenantGateFlag(

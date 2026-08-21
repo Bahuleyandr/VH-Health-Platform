@@ -27817,6 +27817,9 @@
           "uhi_has_subscriber_identity": {
             "type": "boolean"
           },
+          "facility_assets_enabled": {
+            "type": "boolean"
+          },
           "livekit_enabled": {
             "type": "boolean"
           },
@@ -27997,6 +28000,7 @@
               "abdm_hiu",
               "uhi",
               "ambulance_gps",
+              "facility_assets",
               "terminology_coding",
               "lab_loinc_mapping",
               "drug_kb"
@@ -28021,6 +28025,9 @@
                 "$ref": "#/components/schemas/IntegrationGateState"
               },
               "ambulance_gps": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "facility_assets": {
                 "$ref": "#/components/schemas/IntegrationGateState"
               },
               "terminology_coding": {
@@ -66742,7 +66749,7 @@
             }
           }
         },
-        "description": "SUPER_ADMIN-only read of every dark-shipped feature gate per tenant: payment gateway (env kill switch AND tenants.settings.paymentGateway.enabled AND an enabled provider-config row, dry_run vs live credentials), SMS (SMS_PROVIDER env ladder AND settings.sms.enabled AND per-tenant config/DLT template registrations), ABDM enrolment / Scan & Share / thin HIU (ABDM_ENABLED AND the tenant flags), UHI, and ambulance GPS, plus read-only env facts (LiveKit, FILE_SCAN_POLICY, clinical-continuity approval). Effective state is computed by each feature's own resolver; secrets are never returned — presence booleans only. Read-only: flips go through the existing mutation endpoints.",
+        "description": "SUPER_ADMIN-only read of every dark-shipped feature gate per tenant: payment gateway (env kill switch AND tenants.settings.paymentGateway.enabled AND an enabled provider-config row, dry_run vs live credentials), SMS (SMS_PROVIDER env ladder AND settings.sms.enabled AND per-tenant config/DLT template registrations), ABDM enrolment / Scan & Share / thin HIU (ABDM_ENABLED AND the tenant flags), UHI, ambulance GPS, and the facility asset register (FACILITY_ASSETS_ENABLED AND settings.facilityAssets.enabled), plus read-only env facts (LiveKit, FILE_SCAN_POLICY, clinical-continuity approval). Effective state is computed by each feature's own resolver; secrets are never returned — presence booleans only. Read-only: flips go through the existing mutation endpoints.",
         "security": [
           {
             "ApiKeyAuth": [],
@@ -110293,6 +110300,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Lists the tenant's general (non-biomedical) facility asset register with status/category/custodian/search filters and offset pagination. Facility operations staff read access; biomedical devices live in the biomed CMMS, not here.",
@@ -110474,6 +110491,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Registers a general facility asset (furniture, HVAC, electrical/plumbing plant, IT, generators, vehicles, kitchen/laundry, safety, infrastructure). Asset tag is unique per tenant. Writes the asset row plus a created history event in the same transaction. ADMIN/SUPER_ADMIN/MAINTENANCE/BIOMEDICAL_STAFF.",
@@ -110574,6 +110601,16 @@
           },
           "500": {
             "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -110699,6 +110736,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Fetches one facility asset with its most recent history events.",
@@ -110807,6 +110854,16 @@
           },
           "500": {
             "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -110924,6 +110981,16 @@
           },
           "500": {
             "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -111058,6 +111125,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
           }
         },
         "description": "Records a maintenance action (cost/vendor/notes) against a non-disposed asset as an append-only history event without changing status.",
@@ -111178,6 +111255,16 @@
           },
           "500": {
             "description": "The facility asset operation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacilityAssetErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).",
             "content": {
               "application/json": {
                 "schema": {

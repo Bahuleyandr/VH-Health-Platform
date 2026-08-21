@@ -33,6 +33,11 @@ const getSmsSettings = jest.fn();
 const getUhiSettings = jest.fn();
 const getLabLoincMappingSettings = jest.fn();
 const getDrugKbSettings = jest.fn();
+// Facility-asset gate (facility-asset dark gate): integrationGateService
+// imports the accessor by name and the env probe from facilityAssetService,
+// so both must exist on the mocks even though these tests never enable them.
+const getFacilityAssetsSettings = jest.fn();
+const isFacilityAssetsEnvEnabled = jest.fn();
 // Embedded-BI accessor (wt/bi-app): integrationGateService imports it by name,
 // so the mock module must export it even though these tests never enable it.
 const getAnalyticsBiSettings = jest.fn(async () => ({ enabled: false }));
@@ -74,6 +79,9 @@ jest.unstable_mockModule('../../services/telemedicine/teleconsultProvisioningSer
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   listTenants,
 }));
+jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
+  isFacilityAssetsEnvEnabled,
+}));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
@@ -85,6 +93,7 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getLabLoincMappingSettings,
   getDrugKbSettings,
   getAnalyticsBiSettings,
+  getFacilityAssetsSettings,
 }));
 jest.unstable_mockModule('../../services/terminology/terminologySettingsService.js', () => ({
   getTenantTerminologySettings,
@@ -149,6 +158,8 @@ function primeDefaults() {
   getPaymentGatewaySettings.mockResolvedValue({ enabled: false });
   getSmsSettings.mockResolvedValue({ enabled: false });
   getUhiSettings.mockResolvedValue({ enabled: false, environment: 'sandbox' });
+  getFacilityAssetsSettings.mockResolvedValue({ enabled: false });
+  isFacilityAssetsEnvEnabled.mockReturnValue(false);
   getLabLoincMappingSettings.mockResolvedValue({ enabled: false });
   getDrugKbSettings.mockResolvedValue({
     deterministicMatching: false, counterSaleAdvisory: false,

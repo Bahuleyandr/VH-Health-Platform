@@ -22,6 +22,7 @@ const authenticatedErrorResponses = {
   409: errorResponse('The request conflicted with the asset version, tag, custodian, or lifecycle state.'),
   429: errorResponse('The caller exceeded the API rate limit.'),
   500: errorResponse('The facility asset operation could not be completed.'),
+  503: errorResponse('The facility asset register is not enabled in this deployment (FACILITY_ASSETS_ENABLED kill switch).'),
 };
 const facilityMutationErrorResponses = {
   ...authenticatedErrorResponses,

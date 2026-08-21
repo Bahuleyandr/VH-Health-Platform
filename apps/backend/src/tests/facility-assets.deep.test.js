@@ -27,6 +27,7 @@ const {
 
 const TENANT_ID = randomUUID();
 const OTHER_TENANT_ID = randomUUID();
+const GATE_OFF_TENANT_ID = randomUUID();
 const ADMIN_UID = randomUUID();
 const CUSTODIAN_UID = randomUUID();
 const OTHER_CUSTODIAN_UID = randomUUID();
@@ -43,6 +44,7 @@ async function cleanupTenant(tenantId) {
 async function cleanup() {
   await cleanupTenant(TENANT_ID);
   await cleanupTenant(OTHER_TENANT_ID);
+  await cleanupTenant(GATE_OFF_TENANT_ID);
 }
 
 async function eventTypes(tenantId, assetId) {
@@ -56,17 +58,31 @@ async function eventTypes(tenantId, assetId) {
   return rows.map((r) => r.event_type);
 }
 
+const ENV_GATE_BEFORE = process.env.FACILITY_ASSETS_ENABLED;
+
 d('Facility asset register (migration 704)', () => {
   beforeAll(async () => {
+    // Dark-ship gate (env kill switch AND tenants.settings.facilityAssets):
+    // hold it open for the domain tests; the gate suite below exercises the
+    // fail-closed paths explicitly.
+    process.env.FACILITY_ASSETS_ENABLED = 'true';
     await cleanup();
     for (const [id, name] of [[TENANT_ID, 'Asset Register Tenant'], [OTHER_TENANT_ID, 'Asset Register Other']]) {
       await prisma.$executeRawUnsafe(
-        `INSERT INTO tenants (id, slug, name, settings) VALUES ($1::uuid, $2::text, $3::text, '{}'::jsonb)`,
+        `INSERT INTO tenants (id, slug, name, settings)
+         VALUES ($1::uuid, $2::text, $3::text, '{"facilityAssets":{"enabled":true}}'::jsonb)`,
         id,
         `assets-${id.slice(0, 8)}`,
         name,
       );
     }
+    // Tenant WITHOUT the settings flag — the register must stay dark for it.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, settings) VALUES ($1::uuid, $2::text, $3::text, '{}'::jsonb)`,
+      GATE_OFF_TENANT_ID,
+      `assets-${GATE_OFF_TENANT_ID.slice(0, 8)}`,
+      'Asset Register Gate Off',
+    );
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, 'Tenant custodian', 'MAINTENANCE', TRUE, NOW()),
@@ -83,6 +99,8 @@ d('Facility asset register (migration 704)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    if (ENV_GATE_BEFORE === undefined) delete process.env.FACILITY_ASSETS_ENABLED;
+    else process.env.FACILITY_ASSETS_ENABLED = ENV_GATE_BEFORE;
     await cleanup();
     await prisma.$disconnect().catch(() => {});
   }, 60_000);
@@ -496,5 +514,39 @@ d('Facility asset register (migration 704)', () => {
       .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
     await expect(listFacilityAssetEvents(TENANT_ID, assetId, { offset: '1.5' }))
       .rejects.toMatchObject({ statusCode: 400, code: 'FACILITY_ASSET_INVALID' });
+  });
+
+  describe('dark-ship gate (env kill switch AND tenant settings flag, fail closed)', () => {
+    it('503s every entrypoint when FACILITY_ASSETS_ENABLED is off, even for an enabled tenant', async () => {
+      process.env.FACILITY_ASSETS_ENABLED = 'false';
+      try {
+        await expect(listFacilityAssets(TENANT_ID))
+          .rejects.toMatchObject({ statusCode: 503, code: 'FACILITY_ASSETS_NOT_ENABLED' });
+        await expect(createFacilityAsset(TENANT_ID, {
+          assetTag: 'GATE-01', name: 'Gated asset', category: 'other',
+        }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' }))
+          .rejects.toMatchObject({ statusCode: 503, code: 'FACILITY_ASSETS_NOT_ENABLED' });
+      } finally {
+        process.env.FACILITY_ASSETS_ENABLED = 'true';
+      }
+    });
+
+    it('403s a tenant whose settings flag is absent (default OFF) while enabled tenants keep working', async () => {
+      await expect(listFacilityAssets(GATE_OFF_TENANT_ID))
+        .rejects.toMatchObject({ statusCode: 403, code: 'FACILITY_ASSETS_DISABLED' });
+      await expect(createFacilityAsset(GATE_OFF_TENANT_ID, {
+        assetTag: 'GATE-02', name: 'Gated asset', category: 'other',
+      }, { actorUid: ADMIN_UID, actorRole: 'ADMIN' }))
+        .rejects.toMatchObject({ statusCode: 403, code: 'FACILITY_ASSETS_DISABLED' });
+      // No detail row and no event row may exist for the gated tenant.
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM facility_assets WHERE tenant_id = $1::uuid`,
+        GATE_OFF_TENANT_ID,
+      );
+      expect(rows).toEqual([]);
+      // The opted-in tenant is unaffected by the sibling's dark gate.
+      const open = await listFacilityAssets(TENANT_ID);
+      expect(open.total).toBeGreaterThan(0);
+    });
   });
 });

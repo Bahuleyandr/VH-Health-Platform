@@ -27,6 +27,41 @@ import { AppError } from '../../utils/AppError.js';
 import { stripHtml } from '../../utils/sanitize.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
+/* ─── Dark-ship gate ─────────────────────────────────────────────────────── */
+// The register ships dark like every other #878-wave feature: env kill switch
+// AND per-tenant tenants.settings.facilityAssets.enabled flag, ANDed, fail
+// closed, both default OFF. Same status/code convention as the siblings:
+// env off → 503 *_NOT_ENABLED (ABDM_NOT_ENABLED precedent), tenant off →
+// 403 *_DISABLED (AMBULANCE_GPS_TRACKING_DISABLED precedent).
+
+export function isFacilityAssetsEnvEnabled() {
+  return process.env.FACILITY_ASSETS_ENABLED === 'true';
+}
+
+// Dynamic import on purpose (drugKbLinkService/labCodeMappingService
+// precedent): keeps tenantSettingsService out of this module's STATIC import
+// graph so suites that partially mock it keep loading. The env kill switch is
+// checked first, so the accessor only ever loads on a deployment that has
+// opened the gate — and a gated call fails closed either way.
+async function getFacilityAssetsSettingsLazy(tenantId) {
+  const mod = await import('../tenant/tenantSettingsService.js');
+  return mod.getFacilityAssetsSettings(tenantId);
+}
+
+export async function requireFacilityAssetsEnabled(tenantId) {
+  if (!isFacilityAssetsEnvEnabled()) {
+    throw new AppError('Facility asset register is not enabled', 503, 'FACILITY_ASSETS_NOT_ENABLED');
+  }
+  const settings = await getFacilityAssetsSettingsLazy(tenantId);
+  if (!settings.enabled) {
+    throw AppError.forbidden(
+      'Facility asset register is not enabled for this tenant',
+      'FACILITY_ASSETS_DISABLED',
+    );
+  }
+  return settings;
+}
+
 export const FACILITY_ASSET_CATEGORIES = Object.freeze([
   'furniture', 'hvac', 'electrical', 'plumbing', 'it_equipment',
   'generator', 'vehicle', 'kitchen', 'laundry', 'safety',
@@ -281,6 +316,7 @@ async function assertCustodianInTenantTx(tx, tenantId, custodianUid) {
 
 export async function listFacilityAssetCustodians(tenantId, { q = '', limit = 500 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const query = String(q ?? '').trim().toLowerCase();
   const safeLimit = paginationInteger(limit, {
     field: 'limit', defaultValue: 500, min: 1, max: 500,
@@ -360,6 +396,7 @@ export async function listFacilityAssets(tenantId, {
   q = '', status = '', category = '', custodianUid = null, limit = 200, offset = 0,
 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const query = String(q ?? '').trim().toLowerCase();
   const statusFilter = String(status ?? '').trim().toLowerCase();
   if (statusFilter && !FACILITY_ASSET_STATUSES.includes(statusFilter)) {
@@ -420,6 +457,7 @@ export async function listFacilityAssets(tenantId, {
 
 export async function getFacilityAsset(tenantId, id, { eventLimit = 20 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${ASSET_COLUMNS}
        FROM facility_assets
@@ -438,6 +476,7 @@ export async function getFacilityAsset(tenantId, id, { eventLimit = 20 } = {}) {
 
 export async function listFacilityAssetEvents(tenantId, id, { limit = 50, offset = 0 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const safeLimit = paginationInteger(limit, {
     field: 'limit', defaultValue: 50, min: 1, max: 200,
   });
@@ -476,6 +515,7 @@ export async function createFacilityAsset(tenantId, payload = {}, {
   actorUid = null, actorRole = null,
 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const next = normalizePayload(payload);
   try {
     return await setTenantTx(scopedTenantId, async (tx) => {
@@ -536,6 +576,7 @@ export async function updateFacilityAsset(tenantId, id, payload = {}, {
   actorUid = null, actorRole = null,
 } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   if (payload.status !== undefined) {
     throw badRequest('status cannot be changed here — use the status transition endpoint');
   }
@@ -673,6 +714,7 @@ export async function transitionFacilityAssetStatus(tenantId, id, {
   toStatus, reason = null, notes = null, expectedVersion,
 } = {}, { actorUid = null, actorRole = null } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const expected = normalizeExpectedVersion(expectedVersion);
   const target = String(toStatus ?? '').trim().toLowerCase();
   if (!FACILITY_ASSET_STATUSES.includes(target)) {
@@ -757,6 +799,7 @@ export async function recordFacilityAssetMaintenance(tenantId, id, {
   notes = null, cost = null, vendor = null,
 } = {}, { actorUid = null, actorRole = null } = {}) {
   const scopedTenantId = requireTenantId(tenantId);
+  await requireFacilityAssetsEnabled(scopedTenantId);
   const cleanNotes = cleanText(notes, 1000);
   if (!cleanNotes) throw badRequest('notes describing the maintenance action are required');
   const cleanVendor = cleanText(vendor, 160);
@@ -804,6 +847,8 @@ export default {
   FACILITY_ASSET_CONDITIONS,
   FACILITY_ASSET_STATUSES,
   FACILITY_ASSET_TRANSITIONS,
+  isFacilityAssetsEnvEnabled,
+  requireFacilityAssetsEnabled,
   listFacilityAssets,
   listFacilityAssetCustodians,
   getFacilityAsset,
