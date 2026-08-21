@@ -150,8 +150,8 @@ jobs:
           tags: ${{ steps.images.outputs.admin }}:dalek-${{ github.sha }}
           build-args: |
             GIT_COMMIT=${{ github.sha }}
-            NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444
-            NEXT_PUBLIC_ALLOWED_ORIGIN=https://dalekdefender.hippocampus-monitor.ts.net:8445
+            NEXT_PUBLIC_API_URL=https://api.vhhealth.app
+            NEXT_PUBLIC_ALLOWED_ORIGIN=https://admin.vhhealth.app
             NEXT_PUBLIC_SENTRY_DSN=${{ secrets.SENTRY_DSN_ADMIN }}
             NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender
             NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }}
