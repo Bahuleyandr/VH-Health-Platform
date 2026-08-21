@@ -303,11 +303,15 @@ ON CONFLICT (uid) DO UPDATE SET
 -- correctly 403s "no active care-team...". tenant_id MUST equal the value
 -- deriveTenantIdFromRequest() resolves for the smoke JWT (DEFAULT_TENANT_ID),
 -- since the relationship query filters care_teams/care_team_members on it.
+-- team_kind MUST be 'longitudinal': findCareTeamRelationship() grants
+-- context-free access (appointment_id AND admission_id both NULL) only to
+-- longitudinal teams. This smoke seeds no admission, so an episode-scoped
+-- kind like 'ip' would 403 every clinical call.
 WITH seeded_team AS (
   INSERT INTO care_teams (tenant_id, patient_uid, team_kind, status, display_name)
   VALUES (
     '00000000-0000-4000-8000-000000000001'::uuid,
-    '$PatientUid'::uuid, 'ip', 'active', 'Clinical Safety Smoke Team $stamp'
+    '$PatientUid'::uuid, 'longitudinal', 'active', 'Clinical Safety Smoke Team $stamp'
   )
   RETURNING id
 )
