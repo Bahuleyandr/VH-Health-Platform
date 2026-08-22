@@ -10,7 +10,8 @@ import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
-import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { ROLES, isAdmin } from '../../utils/roleHelpers.js';
+import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { AppError } from '../../utils/AppError.js';
 import {
   verifySignedRequest,
@@ -521,8 +522,23 @@ callbackRouter.post('/hiu/health-info/push', abdmCallbackHandler(
 
 const patientRouter = Router();
 
+// ABDM consent requests and ABHA patient lookup are PHI surfaces
+// (ABDM_PHI_PATHS in app.js names both). isStaff() admitted every roster role
+// — drivers, security guards, housekeeping and delivery staff could list the
+// tenant's health-information consent requests (2026-08-22 audit). Match the
+// audience the identical HIU surface already uses (clinical staff), plus the
+// records/front-desk roles that operate ABDM linkage day to day.
+const ABDM_ADMIN_VIEW_ROLES = new Set([
+  'SUPER_ADMIN',
+  ...CLINICAL_STAFF_ROUTE_ROLES,
+  ROLES.MEDICAL_RECORDS,
+  ROLES.RECEPTIONIST,
+  ROLES.RECEPTION_INCHARGE,
+  ROLES.ADMISSION_OFFICER,
+]);
+
 function canViewAbdmAdmin(role) {
-  return role === 'SUPER_ADMIN' || isStaff(role) || isAdmin(role);
+  return ABDM_ADMIN_VIEW_ROLES.has(role) || isAdmin(role);
 }
 
 function canManageAnyAbha(role) {
