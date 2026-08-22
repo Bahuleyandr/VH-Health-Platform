@@ -91,6 +91,37 @@ function normalizeAppointmentDocument(row) {
 // The canonical implementation remains /api/v1/appointments/walk-in.
 router.post('/walk-in', walkInRoles, workflowController.registerWalkIn);
 
+// Legacy compatibility literals. These MUST be registered before the
+// staffRoutes barrel below: its GET /:identifier is a single-segment
+// wildcard that otherwise treats "attendance" / "roll-call" as a staff id
+// and answers 403 STAFF_ACCESS_DENIED to every caller (2026-08-22 audit).
+// The admin portal's api-config still documents both paths.
+router.get('/attendance', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Attendance system operational',
+    features: ['check_in', 'check_out', 'location_tracking', 'hours_calculation'],
+    endpoints: {
+      mark_attendance: 'POST /staff/attendance',
+      view_attendance: 'GET /staff/:id/attendance',
+      attendance_summary: 'GET /staff/stats/summary'
+    }
+  });
+});
+
+router.get('/roll-call', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Roll-call system operational',
+    features: ['shift_based_attendance', 'department_roll_call', 'real_time_status'],
+    endpoints: {
+      by_shift: 'GET /staff/shift/:shift',
+      by_department: 'GET /staff/department/:department',
+      dashboard: 'GET /staff/hr/dashboard'
+    }
+  });
+});
+
 // Mount sub-routers
 router.use('/', phoneRoutes);           // Staff phone home + query workflow
 router.use('/', staffRoutes);           // Staff management
@@ -332,33 +363,6 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
     if (err?.statusCode) return relayAppError(res, err, 'Failed to upload investigation', { safe: true });
     return error(res, 'Failed to upload investigation', 500);
   }
-});
-
-// Legacy compatibility routes
-router.get('/attendance', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Attendance system operational',
-    features: ['check_in', 'check_out', 'location_tracking', 'hours_calculation'],
-    endpoints: {
-      mark_attendance: 'POST /staff/attendance',
-      view_attendance: 'GET /staff/:id/attendance',
-      attendance_summary: 'GET /staff/stats/summary'
-    }
-  });
-});
-
-router.get('/roll-call', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Roll-call system operational',
-    features: ['shift_based_attendance', 'department_roll_call', 'real_time_status'],
-    endpoints: {
-      by_shift: 'GET /staff/shift/:shift',
-      by_department: 'GET /staff/department/:department',
-      dashboard: 'GET /staff/hr/dashboard'
-    }
-  });
 });
 
 export default router;

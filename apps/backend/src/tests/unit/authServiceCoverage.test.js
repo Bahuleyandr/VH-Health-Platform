@@ -999,9 +999,15 @@ describe('AuthService.getAdminProfile', () => {
     expect(res.admin.last_login).toBeNull();
   });
 
-  it('throws when the admin is not found', async () => {
+  it('throws a typed 404 when the admin is not found', async () => {
+    // A missing admins row (offboarded admin, or a non-admin token on this
+    // route) is caller state — it used to surface as a bare Error the
+    // controller mapped to 500 (2026-08-22 audit).
     mockPrisma.admins.findUnique.mockResolvedValue(null);
-    await expect(AuthService.getAdminProfile('ghost')).rejects.toThrow('Admin not found');
+    await expect(AuthService.getAdminProfile('ghost')).rejects.toMatchObject({
+      message: 'Admin profile not found',
+      statusCode: 404,
+    });
   });
 });
 

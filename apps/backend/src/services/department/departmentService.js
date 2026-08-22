@@ -80,7 +80,8 @@ class DepartmentService {
         FROM departments d
         LEFT JOIN doctors doc ON doc.department = d.name
           AND doc.is_available = true
-          AND (doc.available_days IS NULL OR doc.available_days LIKE ${'%' + today + '%'})
+          -- available_days is text[]; LIKE on it is a 42883 parse error on every call
+          AND (doc.available_days IS NULL OR ${today} = ANY(doc.available_days))
         LEFT JOIN users u ON doc.user_id = u.id
         WHERE d.is_active = true
         GROUP BY d.name, d.description

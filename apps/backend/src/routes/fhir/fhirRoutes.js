@@ -747,7 +747,9 @@ router.get(
       ),
       optionalFhirQuery(
         `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
-                priority, urgent, ordered_at, created_at
+                priority,
+                (UPPER(COALESCE(priority, '')) IN ('URGENT', 'STAT')) AS urgent,
+                ordered_at, created_at
          FROM pharmacy_orders WHERE uid = $1::uuid AND tenant_id = $2::uuid
          ORDER BY created_at DESC LIMIT $3`,
         id, tenantId, _count
@@ -769,7 +771,9 @@ router.get(
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
-                conclusion, interpretation, ordered_at, completed_at, created_at
+                conclusion, interpretation,
+                requested_at AS ordered_at,
+                completed_at, created_at
          FROM investigations
          WHERE (patient_uid = $1::uuid OR uid = $1::uuid) AND tenant_id = $2::uuid
          ORDER BY created_at DESC LIMIT $3`,
@@ -1020,7 +1024,9 @@ router.get(
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
-              priority, urgent, ordered_at, created_at
+              priority,
+              (UPPER(COALESCE(priority, '')) IN ('URGENT', 'STAT')) AS urgent,
+              ordered_at, created_at
        FROM pharmacy_orders ${where} ORDER BY created_at DESC ${limitOffset}`,
       ...params
     );
@@ -1358,7 +1364,9 @@ router.get(
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
-              conclusion, interpretation, ordered_at, completed_at, created_at
+              conclusion, interpretation,
+              requested_at AS ordered_at,
+              completed_at, created_at
        FROM investigations ${where} ORDER BY created_at DESC ${limitOffset}`,
       ...params
     );

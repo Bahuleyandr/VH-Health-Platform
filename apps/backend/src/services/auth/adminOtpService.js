@@ -284,18 +284,23 @@ export const bulkDeleteSessions = async ({ phone, purpose, olderThanHours, reaso
 // ── Functions referenced by adminOtpController ────────────────────────────
 
 export const getSecurityAlerts = async (adminUid) => {
+  // These are attempt-audit aggregations, so they read otp_logs — the
+  // append-only attempt trail that actually carries `success`, `failure_reason`
+  // and `ip_address`. otp_sessions (live challenge state) has none of those
+  // columns, and pointing these queries at it made every call 500 with 42703
+  // (2026-08-22 audit).
   const [suspicious, failures, ipAnalysis] = await Promise.all([
     query(`SELECT phone, COUNT(*) as count, MAX(created_at) as last_attempt
-           FROM otp_sessions
+           FROM otp_logs
            WHERE success = false AND created_at > NOW() - INTERVAL '24 hours'
            GROUP BY phone HAVING COUNT(*) >= 5
            ORDER BY count DESC LIMIT 50`),
     query(`SELECT phone, purpose, COUNT(*) as failure_count
-           FROM otp_sessions
+           FROM otp_logs
            WHERE success = false AND created_at > NOW() - INTERVAL '1 hour'
            GROUP BY phone, purpose ORDER BY failure_count DESC LIMIT 20`),
     query(`SELECT ip_address, COUNT(*) as attempt_count, COUNT(DISTINCT phone) as unique_phones
-           FROM otp_sessions
+           FROM otp_logs
            WHERE created_at > NOW() - INTERVAL '1 hour'
            GROUP BY ip_address HAVING COUNT(*) > 10
            ORDER BY attempt_count DESC LIMIT 20`),
@@ -310,10 +315,13 @@ export const getSecurityAlerts = async (adminUid) => {
 };
 
 export const getActiveSessions = async (limit = 100, adminUid) => {
+  // otp_sessions tracks challenge state as `verified` (not `used`) and stores
+  // no client IP — the IP lives on the otp_logs attempt trail. The previous
+  // select referenced both nonexistent columns, so this 500'd on every call.
   const result = await query(
-    `SELECT id, phone, purpose, created_at, expires_at, ip_address
+    `SELECT id, phone, purpose, created_at, expires_at, attempts, verified
      FROM otp_sessions
-     WHERE expires_at > NOW() AND used = false
+     WHERE expires_at > NOW() AND verified = false
      ORDER BY created_at DESC LIMIT $1`,
     [limit],
   );

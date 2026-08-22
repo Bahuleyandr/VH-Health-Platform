@@ -268,7 +268,9 @@ class HrApiService {
       query: {
         'format': ?format,
         'department': ?department,
-        'reportType': ?reportType,
+        // The route reads snake_case `report_type` (reportingService accepts
+        // report_type || type); `reportType` was never read by the backend.
+        'report_type': ?reportType,
       },
     );
   }
