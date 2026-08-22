@@ -96,6 +96,37 @@ void main() {
       );
     });
 
+    test('the workbench SIDEBAR applies the same department filter as the '
+        'grids (it was the one surface that missed it)', () {
+      Set<String> navIds(StaffRole role, String rawRole, String? department) =>
+          RoleFeatures.getWorkbenchNavForRole(
+            role,
+            rawRole: rawRole,
+            department: department,
+          ).map((item) => item.featureId).whereType<String>().toSet();
+
+      final gmDoctor = navIds(StaffRole.doctor, 'DOCTOR', 'General Medicine');
+      expect(gmDoctor.intersection(specialtyIds), isEmpty);
+
+      final dentist = navIds(StaffRole.doctor, 'DOCTOR', 'Dentistry');
+      expect(dentist, contains('dental_charting'));
+      expect(dentist.intersection(specialtyIds), {'dental_charting'});
+
+      // Missing department fails closed on the rail too.
+      final noDept = navIds(StaffRole.doctor, 'DOCTOR', null);
+      expect(noDept.intersection(specialtyIds), isEmpty);
+
+      // Leadership bypass: department never changes what the role grants.
+      expect(
+        navIds(
+          StaffRole.medicalSuperintendent,
+          'MEDICAL_SUPERINTENDENT',
+          'Medical Administration',
+        ),
+        navIds(StaffRole.medicalSuperintendent, 'MEDICAL_SUPERINTENDENT', null),
+      );
+    });
+
     test('every hand-granted feature id has a contract entry — a feature with '
         'none can never render for ANY canonical role', () {
       // Narrowing is legitimate (the contract may deny a feature to a role the

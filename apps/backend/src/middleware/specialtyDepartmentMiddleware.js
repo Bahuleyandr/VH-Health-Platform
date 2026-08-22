@@ -100,16 +100,40 @@ async function resolveCallerDepartments({ userId, userUid }) {
 }
 
 /**
+ * TTL-cache a department resolver. The raw resolver costs two queries per
+ * request on every guarded mount; departments change only on rare HR edits,
+ * so 60s of staleness is accepted (matches the house tenant-cache TTL).
+ * Errors are never cached, and the injectable clock keeps tests deterministic.
+ */
+export function cacheDepartmentResolver(inner, { ttlMs = 60_000, maxEntries = 5000, now = Date.now } = {}) {
+  const cache = new Map();
+  return async function cachedResolver({ userId, userUid }) {
+    const key = `${userId ?? ''}|${userUid ?? ''}`;
+    const at = now();
+    const hit = cache.get(key);
+    if (hit && hit.expiresAt > at) return hit.departments;
+    const departments = await inner({ userId, userUid });
+    // Blunt full-clear beats an LRU here: the cap only guards against a
+    // pathological key flood, and one mass re-resolve per minute is cheap.
+    if (cache.size >= maxEntries) cache.clear();
+    cache.set(key, { departments, expiresAt: at + ttlMs });
+    return departments;
+  };
+}
+
+const cachedResolveCallerDepartments = cacheDepartmentResolver(resolveCallerDepartments);
+
+/**
  * Gate a specialty mount by the caller's department.
  * Mount AFTER requireRole (identity + coarse role are already settled).
  */
-export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = resolveCallerDepartments } = {}) {
+export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = cachedResolveCallerDepartments } = {}) {
   if (!SPECIALTY_DEPARTMENT_ALIASES[specialtyKey]) {
     throw new Error(`Unknown specialty key for department gate: ${specialtyKey}`);
   }
 
   return async function specialtyDepartmentGuardMiddleware(req, res, next) {
-    const mode = specialtyGateMode();
+    const mode = specialtyGateMode(process.env, specialtyKey);
     if (mode === 'off') return next();
 
     const role = normalizeRole(req.user?.role);

@@ -9,7 +9,11 @@ const {
   departmentsMatchSpecialty,
   specialtyGateMode,
   specialtyDepartmentGuard,
+  cacheDepartmentResolver,
 } = await import('../../middleware/specialtyDepartmentMiddleware.js');
+const { SPECIALTY_FEATURE_KEYS, SPECIALTY_DEPARTMENT_MODULES } = await import(
+  '../../config/specialtyDepartmentPolicy.js'
+);
 
 describe('normalizeDepartment', () => {
   it('lowercases, strips parentheticals and punctuation, collapses spaces', () => {
@@ -134,5 +138,114 @@ describe('middleware state machine (resolver injected)', () => {
 
   it('rejects unknown specialty keys at construction', () => {
     expect(() => specialtyDepartmentGuard('cardiothoracic')).toThrow(/Unknown specialty key/);
+  });
+
+  it('honors a per-module enforce override while the global stays report', async () => {
+    process.env.SPECIALTY_DEPARTMENT_GATE_MODE = 'report';
+    process.env.SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL = 'enforce';
+    try {
+      const mismatch = async () => new Set(['general medicine']);
+      const dental = await run(specialtyDepartmentGuard('dental', { resolveDepartments: mismatch }));
+      expect(dental.nexted).toBe(false);
+      expect(dental.res.statusCode).toBe(403);
+
+      // Sibling modules stay on the global report mode.
+      const onco = await run(specialtyDepartmentGuard('oncology', { resolveDepartments: mismatch }));
+      expect(onco.nexted).toBe(true);
+    } finally {
+      delete process.env.SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL;
+    }
+  });
+});
+
+describe('specialtyGateMode per-module overrides', () => {
+  it('per-key value beats the global for that key only', () => {
+    const env = {
+      SPECIALTY_DEPARTMENT_GATE_MODE: 'report',
+      SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL: 'enforce',
+    };
+    expect(specialtyGateMode(env, 'dental')).toBe('enforce');
+    expect(specialtyGateMode(env, 'oncology')).toBe('report');
+    expect(specialtyGateMode(env)).toBe('report');
+  });
+
+  it('an unparseable per-key value falls back to the global', () => {
+    const env = {
+      SPECIALTY_DEPARTMENT_GATE_MODE: 'enforce',
+      SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL: 'banana',
+    };
+    expect(specialtyGateMode(env, 'dental')).toBe('enforce');
+  });
+
+  it('a per-key value works with no global set', () => {
+    const env = { SPECIALTY_DEPARTMENT_GATE_MODE_TRANSPLANT: 'off' };
+    expect(specialtyGateMode(env, 'transplant')).toBe('off');
+    expect(specialtyGateMode(env, 'dental')).toBe('report');
+  });
+
+  it('every specialty key maps to an uppercase env suffix without collisions', () => {
+    const suffixes = Object.keys(SPECIALTY_DEPARTMENT_ALIASES).map((k) => k.toUpperCase());
+    expect(new Set(suffixes).size).toBe(suffixes.length);
+  });
+});
+
+describe('cacheDepartmentResolver', () => {
+  it('caches within the TTL and re-resolves after expiry', async () => {
+    let clock = 0;
+    const inner = jest.fn(async () => new Set(['dentistry']));
+    const cached = cacheDepartmentResolver(inner, { ttlMs: 60_000, now: () => clock });
+
+    await cached({ userId: 7 });
+    await cached({ userId: 7 });
+    expect(inner).toHaveBeenCalledTimes(1);
+
+    clock = 60_001;
+    await cached({ userId: 7 });
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it('keys by user identity — no cross-user bleed', async () => {
+    const inner = jest.fn(async ({ userId }) =>
+      new Set([userId === 1 ? 'dentistry' : 'oncology']));
+    const cached = cacheDepartmentResolver(inner, { now: () => 0 });
+
+    expect(await cached({ userId: 1 })).toEqual(new Set(['dentistry']));
+    expect(await cached({ userId: 2 })).toEqual(new Set(['oncology']));
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it('never caches an error — the next call retries', async () => {
+    const inner = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockResolvedValueOnce(new Set(['dentistry']));
+    const cached = cacheDepartmentResolver(inner, { now: () => 0 });
+
+    await expect(cached({ userId: 7 })).rejects.toThrow('db down');
+    expect(await cached({ userId: 7 })).toEqual(new Set(['dentistry']));
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears wholesale at the entry cap instead of growing unbounded', async () => {
+    const inner = jest.fn(async () => new Set(['dentistry']));
+    const cached = cacheDepartmentResolver(inner, { maxEntries: 2, now: () => 0 });
+
+    await cached({ userId: 1 });
+    await cached({ userId: 2 });
+    await cached({ userId: 3 }); // hits the cap -> full clear, then re-adds
+    await cached({ userId: 1 }); // must re-resolve
+    expect(inner).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('policy single-declaration invariants', () => {
+  it('feature keys and alias map are two views of the same declaration', () => {
+    expect(new Set(Object.values(SPECIALTY_FEATURE_KEYS))).toEqual(
+      new Set(Object.keys(SPECIALTY_DEPARTMENT_ALIASES)),
+    );
+    for (const [key, mod] of Object.entries(SPECIALTY_DEPARTMENT_MODULES)) {
+      expect(SPECIALTY_DEPARTMENT_ALIASES[key]).toBe(mod.aliases);
+      expect(SPECIALTY_FEATURE_KEYS[mod.featureId]).toBe(key);
+    }
   });
 });
