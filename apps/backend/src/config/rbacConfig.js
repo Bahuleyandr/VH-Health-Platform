@@ -1,5 +1,6 @@
 // src/config/rbacConfig.js
 import {
+  ALL_ROLES,
   SUPER_ADMIN,
   ADMIN,
   PATIENT,
@@ -19,6 +20,8 @@ import {
   STORES_PURCHASE_INCHARGE,
   LAB_STAFF,
   RADIOLOGY_STAFF,
+  RADIOLOGIST,
+  BIOMEDICAL_STAFF,
   DOCTOR,
   ANAESTHETIST,
   ANESTHETIST,
@@ -86,35 +89,14 @@ const rbacConfig = {
   // empty notifications panel until they're allowed. Stage-5 added the
   // billing / TPA / admission-counter desk roles — same treatment (the
   // role-workflow sweep caught all four 403ing on /notifications/my).
-  notificationRoutes: [
-    PATIENT,
-    GENERAL_STAFF,
-    HOUSEKEEPING_STAFF,
-    HOUSEKEEPING_INCHARGE,
-    MAINTENANCE,
-    ADMIN,
-    SUPER_ADMIN,
-    DOCTOR,
-    NURSING_STAFF,
-    IP_STAFF_NURSE,
-    IP_INCHARGE,
-    OP_STAFF_NURSE,
-    OP_INCHARGE,
-    OT_NURSE,
-    OT_INCHARGE,
-    CATH_LAB_STAFF,
-    PHARMACY_INCHARGE,
-    PHARMACY_STAFF,
-    STORES_PURCHASE_INCHARGE,
-    LAB_STAFF,
-    HR_STAFF,
-    RECEPTIONIST,
-    RECEPTION_INCHARGE,
-    BILLING_STAFF,
-    INSURANCE_COORDINATOR,
-    ADMISSION_OFFICER,
-    IPD_COUNSELLOR
-  ],
+  // The notification surface is self-scoped (/notifications/my derives the
+  // recipient from the JWT), so every role may read its OWN notifications —
+  // which is what the route's mount exemption has always documented. The
+  // previous hand-grown 27-role subset silently 403'd the bell for 31 roles,
+  // including DUTY_DOCTOR, NURSING_INCHARGE, CATH_LAB_INCHARGE, CMO, CNO and
+  // MEDICAL_SUPERINTENDENT (2026-08-22 audit). Any new role added to
+  // utils/roles.js ALL_ROLES inherits bell access automatically.
+  notificationRoutes: [...ALL_ROLES],
   pharmacyRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
@@ -425,6 +407,11 @@ const rbacConfig = {
     STORES_PURCHASE_INCHARGE,
     LAB_STAFF,
     RADIOLOGY_STAFF,
+    // Peers RADIOLOGY_STAFF / BIOMEDICAL_TECHNICIAN designations were present
+    // but these two roles were omitted — they could not reach their own
+    // attendance/leave/payslips (2026-08-22 audit).
+    RADIOLOGIST,
+    BIOMEDICAL_STAFF,
     RECEPTIONIST,
     RECEPTION_INCHARGE,
     BILLING_STAFF,
@@ -467,6 +454,11 @@ const rbacConfig = {
     STORES_PURCHASE_INCHARGE,
     LAB_STAFF,
     RADIOLOGY_STAFF,
+    // Peers RADIOLOGY_STAFF / BIOMEDICAL_TECHNICIAN designations were present
+    // but these two roles were omitted — they could not reach their own
+    // attendance/leave/payslips (2026-08-22 audit).
+    RADIOLOGIST,
+    BIOMEDICAL_STAFF,
     RECEPTIONIST,
     RECEPTION_INCHARGE,
     BILLING_STAFF,

@@ -47,6 +47,11 @@ export const ROLES = {
   RADIOLOGIST: 'RADIOLOGIST',
   RADIOLOGY_STAFF: 'RADIOLOGY_STAFF',
   ANESTHETIST: 'ANESTHETIST',
+  // British/Indian spelling — a first-class, selectable role in utils/roles.js
+  // and in every rbacConfig list that names ANESTHETIST, but it was missing
+  // from this map, so isClinical()/isStaff() rejected anaesthetists across
+  // ~25 route files (OT board, clinical alerts, resus — 2026-08-22 audit).
+  ANAESTHETIST: 'ANAESTHETIST',
   DIETITIAN: 'DIETITIAN',
   PHYSIOTHERAPIST: 'PHYSIOTHERAPIST',
   SOCIAL_WORKER: 'SOCIAL_WORKER',
@@ -113,6 +118,7 @@ export const CLINICAL_ROLES = [
   ROLES.CATH_LAB_INCHARGE,
   ROLES.RADIOLOGIST,
   ROLES.ANESTHETIST,
+  ROLES.ANAESTHETIST,
   ROLES.PHYSIOTHERAPIST,
   ROLES.DIETITIAN,
   ROLES.COUNSELLOR
