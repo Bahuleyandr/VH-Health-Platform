@@ -8,10 +8,20 @@ import {
   getRolePolicyHash,
   getRolePolicyVersion,
 } from '../../config/rolePolicyGraph.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
+
+// The phone-self-service role gate, scoped to THIS router's own path families.
+// It used to ride the '/api/v1/staff' mount in app.js, where Express applied it
+// to every sibling staff router and locked ~25 roles out of their own
+// attendance/leave/payslips (2026-08-22 audit — the #905 prefix-mount shape).
+// Scoping by path keeps it inert for every other /api/v1/staff/* route. Any new
+// path family added to this router must be listed here too.
+router.use(['/phone', '/queries'], requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES));
 const localIsoSql = (column) =>
   `to_char(((${column} AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone')), 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
 
