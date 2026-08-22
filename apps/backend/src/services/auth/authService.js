@@ -1037,7 +1037,11 @@ export class AuthService {
           permissions: true,
         },
       });
-      if (!admin) throw new Error('Admin not found');
+      // A valid token whose admins row is gone (offboarded admin, or a
+      // non-admin token on this route) is caller state, not a server fault —
+      // the bare Error here surfaced as a 500 and never triggered client
+      // re-auth (2026-08-22 audit).
+      if (!admin) throw AppError.notFound('Admin profile not found');
 
       return {
         admin: {

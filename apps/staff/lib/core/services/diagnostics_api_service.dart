@@ -74,7 +74,12 @@ class DiagnosticsApiService {
       _check(
         id: 'backend_ready',
         label: 'Backend readiness',
-        path: '/health/ready',
+        // /health/ready requires a monitoring token in EVERY environment
+        // (fail-closed by design), so probing it from the app rendered this
+        // row permanently red (2026-08-22 audit). The basic health endpoint
+        // runs a real DB connectivity check on the API-key tier the app
+        // already holds — a readiness signal the app can legitimately reach.
+        path: '/health',
         auth: false,
       ),
       _check(

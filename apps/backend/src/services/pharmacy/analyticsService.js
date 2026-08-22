@@ -12,7 +12,7 @@ export const getPharmacyAnalytics = async () => {
         COUNT(CASE WHEN status = 'PREPARING'  THEN 1 END)::int  AS processing_orders,
         COUNT(CASE WHEN status = 'READY'      THEN 1 END)::int  AS ready_orders,
         COUNT(CASE WHEN status = 'DELIVERED'  THEN 1 END)::int  AS dispensed_orders,
-        COUNT(CASE WHEN urgent = true          THEN 1 END)::int  AS urgent_orders
+        COUNT(CASE WHEN UPPER(COALESCE(priority, '')) IN ('URGENT', 'STAT') THEN 1 END)::int AS urgent_orders
       FROM pharmacy_orders
       WHERE ordered_at >= CURRENT_DATE - INTERVAL '30 days'
     `,

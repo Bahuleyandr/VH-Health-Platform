@@ -485,6 +485,12 @@ export const exportStaffReport = async (req, res) => {
 
   } catch (err) {
     logger.error('Export Staff Report Error:', err);
-    error(res, 'Failed to export staff report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Honor typed errors: an invalid/absent report_type is a 400 from the
+    // service, not a server fault (2026-08-22 audit).
+    error(
+      res,
+      err.statusCode ? err.message : 'Failed to export staff report',
+      err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
   }
 };
