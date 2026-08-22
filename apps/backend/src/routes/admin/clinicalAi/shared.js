@@ -42,6 +42,15 @@ export const CLINICAL_AI_USER_ROLES_LIST = [
   'MEDICAL_SUPERINTENDENT',
   'NURSING_STAFF',
   'NURSE',
+  // Ward/charge nursing tier — the discharge-compose consumers. These four
+  // canonical roles were missing while generic NURSING_STAFF was present, so
+  // ward nurses were denied at this mount before any per-route gate could
+  // admit them (2026-08-22 audit).
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
   'NURSE_MANAGER',
   'ED_CHARGE_NURSE',
   'HOUSE_SUPERVISOR',

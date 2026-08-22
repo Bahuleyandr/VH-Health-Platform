@@ -49,6 +49,15 @@ import { phiAccessLogger, patientAccessGuard, patientAccessGuardForResource } fr
 import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 import { requireClinicalAiUse, normalizeRole } from './shared.js';
+import { requireRole } from '../../../middleware/rbacMiddleware.js';
+import { DISCHARGE_SUMMARY_VIEW_ROLES } from '../../../utils/roleHelpers.js';
+
+// AI-composed discharge packages are full discharge summaries. The mount-level
+// CLINICAL_AI_USER_ROLES_LIST admits operational roles (housekeeping, biomed,
+// HR, reception) that must never read them, while excluding the ward nurses
+// who must (2026-08-22 audit). Gate these four routes with the platform's
+// existing answer to "who may view a discharge summary".
+const dischargeSummaryGate = requireRole(...DISCHARGE_SUMMARY_VIEW_ROLES);
 import { generateAdmissionAiDraft, listReviews, updateReview } from '../../../services/ai/clinicalAiWorkflowService.js';
 import {
   composeDischargePackage,
@@ -317,7 +326,7 @@ router.post(
 // ---------------------------------------------------------------------------
 // POST /discharge-compose — start a fresh compose (clinician)
 // ---------------------------------------------------------------------------
-router.post('/discharge-compose', guardComposeAdmission, async (req, res, next) => {
+router.post('/discharge-compose', dischargeSummaryGate, guardComposeAdmission, async (req, res, next) => {
   try {
     const admissionId = req.body?.admission_id;
     if (!admissionId) {
@@ -352,7 +361,7 @@ router.post('/discharge-compose', guardComposeAdmission, async (req, res, next) 
 // ---------------------------------------------------------------------------
 // GET /discharge-compose — list recent compose runs (top-level only)
 // ---------------------------------------------------------------------------
-router.get('/discharge-compose', async (req, res, next) => {
+router.get('/discharge-compose', dischargeSummaryGate, async (req, res, next) => {
   try {
     const limit = clampInt(req.query?.limit, { min: 1, max: 100, fallback: 25 });
     const status = req.query?.status ? String(req.query.status).slice(0, 40) : null;
@@ -383,7 +392,7 @@ router.get('/discharge-compose', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // GET /discharge-compose/:runId — fetch run + children tree
 // ---------------------------------------------------------------------------
-router.get('/discharge-compose/:runId', async (req, res, next) => {
+router.get('/discharge-compose/:runId', dischargeSummaryGate, async (req, res, next) => {
   try {
     const runId = Number.parseInt(req.params?.runId, 10);
     if (!Number.isFinite(runId)) {
@@ -405,7 +414,7 @@ router.get('/discharge-compose/:runId', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // POST /discharge-compose/:runId/resume — resume a paused run (clinician)
 // ---------------------------------------------------------------------------
-router.post('/discharge-compose/:runId/resume', async (req, res, next) => {
+router.post('/discharge-compose/:runId/resume', dischargeSummaryGate, async (req, res, next) => {
   try {
     const runId = Number.parseInt(req.params?.runId, 10);
     if (!Number.isFinite(runId)) {
