@@ -67,9 +67,24 @@ export const SPECIALTY_GATE_BYPASS_ROLES = new Set([
   'MEDICAL_SUPERINTENDENT',
 ]);
 
-export function specialtyGateMode(env = process.env) {
-  const raw = String(env.SPECIALTY_DEPARTMENT_GATE_MODE || 'report').trim().toLowerCase();
-  return ['off', 'report', 'enforce'].includes(raw) ? raw : 'report';
+// Per-module override: SPECIALTY_DEPARTMENT_GATE_MODE_<KEY> (e.g.
+// SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL=enforce) beats the global
+// SPECIALTY_DEPARTMENT_GATE_MODE for that module only. Without this, one
+// module's enforce flip (or one department rename needing an emergency
+// un-enforce) had to move EVERY gated module at once (2026-08-22
+// design-panel finding). An unparseable per-key value falls back to the
+// global; an unparseable global falls back to 'report'.
+export function specialtyGateMode(env = process.env, specialtyKey = null) {
+  const parse = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const value = String(raw).trim().toLowerCase();
+    return ['off', 'report', 'enforce'].includes(value) ? value : null;
+  };
+  if (specialtyKey) {
+    const perKey = parse(env[`SPECIALTY_DEPARTMENT_GATE_MODE_${String(specialtyKey).toUpperCase()}`]);
+    if (perKey) return perKey;
+  }
+  return parse(env.SPECIALTY_DEPARTMENT_GATE_MODE) ?? 'report';
 }
 
 export function normalizeDepartment(value) {
