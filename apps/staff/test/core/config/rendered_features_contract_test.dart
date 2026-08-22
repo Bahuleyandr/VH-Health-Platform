@@ -13,10 +13,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 
-Set<String> renderedIds(String rawRole) =>
-    RoleFeatures.getFeaturesForRawRole(rawRole)
-        .map((feature) => feature.id)
-        .toSet();
+Set<String> renderedIds(String rawRole, {String? department}) =>
+    RoleFeatures.getFeaturesForRawRole(
+      rawRole,
+      department: department,
+    ).map((feature) => feature.id).toSet();
+
+const specialtyIds = {
+  'dental_charting',
+  'oncology',
+  'radiation_oncology',
+  'ophthalmology',
+  'transplant_program',
+};
 
 void main() {
   group('rendered (contract-intersected) features', () {
@@ -35,6 +44,56 @@ void main() {
     test('an IP staff nurse renders nursing notes', () {
       final ids = renderedIds('IP_STAFF_NURSE');
       expect(ids, contains('nursing_notes'));
+    });
+
+    test('a General Medicine doctor renders NO specialty tiles', () {
+      final ids = renderedIds('DOCTOR', department: 'General Medicine');
+      expect(ids.intersection(specialtyIds), isEmpty);
+    });
+
+    test('a Dentistry doctor keeps dental charting and only dental charting '
+        'of the specialty set', () {
+      final ids = renderedIds('DOCTOR', department: 'Dentistry');
+      expect(ids, contains('dental_charting'));
+      expect(ids.intersection(specialtyIds), {'dental_charting'});
+    });
+
+    test('an Oncology doctor keeps oncology and radiation oncology', () {
+      final ids = renderedIds('DOCTOR', department: 'Oncology');
+      expect(ids, containsAll(['oncology', 'radiation_oncology']));
+      expect(ids.contains('dental_charting'), isFalse);
+    });
+
+    test('a Nephrology doctor keeps the transplant programme', () {
+      final ids = renderedIds('DOCTOR', department: 'Nephrology');
+      expect(ids, contains('transplant_program'));
+    });
+
+    test('a doctor with NO stored department renders no specialty tiles '
+        '(fail-closed, mirroring server enforce)', () {
+      final ids = renderedIds('DOCTOR');
+      expect(ids.intersection(specialtyIds), isEmpty);
+    });
+
+    test('the Medical Superintendent bypasses the department filter', () {
+      final withDept = renderedIds(
+        'MEDICAL_SUPERINTENDENT',
+        department: 'Medical Administration',
+      );
+      final withoutDept = renderedIds('MEDICAL_SUPERINTENDENT');
+      // Bypass means department never changes what the role itself grants.
+      expect(withDept, withoutDept);
+    });
+
+    test('department normalization strips punctuation and parentheticals', () {
+      expect(
+        RoleFeatures.normalizeStaffDepartment('ENT (Otorhinolaryngology)'),
+        'ent',
+      );
+      expect(
+        RoleFeatures.normalizeStaffDepartment(' Radiation-Oncology '),
+        'radiation oncology',
+      );
     });
 
     test('every hand-granted feature id has a contract entry — a feature with '

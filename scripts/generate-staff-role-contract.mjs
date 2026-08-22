@@ -46,6 +46,11 @@ import {
   DEVICE_ASSOCIATION_OPERATOR_ROLES,
 } from '../apps/backend/src/utils/roleHelpers.js';
 import { normalizeRole } from '../apps/backend/src/utils/roles.js';
+import {
+  SPECIALTY_DEPARTMENT_ALIASES,
+  SPECIALTY_GATE_BYPASS_ROLES,
+  normalizeDepartment,
+} from '../apps/backend/src/middleware/specialtyDepartmentMiddleware.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const generatedStaffRoleContractPath = resolve(
@@ -361,10 +366,29 @@ export function buildStaffRoleContract() {
     ]),
   );
 
+  // Specialty tiles filter by the USER department, not the role. Feature ids
+  // map to the backend gate keys; the alias sets are normalized exactly as
+  // the server middleware normalizes, so client and server agree.
+  const specialtyFeatureKeys = {
+    dental_charting: 'dental',
+    oncology: 'oncology',
+    radiation_oncology: 'radiation_oncology',
+    ophthalmology: 'ophthalmology',
+    transplant_program: 'transplant',
+  };
+  const specialtyFeatureDepartments = Object.fromEntries(
+    Object.entries(specialtyFeatureKeys).map(([featureId, key]) => [
+      featureId,
+      SPECIALTY_DEPARTMENT_ALIASES[key].map(normalizeDepartment),
+    ]),
+  );
+
   return {
     staffRoleCodes,
     archetypes,
     featureRouteRoles,
+    specialtyFeatureDepartments,
+    specialtyGateBypassRoles: [...SPECIALTY_GATE_BYPASS_ROLES],
     clinicalStaffRouteRoles: uniqueStaff(CLINICAL_STAFF_ROUTE_ROLES, staffRoleCodes),
     patientLookupRouteRoles: uniqueStaff(PATIENT_LOOKUP_ROUTE_ROLES, staffRoleCodes),
     maternityRouteRoles: uniqueStaff(MATERNITY_ROUTE_ROLES, staffRoleCodes),
@@ -394,6 +418,8 @@ export function renderStaffRoleContractDart() {
     + `${renderSet('canonicalStaffRoleCodes', contract.staffRoleCodes)}\n\n`
     + `${renderMap('canonicalStaffRoleArchetypeCodes', contract.archetypes)}\n\n`
     + `${renderSetMap('canonicalStaffFeatureRouteRoleCodes', contract.featureRouteRoles)}\n\n`
+    + `${renderSetMap('canonicalSpecialtyFeatureDepartments', contract.specialtyFeatureDepartments)}\n\n`
+    + `${renderSet('canonicalSpecialtyGateBypassRoleCodes', contract.specialtyGateBypassRoles)}\n\n`
     + `${renderSet('canonicalClinicalStaffRouteRoleCodes', contract.clinicalStaffRouteRoles)}\n\n`
     + `${renderSet('canonicalPatientLookupRouteRoleCodes', contract.patientLookupRouteRoles)}\n\n`
     + `${renderSet('canonicalMaternityRouteRoleCodes', contract.maternityRouteRoles)}\n\n`

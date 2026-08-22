@@ -4,7 +4,7 @@
 
 // dart format off
 
-const String staffRoleContractSourceSha256 = '76582619e0f47040cad8022b056f8db8c7e820546737262e624f6aa6d42c2e94';
+const String staffRoleContractSourceSha256 = '487f293d1b31bf06c6ce01d5ec69cf5c1d6b267cbb1725f1121f3f93c07847db';
 
 const Set<String> canonicalStaffRoleCodes = {
   'SUPER_ADMIN',
@@ -248,6 +248,22 @@ const Map<String, Set<String>> canonicalStaffFeatureRouteRoleCodes = {
   'theatre': {'SUPER_ADMIN', 'DOCTOR', 'DUTY_DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'ADMIN', 'ANESTHETIST', 'ANAESTHETIST', 'OT_STAFF', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'},
   'transplant_program': {'SUPER_ADMIN', 'DOCTOR', 'DUTY_DOCTOR', 'MEDICAL_SUPERINTENDENT', 'NURSING_STAFF', 'NURSING_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'MEDICAL_RECORDS', 'ADMIN', 'ANESTHETIST', 'ANAESTHETIST', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR', 'OT_STAFF', 'CMO', 'CNO', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_SUPERINTENDENT', 'SENIOR_DOCTOR', 'ICU_NURSE', 'ICU_INCHARGE', 'ICU_STAFF', 'ER_STAFF', 'PHARMACIST'},
   'ward_mode': {'SUPER_ADMIN', 'DOCTOR', 'DUTY_DOCTOR', 'MEDICAL_SUPERINTENDENT', 'NURSING_STAFF', 'NURSING_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'MEDICAL_RECORDS', 'ADMIN', 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'ANESTHETIST', 'ANAESTHETIST', 'DIETITIAN', 'PHYSIOTHERAPIST', 'SOCIAL_WORKER', 'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'INSURANCE_COORDINATOR', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR', 'OT_STAFF', 'CMO', 'CNO', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'COUNSELLOR', 'CARE_COORDINATOR', 'CLAIMS_MANAGER', 'DIETARY_STAFF', 'NURSING_SUPERINTENDENT', 'SENIOR_DOCTOR', 'ICU_NURSE', 'ICU_INCHARGE', 'ICU_STAFF', 'ER_STAFF', 'PHARMACIST'},
+};
+
+const Map<String, Set<String>> canonicalSpecialtyFeatureDepartments = {
+  'dental_charting': {'dentistry', 'dental'},
+  'oncology': {'oncology', 'medical oncology', 'clinical oncology'},
+  'radiation_oncology': {'oncology', 'radiation oncology', 'radiotherapy'},
+  'ophthalmology': {'ophthalmology'},
+  'transplant_program': {'nephrology', 'general surgery', 'urology', 'transplant'},
+};
+
+const Set<String> canonicalSpecialtyGateBypassRoleCodes = {
+  'SUPER_ADMIN',
+  'ADMIN',
+  'CMO',
+  'CNO',
+  'MEDICAL_SUPERINTENDENT',
 };
 
 const Set<String> canonicalClinicalStaffRouteRoleCodes = {

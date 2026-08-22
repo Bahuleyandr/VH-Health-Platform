@@ -73,6 +73,13 @@ spec:
               value: --max-old-space-size=768
             - name: TENANT_BASE_HOST
               value: vhhealth.app
+            # Specialty department gate ENFORCED on the rig: seeded staff carry
+            # clean departments, so the fail-closed mode is safe here and lets
+            # testers see the gate for real. Production overlays keep the
+            # 'report' default until their department data is cleaned up and
+            # the mismatch ledger reviewed (2026-08-22 audit rollout plan).
+            - name: SPECIALTY_DEPARTMENT_GATE_MODE
+              value: enforce
             - name: PORT
               value: "5000"
             # DalekDefender's bootstrap DB role is a superuser so it can run
