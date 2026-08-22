@@ -361,7 +361,7 @@ class FeedbackService {
         COUNT(*) FILTER (WHERE rating = 3) as three_star,
         COUNT(*) FILTER (WHERE rating = 2) as two_star,
         COUNT(*) FILTER (WHERE rating = 1) as one_star,
-        COUNT(DISTINCT phone) as unique_users,
+        COUNT(DISTINCT f.phone) as unique_users,
         COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
       FROM feedback f
       ${FEEDBACK_TENANT_JOIN}

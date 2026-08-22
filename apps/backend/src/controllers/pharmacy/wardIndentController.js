@@ -23,6 +23,16 @@ import {
   rejectWardIndent,
 } from '../../services/ipd/ipdSupportService.js';
 import { error, success } from '../../utils/responseHelper.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+
+// Every ipdSupportService ward-indent function takes tenantId and
+// requireTenantId THROWS in production when it is absent (dev/CI fall back
+// to the default tenant, which is why the omission shipped green) — the
+// whole surface answered 403 "Tenant context required" to every role in
+// production (2026-08-22 audit).
+function tenantOf(req) {
+  return resolveTenantOrThrow(req);
+}
 
 function parseIntParam(raw) {
   const n = Number.parseInt(raw, 10);
@@ -42,7 +52,7 @@ export const listIndents = async (req, res) => {
     // 2026-05-22-inpatient-admission-pharmacy-3e9d3302.
     const admissionId = req.query.admission_id ? parseIntParam(req.query.admission_id) : null;
     const patientUid = req.query.patient_uid ? String(req.query.patient_uid).trim() : null;
-    const indents = await listWardIndents({ wardId, status, admissionId, patientUid, limit });
+    const indents = await listWardIndents({ wardId, status, admissionId, patientUid, limit, tenantId: tenantOf(req) });
     success(res, indents, 'Ward indents retrieved');
   } catch (err) {
     logger.error('listIndents error:', err);
@@ -54,7 +64,7 @@ export const getIndent = async (req, res) => {
   try {
     const indentId = parseIntParam(req.params.id);
     if (!indentId) return error(res, 'Invalid indent id', 400);
-    const indent = await getWardIndent(indentId);
+    const indent = await getWardIndent(indentId, { tenantId: tenantOf(req) });
     if (!indent) return error(res, 'Ward indent not found', 404);
     success(res, indent, 'Ward indent retrieved');
   } catch (err) {
@@ -74,6 +84,7 @@ export const createIndent = async (req, res) => {
       items,
       notes: notes ?? null,
       requestedBy,
+      tenantId: tenantOf(req),
     });
     success(res, indent, 'Ward indent created', 201);
   } catch (err) {
@@ -88,7 +99,7 @@ export const approveIndent = async (req, res) => {
     if (!indentId) return error(res, 'Invalid indent id', 400);
     const approvedBy = req.user?.uid;
     if (!approvedBy) return error(res, 'Authenticated uid required', 401);
-    const indent = await approveWardIndent({ indentId, approvedBy });
+    const indent = await approveWardIndent({ indentId, approvedBy, tenantId: tenantOf(req) });
     success(res, indent, 'Ward indent approved');
   } catch (err) {
     logger.error('approveIndent error:', err);
@@ -103,7 +114,7 @@ export const rejectIndent = async (req, res) => {
     const rejectedBy = req.user?.uid;
     if (!rejectedBy) return error(res, 'Authenticated uid required', 401);
     const reason = req.body?.reason;
-    const indent = await rejectWardIndent({ indentId, rejectedBy, reason });
+    const indent = await rejectWardIndent({ indentId, rejectedBy, reason, tenantId: tenantOf(req) });
     success(res, indent, 'Ward indent rejected');
   } catch (err) {
     logger.error('rejectIndent error:', err);
@@ -125,7 +136,7 @@ export const issueIndent = async (req, res) => {
             quantity_issued: Number(x.quantity_issued),
           }))
         : [];
-    const indent = await issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued });
+    const indent = await issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued, tenantId: tenantOf(req) });
     success(res, indent, 'Ward indent issued');
   } catch (err) {
     logger.error('issueIndent error:', err);
@@ -139,7 +150,7 @@ export const receiveIndent = async (req, res) => {
     if (!indentId) return error(res, 'Invalid indent id', 400);
     const receivedBy = req.user?.uid;
     if (!receivedBy) return error(res, 'Authenticated uid required', 401);
-    const indent = await receiveWardIndent({ indentId, receivedBy });
+    const indent = await receiveWardIndent({ indentId, receivedBy, tenantId: tenantOf(req) });
     success(res, indent, 'Ward indent received');
   } catch (err) {
     logger.error('receiveIndent error:', err);

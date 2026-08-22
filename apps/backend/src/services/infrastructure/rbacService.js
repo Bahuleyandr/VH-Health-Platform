@@ -71,7 +71,12 @@ export class RBACService {
                COUNT(CASE WHEN is_active = true THEN 1 END) AS active_count
         FROM users
         GROUP BY role
-      `).catch(() => ({ rows: [] }));
+      `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        });
       const roleStatRows = Array.isArray(roleStats) ? roleStats : roleStats.rows || [];
 
       const rolesWithDetails = allRoles.map(role => {
@@ -263,14 +268,24 @@ export class RBACService {
           LEFT JOIN users u ON ura.changed_by_uid = u.uid
           ORDER BY ura.changed_at DESC
           LIMIT 20
-        `).catch(() => ({ rows: [] })),
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        }),
         prisma.$queryRawUnsafe(`
           SELECT role, COUNT(*) as active_count
           FROM users
-          WHERE last_login > NOW() - INTERVAL '7 days'
+          WHERE last_sign_in_at > NOW() - INTERVAL '7 days'
             AND is_active = true
           GROUP BY role
-        `).catch(() => ({ rows: [] })),
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        }),
         prisma.$queryRawUnsafe(`
           SELECT role,
                  COUNT(*) as new_count,
@@ -278,7 +293,12 @@ export class RBACService {
           FROM users
           WHERE registered_at > NOW() - INTERVAL '${days} days'
           GROUP BY role
-        `).catch(() => ({ rows: [] }))
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        })
       ]);
 
       const roleCapacity = roleDistribution.map(row => {
@@ -492,7 +512,12 @@ export class RBACService {
         ${where}
         ORDER BY ura.changed_at DESC
         LIMIT $${vals.length + 1} OFFSET $${vals.length + 2}
-      `, ...vals, listQuery.limit, listQuery.offset).catch(() => ({ rows: [] }));
+      `, ...vals, listQuery.limit, listQuery.offset).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        });
 
       // Count with same WHERE & same param list
       const total = await prisma.$queryRawUnsafe(
@@ -529,7 +554,12 @@ export class RBACService {
           GROUP BY phone
           HAVING COUNT(*) > 2
           ORDER BY change_count DESC
-        `).catch(() => ({ rows: [] })),
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        }),
 
         prisma.$queryRawUnsafe(`
           SELECT 
@@ -541,7 +571,12 @@ export class RBACService {
           WHERE ura.new_role IN ('${ADMIN}', '${DOCTOR}')
             AND ura.changed_at > NOW() - INTERVAL '7 days'
           ORDER BY ura.changed_at DESC
-        `).catch(() => ({ rows: [] })),
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        }),
 
         prisma.$queryRawUnsafe(`
           SELECT 
@@ -553,7 +588,12 @@ export class RBACService {
           WHERE u.role != '${ADMIN}'
             AND ura.changed_at > NOW() - INTERVAL '7 days'
           ORDER BY ura.changed_at DESC
-        `).catch(() => ({ rows: [] })),
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        }),
 
         prisma.$queryRawUnsafe(`
           SELECT 
@@ -577,7 +617,12 @@ export class RBACService {
             WHEN role = '${GENERAL_STAFF}' THEN 40
             ELSE 999
           END
-        `).catch(() => ({ rows: [] }))
+        `).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        })
       ]);
 
       const totalAlerts = suspiciousChanges.length +
@@ -700,7 +745,12 @@ export class RBACService {
          ORDER BY changed_at DESC 
          LIMIT 5`,
         userInfo.phone
-      ).catch(() => ({ rows: [] }));
+      ).catch((err) => {
+          // Log-and-degrade, never silently: a permanent SQL error here used to
+          // report zero active users as if it were real data (2026-08-22 audit).
+          logger.error('RBAC analytics sub-query failed; returning empty segment', { error: err.message });
+          return { rows: [] };
+        });
 
       const roleStats = await prisma.$queryRawUnsafe(
         'SELECT COUNT(*) as total_users FROM users WHERE role = $1 AND is_active = true',

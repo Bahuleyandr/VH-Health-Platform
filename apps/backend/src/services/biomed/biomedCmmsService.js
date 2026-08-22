@@ -652,8 +652,14 @@ export async function listMyWorkOrders({ tenantId = null, userId = null, userUid
   const id = optionalInt(userId, 'user_id');
   if (!id && !uid) throw AppError.badRequest('user_id or user_uid is required');
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 250);
+  // "Mine" = assigned to me OR listed in the recipients table. That widening
+  // must be an EXISTS semi-join, not a LEFT JOIN + DISTINCT: a work order can
+  // have several recipient rows (duplicates), and SELECT DISTINCT with the
+  // computed ORDER BY expressions below is rejected by Postgres outright
+  // (42P10: ORDER BY expressions must appear in select list) — the previous
+  // shape failed on EVERY call regardless of data (2026-08-22 audit).
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT DISTINCT wo.*,
+    `SELECT wo.*,
             d.device_code,
             d.device_type,
             d.location AS device_location,
@@ -661,13 +667,20 @@ export async function listMyWorkOrders({ tenantId = null, userId = null, userUid
        FROM biomed_work_orders wo
        JOIN clinical_ai_biomed_devices d ON d.id = wo.biomed_device_id
        LEFT JOIN users u ON u.id = wo.assigned_to_id
-       LEFT JOIN biomed_work_order_recipients r
-         ON r.tenant_id = wo.tenant_id
-        AND r.work_order_id = wo.id
       WHERE wo.tenant_id = $1::uuid
         AND (
-          ($2::int IS NOT NULL AND (wo.assigned_to_id = $2 OR r.staff_id = $2))
-          OR ($3::uuid IS NOT NULL AND (wo.assigned_to_uid = $3 OR r.staff_uid = $3))
+          ($2::int IS NOT NULL AND wo.assigned_to_id = $2)
+          OR ($3::uuid IS NOT NULL AND wo.assigned_to_uid = $3)
+          OR EXISTS (
+            SELECT 1
+              FROM biomed_work_order_recipients r
+             WHERE r.tenant_id = wo.tenant_id
+               AND r.work_order_id = wo.id
+               AND (
+                 ($2::int IS NOT NULL AND r.staff_id = $2)
+                 OR ($3::uuid IS NOT NULL AND r.staff_uid = $3)
+               )
+          )
         )
       ORDER BY
         CASE WHEN wo.status IN ('open', 'assigned', 'in_progress') THEN 0 ELSE 1 END,

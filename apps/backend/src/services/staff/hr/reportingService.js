@@ -1,5 +1,6 @@
 // src/services/staff/hr/reportingService.js
 import prisma from '../../../lib/prisma.js';
+import { AppError } from '../../../utils/AppError.js';
 
 const fmtDate = (d) => d
   ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -38,7 +39,11 @@ export const generateStaffReport = async (reportParams) => {
       reportData = await generatePayrollReport(department);
       break;
     default:
-      throw new Error('Invalid report type');
+      // A missing/unknown report_type is caller input, not a server fault —
+      // the bare Error here used to surface as a 500 (2026-08-22 audit).
+      throw AppError.badRequest(
+        'Invalid report_type; expected one of attendance | performance | leave | payroll',
+      );
   }
 
   if (format === 'csv') {

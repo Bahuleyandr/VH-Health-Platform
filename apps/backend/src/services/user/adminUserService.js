@@ -22,14 +22,14 @@ export class AdminUserService {
         SELECT
           COUNT(*)::int AS total_users,
           COUNT(*) FILTER (WHERE registered_at > NOW() - (${intervalDays} || ' days')::interval)::int AS new_users,
-          COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days')::int AS active_users_7d,
-          COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '30 days')::int AS active_users_30d,
-          COUNT(DISTINCT CASE WHEN last_login > NOW() - INTERVAL '24 hours' THEN id END)::int AS daily_active_users
+          COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days')::int AS active_users_7d,
+          COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '30 days')::int AS active_users_30d,
+          COUNT(DISTINCT CASE WHEN last_sign_in_at > NOW() - INTERVAL '24 hours' THEN id END)::int AS daily_active_users
         FROM users
       `,
       prisma.$queryRaw`
         SELECT role, COUNT(*)::int AS count,
-               COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days')::int AS active_count
+               COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days')::int AS active_count
         FROM users
         GROUP BY role
         ORDER BY count DESC
@@ -213,8 +213,8 @@ export class AdminUserService {
           SELECT
             role,
             COUNT(*)::int AS total_users,
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days')::int AS active_7d,
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '30 days')::int AS active_30d,
+            COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days')::int AS active_7d,
+            COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '30 days')::int AS active_30d,
             COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days')::int AS new_users_30d
           FROM users
           GROUP BY role
@@ -292,7 +292,7 @@ export class AdminUserService {
           COUNT(CASE WHEN role = 'PATIENT' THEN 1 END)::int AS patients,
           COUNT(CASE WHEN role IN ('NURSE', 'PHARMACY_STAFF', 'LAB_STAFF') THEN 1 END)::int AS staff,
           COUNT(CASE WHEN registered_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END)::int AS new_users_30d,
-          COUNT(CASE WHEN last_login >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END)::int AS active_users_7d
+          COUNT(CASE WHEN last_sign_in_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END)::int AS active_users_7d
         FROM users
       `,
       prisma.$queryRaw`
@@ -307,10 +307,10 @@ export class AdminUserService {
       `,
       prisma.$queryRaw`
         SELECT
-          COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '1 hour')::int AS active_sessions,
+          COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '1 hour')::int AS active_sessions,
           COUNT(DISTINCT role)::int AS active_roles
         FROM users
-        WHERE last_login > NOW() - INTERVAL '1 hour'
+        WHERE last_sign_in_at > NOW() - INTERVAL '1 hour'
       `,
     ]);
 

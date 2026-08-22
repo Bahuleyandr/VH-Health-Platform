@@ -138,7 +138,7 @@ export const getProfile = async (req, res) => {
     return success(res, result, 'Profile retrieved successfully');
   } catch (err) {
     logger.error('[GetProfile]:', err);
-    return error(res, 'Failed to get profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return error(res, err.statusCode ? err.message : 'Failed to get profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
