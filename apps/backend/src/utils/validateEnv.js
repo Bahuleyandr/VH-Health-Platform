@@ -51,6 +51,13 @@ const SIGNED_INTEGRATION_SECRET_HELP =
 export const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
   HL7_INBOUND_ENABLED: Joi.string().valid('true', 'false').default('false').label('HL7_INBOUND_ENABLED'),
+  // Specialty department gate (dental/oncology/radiation-oncology/
+  // ophthalmology/transplant). 'report' (default) logs would-be denials
+  // without blocking; flipping to 'enforce' is an explicit operator action.
+  SPECIALTY_DEPARTMENT_GATE_MODE: Joi.string()
+    .valid('off', 'report', 'enforce')
+    .default('report')
+    .label('SPECIALTY_DEPARTMENT_GATE_MODE'),
   HL7_INBOUND_SHARED_SECRET: Joi.when('HL7_INBOUND_ENABLED', {
     is: 'true',
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
