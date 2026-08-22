@@ -39,10 +39,14 @@ const EXEMPT_MOUNTS = {
   '/api/v1/gdpr': 'GDPR self-service; strictly self-scoped to req.user',
   '/api/v1/sessions': 'own-session management; self-scoped to req.user',
   '/api/v1/abdm': 'ABDM patient consent flows; self-scoped + signature-verified callbacks',
-  // NOTE: '/api/v1/staff' is NOT exempt — its first mount (app.js:678) is
-  // requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES) + staffPhoneRoutes,
-  // so the path is mount-level gated. The later app.use('/api/v1/staff',
-  // staffRoutes) inherits that first gate (Express runs same-path mounts in order).
+  // '/api/v1/staff' previously relied on the phone-self-service requireRole
+  // riding the FIRST same-path mount — but Express runs mount middleware for
+  // every URL under the prefix before router matching, so that narrow gate was
+  // a ceiling over every sibling staff router and locked ~25 roles (CMO, CNO,
+  // MEDICAL_SUPERINTENDENT, ANAESTHETIST, …) out of their own attendance,
+  // leave and payslips (2026-08-22 audit; #905 shape). "A later mount inherits
+  // the first gate" is exactly the misconception that shipped it.
+  '/api/v1/staff': 'phone gate is path-scoped inside phoneRoutes.js (/phone, /queries); every other staff sub-router carries its own wrapAutoRBAC key (staffRoutes barrel, staffAttendanceRoutes, staffHRRoutes, staffAdminRoutes, …) — pinned by staffPrefixGateScope.test.js',
   '/api/v1/admin/ed': 'pure 308 redirect to the role-gated /api/v1/ed mount',
   '/api/v1/admin/surgical': 'pure 308 redirect to the role-gated /api/v1/surgical mount',
   '/api/v1/abdm/enrolment': 'staffRouter.use(requireRole(...PATIENT_REGISTRY_WRITE_ROLES)) at the top of abdmEnrolmentRoutes.js (front-desk assisted ABHA enrolment)',
