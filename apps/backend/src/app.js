@@ -24,6 +24,7 @@ import {
 } from './middleware/infrastructureAccessMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import appCheckMiddleware from './middleware/appCheckMiddleware.js';
+import { specialtyDepartmentGuard } from './middleware/specialtyDepartmentMiddleware.js';
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
@@ -1513,23 +1514,23 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 // generic :id parameters resolve to the owning patient before the care-team
 // decision. Tenant-wide protocols, settings, and operational boards remain
 // role-gated without pretending a patient context exists.
-app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), specialtyDepartmentGuard('oncology'), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
 // NL-13 P4 — nuclear-medicine & radiotherapy COORDINATION (integrate-only). Referrals,
 // external plan/fraction references, nuclear-medicine orders + radioisotope administration,
 // and owner-sourced radiation-safety evidence. Ships inert behind a per-tenant flag; stores
 // external references only (never computes plans / drives delivery). Same care-team-governed
 // patient guard as the sibling specialty modules.
-app.use('/api/v1/radiation-oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('RADIATION_ONCOLOGY'), radiationOncologyRoutes);
+app.use('/api/v1/radiation-oncology', requireRole(...CLINICAL_STAFF_ROLES), specialtyDepartmentGuard('radiation_oncology'), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('RADIATION_ONCOLOGY'), radiationOncologyRoutes);
 // Transplant program management (NL-13 P6) stays inert behind a per-tenant
 // owner-evidence flag; service writes enforce transplant clinical privileges.
-app.use('/api/v1/transplant', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('TRANSPLANT_PROGRAM'), transplantRoutes);
+app.use('/api/v1/transplant', requireRole(...CLINICAL_STAFF_ROLES), specialtyDepartmentGuard('transplant'), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('TRANSPLANT_PROGRAM'), transplantRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
-app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), specialtyDepartmentGuard('dental'), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
-app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), specialtyDepartmentGuard('ophthalmology'), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // Physiotherapy and rehabilitation (NL6-11) — follow-up intake, rehab plans,
 // structured sessions, and patient-visible outcome progress.
