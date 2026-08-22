@@ -49,6 +49,7 @@ class MainScaffold extends StatefulWidget {
 class _MainScaffoldState extends State<MainScaffold> {
   StaffRole _role = StaffRole.general;
   String _rawRole = StaffRole.general.value;
+  String? _department;
   Set<String>? _policyFeatureIds;
 
   @override
@@ -59,11 +60,13 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Future<void> _loadRole() async {
     final roleStr = await ApiConfig.getRole();
+    final department = await ApiConfig.getDepartment();
     final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
     setState(() {
       _rawRole = roleStr;
       _role = role;
+      _department = department;
     });
     unawaited(_loadRolePolicyFeatures(roleStr, role));
     unawaited(context.read<RealtimeProvider>().ensureConnected());
@@ -147,6 +150,8 @@ class _MainScaffoldState extends State<MainScaffold> {
       final navItems = RoleFeatures.getWorkbenchNavForRole(
         _role,
         policyFeatureIds: _policyFeatureIds,
+        rawRole: _rawRole,
+        department: _department,
       ).where((item) => _canNavigateTo(item.route)).toList(growable: false);
       final s = AppStrings.of(context);
       final selectedIndex = _currentRailIndex(navItems);

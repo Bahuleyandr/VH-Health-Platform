@@ -963,7 +963,15 @@ void main() {
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, contains('/patient-records'));
       expect(doctorRoutes, contains('/clinical-inbox'));
-      expect(doctorRoutes, contains('/dental'));
+      // Specialty rail items are department-filtered (fail-closed): a doctor
+      // with no department context loses /dental; a Dentistry doctor keeps it.
+      expect(doctorRoutes, isNot(contains('/dental')));
+      final dentistRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.doctor,
+        rawRole: 'DOCTOR',
+        department: 'Dentistry',
+      ).map((item) => item.route).toSet();
+      expect(dentistRoutes, contains('/dental'));
       expect(
         doctorRoutes,
         contains('/appointments?context=op&scope=my&workspace=doctor'),
@@ -995,7 +1003,15 @@ void main() {
       expect(opNurseRoutes, contains('/clinical-inbox'));
       expect(opNurseRoutes, contains('/op/nursing-dashboard'));
       expect(opNurseRoutes, contains('/front-office'));
-      expect(opNurseRoutes, contains('/dental'));
+      // Department-filtered (fail-closed): no department context, no dental
+      // rail item — an OP nurse in the dental OPD gets it via department.
+      expect(opNurseRoutes, isNot(contains('/dental')));
+      final dentalOpNurseRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.opStaffNurse,
+        rawRole: 'OP_STAFF_NURSE',
+        department: 'Dental',
+      ).map((item) => item.route).toSet();
+      expect(dentalOpNurseRoutes, contains('/dental'));
       expect(opNurseRoutes, isNot(contains('/emr/admissions')));
     });
 
@@ -1030,10 +1046,24 @@ void main() {
           RoleFeatures.hasPayrollSelfService(role),
           reason: '$role payroll side bar visibility drifted',
         );
+        // The dental rail item now needs role predicate AND department (or
+        // leadership bypass). Role-gate drift is checked with a matching
+        // department; the department-less call pins the fail-closed rule.
+        final dentalRoutes = RoleFeatures.getWorkbenchNavForRole(
+          role,
+          rawRole: role.value,
+          department: 'Dentistry',
+        ).map((item) => item.route).toSet();
         expect(
-          routes.contains('/dental'),
+          dentalRoutes.contains('/dental'),
           RoleFeatures.hasDentalCharting(role),
           reason: '$role dental side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/dental'),
+          RoleFeatures.hasDentalCharting(role) &&
+              canonicalSpecialtyGateBypassRoleCodes.contains(role.value),
+          reason: '$role dental no-department fail-closed drifted',
         );
         expect(
           routes.contains('/audit-logs'),

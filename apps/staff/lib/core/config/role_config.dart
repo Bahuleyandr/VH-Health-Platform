@@ -2688,6 +2688,8 @@ class RoleFeatures {
   static List<WorkbenchNavItem> getWorkbenchNavForRole(
     StaffRole role, {
     Set<String>? policyFeatureIds,
+    String? rawRole,
+    String? department,
   }) {
     final items = <WorkbenchNavItem>[
       const WorkbenchNavItem(
@@ -2943,8 +2945,21 @@ class RoleFeatures {
       ),
     ]);
 
-    if (policyFeatureIds == null || policyFeatureIds.isEmpty) return items;
-    return items
+    // The rail must apply the SAME specialty department filter as the
+    // dashboard grids — it was the one render surface that didn't, so the
+    // 2026-08-22 fix hid Dental/Oncology/Transplant from Daily Work while
+    // the sidebar kept showing them.
+    final normalizedRole = (rawRole ?? role.value).trim().toUpperCase();
+    final filtered = items
+        .where((item) {
+          final featureId = item.featureId;
+          if (featureId == null) return true;
+          return specialtyFeatureVisible(featureId, normalizedRole, department);
+        })
+        .toList(growable: false);
+
+    if (policyFeatureIds == null || policyFeatureIds.isEmpty) return filtered;
+    return filtered
         .where((item) {
           final featureId = item.featureId;
           return featureId == null || policyFeatureIds.contains(featureId);
