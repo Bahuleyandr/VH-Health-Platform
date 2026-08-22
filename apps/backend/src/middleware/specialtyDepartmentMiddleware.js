@@ -33,52 +33,25 @@ import logger from '../logging/logger.js';
 import { error } from '../utils/responseHelper.js';
 import { logSecurityEvent } from '../utils/securityAuditLogger.js';
 import { normalizeRole } from '../utils/roles.js';
+import {
+  SPECIALTY_DEPARTMENT_ALIASES,
+  SPECIALTY_GATE_BYPASS_ROLES,
+  specialtyGateMode,
+  normalizeDepartment,
+  departmentsMatchSpecialty,
+} from '../config/specialtyDepartmentPolicy.js';
 
-// Alias sets are matched against BOTH the doctor-record department (normalized
-// via doctors.department_id -> departments.name — the reliable path) and the
-// free-text staff.department / doctors.department columns. Everything is
-// compared lowercased with punctuation collapsed.
-//
-// Transplant has no department of its own; the owner-approved interim mapping
-// is the renal/surgical services that run the programme. Adjust here — this
-// map is the single source of truth.
-export const SPECIALTY_DEPARTMENT_ALIASES = {
-  dental: ['dentistry', 'dental'],
-  oncology: ['oncology', 'medical oncology', 'clinical oncology'],
-  radiation_oncology: ['oncology', 'radiation oncology', 'radiotherapy'],
-  ophthalmology: ['ophthalmology'],
-  transplant: ['nephrology', 'general surgery', 'urology', 'transplant'],
+// The alias map, bypass roles, and normalization live in the dependency-free
+// config/specialtyDepartmentPolicy.js (single declaration shared with the
+// staff-app contract generator, which runs where @prisma/client is not
+// installed). Re-exported here so existing consumers keep one import site.
+export {
+  SPECIALTY_DEPARTMENT_ALIASES,
+  SPECIALTY_GATE_BYPASS_ROLES,
+  specialtyGateMode,
+  normalizeDepartment,
+  departmentsMatchSpecialty,
 };
-
-// Leadership/administrative bypass: these roles supervise every specialty.
-// Without it, enforce mode would lock the CMO out of every specialty module.
-export const SPECIALTY_GATE_BYPASS_ROLES = new Set([
-  'SUPER_ADMIN',
-  'ADMIN',
-  'CMO',
-  'CNO',
-  'MEDICAL_SUPERINTENDENT',
-]);
-
-export function specialtyGateMode(env = process.env) {
-  const raw = String(env.SPECIALTY_DEPARTMENT_GATE_MODE || 'report').trim().toLowerCase();
-  return ['off', 'report', 'enforce'].includes(raw) ? raw : 'report';
-}
-
-export function normalizeDepartment(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function departmentsMatchSpecialty(departments, specialtyKey) {
-  const aliases = SPECIALTY_DEPARTMENT_ALIASES[specialtyKey] || [];
-  const normalizedAliases = new Set(aliases.map(normalizeDepartment));
-  return [...departments].some((dept) => normalizedAliases.has(dept));
-}
 
 // Collect every department signal the platform holds for this caller:
 // the normalized doctor-record link, the doctor free-text column, and the
