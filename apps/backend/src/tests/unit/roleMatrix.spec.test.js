@@ -78,6 +78,10 @@ const GATES = [
       'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
+      // British/Indian spelling — first-class in CLINICAL_ROLES since the
+      // 2026-08-22 audit (it was selectable and rbacConfig-listed but the
+      // helpers rejected it, locking anaesthetists out of ~25 route files).
+      'ANAESTHETIST',
       'PHYSIOTHERAPIST',
       'DIETITIAN',
       'COUNSELLOR'
@@ -171,6 +175,7 @@ const GATES = [
       'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
+      'ANAESTHETIST',
       'PHYSIOTHERAPIST',
       'DIETITIAN',
       'COUNSELLOR',
