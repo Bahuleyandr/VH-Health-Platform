@@ -28,6 +28,16 @@ jest.unstable_mockModule('../../config/rolePolicyGraph.js', () => ({
   getRolePolicyVersion: () => 'test-policy-version',
 }));
 
+// phoneRoutes now imports its own path-scoped role gate (the 2026-08-22 fix
+// that moved the gate off the '/api/v1/staff' prefix mount). Mock the list
+// module too — the rolePolicyGraph mock above strips the exports the real
+// routeRolePolicy.js needs. NURSING_STAFF keeps this suite's fixture user
+// inside the gate; the real list's behaviour is pinned end-to-end by
+// src/tests/staffPrefixGateScope.test.js.
+jest.unstable_mockModule('../../config/routeRolePolicy.js', () => ({
+  STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES: ['NURSING_STAFF'],
+}));
+
 const router = (await import('../../routes/staff/phoneRoutes.js')).default;
 
 function makeApp() {
