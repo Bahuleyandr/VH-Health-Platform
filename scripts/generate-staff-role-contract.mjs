@@ -300,6 +300,14 @@ export function buildStaffRoleContract() {
     ),
     lab_bookings: LAB_ROUTE_ROLES,
     leave: selfServiceStaffRoles,
+    // The dashboard renders getFeaturesForRawRole = hand-written role list
+    // INTERSECTED with this contract, so a feature with no entry here can
+    // never render for any canonical role. maternity, calculators and
+    // nursing_notes were missing entirely — three whole modules unreachable
+    // from the app (2026-08-22 audit).
+    maternity: MATERNITY_ROUTE_ROLES,
+    calculators: CLINICAL_STAFF_ROUTE_ROLES,
+    nursing_notes: CLINICAL_STAFF_ROUTE_ROLES,
     leave_approvals: mergeRoles(PEOPLE_OPERATIONS_ROUTE_ROLES, rosterManagers),
     maintenance_roster: ROSTER_DEPARTMENT_POLICIES.maintenance.managerRoles,
     messaging: ALL_STAFF_MESSAGING_ROUTE_ROLES,
