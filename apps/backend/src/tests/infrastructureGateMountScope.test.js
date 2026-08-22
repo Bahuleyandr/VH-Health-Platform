@@ -59,14 +59,21 @@ describe('infrastructure admin gate mount scope', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('rides every infrastructure sub-mount', () => {
-    const infraPaths = ['/debug', '/api-docs', '/version', '/rbac'];
+  it('rides every admin-only infrastructure sub-mount', () => {
+    const infraPaths = ['/debug', '/api-docs', '/version'];
     for (const path of infraPaths) {
       const gated = stackOf(infrastructureRouter).some(
         (layer) => layer.handle === requireProductionInfrastructureAdmin && layerMatches(layer, path),
       );
       expect({ path, gated }).toEqual({ path, gated: true });
     }
+  });
+
+  it('does NOT ride /rbac — that router tiers its own access, and the mount gate denied the self-service policy reads to every non-admin role in production', () => {
+    const gated = stackOf(infrastructureRouter).some(
+      (layer) => layer.handle === requireProductionInfrastructureAdmin && layerMatches(layer, '/rbac'),
+    );
+    expect(gated).toBe(false);
   });
 
   describe('behavior with NODE_ENV=production (gate reads it per request)', () => {
@@ -109,6 +116,20 @@ describe('infrastructure admin gate mount scope', () => {
         .set('Authorization', `Bearer ${doctorToken}`);
       expect(res.status).toBe(403);
       expect(res.body).toEqual({ success: false, error: 'Forbidden' });
+    });
+
+    it('lets a DOCTOR read the self-service rbac tier (the mount gate used to 403 this in production)', async () => {
+      const res = await request(app)
+        .get('/api/v1/rbac/my-role')
+        .set('x-api-key', API_KEY)
+        .set('x-forwarded-proto', 'https')
+        .set('Authorization', `Bearer ${doctorToken}`);
+      // The rbac router self-authenticates and tiers per route; without a DB
+      // row this may 404/500, but it must never be the infra gate's bare deny.
+      expect({ status: res.status, error: res.body?.error }).not.toEqual({
+        status: 403,
+        error: 'Forbidden',
+      });
     });
   });
 });
