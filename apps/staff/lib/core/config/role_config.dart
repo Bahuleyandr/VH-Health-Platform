@@ -1409,12 +1409,48 @@ class RoleFeatures {
   /// Returns features authorized for an exact canonical backend role.
   /// Presentation archetypes remain useful for labels and ordering, but they
   /// must not grant or hide a protected route for a different raw role.
-  static List<DashboardFeature> getFeaturesForRawRole(String rawRole) {
+  /// Mirrors the backend gate's normalizeDepartment (specialtyDepartment-
+  /// Middleware.js): lowercase, parentheticals stripped, punctuation to
+  /// spaces, whitespace collapsed. The generated alias sets are normalized
+  /// with the SAME function server-side, so the comparison stays exact.
+  static String normalizeStaffDepartment(String? value) {
+    return (value ?? '')
+        .toLowerCase()
+        .replaceAll(RegExp(r'\(.*?\)'), ' ')
+        .replaceAll(RegExp(r'[^a-z0-9 ]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// True when the caller may see [featureId] given their department.
+  /// Non-specialty features always pass. Specialty features (the generated
+  /// canonicalSpecialtyFeatureDepartments map) require a department match,
+  /// with the same leadership bypass the server gate honors. A missing
+  /// department fails closed — mirroring enforce-mode server semantics.
+  static bool specialtyFeatureVisible(
+    String featureId,
+    String normalizedRole,
+    String? department,
+  ) {
+    final aliasSet = canonicalSpecialtyFeatureDepartments[featureId];
+    if (aliasSet == null) return true;
+    if (canonicalSpecialtyGateBypassRoleCodes.contains(normalizedRole)) {
+      return true;
+    }
+    return aliasSet.contains(normalizeStaffDepartment(department));
+  }
+
+  static List<DashboardFeature> getFeaturesForRawRole(
+    String rawRole, {
+    String? department,
+  }) {
     final role = StaffRole.tryFromString(rawRole);
     if (role == null) return const [];
     final normalized = rawRole.trim().toUpperCase();
+    bool visible(DashboardFeature feature) =>
+        specialtyFeatureVisible(feature.id, normalized, department);
     if (!canonicalStaffRoleCodes.contains(normalized)) {
-      return getFeaturesForRole(role);
+      return getFeaturesForRole(role).where(visible).toList();
     }
 
     final allowedIds = canonicalStaffFeatureRouteRoleCodes.entries
@@ -1427,7 +1463,9 @@ class RoleFeatures {
       ...getFeaturesForRole(role),
       ..._featureCatalogById.values,
     ]) {
-      if (allowedIds.contains(feature.id) && seen.add(feature.id)) {
+      if (allowedIds.contains(feature.id) &&
+          visible(feature) &&
+          seen.add(feature.id)) {
         ordered.add(feature);
       }
     }

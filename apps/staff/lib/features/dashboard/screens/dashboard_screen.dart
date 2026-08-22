@@ -38,6 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _staffId;
   StaffRole _role = StaffRole.general;
   String _rawRole = StaffRole.general.value;
+  String? _department;
   bool _loading = true;
 
   // Stats
@@ -105,9 +106,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.nursingSuperintendent ||
       _role.isAdminTier;
 
-  bool _hasFeature(String featureId) =>
-      RoleFeatures.getFeaturesForRawRole(_rawRole)
-          .any((feature) => feature.id == featureId);
+  bool _hasFeature(String featureId) => RoleFeatures.getFeaturesForRawRole(
+    _rawRole,
+    department: _department,
+  ).any((feature) => feature.id == featureId);
 
   bool get _roleHasAttendanceFeature => _hasFeature('attendance');
 
@@ -123,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _staffId = await ApiConfig.getStaffId();
       final roleStr = await AuthService.getRole();
       _rawRole = roleStr;
+      _department = await ApiConfig.getDepartment();
       _role = StaffRole.fromString(roleStr);
       _opAiAssistModules = const [];
 
@@ -291,7 +294,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final features = _featuresForDeviceMode(
       featuresWithOpAiAssistAvailability(
         role: _role,
-        features: RoleFeatures.getFeaturesForRawRole(_rawRole),
+        features: RoleFeatures.getFeaturesForRawRole(
+          _rawRole,
+          department: _department,
+        ),
         modules: _opAiAssistModules,
       ),
       mode,

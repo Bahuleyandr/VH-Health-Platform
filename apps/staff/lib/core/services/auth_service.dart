@@ -159,6 +159,14 @@ class AuthService {
       final phone = data['staff']?['phone'] ?? data['phone'];
       if (phone != null) await ApiConfig.savePhone(phone.toString());
 
+      // Department drives the specialty-module tile filter (dental/oncology/
+      // radiation-oncology/ophthalmology/transplant). Absent = no specialty
+      // match, mirroring the server gate's fail-closed enforce semantics.
+      final department = data['staff']?['department'] ?? data['department'];
+      if (department != null && department.toString().trim().isNotEmpty) {
+        await ApiConfig.saveDepartment(department.toString());
+      }
+
       if (trustedDeviceToken != null) {
         await saveDeviceToken(trustedDeviceToken);
       }

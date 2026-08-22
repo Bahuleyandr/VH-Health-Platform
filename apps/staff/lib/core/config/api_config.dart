@@ -100,6 +100,14 @@ class ApiConfig {
     return await _storage.read(key: 'staff_role') ?? 'GENERAL_STAFF';
   }
 
+  static Future<void> saveDepartment(String department) async {
+    await _storage.write(key: 'staff_department', value: department);
+  }
+
+  static Future<String?> getDepartment() async {
+    return await _storage.read(key: 'staff_department');
+  }
+
   static Future<void> savePhone(String phone) async {
     await _storage.write(key: 'staff_phone', value: phone);
   }
@@ -123,6 +131,7 @@ class ApiConfig {
       'staff_uid',
       'employee_id',
       'staff_role',
+      'staff_department',
       'staff_phone',
     ];
     for (final key in keys) {

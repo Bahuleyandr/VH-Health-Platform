@@ -46,6 +46,15 @@ import {
   DEVICE_ASSOCIATION_OPERATOR_ROLES,
 } from '../apps/backend/src/utils/roleHelpers.js';
 import { normalizeRole } from '../apps/backend/src/utils/roles.js';
+// The dependency-free policy module, NOT the middleware: this generator runs
+// in the Flutter CI job where backend node_modules (@prisma/client) are not
+// installed, and the middleware imports prisma at top level.
+import {
+  SPECIALTY_DEPARTMENT_ALIASES,
+  SPECIALTY_FEATURE_KEYS,
+  SPECIALTY_GATE_BYPASS_ROLES,
+  normalizeDepartment,
+} from '../apps/backend/src/config/specialtyDepartmentPolicy.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const generatedStaffRoleContractPath = resolve(
@@ -361,10 +370,24 @@ export function buildStaffRoleContract() {
     ]),
   );
 
+  // Specialty tiles filter by the USER department, not the role. Feature ids
+  // map to the backend gate keys via SPECIALTY_FEATURE_KEYS — derived from the
+  // same single declaration the server gate enforces, normalized identically,
+  // so client and server agree and a module cannot exist in one without the
+  // other.
+  const specialtyFeatureDepartments = Object.fromEntries(
+    Object.entries(SPECIALTY_FEATURE_KEYS).map(([featureId, key]) => [
+      featureId,
+      SPECIALTY_DEPARTMENT_ALIASES[key].map(normalizeDepartment),
+    ]),
+  );
+
   return {
     staffRoleCodes,
     archetypes,
     featureRouteRoles,
+    specialtyFeatureDepartments,
+    specialtyGateBypassRoles: [...SPECIALTY_GATE_BYPASS_ROLES],
     clinicalStaffRouteRoles: uniqueStaff(CLINICAL_STAFF_ROUTE_ROLES, staffRoleCodes),
     patientLookupRouteRoles: uniqueStaff(PATIENT_LOOKUP_ROUTE_ROLES, staffRoleCodes),
     maternityRouteRoles: uniqueStaff(MATERNITY_ROUTE_ROLES, staffRoleCodes),
@@ -394,6 +417,8 @@ export function renderStaffRoleContractDart() {
     + `${renderSet('canonicalStaffRoleCodes', contract.staffRoleCodes)}\n\n`
     + `${renderMap('canonicalStaffRoleArchetypeCodes', contract.archetypes)}\n\n`
     + `${renderSetMap('canonicalStaffFeatureRouteRoleCodes', contract.featureRouteRoles)}\n\n`
+    + `${renderSetMap('canonicalSpecialtyFeatureDepartments', contract.specialtyFeatureDepartments)}\n\n`
+    + `${renderSet('canonicalSpecialtyGateBypassRoleCodes', contract.specialtyGateBypassRoles)}\n\n`
     + `${renderSet('canonicalClinicalStaffRouteRoleCodes', contract.clinicalStaffRouteRoles)}\n\n`
     + `${renderSet('canonicalPatientLookupRouteRoleCodes', contract.patientLookupRouteRoles)}\n\n`
     + `${renderSet('canonicalMaternityRouteRoleCodes', contract.maternityRouteRoles)}\n\n`
