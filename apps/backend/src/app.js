@@ -20,7 +20,6 @@ import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import {
   requireDowntimeAccess,
-  requireProductionInfrastructureAdmin,
   requireProductionMonitoringAccess,
 } from './middleware/infrastructureAccessMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
@@ -951,10 +950,14 @@ app.use(rawHl7RecoveryResponses(validateApiKey));
 // interface-engine, cold-chain ingest, admin portal) from App Check.
 app.use(appCheckMiddleware());
 
-// Infrastructure routes (debug, swagger, version, rbac) — require API key
-// In production, API-key-only is not enough for API catalogs and diagnostics:
-// require an admin-tier JWT before routing into this infrastructure namespace.
-app.use('/api/v1', requireProductionInfrastructureAdmin, infrastructureRoutes);
+// Infrastructure routes (debug, swagger, version, rbac) — require API key.
+// In production each infra sub-mount additionally requires an admin-tier JWT;
+// that gate lives INSIDE routes/infrastructure/index.js, scoped per sub-path.
+// It must NEVER ride this '/api/v1' prefix mount: a middleware placed here
+// runs for every /api/v1/* request regardless of whether the router matches,
+// which in production denied every non-admin role on the ENTIRE API while
+// dev/test (where the gate no-ops) stayed green — dalekdefender 2026-08-21.
+app.use('/api/v1', infrastructureRoutes);
 
 // ====================================
 // API KEY ONLY ROUTES (no JWT required)
