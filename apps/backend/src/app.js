@@ -109,7 +109,6 @@ import {
   PHARMACY_SUPPLY_ROUTE_ROLES,
   RADIOLOGY_ROUTE_ROLES,
   RECORD_ROUTE_ROLES,
-  STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
   STEMI_ROUTE_ROLES,
   STROKE_ROUTE_ROLES,
@@ -1231,14 +1230,16 @@ app.use('/api/v1/abdm', phiAccessLoggerForPaths('ABDM', ABDM_PHI_PATHS), abdmPat
 // ROLE-PROTECTED ROUTES (JWT enforced globally above)
 // ====================================
 
-// Phone self-service is intentionally broader than staff administration:
-// every staff role can read its mobile home/alerts/messages/attendance
-// summary, while the legacy /staff router below keeps its narrower gates.
-app.use(
-  '/api/v1/staff',
-  requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES),
-  staffPhoneRoutes,
-);
+// Phone self-service (home aggregate + staff queries). Its role gate lives
+// INSIDE phoneRoutes.js, scoped to that router's own paths. It must NEVER sit
+// on this '/api/v1/staff' mount: Express runs mount middleware for every
+// request under the prefix before knowing whether the router matches, so a
+// gate here becomes a ceiling over EVERY sibling staff router below and
+// silently overrides their broader rbacConfig keys — CMO / CNO /
+// MEDICAL_SUPERINTENDENT / ANAESTHETIST and ~20 more roles lost their own
+// attendance, leave, payslips and the whole staff-admin console this way
+// (2026-08-22 audit; same shape as the #905 '/api/v1' lockout).
+app.use('/api/v1/staff', staffPhoneRoutes);
 app.use('/api/v1/staff', staffRoutes);
 
 // Housekeeping — top-level canonical surface. Same controller already
