@@ -2,6 +2,7 @@
 import { API_BASE_URL } from "@/lib/api-config";
 import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import {
+  canonicalProxyPath,
   requiredProxyPermission,
   checkProxyPermission,
 } from "@/lib/proxyPermissions";
@@ -169,8 +170,25 @@ async function handleProxy(req: NextRequest) {
   // Match on segment boundaries, not raw string prefixes, so an entry like
   // "api/v1/users" cannot also authorize a sibling route such as
   // "api/v1/users-internal".
+  //
+  // Both this allowlist and the permission gate below match on
+  // canonicalProxyPath() of the SAME raw path. Before that they disagreed:
+  // this list admits a gated console on a coarse ancestor prefix
+  // ("api/v1/admin/"), so a request spelled "api/v1/admin/Entitlements"
+  // passed here untouched while the gate's case-sensitive compare against
+  // "api/v1/admin/entitlements" missed — and Express routes
+  // case-insensitively, so the backend served it. The upstream request is
+  // still built from the ORIGINAL segments (buildTargetUrl): folding is for
+  // matching only, because path segments legitimately carry case-significant
+  // identifiers (role names, table names, code-system codes).
   const path = extractPathSegments(req).join("/");
-  const candidate = path.startsWith("api/v1/") ? path : `api/v1/${path}`;
+  const rawCandidate = path.startsWith("api/v1/") ? path : `api/v1/${path}`;
+  const candidate = canonicalProxyPath(rawCandidate);
+  if (candidate === null) {
+    // A segment carries a malformed percent escape — undecodable, so no layer
+    // can reason about where it would land. Never forward it.
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
+  }
   const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) => {
     const boundary = prefix.endsWith("/") ? prefix : `${prefix}/`;
     return candidate === prefix || candidate.startsWith(boundary);
@@ -182,15 +200,20 @@ async function handleProxy(req: NextRequest) {
     );
   }
 
-  // Block path traversal attempts
-  if (path.includes("..") || path.includes("//")) {
+  // Block path traversal attempts. Checked on the canonical (percent-decoded)
+  // form, which contains everything the raw path did: an encoded dot segment
+  // is invisible to a raw-string check, and the WHATWG URL parser that
+  // fetch() uses to build the upstream URL collapses dot segments.
+  if (candidate.includes("..") || candidate.includes("//")) {
     return NextResponse.json({ message: "Invalid path" }, { status: 400 });
   }
 
   // ADM-1: per-admin permission flags are enforced HERE, not just in the nav.
   // A scoped-down ADMIN (admins.permissions) must not retain full role-rank
   // API access through the proxy. See src/lib/proxyPermissions.ts.
-  const requiredPermission = requiredProxyPermission(candidate, req.method);
+  // requiredProxyPermission() canonicalizes `rawCandidate` itself, with the
+  // same pure function used above — the two layers cannot drift apart.
+  const requiredPermission = requiredProxyPermission(rawCandidate, req.method);
   if (requiredPermission) {
     const verifiedRole = await getVerifiedTokenRole(token);
     const verdict = await checkProxyPermission(

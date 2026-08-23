@@ -9,6 +9,7 @@
 
 import express from 'express';
 
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   commitImportJob,
   createImportJob,
@@ -24,6 +25,26 @@ import {
 import { success } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+/**
+ * SUPER_ADMIN-only console (in-route gate, same intent as the databaseRoutes.js
+ * gate; spelled with the shared `requireRole` so a denied attempt lands in the
+ * security audit trail as `PERMISSION_DENIED`).
+ *
+ * The parent `/api/v1/admin` mount gates on ADMIN_ROUTE_ROLES, which resolves
+ * to ['SUPER_ADMIN', 'ADMIN'], and `requireSuperAdminStepUp` passes non-supers
+ * straight through (rbacMiddleware.js:117) — this router carried no internal
+ * role check at all, so a plain tenant ADMIN could commit an import batch or
+ * import an HL7 ADT batch (both write real patient records). The admin portal
+ * has always declared this console SUPER_ADMIN-only
+ * (apps/admin/src/lib/navConfig.ts — "Migration Toolkit").
+ *
+ * Router-wide rather than per-mutation on purpose: the reads are the rehearsal
+ * and acceptance reports plus the job list, i.e. redacted profiles of the
+ * source patient records staged for import — sensitive material, not routine
+ * admin data. Step-up from the parent mount still applies and is unchanged.
+ */
+router.use(requireRole('SUPER_ADMIN'));
 
 router.post('/jobs', async (req, res, next) => {
   try {

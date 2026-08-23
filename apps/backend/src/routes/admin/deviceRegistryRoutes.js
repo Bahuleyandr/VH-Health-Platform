@@ -135,9 +135,50 @@ router.get('/messages', async (req, res) => {
   }
 });
 
+/**
+ * ── Continuity facility-context: SUPER_ADMIN, not the device-registry tier ──
+ *
+ * These three routes previously ran on `requireManage` → `canManage`, i.e. the
+ * same integration-admin/ADMIN tier as the rest of this router. On this mount
+ * `canManage` resolves to exactly {ADMIN, SUPER_ADMIN}: the parent
+ * `/api/v1/admin` gate is ADMIN_ROUTE_ROLES = ['SUPER_ADMIN', 'ADMIN']
+ * (config/routeRolePolicy.js → platform_admin), so the `canManageIntegrations`
+ * branch is unreachable here and the only role this change removes is ADMIN.
+ * `requireSuperAdminStepUp` on that mount passes non-supers straight through
+ * (rbacMiddleware.js:117), so it narrowed nothing for an ADMIN either.
+ *
+ * That ADMIN tier contradicted every other layer of the same console:
+ *   * apps/admin/src/lib/routePolicy.ts "continuity-facility-context" →
+ *     SUPER_ADMIN_ONLY, and navConfig.ts "Facility Context" → requiredRole
+ *     "SUPER_ADMIN";
+ *   * the console page itself refuses to call the backend below SUPER_ADMIN
+ *     (dashboard/continuity-facility-context/page.tsx — `role !== "SUPER_ADMIN"`
+ *     renders "SUPER_ADMIN access required" instead of issuing any request),
+ *     and it is the only hand-written client of these paths in the repo — the
+ *     generated Dart chopper client declares them, but no Flutter code calls
+ *     those methods (the staff app's facility context comes from
+ *     POST /downtime/facility-context instead);
+ *   * `POST /continuity-device-loss` below — the fourth operation of this same
+ *     console — is already requireRole('SUPER_ADMIN').
+ * docs/continuity/c4-facility-context-admin-surface-design-delta.md §8.1 names
+ * exactly this as a "verified mismatch" and says client visibility cannot
+ * repair it "because direct API calls would retain the broader backend
+ * permission"; §8.2 records that Step 2 clearance "selects the strictest
+ * existing portal role" and that loosening it later needs the owner mapping
+ * plus a separate deny-by-default capability slice. Matching the backend to
+ * SUPER_ADMIN is that strictest existing role — it does not pre-empt the open
+ * owner decision, which is about a future `continuity:facility-context:*`
+ * capability model, and it locks nobody out: no shipped client calls these
+ * paths as ADMIN.
+ *
+ * Gate order matches `/continuity-device-loss`: role first, activation second.
+ * `requireContinuityEnrollmentEnabled` still answers 503 for everyone while
+ * CLINICAL_CONTINUITY_C_D14_APPROVED is false, so a SUPER_ADMIN's experience
+ * of these routes is unchanged.
+ */
 router.get(
   '/continuity-facility-context/grants',
-  requireManage,
+  requireRole('SUPER_ADMIN'),
   requireContinuityEnrollmentEnabled,
   async (req, res) => {
     try {
@@ -154,7 +195,7 @@ router.get(
 
 router.post(
   '/continuity-facility-context/enroll',
-  requireManage,
+  requireRole('SUPER_ADMIN'),
   requireContinuityEnrollmentEnabled,
   async (req, res) => {
     try {
@@ -183,7 +224,7 @@ router.post(
 
 router.post(
   '/continuity-facility-context/revoke',
-  requireManage,
+  requireRole('SUPER_ADMIN'),
   requireContinuityEnrollmentEnabled,
   async (req, res) => {
     try {

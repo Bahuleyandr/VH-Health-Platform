@@ -52,9 +52,21 @@ const { default: deviceRegistryRoutes } = await import('../../routes/admin/devic
 
 const app = express();
 app.use(express.json());
+// The caller is a plain tenant ADMIN by default. jwtMiddleware canonicalises a
+// SUPER_ADMIN claim down to `role: 'ADMIN'` and keeps the original claim on
+// `rawRole` (utils/roles.js `canonicalizeRequestRole`), so a genuine super-admin
+// request differs from an ADMIN's ONLY in `rawRole` — `x-test-raw-role`
+// reproduces exactly that shape rather than an invented `role: 'SUPER_ADMIN'`.
+// The continuity facility-context routes now sit on requireRole('SUPER_ADMIN'),
+// which is satisfied by `rawRole`.
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
-  req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'ADMIN' };
+  req.user = {
+    uid: '11111111-1111-4111-8111-111111111111',
+    role: 'ADMIN',
+    rawRole: req.get('x-test-raw-role') || 'ADMIN',
+    scope: 'full',
+  };
   req.tenantId = '00000000-0000-4000-8000-000000000001';
   next();
 });
@@ -97,22 +109,47 @@ describe('device registry handleFailure relays AppError code + details', () => {
   });
 });
 
-describe('continuity facility enrollment stays activation locked', () => {
-  test.each([
-    ['get', '/continuity-facility-context/grants'],
-    ['post', '/continuity-facility-context/enroll'],
-    ['post', '/continuity-facility-context/revoke'],
-  ])('%s %s is unavailable while C-D14 is open', async (method, path) => {
-    const response = await request(app)[method](
-      `/api/v1/admin/devices${path}`,
-    ).send({});
+const CONTINUITY_FACILITY_ROUTES = [
+  ['get', '/continuity-facility-context/grants'],
+  ['post', '/continuity-facility-context/enroll'],
+  ['post', '/continuity-facility-context/revoke'],
+];
 
-    expect(response.statusCode).toBe(503);
-    expect(response.body).toMatchObject({
-      code: 'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
-      success: false,
-    });
-  });
+describe('continuity facility enrollment stays activation locked', () => {
+  // Asserted as SUPER_ADMIN so the activation gate is what answers: the role
+  // gate in front of it would otherwise mask the 503 with a 403.
+  test.each(CONTINUITY_FACILITY_ROUTES)(
+    '%s %s is unavailable to a SUPER_ADMIN while C-D14 is open',
+    async (method, path) => {
+      const response = await request(app)[method](
+        `/api/v1/admin/devices${path}`,
+      ).set('x-test-raw-role', 'SUPER_ADMIN').send({});
+
+      expect(response.statusCode).toBe(503);
+      expect(response.body).toMatchObject({
+        code: 'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
+        success: false,
+      });
+    },
+  );
+});
+
+describe('continuity facility-context route authority', () => {
+  test.each(CONTINUITY_FACILITY_ROUTES)(
+    '%s %s refuses an ordinary ADMIN before the activation gate',
+    async (method, path) => {
+      const response = await request(app)[method](
+        `/api/v1/admin/devices${path}`,
+      ).send({});
+
+      // 403 rather than the 503 above: the role gate runs first, so an ADMIN
+      // never learns the activation state of the facility-context console.
+      expect(response.statusCode).toBe(403);
+      expect(response.body.code).not.toBe(
+        'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
+      );
+    },
+  );
 });
 
 describe('continuity device-loss route authority', () => {
