@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:vhhealth_core/services/realtime_client.dart';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/idempotency_key.dart';
@@ -79,16 +81,37 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     'AB-',
   ];
 
+  StreamSubscription<dynamic>? _realtimeSub;
+  Timer? _realtimeDebounce;
+
+  Future<void> _attachRealtime() async {
+    // Live board updates (once-over train F): the backend already broadcasts
+    // on staff:blood-bank — subscribe like the bed board does.
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    _realtimeSub = rt.events('staff:blood-bank').listen((_) {
+      _realtimeDebounce?.cancel();
+      _realtimeDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        _fetchInventory();
+        _fetchIssuedUnits();
+      });
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _fetchInventory();
     _fetchIssuedUnits();
+    _attachRealtime();
   }
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
+    _realtimeDebounce?.cancel();
     _tabController.dispose();
     _unitsController.dispose();
     _indicationController.dispose();

@@ -155,11 +155,9 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
                           ),
                         ),
                       if (recs != null && recs!.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Text(
-                            'No reconciliations for this patient yet.',
-                          ),
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(AppStrings.of(context).medRecNoneYet),
                         ),
                       if (recs != null && recs!.isNotEmpty)
                         Flexible(

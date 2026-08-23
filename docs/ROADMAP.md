@@ -175,3 +175,21 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
 [`india-deployment-readiness.md`](india-deployment-readiness.md) ·
 [`ABDM_READINESS.md`](ABDM_READINESS.md) ·
 [`PENTEST_READINESS.md`](PENTEST_READINESS.md)
+
+## Explicitly parked (once-over 2026-08-23 — recorded so audits stop re-discovering them)
+
+- **Bed-inspection endpoints** (`bedInspectionRoutes`): fully dead surface —
+  no client caller, no internal writer, manual-only sweep. Decision: parked
+  rather than wired; either integrate into the bed-board housekeeping flow
+  with a scheduler sweep or remove the routes in a future cleanup. Do not
+  re-report as a gap.
+- **Admin god-page rule**: 14+ pages exceed the documented split threshold
+  (worst: death-certification, clinical-ai [half-migrated], continuity-
+  reconciliation). The rule stands; the splits queue here rather than in the
+  once-over train.
+- **Patient portal list offline caching** (bills/TPA/messages/lab-orders):
+  cachedGet conversion requires outage-controller scaffolding in the HTTP-
+  mock widget tests — deferred with the health-summary trio done.
+- **SMS config tables RLS**: excluded from migration 726 until
+  smsProviderConfigService wraps its raw calls in setTenantTx (see
+  prisma/SCHEMA_NOTES.md).

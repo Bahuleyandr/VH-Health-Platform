@@ -416,6 +416,20 @@ class RoleFeatures {
     route: '/med-rec',
     color: Color(0xFF00695C),
   );
+  static const DashboardFeature _schedulingWorkbench = DashboardFeature(
+    id: 'scheduling_workbench',
+    titleKey: 'role.feature.scheduling_workbench',
+    icon: Icons.grid_view_outlined,
+    route: '/scheduling-workbench',
+    color: Color(0xFF00838F),
+  );
+  static const DashboardFeature _perfusionRecord = DashboardFeature(
+    id: 'perfusion',
+    titleKey: 'role.feature.perfusion',
+    icon: Icons.monitor_heart_outlined,
+    route: '/perfusion',
+    color: Color(0xFFAD1457),
+  );
   static const DashboardFeature _patientTransport = DashboardFeature(
     id: 'patient_transport',
     titleKey: 'role.feature.patient_transport',
@@ -912,6 +926,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.anaesthetist => [
+        _perfusionRecord,
         _medRec,
         _attendance,
         _schedule,
@@ -1055,6 +1070,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.opIncharge => [
+        _schedulingWorkbench,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1081,6 +1097,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.otNurse || StaffRole.otIncharge => [
+        _perfusionRecord,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1129,6 +1146,8 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.medicalSuperintendent => [
+        _schedulingWorkbench,
+        _perfusionRecord,
         _medRec,
         _patientTransport,
         _attendance,
@@ -1172,6 +1191,8 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.admin || StaffRole.superAdmin => [
+        _schedulingWorkbench,
+        _perfusionRecord,
         _medRec,
         _patientTransport,
         _attendance,
@@ -1336,6 +1357,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.receptionist => [
+        _schedulingWorkbench,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1350,6 +1372,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.receptionIncharge => [
+        _schedulingWorkbench,
         _attendance,
         _schedule,
         _dutyPreference,

@@ -2674,6 +2674,79 @@ class AppStrings {
   // message must localize (once-over 2026-08-23).
   String get marScanMismatchBlocked => _t('mar_scan.mismatch_blocked');
   String get medRecFindReconciliation => _t('med_rec.find_reconciliation');
+  String get medRecCompleteHint => _t('med_rec.complete_hint');
+  String get medRecNoSources => _t('med_rec.no_sources');
+  String get medRecNoneYet => _t('med_rec.none_yet');
+  String get transportRequestTitle => _t('transport.request_title');
+  String get transportDisabledBanner => _t('transport.disabled_banner');
+  String get perfusionTitle => _t('perfusion.title');
+  String get perfusionCaseRefLabel => _t('perfusion.case_ref');
+  String get perfusionRecordsHeader => _t('perfusion.records_header');
+  String get perfusionNewEntryHeader => _t('perfusion.new_entry_header');
+  String get perfusionBypassStartedLabel => _t('perfusion.bypass_started');
+  String get perfusionBypassEndedLabel => _t('perfusion.bypass_ended');
+  String get perfusionClampStartedLabel => _t('perfusion.clamp_started');
+  String get perfusionClampEndedLabel => _t('perfusion.clamp_ended');
+  String get perfusionActBaselineLabel => _t('perfusion.act_baseline');
+  String get perfusionActPeakLabel => _t('perfusion.act_peak');
+  String get perfusionActLastLabel => _t('perfusion.act_last');
+  String get perfusionTempMinLabel => _t('perfusion.temp_min');
+  String get perfusionTempMaxLabel => _t('perfusion.temp_max');
+  String get perfusionComplicationsLabel => _t('perfusion.complications');
+  String get perfusionSavedMessage => _t('perfusion.saved');
+  String get perfusionDeviceLinksHeader => _t('perfusion.device_links_header');
+  String get perfusionDeviceAssociationIdLabel =>
+      _t('perfusion.device_association_id');
+  String get perfusionVendorDocumentRefLabel =>
+      _t('perfusion.vendor_document_ref');
+  String get perfusionSignoffAction => _t('perfusion.signoff_action');
+  String get perfusionFinalizeAction => _t('perfusion.finalize_action');
+  String get perfusionSignoffConfirmBody =>
+      _t('perfusion.signoff_confirm_body');
+  String get perfusionFinalizeConfirmBody =>
+      _t('perfusion.finalize_confirm_body');
+  String get perfusionFinalizeBlockedMessage =>
+      _t('perfusion.finalize_blocked');
+  String get perfusionFinalizedReadOnlyBanner =>
+      _t('perfusion.finalized_readonly');
+  String get schedulingWorkbenchTitle => _t('scheduling.workbench_title');
+  String get schedulingTabSlotGrid => _t('scheduling.tab.slot_grid');
+  String get schedulingTabWaitlist => _t('scheduling.tab.waitlist');
+  String get schedulingTabTemplates => _t('scheduling.tab.templates');
+  String get schedulingTabResources => _t('scheduling.tab.resources');
+  String get schedulingSlotOpen => _t('scheduling.slot.open');
+  String get schedulingSlotHeld => _t('scheduling.slot.held');
+  String get schedulingSlotBooked => _t('scheduling.slot.booked');
+  String get schedulingSlotBlocked => _t('scheduling.slot.blocked');
+  String get schedulingHoldTitle => _t('scheduling.hold.title');
+  String get schedulingHoldRelease => _t('scheduling.hold.release');
+  String get schedulingOnLeave => _t('scheduling.on_leave');
+  String get schedulingClosed => _t('scheduling.closed');
+  String get schedulingCapacityLabel => _t('scheduling.capacity_label');
+  String get schedulingOverbookLabel => _t('scheduling.overbook_label');
+  String get schedulingWaitlistAddTitle => _t('scheduling.waitlist.add_title');
+  String get schedulingWaitlistFill => _t('scheduling.waitlist.fill');
+  String get schedulingWaitlistSessionOnly =>
+      _t('scheduling.waitlist.session_only');
+  String get schedulingWaitlistOffers => _t('scheduling.waitlist.offers');
+  String get schedulingTemplateCreateTitle =>
+      _t('scheduling.template.create_title');
+  String get schedulingTemplateExceptionTitle =>
+      _t('scheduling.template.exception_title');
+  String get schedulingLeaveTitle => _t('scheduling.leave.title');
+  String get schedulingWeekdayLabel => _t('scheduling.weekday_label');
+  String get schedulingStartLabel => _t('scheduling.start_label');
+  String get schedulingEndLabel => _t('scheduling.end_label');
+  String get schedulingResourceCreateTitle =>
+      _t('scheduling.resource.create_title');
+  String get schedulingResourceIdLabel => _t('scheduling.resource.id_label');
+  String get schedulingResourceCompatTitle =>
+      _t('scheduling.resource.compat_title');
+  String get schedulingResourceBookTitle =>
+      _t('scheduling.resource.book_title');
+  String get schedulingResourceScheduleTitle =>
+      _t('scheduling.resource.schedule_title');
+  String get schedulingSaved => _t('scheduling.saved');
   String get medRecNotesHint => _t('med_rec.notes_hint');
   String get medRecStartShort => _t('med_rec.start_short');
   String get transportTitle => _t('transport.title');
@@ -6163,6 +6236,68 @@ class AppStrings {
       'mar_scan.mismatch_blocked':
           'Patient/drug mismatch — administration blocked. Re-scan.',
       'med_rec.find_reconciliation': 'Find reconciliation',
+      'med_rec.complete_hint': 'Every medication needs a documented decision. The backend will refuse completion while discrepancies remain.',
+      'med_rec.no_sources': 'No medications were found on any source list.',
+      'med_rec.none_yet': 'No reconciliations yet for this patient.',
+      'transport.request_title': 'New transport request',
+      'transport.disabled_banner':
+          'Patient transport is not enabled for this hospital.',
+      'perfusion.title': 'CTVS Perfusion',
+      'perfusion.case_ref': 'Theatre case ID',
+      'perfusion.records_header': 'Perfusion records',
+      'perfusion.new_entry_header': 'New perfusion entry',
+      'perfusion.bypass_started': 'Bypass started at',
+      'perfusion.bypass_ended': 'Bypass ended at',
+      'perfusion.clamp_started': 'Cross-clamp started at',
+      'perfusion.clamp_ended': 'Cross-clamp ended at',
+      'perfusion.act_baseline': 'ACT baseline (seconds)',
+      'perfusion.act_peak': 'ACT peak (seconds)',
+      'perfusion.act_last': 'ACT last (seconds)',
+      'perfusion.temp_min': 'Lowest temperature (°C)',
+      'perfusion.temp_max': 'Highest temperature (°C)',
+      'perfusion.complications': 'Complications',
+      'perfusion.saved': 'Saved',
+      'perfusion.device_links_header': 'Device links',
+      'perfusion.device_association_id': 'Device-patient association ID',
+      'perfusion.vendor_document_ref': 'Vendor document reference',
+      'perfusion.signoff_action': 'Sign off',
+      'perfusion.finalize_action': 'Finalize',
+      'perfusion.signoff_confirm_body': 'You are signing this perfusion record as the perfusionist of record. Your staff identity and the time will be recorded as the perfusionist signature.',
+      'perfusion.finalize_confirm_body': 'Finalizing permanently locks this perfusion record. No corrections are possible after finalize.',
+      'perfusion.finalize_blocked': 'Perfusionist sign-off, surgeon review, and anesthesia review are required before finalize',
+      'perfusion.finalized_readonly': 'Finalized — read only',
+      'scheduling.workbench_title': 'Scheduling Workbench',
+      'scheduling.tab.slot_grid': 'Slot Grid',
+      'scheduling.tab.waitlist': 'Waitlist',
+      'scheduling.tab.templates': 'Templates',
+      'scheduling.tab.resources': 'Resources',
+      'scheduling.slot.open': 'Open',
+      'scheduling.slot.held': 'Held',
+      'scheduling.slot.booked': 'Booked',
+      'scheduling.slot.blocked': 'Blocked',
+      'scheduling.hold.title': 'Hold slot',
+      'scheduling.hold.release': 'Release',
+      'scheduling.on_leave': 'Doctor on leave',
+      'scheduling.closed': 'Schedule closed',
+      'scheduling.capacity_label': 'Capacity',
+      'scheduling.overbook_label': 'Overbook allowance',
+      'scheduling.waitlist.add_title': 'Add to waitlist',
+      'scheduling.waitlist.fill': 'Fill from waitlist',
+      'scheduling.waitlist.session_only':
+          'Session results only — the server has no waitlist list endpoint',
+      'scheduling.waitlist.offers': 'Offers',
+      'scheduling.template.create_title': 'New template',
+      'scheduling.template.exception_title': 'Add exception',
+      'scheduling.leave.title': 'Record leave',
+      'scheduling.weekday_label': 'Weekday (0 = Sunday)',
+      'scheduling.start_label': 'Start',
+      'scheduling.end_label': 'End',
+      'scheduling.resource.create_title': 'New resource',
+      'scheduling.resource.id_label': 'Resource ID',
+      'scheduling.resource.compat_title': 'Compatibility',
+      'scheduling.resource.book_title': 'Book resource',
+      'scheduling.resource.schedule_title': 'Bookings',
+      'scheduling.saved': 'Saved',
       'med_rec.notes_hint': 'Context for this reconciliation',
       'med_rec.start_short': 'Start',
       'transport.title': 'Patient transport',
@@ -9616,6 +9751,8 @@ class AppStrings {
       'role.feature.duty_preference': "Duty Request",
       'role.feature.front_office_workbench': "Front Office",
       'role.feature.patient_transport': 'Patient Transport',
+      'role.feature.scheduling_workbench': 'Scheduling',
+      'role.feature.perfusion': 'Perfusion',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED destination handoff",
@@ -12875,6 +13012,68 @@ class AppStrings {
       'mar_scan.mismatch_blocked':
           'रोगी/दवा मेल नहीं — प्रशासन अवरुद्ध। फिर से स्कैन करें।',
       'med_rec.find_reconciliation': 'रीकंसिलिएशन खोजें',
+      'med_rec.complete_hint': 'हर दवा के लिए दर्ज निर्णय आवश्यक है। विसंगतियाँ रहते हुए पूर्ण करना अस्वीकार होगा।',
+      'med_rec.no_sources': 'किसी भी स्रोत सूची में दवाएँ नहीं मिलीं।',
+      'med_rec.none_yet': 'इस रोगी के लिए अभी कोई रीकंसिलिएशन नहीं।',
+      'transport.request_title': 'नया परिवहन अनुरोध',
+      'transport.disabled_banner':
+          'इस अस्पताल के लिए रोगी परिवहन सक्षम नहीं है।',
+      'perfusion.title': 'CTVS परफ़्यूज़न',
+      'perfusion.case_ref': 'थिएटर केस ID',
+      'perfusion.records_header': 'परफ़्यूज़न रिकॉर्ड',
+      'perfusion.new_entry_header': 'नई परफ़्यूज़न प्रविष्टि',
+      'perfusion.bypass_started': 'बाईपास प्रारंभ समय',
+      'perfusion.bypass_ended': 'बाईपास समाप्ति समय',
+      'perfusion.clamp_started': 'क्रॉस-क्लैम्प प्रारंभ समय',
+      'perfusion.clamp_ended': 'क्रॉस-क्लैम्प समाप्ति समय',
+      'perfusion.act_baseline': 'ACT बेसलाइन (सेकंड)',
+      'perfusion.act_peak': 'ACT उच्चतम (सेकंड)',
+      'perfusion.act_last': 'ACT अंतिम (सेकंड)',
+      'perfusion.temp_min': 'न्यूनतम तापमान (°C)',
+      'perfusion.temp_max': 'अधिकतम तापमान (°C)',
+      'perfusion.complications': 'जटिलताएँ',
+      'perfusion.saved': 'सहेजा गया',
+      'perfusion.device_links_header': 'डिवाइस लिंक',
+      'perfusion.device_association_id': 'डिवाइस-रोगी एसोसिएशन ID',
+      'perfusion.vendor_document_ref': 'वेंडर दस्तावेज़ संदर्भ',
+      'perfusion.signoff_action': 'साइन ऑफ़',
+      'perfusion.finalize_action': 'अंतिम रूप दें',
+      'perfusion.signoff_confirm_body': 'आप इस परफ़्यूज़न रिकॉर्ड पर रिकॉर्ड के परफ़्यूज़निस्ट के रूप में हस्ताक्षर कर रहे हैं। आपकी स्टाफ़ पहचान और समय परफ़्यूज़निस्ट हस्ताक्षर के रूप में दर्ज होंगे।',
+      'perfusion.finalize_confirm_body': 'अंतिम रूप देने से यह परफ़्यूज़न रिकॉर्ड स्थायी रूप से लॉक हो जाएगा। इसके बाद कोई सुधार संभव नहीं है।',
+      'perfusion.finalize_blocked': 'अंतिम रूप देने से पहले परफ़्यूज़निस्ट साइन-ऑफ़, सर्जन समीक्षा और एनेस्थीसिया समीक्षा आवश्यक हैं',
+      'perfusion.finalized_readonly': 'अंतिम रूप दिया गया — केवल पढ़ने के लिए',
+      'scheduling.workbench_title': 'शेड्यूलिंग वर्कबेंच',
+      'scheduling.tab.slot_grid': 'स्लॉट ग्रिड',
+      'scheduling.tab.waitlist': 'प्रतीक्षा सूची',
+      'scheduling.tab.templates': 'टेम्पलेट',
+      'scheduling.tab.resources': 'संसाधन',
+      'scheduling.slot.open': 'खाली',
+      'scheduling.slot.held': 'होल्ड पर',
+      'scheduling.slot.booked': 'बुक हो गया',
+      'scheduling.slot.blocked': 'अवरुद्ध',
+      'scheduling.hold.title': 'स्लॉट होल्ड करें',
+      'scheduling.hold.release': 'रिलीज़ करें',
+      'scheduling.on_leave': 'डॉक्टर अवकाश पर हैं',
+      'scheduling.closed': 'शेड्यूल बंद है',
+      'scheduling.capacity_label': 'क्षमता',
+      'scheduling.overbook_label': 'ओवरबुक सीमा',
+      'scheduling.waitlist.add_title': 'प्रतीक्षा सूची में जोड़ें',
+      'scheduling.waitlist.fill': 'प्रतीक्षा सूची से भरें',
+      'scheduling.waitlist.session_only':
+          'केवल इस सत्र के परिणाम — सर्वर प्रतीक्षा-सूची की सूची नहीं देता',
+      'scheduling.waitlist.offers': 'प्रस्ताव',
+      'scheduling.template.create_title': 'नया टेम्पलेट',
+      'scheduling.template.exception_title': 'अपवाद जोड़ें',
+      'scheduling.leave.title': 'अवकाश दर्ज करें',
+      'scheduling.weekday_label': 'सप्ताह-दिन (0 = रविवार)',
+      'scheduling.start_label': 'प्रारंभ',
+      'scheduling.end_label': 'समाप्ति',
+      'scheduling.resource.create_title': 'नया संसाधन',
+      'scheduling.resource.id_label': 'संसाधन आईडी',
+      'scheduling.resource.compat_title': 'संगतता',
+      'scheduling.resource.book_title': 'संसाधन बुक करें',
+      'scheduling.resource.schedule_title': 'बुकिंग',
+      'scheduling.saved': 'सहेजा गया',
       'med_rec.notes_hint': 'इस रीकंसिलिएशन का संदर्भ',
       'med_rec.start_short': 'शुरू करें',
       'transport.title': 'रोगी परिवहन',
@@ -16045,6 +16244,8 @@ class AppStrings {
       'role.feature.duty_preference': "कर्तव्य अनुरोध",
       'role.feature.front_office_workbench': "फ्रंट कार्यालय",
       'role.feature.patient_transport': 'रोगी परिवहन',
+      'role.feature.scheduling_workbench': 'शेड्यूलिंग',
+      'role.feature.perfusion': 'परफ़्यूज़न',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED गंतव्य हैंडऑफ",
@@ -18552,6 +18753,67 @@ class AppStrings {
       'mar_scan.title': 'மருந்து வழங்கு',
       'mar_scan.mismatch_blocked': 'நோயாளி/மருந்து பொருந்தவில்லை — வழங்குதல் தடுக்கப்பட்டது. மீண்டும் ஸ்கேன் செய்யவும்.',
       'med_rec.find_reconciliation': 'சரிசெய்தலைத் தேடு',
+      'med_rec.complete_hint': 'ஒவ்வொரு மருந்துக்கும் பதிவு செய்யப்பட்ட முடிவு தேவை. முரண்பாடுகள் இருக்கும் வரை முடிக்க மறுக்கப்படும்.',
+      'med_rec.no_sources': 'எந்த மூலப் பட்டியலிலும் மருந்துகள் இல்லை.',
+      'med_rec.none_yet': 'இந்த நோயாளிக்கு இன்னும் சரிசெய்தல் இல்லை.',
+      'transport.request_title': 'புதிய இடமாற்றக் கோரிக்கை',
+      'transport.disabled_banner':
+          'இந்த மருத்துவமனைக்கு நோயாளி இடமாற்றம் இயக்கப்படவில்லை.',
+      'perfusion.title': 'CTVS பர்ஃப்யூஷன்',
+      'perfusion.case_ref': 'தியேட்டர் கேஸ் ID',
+      'perfusion.records_header': 'பர்ஃப்யூஷன் பதிவுகள்',
+      'perfusion.new_entry_header': 'புதிய பர்ஃப்யூஷன் பதிவு',
+      'perfusion.bypass_started': 'பைபாஸ் தொடங்கிய நேரம்',
+      'perfusion.bypass_ended': 'பைபாஸ் முடிந்த நேரம்',
+      'perfusion.clamp_started': 'கிராஸ்-கிளாம்ப் தொடங்கிய நேரம்',
+      'perfusion.clamp_ended': 'கிராஸ்-கிளாம்ப் முடிந்த நேரம்',
+      'perfusion.act_baseline': 'ACT அடிப்படை (வினாடிகள்)',
+      'perfusion.act_peak': 'ACT உச்சம் (வினாடிகள்)',
+      'perfusion.act_last': 'ACT கடைசி (வினாடிகள்)',
+      'perfusion.temp_min': 'குறைந்தபட்ச வெப்பநிலை (°C)',
+      'perfusion.temp_max': 'அதிகபட்ச வெப்பநிலை (°C)',
+      'perfusion.complications': 'சிக்கல்கள்',
+      'perfusion.saved': 'சேமிக்கப்பட்டது',
+      'perfusion.device_links_header': 'சாதன இணைப்புகள்',
+      'perfusion.device_association_id': 'சாதனம்-நோயாளி இணைப்பு ID',
+      'perfusion.vendor_document_ref': 'விற்பனையாளர் ஆவணக் குறிப்பு',
+      'perfusion.signoff_action': 'கையொப்பமிடு',
+      'perfusion.finalize_action': 'இறுதிசெய்',
+      'perfusion.signoff_confirm_body': 'இந்த பர்ஃப்யூஷன் பதிவில் நீங்கள் பதிவு-பர்ஃப்யூஷனிஸ்ட்டாக கையொப்பமிடுகிறீர்கள். உங்கள் பணியாளர் அடையாளமும் நேரமும் கையொப்பமாக பதிவு செய்யப்படும்.',
+      'perfusion.finalize_confirm_body': 'இறுதிசெய்தால் இந்த பர்ஃப்யூஷன் பதிவு நிரந்தரமாக பூட்டப்படும். அதன் பிறகு திருத்தங்கள் செய்ய முடியாது.',
+      'perfusion.finalize_blocked': 'இறுதிசெய்வதற்கு முன் பர்ஃப்யூஷனிஸ்ட் கையொப்பம், அறுவை சிகிச்சை நிபுணர் மதிப்பாய்வு மற்றும் மயக்கவியல் மதிப்பாய்வு தேவை',
+      'perfusion.finalized_readonly': 'இறுதிசெய்யப்பட்டது — படிக்க மட்டும்',
+      'scheduling.workbench_title': 'திட்டமிடல் பணிமேடை',
+      'scheduling.tab.slot_grid': 'ஸ்லாட் கட்டம்',
+      'scheduling.tab.waitlist': 'காத்திருப்புப் பட்டியல்',
+      'scheduling.tab.templates': 'வார்ப்புருக்கள்',
+      'scheduling.tab.resources': 'வளங்கள்',
+      'scheduling.slot.open': 'காலி',
+      'scheduling.slot.held': 'நிறுத்தி வைக்கப்பட்டது',
+      'scheduling.slot.booked': 'முன்பதிவு',
+      'scheduling.slot.blocked': 'தடுக்கப்பட்டது',
+      'scheduling.hold.title': 'ஸ்லாட்டை நிறுத்தி வைக்கவும்',
+      'scheduling.hold.release': 'விடுவிக்கவும்',
+      'scheduling.on_leave': 'மருத்துவர் விடுப்பில் உள்ளார்',
+      'scheduling.closed': 'அட்டவணை மூடப்பட்டுள்ளது',
+      'scheduling.capacity_label': 'கொள்ளளவு',
+      'scheduling.overbook_label': 'ஓவர்புக் வரம்பு',
+      'scheduling.waitlist.add_title': 'காத்திருப்புப் பட்டியலில் சேர்க்கவும்',
+      'scheduling.waitlist.fill': 'காத்திருப்புப் பட்டியலிலிருந்து நிரப்பவும்',
+      'scheduling.waitlist.session_only': 'இந்த அமர்வின் முடிவுகள் மட்டும் — சேவையகம் காத்திருப்புப் பட்டியலைத் தருவதில்லை',
+      'scheduling.waitlist.offers': 'வாய்ப்புகள்',
+      'scheduling.template.create_title': 'புதிய வார்ப்புரு',
+      'scheduling.template.exception_title': 'விதிவிலக்கு சேர்க்கவும்',
+      'scheduling.leave.title': 'விடுப்பு பதிவு செய்யவும்',
+      'scheduling.weekday_label': 'வாரநாள் (0 = ஞாயிறு)',
+      'scheduling.start_label': 'தொடக்கம்',
+      'scheduling.end_label': 'முடிவு',
+      'scheduling.resource.create_title': 'புதிய வளம்',
+      'scheduling.resource.id_label': 'வள ஐடி',
+      'scheduling.resource.compat_title': 'இணக்கத்தன்மை',
+      'scheduling.resource.book_title': 'வளத்தை முன்பதிவு செய்யவும்',
+      'scheduling.resource.schedule_title': 'முன்பதிவுகள்',
+      'scheduling.saved': 'சேமிக்கப்பட்டது',
       'med_rec.notes_hint': 'இந்த சரிசெய்தலின் சூழல்',
       'med_rec.start_short': 'தொடங்கு',
       'transport.title': 'நோயாளி இடமாற்றம்',
@@ -23009,6 +23271,8 @@ class AppStrings {
       'role.feature.duty_preference': "கடமை கோரிக்கை",
       'role.feature.front_office_workbench': "முன் அலுவலகம்",
       'role.feature.patient_transport': 'நோயாளி இடமாற்றம்',
+      'role.feature.scheduling_workbench': 'திட்டமிடல்',
+      'role.feature.perfusion': 'பர்ஃப்யூஷன்',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED இலக்கு ஒப்படைப்பு",
@@ -25511,6 +25775,67 @@ class AppStrings {
       'mar_scan.mismatch_blocked':
           'రోగి/మందు సరిపోలలేదు — ఇవ్వడం నిలిపివేయబడింది. మళ్లీ స్కాన్ చేయండి.',
       'med_rec.find_reconciliation': 'సర్దుబాటును కనుగొనండి',
+      'med_rec.complete_hint': 'ప్రతి మందుకు నమోదైన నిర్ణయం అవసరం. వ్యత్యాసాలు ఉన్నంతవరకు పూర్తి చేయడం తిరస్కరించబడుతుంది.',
+      'med_rec.no_sources': 'ఏ మూల జాబితాలోనూ మందులు కనబడలేదు.',
+      'med_rec.none_yet': 'ఈ రోగికి ఇంకా సర్దుబాట్లు లేవు.',
+      'transport.request_title': 'కొత్త రవాణా అభ్యర్థన',
+      'transport.disabled_banner': 'ఈ ఆసుపత్రికి రోగి రవాణా ప్రారంభించబడలేదు.',
+      'perfusion.title': 'CTVS పెర్ఫ్యూజన్',
+      'perfusion.case_ref': 'థియేటర్ కేసు ID',
+      'perfusion.records_header': 'పెర్ఫ్యూజన్ రికార్డులు',
+      'perfusion.new_entry_header': 'కొత్త పెర్ఫ్యూజన్ నమోదు',
+      'perfusion.bypass_started': 'బైపాస్ ప్రారంభ సమయం',
+      'perfusion.bypass_ended': 'బైపాస్ ముగింపు సమయం',
+      'perfusion.clamp_started': 'క్రాస్-క్లాంప్ ప్రారంభ సమయం',
+      'perfusion.clamp_ended': 'క్రాస్-క్లాంప్ ముగింపు సమయం',
+      'perfusion.act_baseline': 'ACT బేస్‌లైన్ (సెకన్లు)',
+      'perfusion.act_peak': 'ACT గరిష్ఠం (సెకన్లు)',
+      'perfusion.act_last': 'ACT చివరిది (సెకన్లు)',
+      'perfusion.temp_min': 'కనిష్ఠ ఉష్ణోగ్రత (°C)',
+      'perfusion.temp_max': 'గరిష్ఠ ఉష్ణోగ్రత (°C)',
+      'perfusion.complications': 'సమస్యలు',
+      'perfusion.saved': 'సేవ్ చేయబడింది',
+      'perfusion.device_links_header': 'పరికర లింకులు',
+      'perfusion.device_association_id': 'పరికరం-రోగి అసోసియేషన్ ID',
+      'perfusion.vendor_document_ref': 'విక్రేత పత్ర సూచన',
+      'perfusion.signoff_action': 'సైన్ ఆఫ్',
+      'perfusion.finalize_action': 'ఖరారు చేయండి',
+      'perfusion.signoff_confirm_body': 'ఈ పెర్ఫ్యూజన్ రికార్డుపై మీరు రికార్డ్ పెర్ఫ్యూజనిస్ట్‌గా సంతకం చేస్తున్నారు. మీ సిబ్బంది గుర్తింపు మరియు సమయం సంతకంగా నమోదు అవుతాయి.',
+      'perfusion.finalize_confirm_body': 'ఖరారు చేస్తే ఈ పెర్ఫ్యూజన్ రికార్డ్ శాశ్వతంగా లాక్ అవుతుంది. ఆ తర్వాత సవరణలు సాధ్యం కావు.',
+      'perfusion.finalize_blocked': 'ఖరారుకు ముందు పెర్ఫ్యూజనిస్ట్ సైన్-ఆఫ్, సర్జన్ సమీక్ష మరియు అనస్థీషియా సమీక్ష అవసరం',
+      'perfusion.finalized_readonly': 'ఖరారు చేయబడింది — చదవడానికి మాత్రమే',
+      'scheduling.workbench_title': 'షెడ్యూలింగ్ వర్క్‌బెంచ్',
+      'scheduling.tab.slot_grid': 'స్లాట్ గ్రిడ్',
+      'scheduling.tab.waitlist': 'వేచి ఉన్న జాబితా',
+      'scheduling.tab.templates': 'టెంప్లేట్లు',
+      'scheduling.tab.resources': 'వనరులు',
+      'scheduling.slot.open': 'ఖాళీ',
+      'scheduling.slot.held': 'హోల్డ్‌లో',
+      'scheduling.slot.booked': 'బుక్ అయింది',
+      'scheduling.slot.blocked': 'బ్లాక్ చేయబడింది',
+      'scheduling.hold.title': 'స్లాట్ హోల్డ్ చేయండి',
+      'scheduling.hold.release': 'విడుదల చేయండి',
+      'scheduling.on_leave': 'డాక్టర్ సెలవులో ఉన్నారు',
+      'scheduling.closed': 'షెడ్యూల్ మూసివేయబడింది',
+      'scheduling.capacity_label': 'సామర్థ్యం',
+      'scheduling.overbook_label': 'ఓవర్‌బుక్ పరిమితి',
+      'scheduling.waitlist.add_title': 'వేచి ఉన్న జాబితాకు జోడించండి',
+      'scheduling.waitlist.fill': 'వేచి ఉన్న జాబితా నుండి నింపండి',
+      'scheduling.waitlist.session_only':
+          'ఈ సెషన్ ఫలితాలు మాత్రమే — సర్వర్ వెయిట్‌లిస్ట్ జాబితాను అందించదు',
+      'scheduling.waitlist.offers': 'ఆఫర్లు',
+      'scheduling.template.create_title': 'కొత్త టెంప్లేట్',
+      'scheduling.template.exception_title': 'మినహాయింపు జోడించండి',
+      'scheduling.leave.title': 'సెలవు నమోదు చేయండి',
+      'scheduling.weekday_label': 'వారపు రోజు (0 = ఆదివారం)',
+      'scheduling.start_label': 'ప్రారంభం',
+      'scheduling.end_label': 'ముగింపు',
+      'scheduling.resource.create_title': 'కొత్త వనరు',
+      'scheduling.resource.id_label': 'వనరు ఐడీ',
+      'scheduling.resource.compat_title': 'అనుకూలత',
+      'scheduling.resource.book_title': 'వనరును బుక్ చేయండి',
+      'scheduling.resource.schedule_title': 'బుకింగ్‌లు',
+      'scheduling.saved': 'సేవ్ అయింది',
       'med_rec.notes_hint': 'ఈ సర్దుబాటుకు సందర్భం',
       'med_rec.start_short': 'ప్రారంభించండి',
       'transport.title': 'రోగి రవాణా',
@@ -29914,6 +30239,8 @@ class AppStrings {
       'role.feature.duty_preference': "విధి అభ్యర్థన",
       'role.feature.front_office_workbench': "ముందు కార్యాలయం",
       'role.feature.patient_transport': 'రోగి రవాణా',
+      'role.feature.scheduling_workbench': 'షెడ్యూలింగ్',
+      'role.feature.perfusion': 'పెర్ఫ్యూజన్',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED గమ్యస్థాన అప్పగింత",
@@ -31821,9 +32148,73 @@ class AppStrings {
       'due_meds.unnamed_medication': '(പേരില്ലാത്ത മരുന്ന്)',
       'mar_scan.title': 'മരുന്ന് നൽകൽ',
       'role.feature.patient_transport': 'രോഗി ഗതാഗതം',
+      'role.feature.scheduling_workbench': 'ഷെഡ്യൂളിംഗ്',
+      'role.feature.perfusion': 'പെർഫ്യൂഷൻ',
       'mar_scan.mismatch_blocked':
           'രോഗി/മരുന്ന് പൊരുത്തക്കേട് — നൽകൽ തടഞ്ഞു. വീണ്ടും സ്കാൻ ചെയ്യുക.',
       'med_rec.find_reconciliation': 'അനുരഞ്ജനം കണ്ടെത്തുക',
+      'med_rec.complete_hint': 'ഓരോ മരുന്നിനും രേഖപ്പെടുത്തിയ തീരുമാനം വേണം. പൊരുത്തക്കേടുകൾ നിലനിൽക്കുമ്പോൾ പൂർത്തിയാക്കൽ നിരസിക്കപ്പെടും.',
+      'med_rec.no_sources': 'ഒരു ഉറവിട പട്ടികയിലും മരുന്നുകൾ കണ്ടെത്തിയില്ല.',
+      'med_rec.none_yet': 'ഈ രോഗിക്ക് ഇതുവരെ അനുരഞ്ജനങ്ങളില്ല.',
+      'transport.request_title': 'പുതിയ ഗതാഗത അഭ്യർത്ഥന',
+      'transport.disabled_banner':
+          'ഈ ആശുപത്രിക്ക് രോഗി ഗതാഗതം പ്രവർത്തനക്ഷമമല്ല.',
+      'perfusion.title': 'CTVS പെർഫ്യൂഷൻ',
+      'perfusion.case_ref': 'തിയേറ്റർ കേസ് ID',
+      'perfusion.records_header': 'പെർഫ്യൂഷൻ രേഖകൾ',
+      'perfusion.new_entry_header': 'പുതിയ പെർഫ്യൂഷൻ എൻട്രി',
+      'perfusion.bypass_started': 'ബൈപ്പാസ് തുടങ്ങിയ സമയം',
+      'perfusion.bypass_ended': 'ബൈപ്പാസ് അവസാനിച്ച സമയം',
+      'perfusion.clamp_started': 'ക്രോസ്-ക്ലാമ്പ് തുടങ്ങിയ സമയം',
+      'perfusion.clamp_ended': 'ക്രോസ്-ക്ലാമ്പ് അവസാനിച്ച സമയം',
+      'perfusion.act_baseline': 'ACT ബേസ്‌ലൈൻ (സെക്കൻഡ്)',
+      'perfusion.act_peak': 'ACT ഉയർന്നത് (സെക്കൻഡ്)',
+      'perfusion.act_last': 'ACT അവസാനത്തേത് (സെക്കൻഡ്)',
+      'perfusion.temp_min': 'ഏറ്റവും കുറഞ്ഞ താപനില (°C)',
+      'perfusion.temp_max': 'ഏറ്റവും കൂടിയ താപനില (°C)',
+      'perfusion.complications': 'സങ്കീർണതകൾ',
+      'perfusion.saved': 'സേവ് ചെയ്തു',
+      'perfusion.device_links_header': 'ഉപകരണ ലിങ്കുകൾ',
+      'perfusion.device_association_id': 'ഉപകരണ-രോഗി അസോസിയേഷൻ ID',
+      'perfusion.vendor_document_ref': 'വെൻഡർ രേഖാ റഫറൻസ്',
+      'perfusion.signoff_action': 'സൈൻ ഓഫ്',
+      'perfusion.finalize_action': 'അന്തിമമാക്കുക',
+      'perfusion.signoff_confirm_body': 'ഈ പെർഫ്യൂഷൻ രേഖയിൽ നിങ്ങൾ റെക്കോർഡ് പെർഫ്യൂഷനിസ്റ്റായി ഒപ്പിടുകയാണ്. നിങ്ങളുടെ സ്റ്റാഫ് ഐഡന്റിറ്റിയും സമയവും ഒപ്പായി രേഖപ്പെടുത്തും.',
+      'perfusion.finalize_confirm_body': 'അന്തിമമാക്കിയാൽ ഈ പെർഫ്യൂഷൻ രേഖ ശാശ്വതമായി ലോക്ക് ആകും. ശേഷം തിരുത്തലുകൾ സാധ്യമല്ല.',
+      'perfusion.finalize_blocked': 'അന്തിമമാക്കുന്നതിന് മുമ്പ് പെർഫ്യൂഷനിസ്റ്റ് സൈൻ-ഓഫ്, സർജൻ അവലോകനം, അനസ്തേഷ്യ അവലോകനം എന്നിവ ആവശ്യമാണ്',
+      'perfusion.finalized_readonly': 'അന്തിമമാക്കി — വായനയ്ക്ക് മാത്രം',
+      'scheduling.workbench_title': 'ഷെഡ്യൂളിംഗ് വർക്ക്ബെഞ്ച്',
+      'scheduling.tab.slot_grid': 'സ്ലോട്ട് ഗ്രിഡ്',
+      'scheduling.tab.waitlist': 'കാത്തിരിപ്പ് പട്ടിക',
+      'scheduling.tab.templates': 'ടെംപ്ലേറ്റുകൾ',
+      'scheduling.tab.resources': 'വിഭവങ്ങൾ',
+      'scheduling.slot.open': 'ഒഴിവ്',
+      'scheduling.slot.held': 'ഹോൾഡിൽ',
+      'scheduling.slot.booked': 'ബുക്ക് ചെയ്തു',
+      'scheduling.slot.blocked': 'തടഞ്ഞു',
+      'scheduling.hold.title': 'സ്ലോട്ട് ഹോൾഡ് ചെയ്യുക',
+      'scheduling.hold.release': 'റിലീസ് ചെയ്യുക',
+      'scheduling.on_leave': 'ഡോക്ടർ അവധിയിലാണ്',
+      'scheduling.closed': 'ഷെഡ്യൂൾ അടച്ചിരിക്കുന്നു',
+      'scheduling.capacity_label': 'ശേഷി',
+      'scheduling.overbook_label': 'ഓവർബുക്ക് പരിധി',
+      'scheduling.waitlist.add_title': 'കാത്തിരിപ്പ് പട്ടികയിൽ ചേർക്കുക',
+      'scheduling.waitlist.fill': 'കാത്തിരിപ്പ് പട്ടികയിൽ നിന്ന് നിറയ്ക്കുക',
+      'scheduling.waitlist.session_only':
+          'ഈ സെഷനിലെ ഫലങ്ങൾ മാത്രം — സെർവർ കാത്തിരിപ്പ് പട്ടിക നൽകുന്നില്ല',
+      'scheduling.waitlist.offers': 'ഓഫറുകൾ',
+      'scheduling.template.create_title': 'പുതിയ ടെംപ്ലേറ്റ്',
+      'scheduling.template.exception_title': 'ഒഴിവാക്കൽ ചേർക്കുക',
+      'scheduling.leave.title': 'അവധി രേഖപ്പെടുത്തുക',
+      'scheduling.weekday_label': 'ആഴ്ചദിവസം (0 = ഞായർ)',
+      'scheduling.start_label': 'തുടക്കം',
+      'scheduling.end_label': 'അവസാനം',
+      'scheduling.resource.create_title': 'പുതിയ വിഭവം',
+      'scheduling.resource.id_label': 'വിഭവ ഐഡി',
+      'scheduling.resource.compat_title': 'അനുയോജ്യത',
+      'scheduling.resource.book_title': 'വിഭവം ബുക്ക് ചെയ്യുക',
+      'scheduling.resource.schedule_title': 'ബുക്കിംഗുകൾ',
+      'scheduling.saved': 'സേവ് ചെയ്തു',
       'med_rec.notes_hint': 'ഈ അനുരഞ്ജനത്തിന്റെ സന്ദർഭം',
       'med_rec.start_short': 'ആരംഭിക്കുക',
       'transport.title': 'രോഗി ഗതാഗതം',

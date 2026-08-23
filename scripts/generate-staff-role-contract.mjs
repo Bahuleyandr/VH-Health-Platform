@@ -294,6 +294,12 @@ export function buildStaffRoleContract() {
     // Once-over train D: medication reconciliation + porter transport UIs.
     med_rec: CLINICAL_STAFF_ROUTE_ROLES,
     patient_transport: PATIENT_TRANSPORT_ROUTE_ROLES,
+    scheduling_workbench: mergeRoles(CLINICAL_STAFF_ROUTE_ROLES, [
+      'RECEPTIONIST',
+      'RECEPTION_INCHARGE',
+      'ADMISSION_OFFICER',
+    ]),
+    perfusion: THEATRE_ROUTE_ROLES,
     device_association: DEVICE_ASSOCIATION_OPERATOR_ROLES,
     dietary: DIETARY_ROUTE_ROLES,
     discharge_hub: FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES,
