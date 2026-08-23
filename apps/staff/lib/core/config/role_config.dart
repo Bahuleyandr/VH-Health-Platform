@@ -409,6 +409,20 @@ class RoleFeatures {
     route: '/front-office',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _medRec = DashboardFeature(
+    id: 'med_rec',
+    titleKey: 'role.feature.med_rec',
+    icon: Icons.playlist_add_check_circle_outlined,
+    route: '/med-rec',
+    color: Color(0xFF00695C),
+  );
+  static const DashboardFeature _patientTransport = DashboardFeature(
+    id: 'patient_transport',
+    titleKey: 'role.feature.patient_transport',
+    icon: Icons.transfer_within_a_station_outlined,
+    route: '/transport',
+    color: Color(0xFF5D4037),
+  );
   static const DashboardFeature _edTraumaWorkbench = DashboardFeature(
     id: 'ed_trauma_workbench',
     titleKey: 'role.feature.ed_trauma_workbench',
@@ -865,6 +879,7 @@ class RoleFeatures {
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
     final features = switch (role) {
       StaffRole.doctor || StaffRole.dutyDoctor => [
+        _medRec,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -897,6 +912,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.anaesthetist => [
+        _medRec,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -918,6 +934,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.nurse || StaffRole.ipStaffNurse => [
+        _patientTransport,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -954,6 +971,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.nursingIncharge || StaffRole.ipIncharge => [
+        _patientTransport,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1111,6 +1129,8 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.medicalSuperintendent => [
+        _medRec,
+        _patientTransport,
         _attendance,
         _schedule,
         _sosResponse,
@@ -1152,6 +1172,8 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.admin || StaffRole.superAdmin => [
+        _medRec,
+        _patientTransport,
         _attendance,
         _schedule,
         _sosResponse,
@@ -1206,6 +1228,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.pharmacy || StaffRole.pharmacyIncharge => [
+        _medRec,
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1288,6 +1311,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.housekeeping => [
+        _patientTransport,
         _schedule,
         _dutyPreference,
         _bedBoard,
@@ -1298,6 +1322,7 @@ class RoleFeatures {
         _settings,
       ],
       StaffRole.housekeepingIncharge => [
+        _patientTransport,
         _schedule,
         _dutyPreference,
         _bedBoard,
@@ -1370,6 +1395,7 @@ class RoleFeatures {
       StaffRole.driver ||
       StaffRole.security ||
       StaffRole.emergencyResponder => [
+        _patientTransport,
         _sosResponse,
         _schedule,
         _dutyPreference,

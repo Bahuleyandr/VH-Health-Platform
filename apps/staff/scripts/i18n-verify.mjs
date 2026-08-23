@@ -252,7 +252,12 @@ function findHardcodedTexts(files) {
     /app_theme\.dart$/,
     /role_config\.dart$/,
   ];
+  // Two shapes: direct Text('...') literals, AND English assigned to
+  // error/message state variables that later flow into Text widgets — the
+  // blind spot that let the MAR hard-stop message ship unlocalized
+  // (once-over 2026-08-23: five strings evaded the Text-only heuristic).
   const re = /Text\(\s*['"]([^'"\$\{]{4,})['"]/g;
+  const errAssignRe = /_?(?:error|errorMessage|error_message|statusMessage)\w*\s*=\s*['"]([^'"\$\{]{4,})['"]/g;
   const isLikelyUiCopy = (s) => {
     if (s.length < 4) return false;
     if (!/\s/.test(s)) return false;        // single word
@@ -265,6 +270,11 @@ function findHardcodedTexts(files) {
     if (skipPatterns.some(p => p.test(f))) continue;
     const txt = readFileSync(f, 'utf8');
     for (const m of txt.matchAll(re)) {
+      if (isLikelyUiCopy(m[1])) {
+        hits.push({ file: relative(APP_ROOT, f), text: m[1] });
+      }
+    }
+    for (const m of txt.matchAll(errAssignRe)) {
       if (isLikelyUiCopy(m[1])) {
         hits.push({ file: relative(APP_ROOT, f), text: m[1] });
       }

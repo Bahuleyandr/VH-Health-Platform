@@ -6,6 +6,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -254,24 +255,26 @@ class _TheatreScreenState extends State<TheatreScreen>
           ],
         ),
       ),
-      body: Column(
-        children: [
-          RealtimeStatusBanner(
-            watchChannels: const {'staff:or-board'},
-            deniedMessageKey: 's4.lib.realtime_status.stale',
-            fallbackPoll: () => _loadCurrentTab(
-              showLoading: false,
-              preserveLastKnownData: true,
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            RealtimeStatusBanner(
+              watchChannels: const {'staff:or-board'},
+              deniedMessageKey: 's4.lib.realtime_status.stale',
+              fallbackPoll: () => _loadCurrentTab(
+                showLoading: false,
+                preserveLastKnownData: true,
+              ),
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             ),
-            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [_buildScheduleTab(), _buildAvailabilityTab()],
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [_buildScheduleTab(), _buildAvailabilityTab()],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

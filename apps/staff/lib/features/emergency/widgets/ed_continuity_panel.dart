@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/services/ed_trauma_api_service.dart';
+import '../../../core/services/med_rec_api_service.dart';
 import '../../../l10n/app_strings.dart';
 
 typedef EdContinuityLoader = Future<Map<String, dynamic>> Function(
@@ -90,6 +91,124 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
 
   List<Map<String, dynamic>> get _recoveryContacts =>
       _mapList(_continuityResponse?['recovery_contacts']);
+
+  Future<void> _pickMedicationReconciliation() async {
+    final uidController = TextEditingController();
+    try {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          List<Map<String, dynamic>>? recs;
+          String? lookupError;
+          var loading = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> fetch() async {
+                final uid = uidController.text.trim();
+                if (uid.isEmpty) return;
+                setDialogState(() {
+                  loading = true;
+                  lookupError = null;
+                });
+                try {
+                  final rows = await MedRecApiService.listForPatient(uid);
+                  setDialogState(() {
+                    recs = rows;
+                    loading = false;
+                  });
+                } catch (e) {
+                  setDialogState(() {
+                    lookupError = '$e';
+                    loading = false;
+                  });
+                }
+              }
+
+              return AlertDialog(
+                title: Text(AppStrings.of(context).medRecFindReconciliation),
+                content: SizedBox(
+                  width: 420,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: uidController,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(context)
+                              .lookup('ed_trauma.patient_uid'),
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (_) => fetch(),
+                      ),
+                      const SizedBox(height: 8),
+                      if (loading)
+                        const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      if (lookupError != null)
+                        Text(
+                          lookupError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      if (recs != null && recs!.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text(
+                            'No reconciliations for this patient yet.',
+                          ),
+                        ),
+                      if (recs != null && recs!.isNotEmpty)
+                        Flexible(
+                          child: ListView(
+                            shrinkWrap: true,
+                            children: [
+                              for (final rec in recs!)
+                                ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    '${rec['rec_type']} — ${rec['status']}',
+                                  ),
+                                  subtitle: Text(
+                                    '${rec['id']}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onTap: () =>
+                                      Navigator.of(dialogContext)
+                                          .pop('${rec['id']}'),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: Text(AppStrings.of(dialogContext).actionClose),
+                  ),
+                  FilledButton(
+                    onPressed: loading ? null : fetch,
+                    child: Text(AppStrings.of(dialogContext).medRecFetch),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      if (picked != null && mounted) {
+        setState(() => _medicationReconciliationId.text = picked);
+      }
+    } finally {
+      uidController.dispose();
+    }
+  }
 
   @override
   void dispose() {
@@ -494,11 +613,26 @@ class _EdContinuityPanelState extends State<EdContinuityPanel> {
             ),
           ),
           const SizedBox(height: 8),
-          _Input(
-            controller: _medicationReconciliationId,
-            label: strings.lookup(
-              'ed_trauma.continuity.medication_reconciliation_id',
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: _Input(
+                  controller: _medicationReconciliationId,
+                  label: strings.lookup(
+                    'ed_trauma.continuity.medication_reconciliation_id',
+                  ),
+                ),
+              ),
+              // Reconciliation ids were pure free text until the med-rec UI
+              // shipped (once-over train D) — this lookup fills the field
+              // from the patient's REAL reconciliations instead.
+              IconButton(
+                tooltip: AppStrings.of(context).medRecFindReconciliation,
+                icon: const Icon(Icons.manage_search),
+                onPressed: _pickMedicationReconciliation,
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           _Input(

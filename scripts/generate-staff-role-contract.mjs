@@ -19,6 +19,7 @@ import {
   CARE_PATHWAY_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
+  PATIENT_TRANSPORT_ROUTE_ROLES,
   CLINICAL_INBOX_ROUTE_ROLES,
   DIETARY_ROUTE_ROLES,
   ED_ROUTE_ROLES,
@@ -290,6 +291,9 @@ export function buildStaffRoleContract() {
     clinical_ai_review_queue: clinicalAiUserRoles,
     clinical_inbox: CLINICAL_INBOX_ROUTE_ROLES,
     dental_charting: CLINICAL_STAFF_ROUTE_ROLES,
+    // Once-over train D: medication reconciliation + porter transport UIs.
+    med_rec: CLINICAL_STAFF_ROUTE_ROLES,
+    patient_transport: PATIENT_TRANSPORT_ROUTE_ROLES,
     device_association: DEVICE_ASSOCIATION_OPERATOR_ROLES,
     dietary: DIETARY_ROUTE_ROLES,
     discharge_hub: FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES,

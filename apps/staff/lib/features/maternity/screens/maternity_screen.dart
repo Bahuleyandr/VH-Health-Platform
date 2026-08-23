@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/core/widgets/constrained_content.dart';
 import 'package:vhhealth_staff/core/widgets/states/empty_state.dart';
 import 'package:vhhealth_staff/core/widgets/states/error_state.dart';
 import 'package:vhhealth_staff/core/widgets/states/skeleton_list.dart';
@@ -120,41 +121,43 @@ class _MaternityScreenState extends State<MaternityScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const SkeletonList()
-          : _error != null
-          ? ErrorState(
-              message: _error!,
-              onRetry: _fetch,
-              retryLabel: s.maternityRetry,
-            )
-          : _labors.isEmpty
-          ? RefreshIndicator(
-              onRefresh: _fetch,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  SizedBox(
-                    height: MediaQuery.sizeOf(context).height * 0.65,
-                    child: EmptyState(
-                      icon: Icons.child_friendly,
-                      title: s.maternityEmptyTitle,
-                      body: s.maternityEmptyBody,
+      body: ConstrainedContent(
+        child: _loading
+            ? const SkeletonList()
+            : _error != null
+            ? ErrorState(
+                message: _error!,
+                onRetry: _fetch,
+                retryLabel: s.maternityRetry,
+              )
+            : _labors.isEmpty
+            ? RefreshIndicator(
+                onRefresh: _fetch,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.sizeOf(context).height * 0.65,
+                      child: EmptyState(
+                        icon: Icons.child_friendly,
+                        title: s.maternityEmptyTitle,
+                        body: s.maternityEmptyBody,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _fetch,
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _labors.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) =>
+                      _LaborCard(labor: _labors[i], onChanged: _fetch),
+                ),
               ),
-            )
-          : RefreshIndicator(
-              onRefresh: _fetch,
-              child: ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: _labors.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (_, i) =>
-                    _LaborCard(labor: _labors[i], onChanged: _fetch),
-              ),
-            ),
+      ),
     );
   }
 }

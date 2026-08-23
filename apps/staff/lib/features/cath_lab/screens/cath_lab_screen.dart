@@ -10,6 +10,7 @@ import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -335,28 +336,30 @@ class _CathLabScreenState extends State<CathLabScreen>
           ],
         ),
       ),
-      body: Column(
-        children: [
-          RealtimeStatusBanner(
-            watchChannels: const {'staff:code-stemi'},
-            deniedMessageKey: 's4.lib.realtime_status.stale',
-            fallbackPoll: _refreshWorkbench,
-            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildScheduleTab(),
-                _buildBody(_buildReadinessTab),
-                _buildBody(_buildProcedureTab),
-                _buildBody(_buildDoseTab),
-                _buildBody(_buildPostOrdersTab),
-                _buildBody(_buildReportsTab),
-              ],
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            RealtimeStatusBanner(
+              watchChannels: const {'staff:code-stemi'},
+              deniedMessageKey: 's4.lib.realtime_status.stale',
+              fallbackPoll: _refreshWorkbench,
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             ),
-          ),
-        ],
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildScheduleTab(),
+                  _buildBody(_buildReadinessTab),
+                  _buildBody(_buildProcedureTab),
+                  _buildBody(_buildDoseTab),
+                  _buildBody(_buildPostOrdersTab),
+                  _buildBody(_buildReportsTab),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

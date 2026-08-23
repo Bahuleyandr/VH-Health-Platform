@@ -124,6 +124,8 @@ import '../../features/dietary/screens/kitchen_screen.dart';
 
 // Dental
 import '../../features/dental/screens/dental_screen.dart';
+import '../../features/med_rec/screens/med_rec_screen.dart';
+import '../../features/transport/screens/transport_tasks_screen.dart';
 import '../../features/physio/screens/physio_screen.dart';
 import '../../features/transplant/screens/transplant_program_screen.dart';
 
@@ -1076,6 +1078,25 @@ final GoRouter appRouter = GoRouter(
           name: 'dietary-kitchen',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: KitchenScreen()),
+        ),
+        GoRoute(
+          path: '/med-rec',
+          name: 'med-rec',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: MedRecScreen(
+                patientUid: q['patient_uid'],
+                patientName: q['name'],
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/transport',
+          name: 'transport',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: TransportTasksScreen()),
         ),
         GoRoute(
           path: '/dental',

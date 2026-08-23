@@ -48,7 +48,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         _error = response.failureMessage('Failed to load dietary orders');
       }
     } catch (e) {
-      _error = 'Could not connect to server';
+      _error = AppStrings.of(context).commonServerUnreachable;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
