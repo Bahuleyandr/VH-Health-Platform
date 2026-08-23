@@ -19,6 +19,71 @@
 #
 # A separate read-only pooler would be added in a second resource block
 # here once the backend splits DATABASE_READ_URL onto the pooler endpoint.
+# No read-only Pooler exists in this file today.
+#
+# Correction to the sizing note above (verified 2026-08-24 against the composed
+# manifests): the admin portal does NOT open Postgres sessions — nothing under
+# infra/kubernetes/apps/admin grants it 5432 egress, and it reaches data only
+# through the backend API. Neither does the canary CronJob, which probes the
+# backend's /health endpoints over HTTP. The direct-session workloads are the
+# backend Deployment, the PreSync migration Job, the ward-downtime-packs
+# CronJob, and platform-side Harbor.
+#
+# ---------------------------------------------------------------------------
+# ADOPTION — operator action, deliberately NOT performed by this manifest.
+#
+# This pooler is deployed and PDB-protected, and with the NetworkPolicy at the
+# bottom of this file plus the pooler peer in
+# infra/kubernetes/apps/backend/network-policy.yaml it is now REACHABLE from
+# the backend. Nothing routes through it yet. The backend dials whatever
+# DATABASE_URL is sealed into `vhhealth-backend-env`, and the documented value
+# is the CNPG PRIMARY service, host
+# `vhhealth-pg-rw.vhhealth-platform.svc.cluster.local` port 5432
+# (infra/kubernetes/apps/backend/sealed-secret.yaml.example).
+# Repointing a live clinical database's connection string is an operator
+# decision with real blast radius, so this repository ships the path and stops.
+#
+# Blast radius of that one key: the backend Deployment AND the
+# ward-downtime-packs CronJob both take DATABASE_URL from `vhhealth-backend-env`
+# via envFrom, so a single re-seal moves both onto the pooler. The migration Job
+# overrides DATABASE_URL with DATABASE_SUPERUSER_URL and therefore stays on the
+# direct primary either way.
+#
+# To adopt the pooler, the operator must:
+#
+#   1. Prove the auth path first. `spec.pgbouncer.authQuery` below reads
+#      `pg_catalog.pg_shadow`, which is superuser-restricted by default, and
+#      base/cnpg/cluster.yaml sets `enableSuperuserAccess: false`. Confirm on
+#      the live cluster that the role CNPG runs this query as can actually
+#      execute it — or move to CNPG's managed `user_search` auth path — BEFORE
+#      any traffic depends on it. A pooler that cannot authenticate fails every
+#      connection, not some.
+#   2. Re-seal `vhhealth-backend-env`'s DATABASE_URL with host
+#      `vhhealth-pg-rw-pooler.vhhealth-platform.svc.cluster.local` — the value
+#      already published as DB_POOLER_HOST in the prod/staging `vhhealth-env`
+#      ConfigMap — keeping the same `vhhealth_runtime` role and database, then
+#      roll the backend Deployment. Keep the direct DSN as the rollback.
+#   3. Re-check the connection budget below, and watch it during the roll.
+#
+# CONNECTION BUDGET — why this is not a free switch. The cluster's
+# `max_connections` is 200 (base/cnpg/cluster.yaml). This pooler's server-side
+# ceiling is instances(2) x max_db_connections(80) = 160 real Postgres
+# connections, and that lands ON TOP of every session still opened directly to
+# `vhhealth-pg-rw` after the re-seal: the migration Job and Harbor
+# (base/harbor/harbor-values.yaml), plus PostgreSQL's own wal-sender and
+# reserved-superuser slots for a 3-instance cluster. 160 plus those does not fit
+# under 200 with margin — which is why max_db_connections was already cut from
+# 150 to 80. So adoption only works as a SWAP: the backend's direct sessions
+# must disappear as its pooled ones appear. Verify with
+# `cnpg_vhhealth_connections_total` against `cnpg_vhhealth_connections_max_conn`
+# across the roll, and lower max_db_connections further if any direct consumer
+# stays. Those are the EXPORTED series names: base/cnpg/cluster.yaml declares the
+# user-defined query `vhhealth_connections` with columns `total` and `max_conn`,
+# and the CNPG exporter publishes each column as `cnpg_<query>_<column>`. A bare
+# `vhhealth_connections` metric exists on no target — a query for it returns
+# empty, not zero (re-audit 2026-08-23, which found four alert rules disarmed by
+# exactly this mistake).
+# ---------------------------------------------------------------------------
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
@@ -98,3 +163,89 @@ spec:
   selector:
     matchLabels:
       cnpg.io/poolerName: vhhealth-pg-rw-pooler
+---
+# Reachability for the pooler pods themselves.
+#
+# `vhhealth-platform` is default-deny for BOTH directions
+# (base/_common/network-policies.yaml) and no policy selected these pods, so
+# PgBouncer could neither be dialled by the app namespace nor reach the database
+# behind it. CNPG labels pooler pods `cnpg.io/poolerName` — the same key the
+# topologySpread, the PDB above, and the pooler->cluster ingress rule in
+# backup-network-policy.yaml already select on; `cnpg.io/cluster` selects only
+# the database pods, which is why the pooler fell outside every existing rule.
+#
+# This grants a PATH, not traffic: see the ADOPTION block at the top of this
+# file for what the operator must change for anything to actually use it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-pg-rw-pooler
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/instance: vhhealth-pg-rw-pooler
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/poolerName: vhhealth-pg-rw-pooler
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The same client set `allow-backend-to-cnpg` admits to the database, so the
+    # pooler and the database answer one question about who may open a Postgres
+    # session rather than two. Every one of these already reaches the database
+    # directly, so this adds no new capability — it only keeps the pooled path
+    # usable for whichever of them the operator repoints.
+    # Prometheus scraping is covered namespace-wide by `allow-monitoring-scrape`.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend-migrate
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ward-downtime-packs
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # PgBouncer -> the database it fronts. The ingress side of this hop already
+    # exists (`cnpg-cluster-internal` in backup-network-policy.yaml accepts
+    # cnpg.io/poolerName on 5432), so this was the only missing direction on it.
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-pg
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Kubernetes API. CNPG runs pooler pods from the operator image: the
+    # container reconciles pgbouncer's configuration from the Pooler and Cluster
+    # objects and the auth Secret, so it needs API-server egress just as the
+    # database pods do — `cnpg-cluster-internal` grants them this same
+    # private-range 443 rule. Cluster-internal only; there is deliberately no
+    # public-internet peer here (the pooler has no reason to leave the cluster).
+    # DNS is already granted namespace-wide by `allow-dns-egress`.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

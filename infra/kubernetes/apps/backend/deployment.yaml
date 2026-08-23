@@ -147,9 +147,21 @@ spec:
             limits:
               cpu: "2000m"
               memory: "2Gi"
-          # `/health/live` has no DB dependency. `/health/ready` checks DB
-          # migration readiness and required Sentinel Redis connectivity;
-          # tenant-RLS posture remains an alert, not a traffic gate (C-7).
+          # `/health/live` has no DB dependency. `/health/ready` gates traffic
+          # on DB reachability + migration readiness ONLY.
+          #
+          # Redis is NOT a readiness gate (873-F2, 2026-08-15 — this comment
+          # said it was until the 2026-08-23 once-over caught it). Strictness
+          # (REDIS_REQUIRE_SENTINEL=true in the ConfigMap) is a BOOT gate: a
+          # pod that cannot reach Sentinel at startup exits 1 in bin/www.js and
+          # never serves. Once initialized, a MID-FLIGHT Redis outage reports
+          # `redis: degraded` in the readiness payload and keeps the pod READY
+          # on purpose — failing readiness pulled every pod from the Service in
+          # ~15s, turning a cache outage into a hospital-wide API outage. The
+          # one Redis condition that still fails readiness is a strict pod whose
+          # client was never initialized at all. Tenant-RLS posture likewise
+          # remains an alert, not a traffic gate (C-7).
+          #
           # Readiness uses an exec probe so the protected monitoring endpoint
           # can receive the pod's MONITORING_TOKEN without baking the secret
           # value into this manifest.

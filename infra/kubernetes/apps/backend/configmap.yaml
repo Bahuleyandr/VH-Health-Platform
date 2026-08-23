@@ -50,12 +50,13 @@ data:
   LOG_FORMAT: "json"
   LOG_LEVEL: "info"
 
-  # Database SSL mode (Prisma / pg) — required for any external managed PG;
-  # CNPG in-cluster uses mTLS so SSL is negotiated but self-signed.
-  DATABASE_SSL_MODE: "require"
-
-  # App metadata — overlay fills APP_VERSION from release tag / git sha
-  APP_VERSION: "0.0.0-dev"
+  # NB: DATABASE_SSL_MODE and APP_VERSION used to be declared here and were
+  # removed (2026-08-23 once-over) — no code and no manifest read either name.
+  # TLS mode is carried in the DATABASE_URL query string (`?sslmode=require`,
+  # see sealed-secret.yaml.example), and the deployed build is reported from
+  # GIT_COMMIT, which the Deployment injects from the pod's
+  # `app.kubernetes.io/version` label and /health/version serves. Do not
+  # reinstate either name without a reader.
   PUBLIC_BASE_URL: "https://api.vhhealth.app"
 
   # Firebase — project ID is public; private_key + client_email live in the Secret
@@ -168,6 +169,47 @@ data:
   # the vhhealth_security_webhook_events_total{outcome="disabled"} metric
   # counts every page that would have fired.
   SECURITY_WEBHOOKS_ENABLED: "false"
+
+  # ---- Client force-upgrade gates (public GET /api/v1/config) ----
+  # 0 = gate DISABLED, and that is a decision recorded here, not an omission.
+  # Both names were read by the backend and declared in no manifest until the
+  # 2026-08-23 once-over; an absent variable and a deliberately-off gate were
+  # indistinguishable. The backend now also prints the resolved state of both
+  # gates at every boot.
+  #
+  # Arming (docs/DARK_GATE_ENABLEMENT.md#6-client-force-upgrade-gates):
+  #   • MIN_STAFF_VERSION_CODE — set to the minimum accepted staff build
+  #     number. Safe on its own: every staff build implements the unsigned
+  #     comparison and fails open when /config is unusable.
+  #   • MIN_PATIENT_VERSION_CODE — COUPLED. A non-zero value REQUIRES a valid
+  #     PATIENT_MINIMUM_VERSION_POLICY_JSON in the vhhealth-backend-env Secret;
+  #     validateEnv refuses to boot otherwise, because fielded patient builds
+  #     fail closed on a minimum they cannot verify and would block every
+  #     install — including installs already above the code, and their SOS path.
+  # Leave both as the string "0"; an empty value fails Joi's number check and
+  # the pod will not start.
+  MIN_STAFF_VERSION_CODE: "0"
+  MIN_PATIENT_VERSION_CODE: "0"
+
+  # ---- PHI shadow-column envelope encryption (migration 132) — DORMANT ----
+  # Deliberately no keys here. The subsystem's two secrets (KMS_MASTER_KEY and
+  # PHI_SEARCH_HASH_KEY) are NOT sealed into vhhealth-backend-env, so nothing
+  # is written to the migration-132 shadow columns. That is step 1 of a four-step
+  # rollout with only the dual-WRITE half wired: no read path consumes those
+  # columns, so the plaintext columns remain authoritative and nothing is lost
+  # by leaving it off. The backend prints "PHI shadow-column envelope
+  # encryption: DORMANT by configuration" at every boot.
+  #
+  # ▶ TO ARM: follow docs/DARK_GATE_ENABLEMENT.md#5-phi-shadow-column-envelope-encryption.
+  #   Both secrets must be sealed TOGETHER — the backend refuses to boot with
+  #   exactly one of them, because the dual-write call sites swallow a
+  #   missing-key error and would leave rows half-encrypted.
+  #
+  # Not to be confused with FIELD_ENCRYPTION_MASTER_KEK (the per-tenant KEK
+  # hierarchy). That one is a Secret key, not a ConfigMap key — it belongs in
+  # vhhealth-backend-env (schema: sealed-secret.yaml.example) and gates payroll
+  # runs, payslip-password reveal, HL7 I03 recovery and PHI re-wrap. It is NOT
+  # sealed today; the backend warns at every boot naming those paths.
   # W3-H2 (audit 2026-06-22): the base host for per-tenant subdomain resolution.
   # tenantFromHost() parses "<slug>-api.<TENANT_BASE_HOST>" → tenant slug. If this
   # is unset it falls back to "localhost", so once W7 wildcard DNS is live every

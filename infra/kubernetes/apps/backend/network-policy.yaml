@@ -91,7 +91,21 @@ spec:
         - protocol: TCP
           port: 53
 
-    # CNPG PostgreSQL — read/write endpoint + read-only endpoint (replicas)
+    # CNPG PostgreSQL — read/write endpoint + read-only endpoint (replicas),
+    # plus the PgBouncer pooler that fronts the primary.
+    #
+    # Two peers, not one: CNPG labels the database pods `cnpg.io/cluster` but
+    # labels PgBouncer pods `cnpg.io/poolerName` (the pooler's own
+    # topologySpread/PDB selectors in base/cnpg/poolers.yaml, and the pooler
+    # ingress rule in base/cnpg/backup-network-policy.yaml, all key off
+    # poolerName). So the cluster selector alone did NOT match the pooler and
+    # this namespace is default-deny egress — the deployed pooler was
+    # unreachable from the backend no matter what DSN it was given.
+    #
+    # This rule only opens the path. Which endpoint the backend actually dials
+    # is the DATABASE_URL in the sealed `vhhealth-backend-env` Secret, and
+    # repointing it is an operator decision — see base/cnpg/poolers.yaml
+    # ("ADOPTION") and docs/PRODUCTION_DB_HARDENING.md.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -99,6 +113,12 @@ spec:
           podSelector:
             matchLabels:
               cnpg.io/cluster: vhhealth-pg
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              cnpg.io/poolerName: vhhealth-pg-rw-pooler
       ports:
         - protocol: TCP
           port: 5432
