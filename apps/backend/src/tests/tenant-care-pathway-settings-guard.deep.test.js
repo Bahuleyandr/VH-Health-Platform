@@ -100,6 +100,13 @@ describe('tenant care-pathway settings HTTP boundary', () => {
         care_pathways: { [PATHWAY_KEY]: 'off' },
       }),
     );
+  // Admin surface is entitlement-gated barrel-wide (once-over 2026-08-23):
+  // give every test tenant a package, mirroring production provisioning.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source)
+     SELECT id, 'enterprise', 'active', NOW(), 'test_seed' FROM tenants
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+  );
   });
 
   afterAll(async () => {

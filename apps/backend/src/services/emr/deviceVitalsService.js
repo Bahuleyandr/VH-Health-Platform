@@ -320,7 +320,11 @@ async function isDuplicateControlId({ tenantId, deviceId, controlId }) {
   await prisma.$executeRawUnsafe(
     `DELETE FROM device_vitals_control_ids WHERE tenant_id = $1::uuid AND expires_at < NOW()`,
     tenantId,
-  ).catch(() => {});
+  ).catch((cleanupErr) => {
+    logger.warn('Device-vitals control-id expiry cleanup failed', {
+      tenantId, error: cleanupErr.message,
+    });
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id
        FROM device_vitals_control_ids

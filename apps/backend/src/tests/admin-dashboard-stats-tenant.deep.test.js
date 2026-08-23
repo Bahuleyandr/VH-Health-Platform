@@ -70,6 +70,13 @@ d('Admin dashboard stats/activity tenant scope (CAN-015)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can015-tenant-b', 'CAN-015 Tenant B') ON CONFLICT (id) DO NOTHING`,
       TENANT_B);
+  // Admin surface is entitlement-gated barrel-wide (once-over 2026-08-23):
+  // give every test tenant a package, mirroring production provisioning.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source)
+     SELECT id, 'enterprise', 'active', NOW(), 'test_seed' FROM tenants
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+  );
   }, 30000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 

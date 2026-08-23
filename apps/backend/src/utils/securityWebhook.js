@@ -11,6 +11,7 @@
 
 import crypto from 'crypto';
 import logger from '../logging/logger.js';
+import { recordSecurityWebhookOutcome } from '../observability/securityEventMetrics.js';
 
 const WEBHOOK_URL = process.env.SECURITY_WEBHOOK_URL;
 const CRITICAL_WEBHOOK_URL = process.env.SECURITY_WEBHOOK_CRITICAL || WEBHOOK_URL;
@@ -34,7 +35,14 @@ const CRITICAL_EVENTS = new Set([
  * @param {Object} details - Event context
  */
 export function sendSecurityWebhook(eventType, details = {}) {
-  if (!WEBHOOKS_ENABLED || !WEBHOOK_URL) return;
+  if (!WEBHOOKS_ENABLED || !WEBHOOK_URL) {
+    // Not configured is a legitimate state, but it must be OBSERVABLE: the
+    // 2026-08-23 once-over found this early return silently discarding
+    // brute-force / break-glass / audit-tamper pages in every deployment.
+    // The 'disabled' outcome feeds the SecurityPagingUnconfigured alert.
+    recordSecurityWebhookOutcome(eventType, 'disabled');
+    return;
+  }
 
   const isCritical = CRITICAL_EVENTS.has(eventType);
   const url = isCritical ? CRITICAL_WEBHOOK_URL : WEBHOOK_URL;
@@ -79,9 +87,13 @@ export function sendSecurityWebhook(eventType, details = {}) {
       });
       if (!response.ok) {
         logger.warn(`Security webhook failed: ${response.status}`);
+        recordSecurityWebhookOutcome(eventType, 'send_failed');
+      } else {
+        recordSecurityWebhookOutcome(eventType, 'sent');
       }
     } catch (err) {
       logger.warn('Security webhook delivery failed:', err.message);
+      recordSecurityWebhookOutcome(eventType, 'send_failed');
     }
   });
 }

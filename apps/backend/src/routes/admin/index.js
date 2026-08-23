@@ -190,6 +190,21 @@ if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
   });
 }
 
+// Package-level gate for the WHOLE admin surface. The catalog (migration 433)
+// declares admin.operations enforcement_mode='hard_block' over /api/v1/admin,
+// but until the 2026-08-23 once-over only three fine-grained mounts were
+// gated — the catalog promised enforcement that did not exist. Order matters:
+//   * /entitlements mounts ABOVE this gate so it stays reachable as the
+//     recovery surface — a SUPER_ADMIN must always be able to inspect and
+//     restore a tenant's package even when that tenant is hard-blocked
+//     (same reachable-recovery pattern as the #906 infra /rbac mount).
+//   * Existing tenants were seeded an active 'enterprise' entitlement by
+//     migration 434, and tenantService.createTenant seeds new tenants, so
+//     this gate changes nothing for provisioned tenants — it blocks only a
+//     tenant whose package genuinely lacks admin.operations.
+router.use('/entitlements', entitlementRoutes);
+router.use(requireEntitlement(ENTITLEMENT_FEATURE_KEYS.adminOperations));
+
 router.use(consoleDiagnosticsRoutes);
 router.use(consoleRoutes);
 router.use(consoleStatsRoutes);
@@ -226,7 +241,8 @@ router.use('/records', adminRecordRoutes);
 router.use('/investigations', adminInvestigationRoutes);
 router.use('/pharmacy', adminPharmacyRoutes);
 router.use('/analytics', analyticsRoutes);
-router.use('/entitlements', entitlementRoutes);
+// /entitlements is mounted at the top of this file, ABOVE the barrel-wide
+// admin.operations entitlement gate — see the comment there.
 // SUPER_ADMIN-only dark-gate console read (route-level requireRole inside).
 router.use('/integration-gates', integrationGateRoutes);
 router.use('/feature-flags', requireEntitlement(ENTITLEMENT_FEATURE_KEYS.adminFeatureFlags), featureFlagRoutes);

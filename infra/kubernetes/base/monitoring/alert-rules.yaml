@@ -345,3 +345,33 @@ spec:
             summary: "C6.2 warm-standby streaming lag exceeds 30 seconds"
             description: "The Phase 2 target is evaluated only by a promotion drill; this signal protects the async stream and does not itself prove RPO."
             runbook: "docs/runbooks/C6_2_WARM_STANDBY_PROMOTION_FAILBACK.md"
+    # Security-event pipeline (once-over 2026-08-23 HIGH): these fire from the
+    # backend's own counters, so they page even when the security-webhook
+    # channel is disabled or misconfigured — a deliberate second channel.
+    - name: security-events
+      rules:
+        - alert: SecurityAuditChainTampered
+          expr: increase(vhhealth_security_webhook_events_total{event_type="AUDIT_CHAIN_TAMPERED"}[15m]) > 0
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "Audit hash-chain tamper detected"
+            description: "The nightly audit-chain verifier found broken links. Treat as an active integrity incident; identify the first broken sequence from the backend logs and audit_log."
+        - alert: SecurityBreakGlassActivated
+          expr: increase(vhhealth_security_webhook_events_total{event_type=~"BREAK_GLASS_.*"}[15m]) > 0
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "A break-glass access grant was activated or revoked"
+            description: "Break-glass use is legitimate but must always be reviewed. Cross-check the actor and reason in audit_log and the break-glass review queue."
+        - alert: SecurityPagingUnconfigured
+          expr: increase(vhhealth_security_webhook_events_total{outcome="disabled"}[1h]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Security events occurred while webhook paging is disabled"
+            description: "sendSecurityWebhook dropped events because SECURITY_WEBHOOKS_ENABLED/SECURITY_WEBHOOK_URL are unset. Either enable paging (ConfigMap flag + sealed URL) or accept and silence during quiet hours."

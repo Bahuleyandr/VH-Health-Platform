@@ -10,6 +10,7 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { normalizeAuditLogUserId } from './auditLogIdentity.js';
+import { recordSecurityEvent } from '../observability/securityEventMetrics.js';
 
 let pendingSecurityLogs = 0;
 const MAX_PENDING_SECURITY_LOGS = 500;
@@ -28,6 +29,11 @@ const MAX_PENDING_SECURITY_LOGS = 500;
  * @param {string} [details.reason] - Failure reason (for logging, not client-facing)
  */
 export function logSecurityEvent(eventType, details = {}) {
+  // Counter first — cheap, synchronous, and immune to the queue backpressure
+  // below, so the metric reflects every event even when the DB path drops to
+  // file-only.
+  recordSecurityEvent(eventType);
+
   // Backpressure: drop if queue is full to prevent OOM
   if (pendingSecurityLogs >= MAX_PENDING_SECURITY_LOGS) {
     logger.warn('Security audit queue full, logging to file only:', { eventType, userId: details.userId });

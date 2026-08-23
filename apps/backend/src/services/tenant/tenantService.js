@@ -143,6 +143,20 @@ export async function createTenant(data = {}) {
   if (!rows[0]) {
     throw AppError.conflict(`Tenant slug already exists: ${slug}`);
   }
+
+  // Seed a default package entitlement so a fresh tenant is never hard-blocked
+  // from the admin surface it needs to finish its own onboarding (the
+  // /api/v1/admin barrel is gated on admin.operations since 2026-08-23).
+  // Same preserve-access reasoning as migration 434's backfill; commercial
+  // packaging downgrades are an explicit operator action afterwards.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source, metadata)
+     VALUES ($1::uuid, 'enterprise', 'active', NOW(), 'tenant_creation_default',
+             '{"reason": "Default package at tenant creation; adjust during commercial onboarding."}'::jsonb)
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+    rows[0].id,
+  );
+
   invalidateCache(rows[0].id);
   return rows[0];
 }

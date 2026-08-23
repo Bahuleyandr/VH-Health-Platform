@@ -14,6 +14,7 @@ import { serializeStaffPushFanoutMetrics } from '../../observability/staffPushFa
 import { serializeEscalationMetrics } from '../../observability/escalationMetrics.js';
 import { serializeInterfaceEngineMetrics } from '../../observability/interfaceEngineMetrics.js';
 import { serializeRateLimitPostureMetrics } from '../../observability/rateLimitPostureMetrics.js';
+import { serializeSecurityEventMetrics } from '../../observability/securityEventMetrics.js';
 
 const router = Router();
 
@@ -36,7 +37,9 @@ router.get('/', (_req, res) => {
       + '\n'
       + serializeInterfaceEngineMetrics()
       + '\n'
-      + serializeRateLimitPostureMetrics(),
+      + serializeRateLimitPostureMetrics()
+      + '\n'
+      + serializeSecurityEventMetrics(),
   );
 });
 

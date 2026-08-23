@@ -153,6 +153,21 @@ data:
   # that resolves no tenant 403s instead of silently acting as the default tenant.
   ALLOW_DEFAULT_TENANT: "true"
   ENABLE_AUTOMATED_PAYROLL_CRONS: "false"
+  # Deliberately-off switches, pinned here so "off" is visible intent rather
+  # than an absent var a future operator cannot distinguish from "forgotten"
+  # (once-over 2026-08-23). Clinical-AI sweeps stay off per the rollout
+  # plateau decision; the revenue-cycle tracker's ROUTES are live — this flag
+  # governs only its background sweep.
+  CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED: "false"
+  CLINICAL_AI_CODING_BATCH_ENABLED: "false"
+  REVENUE_CYCLE_TRACKER_ENABLED: "false"
+  # Security paging enable flag (utils/securityWebhook.js). Flip to "true"
+  # AND seal SECURITY_WEBHOOK_URL (+ optional SECURITY_WEBHOOK_CRITICAL /
+  # SECURITY_WEBHOOK_SECRET) in the vhhealth-backend-env Secret to page on
+  # brute-force / break-glass / audit-chain-tamper events. While "false",
+  # the vhhealth_security_webhook_events_total{outcome="disabled"} metric
+  # counts every page that would have fired.
+  SECURITY_WEBHOOKS_ENABLED: "false"
   # W3-H2 (audit 2026-06-22): the base host for per-tenant subdomain resolution.
   # tenantFromHost() parses "<slug>-api.<TENANT_BASE_HOST>" → tenant slug. If this
   # is unset it falls back to "localhost", so once W7 wildcard DNS is live every

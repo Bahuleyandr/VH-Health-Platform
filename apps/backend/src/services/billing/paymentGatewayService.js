@@ -573,7 +573,13 @@ export async function createGatewayOrder({
               failure_reason = $1, updated_at = NOW()
         WHERE id = $2::int AND tenant_id = $3::uuid AND provider_order_id IS NULL`,
       String(err?.code || 'upstream_error').slice(0, 500), Number(intent.id), tenant,
-    ).catch(() => {});
+    ).catch((markErr) => {
+      // Losing this marker hides an uncertain provider order from
+      // reconciliation — log it, never silence it.
+      logger.warn('Payment intent provider-uncertain marker did not persist', {
+        intentId: intent.id, error: markErr.message,
+      });
+    });
     throw err;
   }
 

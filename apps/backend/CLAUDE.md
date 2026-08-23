@@ -88,7 +88,7 @@ prisma/schema.prisma  # canonical schema source, 863 models (regenerated after e
 - **OTP hashing**: OTPs hashed with bcrypt before storage. Timing-safe comparison via `bcrypt.compare()`. Backwards-compatible with legacy plaintext.
 - **API keys**: Per-client keys via `API_KEY_PATIENT`, `API_KEY_STAFF`, `API_KEY_ADMIN` env vars. Shared `API_KEY` as fallback. `req.apiClient` set for audit trail.
 - **Anomaly detection**: `loginAnomalyDetector.js` tracks credential stuffing (10+ accounts from same IP). IP threat level assessment for adaptive rate limiting.
-- **Security webhooks**: `securityWebhook.js` sends Slack/PagerDuty alerts for critical events (ACCOUNT_LOCKED, BRUTE_FORCE_DETECTED).
+- **Security webhooks**: `securityWebhook.js` pages external channels for critical events (ACCOUNT_LOCKED, BRUTE_FORCE_DETECTED) — but ONLY when `SECURITY_WEBHOOKS_ENABLED=true` and `SECURITY_WEBHOOK_URL` are set (ConfigMap flag + sealed secret; canonical names live in validateEnv). When disabled, `vhhealth_security_webhook_events_total{outcome="disabled"}` counts every page that would have fired, and the `security-events` Prometheus rules page independently of the webhook.
 
 ## Security Architecture
 

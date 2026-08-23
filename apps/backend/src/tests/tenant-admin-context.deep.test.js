@@ -25,6 +25,13 @@ async function seedTenant(id, slug, name, settingsJson) {
      ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, name = EXCLUDED.name`,
     id, slug, name, settingsJson,
   );
+  // Admin surface is entitlement-gated barrel-wide (once-over 2026-08-23):
+  // give every test tenant a package, mirroring production provisioning.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source)
+     SELECT id, 'enterprise', 'active', NOW(), 'test_seed' FROM tenants
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+  );
 }
 
 d('W5 S1 — GET /admin/tenant-context', () => {

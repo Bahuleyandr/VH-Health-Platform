@@ -1868,7 +1868,11 @@ async function admitPatient(data) {
             },
             ip_address: null,
           },
-        }).catch(() => {});
+        }).catch((auditErr) => {
+          logger.warn('admitPatient: ADMISSION_ADVICE_FULFILLED audit row did not persist', {
+            admissionId: admission.id, error: auditErr.message,
+          });
+        });
       } else {
         logger.warn(
           `admitPatient: source_appointment_id=${adviceAppointmentId} did not match an open advised ` +
