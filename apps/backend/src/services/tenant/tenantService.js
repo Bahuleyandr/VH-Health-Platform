@@ -157,6 +157,29 @@ export async function createTenant(data = {}) {
     rows[0].id,
   );
 
+  // Copy the platform-baseline TAT thresholds from the default tenant so the
+  // new tenant's radiology/AP TAT dashboards and breach alerts work from day
+  // one (once-over 2026-08-23: the views drop unthresholded orders, so a
+  // tenant without rows rendered empty metrics silently; migration 727
+  // backfilled existing tenants the same way).
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO radiology_tat_thresholds
+       (tenant_id, priority, modality, target_minutes, warning_minutes, critical_minutes, metadata)
+     SELECT $1::uuid, d.priority, d.modality, d.target_minutes, d.warning_minutes, d.critical_minutes, d.metadata
+       FROM radiology_tat_thresholds d
+      WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+     ON CONFLICT DO NOTHING`,
+    rows[0].id,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO ap_tat_thresholds (tenant_id, case_kind, priority, target_hours, is_active)
+     SELECT $1::uuid, d.case_kind, d.priority, d.target_hours, d.is_active
+       FROM ap_tat_thresholds d
+      WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+     ON CONFLICT (tenant_id, case_kind, priority) DO NOTHING`,
+    rows[0].id,
+  );
+
   invalidateCache(rows[0].id);
   return rows[0];
 }

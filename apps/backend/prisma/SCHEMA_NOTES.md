@@ -175,3 +175,40 @@ The chip hint about `insurance_preauth.parent_preauth_id` covers the
 mid-stay enhancement hop; this migration adds the *claim*-level link
 so a final claim row also knows its predecessor preauth-claim.
 Finding: `2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped`.
+
+## RLS posture for 677+ operational tables (decision 2026-08-23)
+
+Migration 726 added the fail-closed restrictive explicit-context layer (the
+605/609/669 template) to the webhook-fed PHI and financial tables from the
+677–725 wave: `abdm_hiu_fetch_sessions`, `abdm_hiu_fetch_pages`,
+`abdm_hiu_received_bundles`, `abdm_patient_share_intakes`,
+`abha_enrolment_sessions`, `payment_gateway_orders`,
+`payment_gateway_webhook_events`, `payment_gateway_refunds`,
+`payment_gateway_provider_configs` — their writers all run under
+`setTenantTx`, so the layer binds without behavior change.
+
+The REMAINING 677+ tenant-scoped tables stay request-path-permissive
+(075-style policy only) as a RECORDED decision, not an omission:
+
+- Operational tables (`sos_*` additions, `staff_shift_swap_*`,
+  `staff_on_call_assignments`, `ambulance_position_events`,
+  `pharmacy_counter_sale*`, `dietary_menu_items`, `dietary_meal_tickets`,
+  `mis_report_*`, `referral_facilities`, `facility_asset*`,
+  `uhi_transactions`, `lab_analyzer_code_mappings`, `drug_kb_catalog_links`,
+  `system_settings`): request-path writes carry explicit tenant predicates
+  (PR #684 house rule) and production auto-wraps under tenant context; the
+  fail-closed layer is deliberately reserved for PHI/financial stores.
+- `sms_provider_configs` / `sms_template_registrations`: excluded from 726
+  only because `smsProviderConfigService` does not yet wrap its raw calls in
+  `setTenantTx`. If that service is ever refactored to wrap, add the pair to
+  the 726 loop in a follow-up migration.
+
+## family_members consent columns are reserved slots (decision 2026-08-23)
+
+`family_members.link_consent_ref` is never populated, and three of the four
+CHECK-allowed `link_consent_method` values (`written`, `verbal_documented`,
+`otp`) have no minting code path — only `guardian_declaration` is written
+(dependent promotion, `dependentsService.js`). This is a DELIBERATE reserved
+slot for a future consent-artifact capture flow (written/OTP consent with an
+evidence reference), recorded here so schema audits stop re-flagging it. Do
+not drop the columns; wire `link_consent_ref` when the capture flow ships.
