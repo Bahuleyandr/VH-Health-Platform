@@ -5,6 +5,7 @@
 
 import express from 'express';
 
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   listEncryptionKeys,
@@ -15,6 +16,25 @@ import {
 } from '../../services/security/encryptionKeyRegistryService.js';
 
 const router = express.Router();
+
+/**
+ * SUPER_ADMIN-only console (in-route gate, same intent as the databaseRoutes.js
+ * gate; spelled with the shared `requireRole` so a denied attempt lands in the
+ * security audit trail as `PERMISSION_DENIED`).
+ *
+ * The parent `/api/v1/admin` mount gates on ADMIN_ROUTE_ROLES, which resolves
+ * to ['SUPER_ADMIN', 'ADMIN'], and `requireSuperAdminStepUp` passes non-supers
+ * straight through (rbacMiddleware.js:117) — so before this gate a plain tenant
+ * ADMIN could rotate, retire, or mark-compromised the PHI-at-rest key registry.
+ * The admin portal has always declared this console SUPER_ADMIN-only
+ * (apps/admin/src/lib/navConfig.ts — "Encryption Keys").
+ *
+ * Router-wide rather than per-mutation on purpose: `GET /` is the key registry
+ * itself (key ids, provider references, algorithms, status) — an inventory of
+ * the KMS material protecting PHI, not routine admin data. Step-up from the
+ * parent mount still applies and is unchanged.
+ */
+router.use(requireRole('SUPER_ADMIN'));
 
 router.post('/', async (req, res, next) => {
   try {

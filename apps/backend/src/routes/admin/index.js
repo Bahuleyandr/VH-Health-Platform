@@ -48,7 +48,7 @@ import migrationToolkitRoutes from './migrationToolkitRoutes.js';
 import edRoutes from './edRoutes.js';
 import encryptionKeyRoutes from './encryptionKeyRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
-import { apiClientsRouter, mfaRouter } from './mfaApiClientsRoutes.js';
+import { apiClientsRouter } from './mfaApiClientsRoutes.js';
 import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
 import queueDisplayRoutes from './queueDisplayRoutes.js';
 import smartFhirRoutes from './smartFhirRoutes.js';
@@ -259,7 +259,8 @@ router.use('/telemedicine', telemedicineRoutes);
 router.use('/workflow', tasksWorkflowRoutes);
 router.use('/billing-masters', requireEntitlement(ENTITLEMENT_FEATURE_KEYS.commercialBillingPackages), billingMastersRoutes);
 router.use('/cath-consumables', cathConsumablesRoutes);
-router.use('/mfa', mfaRouter);
+// /mfa was a second, parallel TOTP stack with no client caller and was removed
+// (re-audit 2026-08-23). The live admin MFA path is /api/v1/auth/admin/mfa/*.
 router.use('/api-clients', requireEntitlement(ENTITLEMENT_FEATURE_KEYS.developerApiClients), apiClientsRouter);
 router.use('/facilities', facilityRoutes);
 router.use('/care-plans', carePlansRouter);

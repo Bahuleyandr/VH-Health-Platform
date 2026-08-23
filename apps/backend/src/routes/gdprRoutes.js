@@ -3,7 +3,6 @@
 
 import { Router } from 'express';
 import { HTTP_STATUS } from '../config/responseCodes.js';
-import { ADMIN_ROUTE_ROLES } from '../config/routeRolePolicy.js';
 import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
@@ -13,12 +12,35 @@ import { success, error, relayAppError } from '../utils/responseHelper.js';
 const router = Router();
 
 /**
+ * In-route SUPER_ADMIN gate (same intent as the databaseRoutes.js gate, spelled
+ * with the shared `requireRole` because this mount has no upstream role check
+ * to inherit and because a denied attempt on an irreversible console belongs in
+ * the security audit trail — rbacMiddleware emits `PERMISSION_DENIED`, an
+ * inline role comparison does not).
+ *
+ * Both routes previously used `requireRole(...ADMIN_ROUTE_ROLES)`, which
+ * resolves to ['SUPER_ADMIN', 'ADMIN'] (config/rolePolicyGraph.js), so a plain
+ * tenant ADMIN could run an irreversible erasure. The admin portal has always
+ * declared this console SUPER_ADMIN-only (apps/admin/src/lib/navConfig.ts —
+ * "GDPR Erasure", requiredRole: "SUPER_ADMIN"); the backend now agrees.
+ *
+ * `/erasure-log` is gated too, not just the mutation: it is the DPDP/GDPR
+ * evidence ledger and returns the uid, phone_hash, requester and stated reason
+ * for every erased data subject — sensitive material in its own right.
+ *
+ * Note: `/api/v1/gdpr` is NOT mounted under `/api/v1/admin`, so it inherits
+ * neither `requireSuperAdminStepUp` nor `adminIpAllowlist`. Adding step-up here
+ * is a worthwhile follow-up but is outside this fix.
+ */
+const requireSuperAdmin = requireRole('SUPER_ADMIN');
+
+/**
  * POST /gdpr/erase
  * Execute GDPR data erasure for a user.
- * Admin only — requires uid and/or phone.
+ * SUPER_ADMIN only — requires uid and/or phone.
  * Body: { uid, phone, reason }
  */
-router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
+router.post('/erase', requireSuperAdmin, async (req, res) => {
   try {
     const { uid, phone, reason } = req.body;
     const tenantId = deriveTenantIdFromRequest(req);
@@ -61,9 +83,9 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
 /**
  * GET /gdpr/erasure-log
  * View GDPR erasure audit trail.
- * Admin only.
+ * SUPER_ADMIN only — the rows carry erased-subject identifiers.
  */
-router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
+router.get('/erasure-log', requireSuperAdmin, async (req, res) => {
   try {
     const { default: prisma } = await import('../lib/prisma.js');
     const tenantId = deriveTenantIdFromRequest(req);

@@ -210,8 +210,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   engagement: { minRank: ADMIN_ONLY },
   // Accreditation evidence reads mirror the compliance surfaces (ADMIN+).
   "nabh-packs": { minRank: ADMIN_ONLY },
-  // PHI key registry ops change live decryption paths — SUPER_ADMIN only,
-  // matching encryptionKeyRoutes' backend gate.
+  // PHI key registry ops change live decryption paths — SUPER_ADMIN only.
+  // Enforcement is layered and this entry is only the first layer: it gates
+  // /dashboard navigation, the proxy's PLATFORM_SUPER_ADMIN sentinel gates
+  // api/v1/admin/encryption-keys (middleware checks rank in the /dashboard
+  // branch ONLY, so nav hiding is not enforcement), and encryptionKeyRoutes
+  // must carry the backend rank check — it mounts under the ADMIN-tier
+  // /api/v1/admin barrel, which is not a SUPER_ADMIN gate.
   "encryption-keys": { minRank: SUPER_ADMIN_ONLY },
   // App registry + token revocation for the LIVE public OAuth surface.
   "smart-fhir": { minRank: SUPER_ADMIN_ONLY },

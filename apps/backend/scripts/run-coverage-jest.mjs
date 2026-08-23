@@ -71,8 +71,6 @@ const COVERAGE_TESTS = [
   'src/tests/unit/firebaseAuthServiceCoverage.test.js',
   // ── auth: loginSessionHelper ──
   'src/tests/unit/loginSessionHelperTenantClaim.test.js',
-  // ── auth: mfaService ──
-  'src/tests/unit/mfaService.test.js',
   // ── auth: staffAuthService ──
   'src/tests/unit/staffAuthServiceCoverage.test.js',
   'src/tests/unit/staffAuthRowGuards.test.js',
