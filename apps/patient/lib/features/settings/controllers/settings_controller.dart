@@ -8,8 +8,12 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
+import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
@@ -165,6 +169,44 @@ class SettingsController {
   // the Settings screen renders a LogoutButton. A parallel logout() here was
   // dead code (never wired to any UI) and a second place for teardown steps
   // to silently drift, so it was removed (PAT-4).
+
+  bool exportingData = false;
+
+  /// DPDP/GDPR data-subject export: downloads the patient's complete data
+  /// bundle from GET /data-export/my-data as a JSON file and opens the share
+  /// sheet. The endpoint existed since the GDPR routes shipped, but no UI
+  /// called it until the 2026-08-23 once-over.
+  Future<void> exportMyData() async {
+    exportingData = true;
+    refresh();
+    try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/data-export/my-data');
+      final resp = await http
+          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
+          .timeout(const Duration(seconds: 45));
+      if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+        final fileName =
+            'my-health-data-${DateTime.now().toIso8601String().split('T').first}.json';
+        final file = await CacheFileUtils.saveBytesToCache(
+          fileName,
+          resp.bodyBytes,
+        );
+        if (file != null) {
+          await CacheFileUtils.openCachedFile(file.path);
+        } else {
+          _showSnackBar(loc.settingsExportDataFailed);
+        }
+      } else {
+        _showSnackBar(loc.settingsExportDataFailed);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('data export failed: $e');
+      _showSnackBar(loc.settingsExportDataFailed);
+    } finally {
+      exportingData = false;
+      refresh();
+    }
+  }
 
   Future<void> deleteAccount() async {
     if (phone.trim().isEmpty) {

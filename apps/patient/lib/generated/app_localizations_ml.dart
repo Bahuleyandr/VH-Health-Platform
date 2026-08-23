@@ -3183,6 +3183,13 @@ class AppLocalizationsMl extends AppLocalizations {
       'ബിൽ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
 
   @override
+  String get billDetailDownloadPdf => 'PDF ഡൗൺലോഡ് ചെയ്യുക';
+
+  @override
+  String get billDetailDownloadFailed =>
+      'ബിൽ ഡൗൺലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
   String get billDetailPaymentLinkFailed =>
       'പേയ്മെന്റ് ലിങ്ക് സൃഷ്ടിക്കാനായില്ല';
 
@@ -3369,6 +3376,17 @@ class AppLocalizationsMl extends AppLocalizations {
   @override
   String get settingsDeleteAccountFailed =>
       'അക്കൗണ്ട് നീക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get settingsExportDataTitle => 'എന്റെ ഡാറ്റ ഡൗൺലോഡ് ചെയ്യുക';
+
+  @override
+  String get settingsExportDataSubtitle =>
+      'ആശുപത്രിയിലുള്ള നിങ്ങളുടെ എല്ലാ വിവരങ്ങളും ഒരു ഫയലായി എക്‌സ്‌പോർട്ട് ചെയ്യുക';
+
+  @override
+  String get settingsExportDataFailed =>
+      'നിങ്ങളുടെ ഡാറ്റ എക്‌സ്‌പോർട്ട് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
 
   @override
   String get settingsDeleteAccountTitle => 'അക്കൗണ്ട് നീക്കുക';

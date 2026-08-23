@@ -5936,6 +5936,18 @@ abstract class AppLocalizations {
   /// **'Unable to load bill. Please retry.'**
   String get billDetailLoadFailed;
 
+  /// Tooltip for the bill PDF download action
+  ///
+  /// In en, this message translates to:
+  /// **'Download PDF'**
+  String get billDetailDownloadPdf;
+
+  /// Snackbar when the bill PDF download fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download the bill. Please retry.'**
+  String get billDetailDownloadFailed;
+
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
@@ -6271,6 +6283,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not delete account. Please try again.'**
   String get settingsDeleteAccountFailed;
+
+  /// Settings tile: download the patient's full data export
+  ///
+  /// In en, this message translates to:
+  /// **'Download my data'**
+  String get settingsExportDataTitle;
+
+  /// Settings tile subtitle for data export
+  ///
+  /// In en, this message translates to:
+  /// **'Export everything the hospital holds about you as a file'**
+  String get settingsExportDataSubtitle;
+
+  /// Snackbar when the data export fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not export your data. Please retry.'**
+  String get settingsExportDataFailed;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///

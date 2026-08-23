@@ -3192,6 +3192,13 @@ class AppLocalizationsTa extends AppLocalizations {
       'பிலை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
+  String get billDetailDownloadPdf => 'PDF பதிவிறக்கவும்';
+
+  @override
+  String get billDetailDownloadFailed =>
+      'பில் பதிவிறக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
   String get billDetailPaymentLinkFailed =>
       'கட்டண இணைப்பை உருவாக்க முடியவில்லை';
 
@@ -3379,6 +3386,17 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get settingsDeleteAccountFailed =>
       'கணக்கை நீக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get settingsExportDataTitle => 'என் தரவைப் பதிவிறக்கவும்';
+
+  @override
+  String get settingsExportDataSubtitle =>
+      'மருத்துவமனையில் உள்ள உங்கள் அனைத்து தகவலையும் கோப்பாக ஏற்றுமதி செய்யவும்';
+
+  @override
+  String get settingsExportDataFailed =>
+      'உங்கள் தரவை ஏற்றுமதி செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
   String get settingsDeleteAccountTitle => 'கணக்கை நீக்கு';

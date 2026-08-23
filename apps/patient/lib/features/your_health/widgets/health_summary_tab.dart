@@ -62,11 +62,15 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
     });
 
     try {
-      final results = await Future.wait([
-        ApiClient.get('/health/patient/$_patientId/summary'),
-        ApiClient.get('/health/patient/$_patientId/allergies'),
-        ApiClient.get('/health/patient/$_patientId/conditions'),
+      // cachedGet, not get: allergies and conditions are exactly the data a
+      // patient needs offline in an emergency — serve last-known instead of
+      // an error when the device has no connectivity (once-over 2026-08-23).
+      final cachedResults = await Future.wait([
+        ApiClient.cachedGet('/health/patient/$_patientId/summary'),
+        ApiClient.cachedGet('/health/patient/$_patientId/allergies'),
+        ApiClient.cachedGet('/health/patient/$_patientId/conditions'),
       ]);
+      final results = [for (final r in cachedResults) r.response];
 
       if (!mounted) return;
 

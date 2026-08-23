@@ -2600,6 +2600,45 @@ export async function appendMessage({
         WHERE id = $1::int AND tenant_id = $2::uuid`,
       Number(thread_id), tenantId,
     );
+    // In-app feed row (best-effort). The push below is privacy-stripped by
+    // the app to a generic "open the app" that lands on the notifications
+    // inbox — without this row the inbox had NOTHING about the message and
+    // the trail dead-ended (once-over 2026-08-23).
+    try {
+      const rcpt = await prisma.$queryRawUnsafe(
+        `SELECT id, uid, phone FROM users
+          WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+        owner[0].patient_uid, tenantId,
+      );
+      if (rcpt[0]) {
+        const threadRow = await prisma.$queryRawUnsafe(
+          `SELECT subject FROM patient_message_threads
+            WHERE id = $1::int AND tenant_id = $2::uuid`,
+          Number(thread_id), tenantId,
+        );
+        const inboxTitle = threadRow[0]?.subject || 'New message';
+        const inboxPreview = String(body).slice(0, 120);
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO notifications
+             (uid, user_id, phone, title, body, type, priority,
+              data, is_read, created_at, updated_at)
+           VALUES ($1::uuid, $2::int, $3, $4, $5, 'patient_message',
+                   'NORMAL', $6::jsonb, false, NOW(), NOW())`,
+          rcpt[0].uid, rcpt[0].id, rcpt[0].phone,
+          inboxTitle,
+          sender_name ? `${sender_name}: ${inboxPreview}` : inboxPreview,
+          JSON.stringify({
+            type: 'patient_message',
+            thread_id: String(thread_id),
+            route: `/portal/messages/${thread_id}`,
+          }),
+        );
+      }
+    } catch (err) {
+      logger.warn('patient message in-app notification insert failed', {
+        error: err.message, thread_id,
+      });
+    }
     // Push notify the patient (best-effort, never blocks the reply).
     Promise.resolve()
       .then(async () => {
@@ -2623,6 +2662,9 @@ export async function appendMessage({
           data: {
             type: 'patient_message',
             thread_id: String(thread_id),
+            // Both keys: the app's DeepLinkService reads 'route';
+            // 'deep_link' predates it and is kept for older clients.
+            route: `/portal/messages/${thread_id}`,
             deep_link: `/portal/messages/${thread_id}`,
           },
         });

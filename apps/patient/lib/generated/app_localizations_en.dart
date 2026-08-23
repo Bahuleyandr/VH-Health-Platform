@@ -3125,6 +3125,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get billDetailLoadFailed => 'Unable to load bill. Please retry.';
 
   @override
+  String get billDetailDownloadPdf => 'Download PDF';
+
+  @override
+  String get billDetailDownloadFailed =>
+      'Could not download the bill. Please retry.';
+
+  @override
   String get billDetailPaymentLinkFailed => 'Could not generate payment link';
 
   @override
@@ -3308,6 +3315,17 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsDeleteAccountFailed =>
       'Could not delete account. Please try again.';
+
+  @override
+  String get settingsExportDataTitle => 'Download my data';
+
+  @override
+  String get settingsExportDataSubtitle =>
+      'Export everything the hospital holds about you as a file';
+
+  @override
+  String get settingsExportDataFailed =>
+      'Could not export your data. Please retry.';
 
   @override
   String get settingsDeleteAccountTitle => 'Delete account';

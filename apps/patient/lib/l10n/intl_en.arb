@@ -3315,6 +3315,14 @@
   "@billDetailLoadFailed": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
+  "billDetailDownloadPdf": "Download PDF",
+  "@billDetailDownloadPdf": {
+    "description": "Tooltip for the bill PDF download action"
+  },
+  "billDetailDownloadFailed": "Could not download the bill. Please retry.",
+  "@billDetailDownloadFailed": {
+    "description": "Snackbar when the bill PDF download fails"
+  },
   "billDetailPaymentLinkFailed": "Could not generate payment link",
   "@billDetailPaymentLinkFailed": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
@@ -3568,6 +3576,18 @@
   "settingsDeleteAccountFailed": "Could not delete account. Please try again.",
   "@settingsDeleteAccountFailed": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsExportDataTitle": "Download my data",
+  "@settingsExportDataTitle": {
+    "description": "Settings tile: download the patient's full data export"
+  },
+  "settingsExportDataSubtitle": "Export everything the hospital holds about you as a file",
+  "@settingsExportDataSubtitle": {
+    "description": "Settings tile subtitle for data export"
+  },
+  "settingsExportDataFailed": "Could not export your data. Please retry.",
+  "@settingsExportDataFailed": {
+    "description": "Snackbar when the data export fails"
   },
   "settingsDeleteAccountTitle": "Delete account",
   "@settingsDeleteAccountTitle": {
