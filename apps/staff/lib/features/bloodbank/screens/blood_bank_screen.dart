@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_sheet.dart';
 import '../../../l10n/app_strings.dart';
@@ -115,7 +116,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         _inventoryError = response.failureMessage('Failed to load inventory');
       }
     } catch (e) {
-      _inventoryError = 'Could not connect to server';
+      _inventoryError = AppStrings.of(context).commonServerUnreachable;
     } finally {
       if (mounted) setState(() => _loadingInventory = false);
     }
@@ -142,7 +143,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         );
       }
     } catch (_) {
-      _issuedUnitsError = 'Could not connect to server';
+      _issuedUnitsError = AppStrings.of(context).commonServerUnreachable;
     } finally {
       if (mounted) setState(() => _loadingIssuedUnits = false);
     }
@@ -286,14 +287,16 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildInventoryTab(),
-          _buildRequestsTab(),
-          _buildTransfusionsTab(),
-          _buildDonationsTab(),
-        ],
+      body: ConstrainedContent(
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildInventoryTab(),
+            _buildRequestsTab(),
+            _buildTransfusionsTab(),
+            _buildDonationsTab(),
+          ],
+        ),
       ),
     );
   }

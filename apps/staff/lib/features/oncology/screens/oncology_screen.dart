@@ -3,6 +3,7 @@ import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -356,7 +357,7 @@ class _OncologyScreenState extends State<OncologyScreen> {
             ],
           ),
         ),
-        body: _body(s),
+        body: ConstrainedContent(child: _body(s)),
       ),
     );
   }

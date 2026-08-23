@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/transplant_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -101,41 +102,43 @@ class _TransplantProgramScreenState extends State<TransplantProgramScreen>
           ],
         ),
       ),
-      body: _loading && _dashboard == null
-          ? _StatePanel(
-              icon: Icons.sync,
-              title: s.lookup('transplant.loading'),
-              detail: '',
-            )
-          : _error != null
-          ? _StatePanel(
-              icon: Icons.error_outline,
-              title: s.lookup('transplant.load_failed'),
-              detail: _error!,
-              actionLabel: s.actionRetry,
-              onAction: _load,
-            )
-          : Column(
-              children: [
-                _SummaryStrip(
-                  programs: _count('programs'),
-                  candidates: _count('candidates'),
-                  listed: _count('listed'),
-                  nottoExports: _count('notto_exports'),
-                  enabled: _dashboard?['enabled'] == true,
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _CandidateList(rows: _rows('candidates')),
-                      _WaitlistList(rows: _rows('waitlist')),
-                      _CommitteeList(rows: _rows('committee_reviews')),
-                    ],
+      body: ConstrainedContent(
+        child: _loading && _dashboard == null
+            ? _StatePanel(
+                icon: Icons.sync,
+                title: s.lookup('transplant.loading'),
+                detail: '',
+              )
+            : _error != null
+            ? _StatePanel(
+                icon: Icons.error_outline,
+                title: s.lookup('transplant.load_failed'),
+                detail: _error!,
+                actionLabel: s.actionRetry,
+                onAction: _load,
+              )
+            : Column(
+                children: [
+                  _SummaryStrip(
+                    programs: _count('programs'),
+                    candidates: _count('candidates'),
+                    listed: _count('listed'),
+                    nottoExports: _count('notto_exports'),
+                    enabled: _dashboard?['enabled'] == true,
                   ),
-                ),
-              ],
-            ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _CandidateList(rows: _rows('candidates')),
+                        _WaitlistList(rows: _rows('waitlist')),
+                        _CommitteeList(rows: _rows('committee_reviews')),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

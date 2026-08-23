@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/physio_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/physio_models.dart';
@@ -235,34 +236,36 @@ class _PhysioScreenState extends State<PhysioScreen> {
       ),
       body: Stack(
         children: [
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _WorklistPanel(
-                loading: _loading,
-                error: _error,
-                items: _worklist,
-                selected: _selected,
-                onSelect: _select,
-              ),
-              const SizedBox(height: 16),
-              _EntryPanel(
-                patientUid: _patientUid,
-                painScore: _painScore,
-                notes: _notes,
-                planName: _planName,
-                duration: _duration,
-                painAfter: _painAfter,
-                outcomeScore: _outcomeScore,
-                exercise: _exercise,
-                saving: _saving,
-                carePlanId: _carePlanId,
-                assessmentId: _assessmentId,
-                onAssessment: _saveAssessment,
-                onPlan: _startPlan,
-                onSession: _recordSession,
-              ),
-            ],
+          ConstrainedContent(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _WorklistPanel(
+                  loading: _loading,
+                  error: _error,
+                  items: _worklist,
+                  selected: _selected,
+                  onSelect: _select,
+                ),
+                const SizedBox(height: 16),
+                _EntryPanel(
+                  patientUid: _patientUid,
+                  painScore: _painScore,
+                  notes: _notes,
+                  planName: _planName,
+                  duration: _duration,
+                  painAfter: _painAfter,
+                  outcomeScore: _outcomeScore,
+                  exercise: _exercise,
+                  saving: _saving,
+                  carePlanId: _carePlanId,
+                  assessmentId: _assessmentId,
+                  onAssessment: _saveAssessment,
+                  onPlan: _startPlan,
+                  onSession: _recordSession,
+                ),
+              ],
+            ),
           ),
           if (_saving)
             Positioned.fill(

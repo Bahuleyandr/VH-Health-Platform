@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/sos_responder_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -214,58 +215,60 @@ class _SosResponseScreenState extends State<SosResponseScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorState(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                children: [
-                  if (focusId != null && (focused == null || focused.isEmpty))
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.cardSurface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppTheme.divider),
-                      ),
-                      child: Text(
-                        s.lookup('sos.alert_not_active'),
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  _buildAnalytics(theme, s),
-                  const SizedBox(height: 14),
-                  if (_alerts.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
+      body: ConstrainedContent(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _ErrorState(message: _error!, onRetry: _load)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  children: [
+                    if (focusId != null && (focused == null || focused.isEmpty))
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.cardSurface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppTheme.divider),
+                        ),
                         child: Text(
-                          s.lookup('sos.empty'),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                          s.lookup('sos.alert_not_active'),
+                          style: theme.textTheme.bodyMedium,
                         ),
                       ),
-                    )
-                  else
-                    ..._alerts.map(
-                      (alert) => _AlertCard(
-                        alert: alert,
-                        dateFmt: _dateFmt,
-                        highlighted: focusId != null && _id(alert) == focusId,
-                        onRespond: () => _respond(alert),
-                        onResolve: () => _resolve(alert),
-                        onCall: () => _call(alert),
-                        onMap: () => _openMap(alert),
+                    _buildAnalytics(theme, s),
+                    const SizedBox(height: 14),
+                    if (_alerts.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 32),
+                        child: Center(
+                          child: Text(
+                            s.lookup('sos.empty'),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      ..._alerts.map(
+                        (alert) => _AlertCard(
+                          alert: alert,
+                          dateFmt: _dateFmt,
+                          highlighted: focusId != null && _id(alert) == focusId,
+                          onRespond: () => _respond(alert),
+                          onResolve: () => _resolve(alert),
+                          onCall: () => _call(alert),
+                          onMap: () => _openMap(alert),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 

@@ -1,7 +1,7 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 226 Dart source files across 41 feature modules.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 324 Dart source files across 54 feature modules.
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
@@ -27,7 +27,7 @@ lib/
     theme/app_theme.dart             # Material 3 blue/teal theme
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
-  features/                          # 41 feature modules (226 Dart files total)
+  features/                          # 54 feature modules (324 Dart files total)
     auth/                            # Employee ID + password/PIN login plus tenant-enabled OIDC SSO
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
@@ -68,6 +68,20 @@ lib/
     reception/                       # Reception + visitor management
     ward/                            # Ward round support
     cath_lab/                        # Catheterisation lab workflows
+    biomed/                          # Biomedical CMMS work orders
+    clinical_continuity/             # Downtime ward packs + continuity console
+    clinical_inbox/                  # Clinical inbox (escalation-backed tasks)
+    dental/                          # Dental charting (department-gated)
+    emergency/                       # ED trauma workbench + continuity panel
+    med_rec/                         # Three-point medication reconciliation
+    oncology/                        # Oncology workbench (department-gated)
+    ophthalmology/                   # Ophthalmology workbench (department-gated)
+    physio/                          # Physiotherapy workbench
+    radiation_oncology/              # Radiation oncology (department-gated)
+    stroke_pathway/                  # Stroke pathway workbench
+    teleconsult/                     # Staff-side teleconsult (NL-3 P3)
+    transplant/                      # Transplant programme (department-gated)
+    transport/                       # Porter / patient-transport tasks
 ```
 
 ## Auth Flow

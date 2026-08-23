@@ -80,7 +80,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       final staffId = await ApiConfig.getStaffId();
       if (staffId == null) {
         setState(() {
-          _error = 'Staff ID not found';
+          _error = AppStrings.of(context).leaveStaffIdNotFound;
           _loading = false;
         });
         return;

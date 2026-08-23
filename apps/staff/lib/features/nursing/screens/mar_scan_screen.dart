@@ -202,8 +202,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
     if (intent.hardStop) {
       // Wrong-patient / wrong-drug never-event — re-scan, no write queued.
       setState(
-        () => _errorMessage =
-            'Patient/drug mismatch — administration blocked. Re-scan.',
+        () => _errorMessage = AppStrings.of(context).marScanMismatchBlocked,
       );
       return;
     }

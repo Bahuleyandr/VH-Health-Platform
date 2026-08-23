@@ -2670,6 +2670,53 @@ class AppStrings {
   String dueMedsDueIn(String value) =>
       format('s4.dynamic.due_meds.due_in', {'value': value});
   String get marScanTitle => _t('mar_scan.title');
+  // Wrong-patient/wrong-drug hard stop in offline BCMA — the never-event
+  // message must localize (once-over 2026-08-23).
+  String get marScanMismatchBlocked => _t('mar_scan.mismatch_blocked');
+  String get medRecFindReconciliation => _t('med_rec.find_reconciliation');
+  String get medRecNotesHint => _t('med_rec.notes_hint');
+  String get medRecStartShort => _t('med_rec.start_short');
+  String get transportTitle => _t('transport.title');
+  String get transportMyTasks => _t('transport.my_tasks');
+  String get transportAllOpen => _t('transport.all_open');
+  String get transportNewRequest => _t('transport.new_request');
+  String get transportCancelTaskTitle => _t('transport.cancel_task_title');
+  String get transportCancelReasonHint => _t('transport.cancel_reason_hint');
+  String get transportCancelTask => _t('transport.cancel_task');
+  String get transportAccept => _t('transport.accept');
+  String get transportPickedUp => _t('transport.picked_up');
+  String get transportComplete => _t('transport.complete');
+  String get transportVerifyHandoff => _t('transport.verify_handoff');
+  String get transportSelectBothZones => _t('transport.select_both_zones');
+  String get transportZonesMustDiffer => _t('transport.zones_must_differ');
+  String get transportFromZone => _t('transport.from_zone');
+  String get transportToZone => _t('transport.to_zone');
+  String get transportPriorityLow => _t('transport.priority_low');
+  String get transportPriorityMedium => _t('transport.priority_medium');
+  String get transportPriorityHigh => _t('transport.priority_high');
+  String get transportPriorityUrgent => _t('transport.priority_urgent');
+  String get transportNotesHint => _t('transport.notes_hint');
+  String get medRecTitle => _t('med_rec.title');
+  String get medRecStart => _t('med_rec.start');
+  String get medRecComplete => _t('med_rec.complete');
+  String get medRecCompleteConfirm => _t('med_rec.complete_confirm');
+  String get medRecCompleted => _t('med_rec.completed');
+  String get medRecNotFound => _t('med_rec.not_found');
+  String get medRecDecisionTooltip => _t('med_rec.decision_tooltip');
+  String get medRecReasonHint => _t('med_rec.reason_hint');
+  String get medRecNewDose => _t('med_rec.new_dose');
+  String get medRecNewRoute => _t('med_rec.new_route');
+  String get medRecNewFrequency => _t('med_rec.new_frequency');
+  String get medRecInstructions => _t('med_rec.instructions');
+  String get medRecInstructionsHint => _t('med_rec.instructions_hint');
+  String get medRecSafetyRationale => _t('med_rec.safety_rationale');
+  String get medRecSafetyRationaleHint => _t('med_rec.safety_rationale_hint');
+  String get medRecSaveDecision => _t('med_rec.save_decision');
+  String get medRecNotesOptional => _t('med_rec.notes_optional');
+  String get medRecFetch => _t('med_rec.fetch');
+  String get roleFeatureMedRec => _t('role.feature.med_rec');
+  String get commonServerUnreachable => _t('common.server_unreachable');
+  String get leaveStaffIdNotFound => _t('leave.staff_id_not_found');
   // REVIEW: clinical-action / safety wording for medication 5-rights
   String get marScanStep1Prompt => _t('mar_scan.step1_prompt');
   String get marScanStep1Subtitle => _t('mar_scan.step1_subtitle');
@@ -6113,6 +6160,54 @@ class AppStrings {
       's4.dynamic.due_meds.due_late': '{value} late',
       's4.dynamic.due_meds.due_in': 'in {value}',
       'mar_scan.title': 'Administer Medication',
+      'mar_scan.mismatch_blocked':
+          'Patient/drug mismatch — administration blocked. Re-scan.',
+      'med_rec.find_reconciliation': 'Find reconciliation',
+      'med_rec.notes_hint': 'Context for this reconciliation',
+      'med_rec.start_short': 'Start',
+      'transport.title': 'Patient transport',
+      'transport.my_tasks': 'My tasks',
+      'transport.all_open': 'All open',
+      'transport.new_request': 'New request',
+      'transport.cancel_task_title': 'Cancel transport task',
+      'transport.cancel_reason_hint': 'Reason for cancelling (required)',
+      'transport.cancel_task': 'Cancel task',
+      'transport.accept': 'Accept',
+      'transport.picked_up': 'Picked up',
+      'transport.complete': 'Complete',
+      'transport.verify_handoff': 'Verify handoff',
+      'transport.select_both_zones': 'Select both a from and a to zone.',
+      'transport.zones_must_differ':
+          'Pickup and destination zones must differ.',
+      'transport.from_zone': 'From zone',
+      'transport.to_zone': 'To zone',
+      'transport.priority_low': 'Low',
+      'transport.priority_medium': 'Medium',
+      'transport.priority_high': 'High',
+      'transport.priority_urgent': 'Urgent',
+      'transport.notes_hint': 'Wheelchair needed, oxygen in transit, ...',
+      'med_rec.title': 'Medication reconciliation',
+      'med_rec.start': 'Start reconciliation',
+      'med_rec.complete': 'Complete reconciliation',
+      'med_rec.complete_confirm': 'Complete reconciliation?',
+      'med_rec.completed': 'Reconciliation completed',
+      'med_rec.not_found': 'Reconciliation not found.',
+      'med_rec.decision_tooltip': 'Record a decision for this medication',
+      'med_rec.reason_hint': 'Why this decision was made',
+      'med_rec.new_dose': 'New dose',
+      'med_rec.new_route': 'New route',
+      'med_rec.new_frequency': 'New frequency',
+      'med_rec.instructions': 'Instructions',
+      'med_rec.instructions_hint':
+          'Free-text instructions for the patient/nurse',
+      'med_rec.safety_rationale': 'Safety rationale (optional)',
+      'med_rec.safety_rationale_hint': 'Records a medication safety review',
+      'med_rec.save_decision': 'Save decision',
+      'med_rec.notes_optional': 'Notes (optional)',
+      'med_rec.fetch': 'Fetch',
+      'role.feature.med_rec': 'Med Reconciliation',
+      'common.server_unreachable': 'Could not connect to server',
+      'leave.staff_id_not_found': 'Staff ID not found',
       'device_assoc.title': 'Associate device',
       'device_assoc.scan_patient': 'Scan patient wristband',
       'device_assoc.scan_device': 'Scan or pick device',
@@ -9520,6 +9615,7 @@ class AppStrings {
       'role.feature.discharge_hub': "Discharge Hub",
       'role.feature.duty_preference': "Duty Request",
       'role.feature.front_office_workbench': "Front Office",
+      'role.feature.patient_transport': 'Patient Transport',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED destination handoff",
@@ -12776,6 +12872,53 @@ class AppStrings {
       'partograph_chart.alert_line': 'अलर्ट लाइन (1 सेमी/घं)',
       'partograph_chart.action_line': 'एक्शन लाइन (अलर्ट + 4घं)',
       'mar_scan.title': 'दवा प्रशासित करें',
+      'mar_scan.mismatch_blocked':
+          'रोगी/दवा मेल नहीं — प्रशासन अवरुद्ध। फिर से स्कैन करें।',
+      'med_rec.find_reconciliation': 'रीकंसिलिएशन खोजें',
+      'med_rec.notes_hint': 'इस रीकंसिलिएशन का संदर्भ',
+      'med_rec.start_short': 'शुरू करें',
+      'transport.title': 'रोगी परिवहन',
+      'transport.my_tasks': 'मेरे कार्य',
+      'transport.all_open': 'सभी खुले',
+      'transport.new_request': 'नया अनुरोध',
+      'transport.cancel_task_title': 'परिवहन कार्य रद्द करें',
+      'transport.cancel_reason_hint': 'रद्द करने का कारण (आवश्यक)',
+      'transport.cancel_task': 'कार्य रद्द करें',
+      'transport.accept': 'स्वीकारें',
+      'transport.picked_up': 'उठा लिया',
+      'transport.complete': 'पूर्ण करें',
+      'transport.verify_handoff': 'हैंडऑफ़ सत्यापित करें',
+      'transport.select_both_zones': 'प्रस्थान और गंतव्य दोनों क्षेत्र चुनें।',
+      'transport.zones_must_differ':
+          'प्रस्थान और गंतव्य क्षेत्र अलग होने चाहिए।',
+      'transport.from_zone': 'प्रस्थान क्षेत्र',
+      'transport.to_zone': 'गंतव्य क्षेत्र',
+      'transport.priority_low': 'कम',
+      'transport.priority_medium': 'मध्यम',
+      'transport.priority_high': 'उच्च',
+      'transport.priority_urgent': 'अत्यावश्यक',
+      'transport.notes_hint': 'व्हीलचेयर चाहिए, रास्ते में ऑक्सीजन, ...',
+      'med_rec.title': 'दवा रीकंसिलिएशन',
+      'med_rec.start': 'रीकंसिलिएशन शुरू करें',
+      'med_rec.complete': 'रीकंसिलिएशन पूर्ण करें',
+      'med_rec.complete_confirm': 'रीकंसिलिएशन पूर्ण करें?',
+      'med_rec.completed': 'रीकंसिलिएशन पूर्ण हुआ',
+      'med_rec.not_found': 'रीकंसिलिएशन नहीं मिला।',
+      'med_rec.decision_tooltip': 'इस दवा के लिए निर्णय दर्ज करें',
+      'med_rec.reason_hint': 'यह निर्णय क्यों लिया गया',
+      'med_rec.new_dose': 'नई खुराक',
+      'med_rec.new_route': 'नया मार्ग',
+      'med_rec.new_frequency': 'नई आवृत्ति',
+      'med_rec.instructions': 'निर्देश',
+      'med_rec.instructions_hint': 'रोगी/नर्स के लिए निर्देश',
+      'med_rec.safety_rationale': 'सुरक्षा कारण (वैकल्पिक)',
+      'med_rec.safety_rationale_hint': 'दवा सुरक्षा समीक्षा दर्ज होगी',
+      'med_rec.save_decision': 'निर्णय सहेजें',
+      'med_rec.notes_optional': 'नोट्स (वैकल्पिक)',
+      'med_rec.fetch': 'प्राप्त करें',
+      'role.feature.med_rec': 'दवा रीकंसिलिएशन',
+      'common.server_unreachable': 'सर्वर से कनेक्ट नहीं हो सका',
+      'leave.staff_id_not_found': 'स्टाफ आईडी नहीं मिली',
       'device_assoc.title': 'डिवाइस जोड़ें',
       'device_assoc.scan_patient': 'रोगी रिस्टबैंड स्कैन करें',
       'device_assoc.scan_device': 'डिवाइस स्कैन करें या चुनें',
@@ -15901,6 +16044,7 @@ class AppStrings {
       'role.feature.discharge_hub': "डिस्चार्ज हब",
       'role.feature.duty_preference': "कर्तव्य अनुरोध",
       'role.feature.front_office_workbench': "फ्रंट कार्यालय",
+      'role.feature.patient_transport': 'रोगी परिवहन',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED गंतव्य हैंडऑफ",
@@ -18406,6 +18550,52 @@ class AppStrings {
       // Nursing
       'due_meds.title': 'வரவேண்டிய மருந்துகள்',
       'mar_scan.title': 'மருந்து வழங்கு',
+      'mar_scan.mismatch_blocked': 'நோயாளி/மருந்து பொருந்தவில்லை — வழங்குதல் தடுக்கப்பட்டது. மீண்டும் ஸ்கேன் செய்யவும்.',
+      'med_rec.find_reconciliation': 'சரிசெய்தலைத் தேடு',
+      'med_rec.notes_hint': 'இந்த சரிசெய்தலின் சூழல்',
+      'med_rec.start_short': 'தொடங்கு',
+      'transport.title': 'நோயாளி இடமாற்றம்',
+      'transport.my_tasks': 'என் பணிகள்',
+      'transport.all_open': 'அனைத்து திறந்தவை',
+      'transport.new_request': 'புதிய கோரிக்கை',
+      'transport.cancel_task_title': 'இடமாற்றப் பணியை ரத்து செய்',
+      'transport.cancel_reason_hint': 'ரத்து செய்வதற்கான காரணம் (தேவை)',
+      'transport.cancel_task': 'பணியை ரத்து செய்',
+      'transport.accept': 'ஏற்றுக்கொள்',
+      'transport.picked_up': 'எடுத்தாயிற்று',
+      'transport.complete': 'முடி',
+      'transport.verify_handoff': 'ஒப்படைப்பை சரிபார்',
+      'transport.select_both_zones': 'இரு மண்டலங்களையும் தேர்ந்தெடுக்கவும்.',
+      'transport.zones_must_differ': 'மண்டலங்கள் வேறுபட வேண்டும்.',
+      'transport.from_zone': 'இருந்து மண்டலம்',
+      'transport.to_zone': 'மண்டலத்திற்கு',
+      'transport.priority_low': 'குறைவு',
+      'transport.priority_medium': 'நடுத்தரம்',
+      'transport.priority_high': 'அதிகம்',
+      'transport.priority_urgent': 'அவசரம்',
+      'transport.notes_hint': 'சக்கர நாற்காலி தேவை, ஆக்சிஜன், ...',
+      'med_rec.title': 'மருந்து சரிசெய்தல்',
+      'med_rec.start': 'சரிசெய்தலைத் தொடங்கு',
+      'med_rec.complete': 'சரிசெய்தலை முடிக்கவும்',
+      'med_rec.complete_confirm': 'சரிசெய்தலை முடிக்கவா?',
+      'med_rec.completed': 'சரிசெய்தல் முடிந்தது',
+      'med_rec.not_found': 'சரிசெய்தல் கிடைக்கவில்லை.',
+      'med_rec.decision_tooltip': 'இந்த மருந்துக்கான முடிவைப் பதிவு செய்யவும்',
+      'med_rec.reason_hint': 'இந்த முடிவு ஏன் எடுக்கப்பட்டது',
+      'med_rec.new_dose': 'புதிய அளவு',
+      'med_rec.new_route': 'புதிய வழி',
+      'med_rec.new_frequency': 'புதிய இடைவெளி',
+      'med_rec.instructions': 'வழிமுறைகள்',
+      'med_rec.instructions_hint': 'நோயாளி/செவிலியருக்கான வழிமுறைகள்',
+      'med_rec.safety_rationale': 'பாதுகாப்பு காரணம் (விருப்பம்)',
+      'med_rec.safety_rationale_hint':
+          'மருந்து பாதுகாப்பு மதிப்பாய்வு பதிவாகும்',
+      'med_rec.save_decision': 'முடிவைச் சேமிக்கவும்',
+      'med_rec.notes_optional': 'குறிப்புகள் (விருப்பம்)',
+      'med_rec.fetch': 'பெறுக',
+      'role.feature.med_rec': 'மருந்து சரிசெய்தல்',
+      'common.server_unreachable': 'சர்வருடன் இணைக்க முடியவில்லை',
+      'leave.staff_id_not_found': 'ஊழியர் ஐடி கிடைக்கவில்லை',
       'device_assoc.title': 'சாதனத்தை இணை',
       'device_assoc.scan_patient': 'நோயாளர் கைக்கட்டைப் ஸ்கேன் செய்யவும்',
       'device_assoc.scan_device':
@@ -22818,6 +23008,7 @@ class AppStrings {
       'role.feature.discharge_hub': "வெளியேற்ற மையம்",
       'role.feature.duty_preference': "கடமை கோரிக்கை",
       'role.feature.front_office_workbench': "முன் அலுவலகம்",
+      'role.feature.patient_transport': 'நோயாளி இடமாற்றம்',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED இலக்கு ஒப்படைப்பு",
@@ -25317,6 +25508,52 @@ class AppStrings {
       // Nursing
       'due_meds.title': 'వచ్చే మందులు',
       'mar_scan.title': 'మందు వేయి',
+      'mar_scan.mismatch_blocked':
+          'రోగి/మందు సరిపోలలేదు — ఇవ్వడం నిలిపివేయబడింది. మళ్లీ స్కాన్ చేయండి.',
+      'med_rec.find_reconciliation': 'సర్దుబాటును కనుగొనండి',
+      'med_rec.notes_hint': 'ఈ సర్దుబాటుకు సందర్భం',
+      'med_rec.start_short': 'ప్రారంభించండి',
+      'transport.title': 'రోగి రవాణా',
+      'transport.my_tasks': 'నా పనులు',
+      'transport.all_open': 'అన్ని తెరిచినవి',
+      'transport.new_request': 'కొత్త అభ్యర్థన',
+      'transport.cancel_task_title': 'రవాణా పనిని రద్దు చేయండి',
+      'transport.cancel_reason_hint': 'రద్దుకు కారణం (అవసరం)',
+      'transport.cancel_task': 'పనిని రద్దు చేయండి',
+      'transport.accept': 'అంగీకరించండి',
+      'transport.picked_up': 'తీసుకున్నారు',
+      'transport.complete': 'పూర్తి చేయండి',
+      'transport.verify_handoff': 'హ్యాండ్ఆఫ్ ధృవీకరించండి',
+      'transport.select_both_zones': 'రెండు జోన్‌లనూ ఎంచుకోండి.',
+      'transport.zones_must_differ': 'జోన్‌లు వేర్వేరుగా ఉండాలి.',
+      'transport.from_zone': 'నుండి జోన్',
+      'transport.to_zone': 'జోన్‌కు',
+      'transport.priority_low': 'తక్కువ',
+      'transport.priority_medium': 'మధ్యస్థం',
+      'transport.priority_high': 'అధికం',
+      'transport.priority_urgent': 'అత్యవసరం',
+      'transport.notes_hint': 'వీల్‌చైర్ అవసరం, ఆక్సిజన్, ...',
+      'med_rec.title': 'మందుల సర్దుబాటు',
+      'med_rec.start': 'సర్దుబాటు ప్రారంభించండి',
+      'med_rec.complete': 'సర్దుబాటు పూర్తి చేయండి',
+      'med_rec.complete_confirm': 'సర్దుబాటు పూర్తి చేయాలా?',
+      'med_rec.completed': 'సర్దుబాటు పూర్తయింది',
+      'med_rec.not_found': 'సర్దుబాటు కనబడలేదు.',
+      'med_rec.decision_tooltip': 'ఈ మందుకు నిర్ణయాన్ని నమోదు చేయండి',
+      'med_rec.reason_hint': 'ఈ నిర్ణయం ఎందుకు తీసుకున్నారు',
+      'med_rec.new_dose': 'కొత్త మోతాదు',
+      'med_rec.new_route': 'కొత్త మార్గం',
+      'med_rec.new_frequency': 'కొత్త ఫ్రీక్వెన్సీ',
+      'med_rec.instructions': 'సూచనలు',
+      'med_rec.instructions_hint': 'రోగి/నర్సు కోసం సూచనలు',
+      'med_rec.safety_rationale': 'భద్రతా కారణం (ఐచ్ఛికం)',
+      'med_rec.safety_rationale_hint': 'మందుల భద్రతా సమీక్ష నమోదవుతుంది',
+      'med_rec.save_decision': 'నిర్ణయాన్ని సేవ్ చేయండి',
+      'med_rec.notes_optional': 'గమనికలు (ఐచ్ఛికం)',
+      'med_rec.fetch': 'పొందండి',
+      'role.feature.med_rec': 'మందుల సర్దుబాటు',
+      'common.server_unreachable': 'సర్వర్‌కు కనెక్ట్ కాలేకపోయాం',
+      'leave.staff_id_not_found': 'స్టాఫ్ ID కనబడలేదు',
       'device_assoc.title': 'పరికరాన్ని అనుసంధానించు',
       'device_assoc.scan_patient': 'రోగి రిస్ట్బ్యాండ్ స్కాన్ చేయండి',
       'device_assoc.scan_device': 'పరికరాన్ని స్కాన్ చేయండి లేదా ఎంచుకోండి',
@@ -29676,6 +29913,7 @@ class AppStrings {
       'role.feature.discharge_hub': "డిశ్చార్జ్ హబ్",
       'role.feature.duty_preference': "విధి అభ్యర్థన",
       'role.feature.front_office_workbench': "ముందు కార్యాలయం",
+      'role.feature.patient_transport': 'రోగి రవాణా',
       'role.feature.ed_trauma_workbench': "ED Trauma",
       'ed_trauma.title': "ED Trauma",
       'ed_trauma.handoff.title': "ED గమ్యస్థాన అప్పగింత",
@@ -31582,6 +31820,53 @@ class AppStrings {
       'due_meds.unknown_patient': 'അജ്ഞാത രോഗി',
       'due_meds.unnamed_medication': '(പേരില്ലാത്ത മരുന്ന്)',
       'mar_scan.title': 'മരുന്ന് നൽകൽ',
+      'role.feature.patient_transport': 'രോഗി ഗതാഗതം',
+      'mar_scan.mismatch_blocked':
+          'രോഗി/മരുന്ന് പൊരുത്തക്കേട് — നൽകൽ തടഞ്ഞു. വീണ്ടും സ്കാൻ ചെയ്യുക.',
+      'med_rec.find_reconciliation': 'അനുരഞ്ജനം കണ്ടെത്തുക',
+      'med_rec.notes_hint': 'ഈ അനുരഞ്ജനത്തിന്റെ സന്ദർഭം',
+      'med_rec.start_short': 'ആരംഭിക്കുക',
+      'transport.title': 'രോഗി ഗതാഗതം',
+      'transport.my_tasks': 'എന്റെ ജോലികൾ',
+      'transport.all_open': 'എല്ലാ തുറന്നവയും',
+      'transport.new_request': 'പുതിയ അഭ്യർത്ഥന',
+      'transport.cancel_task_title': 'ഗതാഗത ജോലി റദ്ദാക്കുക',
+      'transport.cancel_reason_hint': 'റദ്ദാക്കാനുള്ള കാരണം (ആവശ്യം)',
+      'transport.cancel_task': 'ജോലി റദ്ദാക്കുക',
+      'transport.accept': 'സ്വീകരിക്കുക',
+      'transport.picked_up': 'എടുത്തു',
+      'transport.complete': 'പൂർത്തിയാക്കുക',
+      'transport.verify_handoff': 'കൈമാറ്റം സ്ഥിരീകരിക്കുക',
+      'transport.select_both_zones': 'രണ്ട് സോണുകളും തിരഞ്ഞെടുക്കുക.',
+      'transport.zones_must_differ': 'സോണുകൾ വ്യത്യസ്തമായിരിക്കണം.',
+      'transport.from_zone': 'എവിടെ നിന്ന്',
+      'transport.to_zone': 'എവിടേക്ക്',
+      'transport.priority_low': 'കുറവ്',
+      'transport.priority_medium': 'ഇടത്തരം',
+      'transport.priority_high': 'ഉയർന്നത്',
+      'transport.priority_urgent': 'അടിയന്തിരം',
+      'transport.notes_hint': 'വീൽചെയർ വേണം, ഓക്സിജൻ, ...',
+      'med_rec.title': 'മരുന്ന് അനുരഞ്ജനം',
+      'med_rec.start': 'അനുരഞ്ജനം ആരംഭിക്കുക',
+      'med_rec.complete': 'അനുരഞ്ജനം പൂർത്തിയാക്കുക',
+      'med_rec.complete_confirm': 'അനുരഞ്ജനം പൂർത്തിയാക്കണോ?',
+      'med_rec.completed': 'അനുരഞ്ജനം പൂർത്തിയായി',
+      'med_rec.not_found': 'അനുരഞ്ജനം കണ്ടെത്തിയില്ല.',
+      'med_rec.decision_tooltip': 'ഈ മരുന്നിനുള്ള തീരുമാനം രേഖപ്പെടുത്തുക',
+      'med_rec.reason_hint': 'ഈ തീരുമാനം എടുത്തതിന്റെ കാരണം',
+      'med_rec.new_dose': 'പുതിയ ഡോസ്',
+      'med_rec.new_route': 'പുതിയ മാർഗം',
+      'med_rec.new_frequency': 'പുതിയ ഇടവേള',
+      'med_rec.instructions': 'നിർദ്ദേശങ്ങൾ',
+      'med_rec.instructions_hint': 'രോഗി/നഴ്സിനുള്ള നിർദ്ദേശങ്ങൾ',
+      'med_rec.safety_rationale': 'സുരക്ഷാ കാരണം (ഓപ്ഷണൽ)',
+      'med_rec.safety_rationale_hint': 'മരുന്ന് സുരക്ഷാ അവലോകനം രേഖപ്പെടുത്തും',
+      'med_rec.save_decision': 'തീരുമാനം സേവ് ചെയ്യുക',
+      'med_rec.notes_optional': 'കുറിപ്പുകൾ (ഓപ്ഷണൽ)',
+      'med_rec.fetch': 'നേടുക',
+      'role.feature.med_rec': 'മരുന്ന് അനുരഞ്ജനം',
+      'common.server_unreachable': 'സെർവറുമായി ബന്ധിപ്പിക്കാനായില്ല',
+      'leave.staff_id_not_found': 'സ്റ്റാഫ് ഐഡി കണ്ടെത്തിയില്ല',
       'device_assoc.title': 'ഉപകരണം ബന്ധിപ്പിക്കുക',
       'device_assoc.scan_patient': 'രോഗിയുടെ റിസ്റ്റ്ബാൻഡ് സ്കാൻ ചെയ്യുക',
       'device_assoc.scan_device':

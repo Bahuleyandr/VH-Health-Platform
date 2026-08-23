@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/ophthalmology_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/ophthalmology_eye_entry_panel.dart';
@@ -97,19 +98,21 @@ class _OphthalmologyScreenState extends State<OphthalmologyScreen> {
       ),
       body: Stack(
         children: [
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              OphthalmologyEyeEntryPanel(onSubmit: _recordExam),
-              const SizedBox(height: 16),
-              _HistoryPanel(
-                controller: _historyPatientUid,
-                loading: _loadingHistory,
-                error: _historyError,
-                history: _history,
-                onLoad: _loadHistory,
-              ),
-            ],
+          ConstrainedContent(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                OphthalmologyEyeEntryPanel(onSubmit: _recordExam),
+                const SizedBox(height: 16),
+                _HistoryPanel(
+                  controller: _historyPatientUid,
+                  loading: _loadingHistory,
+                  error: _historyError,
+                  history: _history,
+                  onLoad: _loadHistory,
+                ),
+              ],
+            ),
           ),
           if (_savingExam)
             Positioned.fill(

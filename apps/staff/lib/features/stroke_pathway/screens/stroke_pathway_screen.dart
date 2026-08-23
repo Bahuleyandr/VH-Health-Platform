@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/services/stroke_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -66,7 +67,7 @@ class _StrokePathwayScreenState extends State<StrokePathwayScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _buildBody(context),
+      body: ConstrainedContent(child: _buildBody(context)),
     );
   }
 

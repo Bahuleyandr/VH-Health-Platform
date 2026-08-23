@@ -129,3 +129,12 @@ Run after every translator edit:
 ```bash
 melos run i18n-health-staff
 ```
+
+## New-module i18n backlog (2026-08-23, once-over train D)
+
+The med_rec and transport modules shipped English-first (matching the
+specialty-module idiom: AppStrings where an existing key fits, raw English
+otherwise). Their strings queue for the next translator pass alongside the
+specialty-module backlog. The verifier heuristic now also catches English
+assigned to error/message state variables — the blind spot that hid the MAR
+hard-stop message (now localized ×5 with `mar_scan.mismatch_blocked`).

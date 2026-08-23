@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -82,7 +83,7 @@ class _RadiationOncologyScreenState extends State<RadiationOncologyScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _buildBody(s),
+      body: ConstrainedContent(child: _buildBody(s)),
     );
   }
 
