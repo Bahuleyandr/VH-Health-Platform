@@ -18,10 +18,7 @@ export function TestCatalogTab() {
     setLoading(true);
     try {
       const res = await getTestCatalog();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = res as any;
-      const data = raw?.data ?? raw;
-      setCatalog(Array.isArray(data) ? (data as TestCatalogItem[]) : []);
+      setCatalog(Array.isArray(res) ? res : []);
     } catch {
       toast.error("Failed to load test catalog");
     } finally {

@@ -54,7 +54,7 @@ src/
 ```
 
 ## Key Architecture Decisions
-- **fetchAdminAPI** auto-prepends `/api/v1` to short paths. Used by most dashboard pages.
+- **fetchAdminAPI** auto-prepends `/api/v1` to short paths and passes them through VERBATIM — the legacy endpoint-rewrite shim was deleted 2026-08-23, so a wrong path 404s loudly instead of being silently rewritten. Used by most dashboard pages.
 - **getJSON/postJSON/putJSON** use full paths (e.g., `/api/v1/auth/admin/login`). Used by auth and admin management.
 - **Auth token**: Stored in an **httpOnly, Secure, SameSite=Strict** `auth_token` cookie (4h max-age). The browser never sees the token. `localStorage` only holds the non-sensitive `adminUser` profile cache (4h TTL).
 - **AuthContext** handles login (cookie set by `/api/login`), logout (cookie cleared by `/api/logout`), and checkAuth (rehydrates profile from cache + `/api/v1/auth/admin/profile`).

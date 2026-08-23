@@ -35,6 +35,11 @@ test.describe("authenticated — admin dashboard journeys", () => {
     await page.goto("/dashboard/users");
     await expect(page).not.toHaveURL(/\/login/);
     await expect(page).toHaveURL(/\/dashboard\/users/);
+    // URL alone passed while the page showed only an error banner (once-over
+    // 2026-08-23): assert the users table actually rendered data controls.
+    await expect(
+      page.getByRole("table").or(page.getByTestId("users-table")),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("appointments list is reachable", async ({ page }) => {

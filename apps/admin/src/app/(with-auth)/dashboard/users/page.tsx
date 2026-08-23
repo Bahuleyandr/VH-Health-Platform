@@ -70,7 +70,7 @@ function UsersContent() {
 
   const { data, isLoading, error } = useQuery<UsersAPIResponse>({
     queryKey: ["users", page, limit, role, search, sortBy, sortOrder],
-    queryFn: () => fetchAdminAPI(`/admin/users?${queryParams.toString()}`),
+    queryFn: () => fetchAdminAPI(`/users?${queryParams.toString()}`),
     staleTime: 30_000,
   });
 

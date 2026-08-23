@@ -24,40 +24,43 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
-describe("fetchAdminAPI endpoint normalization", () => {
+describe("fetchAdminAPI endpoint pass-through", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("rewrites /admin/doctors list to /api/v1/doctors", async () => {
+  // The legacy rewrite shim was deleted (once-over 2026-08-23): endpoints
+  // now pass through verbatim under /api/v1, so a wrong path 404s loudly
+  // instead of being silently rewritten. These pins keep the shim dead.
+  it("passes /admin/doctors through unchanged", async () => {
     mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: [{ id: 1 }] }));
 
     await fetchAdminAPI("/admin/doctors");
 
     expect(mockedApiFetch).toHaveBeenCalledWith(
-      "/api/v1/doctors",
+      "/api/v1/admin/doctors",
       expect.objectContaining({ method: "GET" }),
     );
   });
 
-  it("rewrites /feedback to /feedback/recent with default paging", async () => {
+  it("passes /feedback through unchanged", async () => {
     mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await fetchAdminAPI("/feedback");
 
     expect(mockedApiFetch).toHaveBeenCalledWith(
-      "/api/v1/feedback/recent?page=1&limit=100",
+      "/api/v1/feedback",
       expect.any(Object),
     );
   });
 
-  it("rewrites /notifications to admin/manage with default paging", async () => {
+  it("passes /notifications through unchanged", async () => {
     mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await fetchAdminAPI("/notifications");
 
     expect(mockedApiFetch).toHaveBeenCalledWith(
-      "/api/v1/notifications/admin/manage?page=1&limit=50",
+      "/api/v1/notifications",
       expect.any(Object),
     );
   });
@@ -157,7 +160,7 @@ describe("fetchAdminAPI response/error behavior", () => {
 
     expect(result).toEqual({ ok: true });
     expect(mockedApiFetch).toHaveBeenCalledWith(
-      "/api/v1/appointments/list",
+      "/api/v1/admin/appointments",
       expect.objectContaining({ method: "GET" }),
     );
   });

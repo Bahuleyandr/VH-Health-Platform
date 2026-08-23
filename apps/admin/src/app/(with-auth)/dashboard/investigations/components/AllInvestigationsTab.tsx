@@ -48,12 +48,11 @@ export function AllInvestigationsTab() {
       if (filters.from) params.from_date = filters.from;
       if (filters.to) params.to_date = filters.to;
 
+      // getJSON already unwraps the {success, data} envelope — trust the
+      // typed return instead of the old defensive any-cast (once-over E).
       const res = await getInvestigationsList(params);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = res as any;
-      const d = raw?.data ?? raw;
-      setInvestigations((d?.investigations as Investigation[]) ?? []);
-      const pag = d?.pagination;
+      setInvestigations(res.investigations ?? []);
+      const pag = res.pagination as { total?: number } | undefined;
       setTotal(Number(pag?.total ?? 0));
     } catch {
       toast.error("Failed to load investigations");

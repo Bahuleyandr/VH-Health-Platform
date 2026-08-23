@@ -14,10 +14,7 @@ export function NotificationsTab() {
     try {
       const params = { status: "COMPLETED", notified: "false", limit: 50, page: 1 };
       const res = await getInvestigationsList(params);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = res as any;
-      const d = raw?.data ?? raw;
-      const all = (d?.investigations as Investigation[]) ?? [];
+      const all = res.investigations ?? [];
       // Filter client-side to only show un-notified completed
       setInvestigations(all.filter((inv) => !inv.notified));
     } catch {

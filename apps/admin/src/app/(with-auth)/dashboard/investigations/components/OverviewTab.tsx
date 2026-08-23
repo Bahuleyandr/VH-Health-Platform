@@ -18,10 +18,7 @@ export function OverviewTab() {
     setLoading(true);
     try {
       const res = await getSLADashboard(fromDate, toDate);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = res as any;
-      const data = raw?.data ?? raw;
-      setDashboard(data as SLADashboard);
+      setDashboard(res);
     } catch {
       toast.error("Failed to load SLA dashboard");
     } finally {

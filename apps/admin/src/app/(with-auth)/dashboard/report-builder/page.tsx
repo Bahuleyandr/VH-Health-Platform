@@ -50,7 +50,7 @@ interface ColumnDef {
 export const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
   users: {
     label: "Users",
-    endpoint: "/admin/users",
+    endpoint: "/users",
     responseKey: "users",
     maxRows: 100,
     supportsDateRange: false,

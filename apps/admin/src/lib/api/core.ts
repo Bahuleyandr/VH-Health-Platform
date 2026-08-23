@@ -52,43 +52,13 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
-/** Normalize legacy frontend endpoints to the backend's current routes. */
-function normalizeAdminEndpoint(endpoint: string): string {
-  const [rawPath, rawQuery = ""] = endpoint.split("?", 2);
-  const path = rawPath.startsWith("/api/v1")
-    ? rawPath.slice(7) || "/"
-    : rawPath;
-  const query = rawQuery ? `?${rawQuery}` : "";
-
-  // /admin/users/*, /admin/doctors/*, /admin/departments/* rewrites:
-  // - Exact match (list): /admin/doctors -> /doctors
-  // - With sub-path (/admin/doctors/:id/...): keep as /admin/doctors/:id/... -> /api/v1/admin/doctors/:id/...
-  if (path === "/admin/users" || path.startsWith("/admin/users?"))
-    return `/users${query}`;
-  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?"))
-    return `/doctors${query}`;
-  if (path === "/admin/departments" || path.startsWith("/admin/departments?"))
-    return `/departments${query}`;
-  // Sub-paths like /admin/doctors/:id/profile pass through as /admin/doctors/:id/profile -> /api/v1/admin/doctors/:id/profile
-  if (path === "/feedback")
-    return `/feedback/recent${query || "?page=1&limit=100"}`;
-  if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
-  if (path === "/notifications")
-    return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
-  if (path === "/notifications/stats")
-    return `/notifications/admin/overview${query}`;
-  if (path === "/admin/appointments" || path === "/appointments") {
-    return `/appointments/list${query}`;
-  }
-
-  return `${path}${query}`;
-}
-
+// The legacy endpoint-rewrite shim (normalizeAdminEndpoint) was deleted in
+// the 2026-08-23 once-over: it kept dead paths alive in page code — pages
+// compiled against routes that 404 without the client-side rewrite, which
+// actively misled readers and auditors. Callers now use the backend's real
+// paths; the #793 contract gate verifies every literal against the spec.
 function toApiV1Endpoint(endpoint: string): string {
-  const normalizedEndpoint = normalizeAdminEndpoint(endpoint);
-  return normalizedEndpoint.startsWith("/api/v1")
-    ? normalizedEndpoint
-    : `/api/v1${normalizedEndpoint}`;
+  return endpoint.startsWith("/api/v1") ? endpoint : `/api/v1${endpoint}`;
 }
 
 /* =========================
