@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { EmptyState } from "@/components/EmptyState";
 import {
   IMPORT_KINDS,
@@ -11,6 +7,11 @@ import {
   type ImportKind,
   type MigrationImportJob,
 } from "@/lib/api/migrationToolkit";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
 import { SectionCard, StatusPill, formatDateTime } from "./shared";
 
 export function JobsPanel({
@@ -65,6 +66,7 @@ export function JobsPanel({
           <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
             <span>Job name</span>
             <input
+              aria-label="Job name"
               className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
               value={jobName}
               onChange={(e) => setJobName(e.target.value)}
@@ -74,6 +76,7 @@ export function JobsPanel({
           <label className="block text-xs font-medium text-muted-foreground">
             <span>Source system</span>
             <input
+              aria-label="Source system"
               className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
               value={sourceSystem}
               onChange={(e) => setSourceSystem(e.target.value)}
@@ -125,7 +128,7 @@ export function JobsPanel({
                 <th className="px-3 py-2">Rows</th>
                 <th className="px-3 py-2">Authoritative writes</th>
                 <th className="px-3 py-2">Updated</th>
-                <th className="px-3 py-2" />
+                <th className="px-3 py-2" aria-label="Actions" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">

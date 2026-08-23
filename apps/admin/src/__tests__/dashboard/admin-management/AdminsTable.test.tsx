@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { AdminsTable } from "@/app/(with-auth)/dashboard/admin-management/components/AdminsTable";
-import type { AdminUser } from "@/lib/types";
-import { API_ENDPOINTS } from "@/lib/api-config";
-import { postJSON } from "@/lib/api";
 import { usePermissions } from "@/hooks/usePermissions";
+import { postJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import type { AdminUser } from "@/lib/types";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   postJSON: jest.fn(),

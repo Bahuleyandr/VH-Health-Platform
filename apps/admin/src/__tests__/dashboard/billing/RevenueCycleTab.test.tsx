@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RevenueCycleTab } from "@/app/(with-auth)/dashboard/billing/components/RevenueCycleTab";
 import { getARAging, getClaimQueue } from "@/lib/api";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   getARAging: jest.fn(),

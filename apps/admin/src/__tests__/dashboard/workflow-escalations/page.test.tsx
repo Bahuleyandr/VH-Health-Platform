@@ -1,5 +1,3 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WorkflowEscalationsPage from "@/app/(with-auth)/dashboard/workflow-escalations/page";
 import {
   listApprovals,
@@ -8,6 +6,8 @@ import {
   listWorkflowRuns,
   saveEscalationRule,
 } from "@/lib/api/workflowEscalations";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/workflowEscalations", () => {
   const actual = jest.requireActual("@/lib/api/workflowEscalations");

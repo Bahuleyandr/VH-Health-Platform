@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import EditPermissionsPage from "@/app/(with-auth)/dashboard/admin-management/edit-permissions/[id]/page";
-import type { AdminUser } from "@/lib/types";
-import { API_ENDPOINTS } from "@/lib/api-config";
-import { getJSON, putJSON } from "@/lib/api";
 import { usePermissions } from "@/hooks/usePermissions";
+import { getJSON, putJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import type { AdminUser } from "@/lib/types";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({ id: "admin-uid-1" }),

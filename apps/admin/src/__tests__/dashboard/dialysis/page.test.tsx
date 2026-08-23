@@ -1,6 +1,6 @@
+import DialysisPage from "@/app/(with-auth)/dashboard/dialysis/page";
 import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
-import DialysisPage from "@/app/(with-auth)/dashboard/dialysis/page";
 
 // Stub the three tabs so the page test never mounts real queries/WS.
 jest.mock("@/app/(with-auth)/dashboard/dialysis/components/TodayBoardTab", () => ({
@@ -17,7 +17,7 @@ jest.mock("@/app/(with-auth)/dashboard/dialysis/components/SessionTab", () => ({
 }));
 
 const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,

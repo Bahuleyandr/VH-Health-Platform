@@ -58,6 +58,10 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/linen-laundry",
   "api/v1/theatre",
   "api/v1/transplant",
+  // Once-over train E consoles (app.js mounts /api/v1/gdpr admin-gated and
+  // /api/v1/engagement for the campaign engine).
+  "api/v1/gdpr/",
+  "api/v1/engagement/",
   "api/v1/cssd",
   "api/v1/blood-bank",
   "api/v1/cold-chain",

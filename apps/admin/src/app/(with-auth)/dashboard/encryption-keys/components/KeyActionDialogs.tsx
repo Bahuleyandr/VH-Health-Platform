@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
 import {
   KMS_PROVIDERS,
   type EncryptionKey,
@@ -9,6 +7,8 @@ import {
   type RegisterKeyPayload,
   type RotateKeyPayload,
 } from "@/lib/api/encryptionKeys";
+import { AlertTriangle } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
@@ -164,6 +164,7 @@ export function KeyFormDialog({
           </label>
           <input
             id="key-form-key-id"
+            aria-label={keyLabel}
             className={inputClass}
             value={keyId}
             onChange={(e) => setKeyId(e.target.value)}
@@ -191,6 +192,7 @@ export function KeyFormDialog({
           </label>
           <input
             id="key-form-provider-ref"
+            aria-label="Provider reference (ARN / resource name, optional)"
             className={inputClass}
             value={providerReference}
             onChange={(e) => setProviderReference(e.target.value)}
@@ -202,6 +204,7 @@ export function KeyFormDialog({
           </label>
           <input
             id="key-form-algorithm"
+            aria-label="Algorithm"
             className={inputClass}
             value={algorithm}
             onChange={(e) => setAlgorithm(e.target.value)}
@@ -271,6 +274,7 @@ export function RetireKeyDialog({
         </label>
         <input
           id="retire-confirm-input"
+          aria-label={`Type the key id ${encKey.key_id} to confirm`}
           className={inputClass}
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
@@ -327,6 +331,7 @@ export function CompromiseKeyDialog({
           </label>
           <textarea
             id="compromise-reason"
+            aria-label="Reason (recorded in the key's audit metadata)"
             className={`${inputClass} min-h-20`}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -339,6 +344,7 @@ export function CompromiseKeyDialog({
           </label>
           <input
             id="compromise-confirm-input"
+            aria-label={`Type the key id ${encKey.key_id} to confirm`}
             className={inputClass}
             value={typed}
             onChange={(e) => setTyped(e.target.value)}

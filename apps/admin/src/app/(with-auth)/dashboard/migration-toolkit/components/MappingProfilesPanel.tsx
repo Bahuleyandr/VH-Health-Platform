@@ -2,6 +2,7 @@
 
 import { EmptyState } from "@/components/EmptyState";
 import type { MigrationMappingProfile } from "@/lib/api/migrationToolkit";
+
 import { JsonDetails, SectionCard, StatusPill, formatDateTime } from "./shared";
 
 /** Read-only list; mapping profiles are managed via API/seed tooling. */

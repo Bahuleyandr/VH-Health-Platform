@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, ShieldAlert } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { APIError } from "@/lib/api/core";
 import {
   commitImportJob,
@@ -15,6 +11,11 @@ import {
   type MigrationMappingProfile,
   type MigrationValidationFinding,
 } from "@/lib/api/migrationToolkit";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FlaskConical, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
 import { Hl7AdtPanel } from "./Hl7AdtPanel";
 import { RehearsalReportView } from "./RehearsalReportView";
 import {
@@ -145,6 +146,7 @@ export function JobWorkspace({
           <label className="block text-xs font-medium text-muted-foreground">
             <span>Commit idempotency key</span>
             <input
+              aria-label="Commit idempotency key"
               className="mt-1 w-64 rounded-md border border-border bg-background px-3 py-2 text-sm"
               value={idempotencyKey}
               onChange={(e) => setIdempotencyKey(e.target.value)}

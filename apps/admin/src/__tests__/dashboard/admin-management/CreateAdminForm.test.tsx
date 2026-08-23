@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
 
 import { CreateAdminForm } from "@/app/(with-auth)/dashboard/admin-management/components/CreateAdminForm";
-import { API_ENDPOINTS } from "@/lib/api-config";
 import { postJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   postJSON: jest.fn(),

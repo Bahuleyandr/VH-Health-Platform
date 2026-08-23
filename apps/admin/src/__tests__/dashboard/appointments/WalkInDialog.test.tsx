@@ -14,11 +14,11 @@
  * need real backend lists to render).
  */
 
+import { WalkInDialog } from "@/app/(with-auth)/dashboard/appointments/components/WalkInDialog";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
-import { WalkInDialog } from "@/app/(with-auth)/dashboard/appointments/components/WalkInDialog";
 
 // Mock the API at the module level so submit doesn't fire real fetch.
 jest.mock("@/lib/api/appointments", () => ({

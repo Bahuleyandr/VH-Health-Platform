@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import CarePathwaysPage from "@/app/(with-auth)/dashboard/care-pathways/page";
 import { getCarePathwayReconciliationEvidence } from "@/lib/api/carePathways";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/carePathways", () => ({
   getCarePathwayReconciliationEvidence: jest.fn(),

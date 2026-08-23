@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { toast } from "react-hot-toast";
 import { BookAppointmentDialog } from "@/app/(with-auth)/dashboard/appointments/components/BookAppointmentDialog";
 import { fetchAdminAPI } from "@/lib/api";
 import { bookAppointmentAdmin } from "@/lib/api/appointments";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { toast } from "react-hot-toast";
 
 jest.mock("@/lib/api", () => ({ fetchAdminAPI: jest.fn() }));
 jest.mock("@/lib/api/appointments", () => ({

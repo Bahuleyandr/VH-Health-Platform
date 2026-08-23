@@ -5,11 +5,11 @@
  *  - ComplicationRegistryTab renders registry rows and posts review updates.
  */
 
+import ComplicationRegistryTab from "@/app/(with-auth)/dashboard/quality/cath/components/ComplicationRegistryTab";
+import DoseRollupTab from "@/app/(with-auth)/dashboard/quality/cath/components/DoseRollupTab";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DoseRollupTab from "@/app/(with-auth)/dashboard/quality/cath/components/DoseRollupTab";
-import ComplicationRegistryTab from "@/app/(with-auth)/dashboard/quality/cath/components/ComplicationRegistryTab";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),

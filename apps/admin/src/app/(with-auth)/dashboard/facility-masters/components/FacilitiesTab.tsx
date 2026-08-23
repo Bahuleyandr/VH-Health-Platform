@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building2, Pencil, Plus, Sprout } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { EmptyState } from "@/components/EmptyState";
 import {
   FACILITY_KINDS,
@@ -13,6 +9,11 @@ import {
   type Facility,
   type FacilityPayload,
 } from "@/lib/api/facilityMasters";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Building2, Pencil, Plus, Sprout } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
 import {
   CheckboxInput,
   ConfirmDialog,
@@ -239,7 +240,10 @@ export function FacilitiesTab({
                   <td className="px-3 py-3 text-xs text-muted-foreground">
                     {formatDateTime(facility.updated_at)}
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td
+                    className="px-3 py-3 text-right"
+                    aria-label={`Actions for ${facility.display_name}`}
+                  >
                     <div className="inline-flex gap-2">
                       <button
                         type="button"

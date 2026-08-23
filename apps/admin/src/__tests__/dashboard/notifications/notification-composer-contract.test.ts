@@ -1,5 +1,5 @@
-import { API_ENDPOINTS } from "@/lib/api-config";
 import { buildNotificationComposerRequest } from "@/app/(with-auth)/dashboard/notifications/components/notificationComposerContract";
+import { API_ENDPOINTS } from "@/lib/api-config";
 
 describe("NotificationComposer backend request contract", () => {
   it("builds a broadcast announcement with canonical uppercase priority", () => {

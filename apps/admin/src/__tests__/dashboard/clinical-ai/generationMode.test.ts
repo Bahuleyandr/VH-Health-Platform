@@ -1,3 +1,4 @@
+import { approvalDetailLines } from "@/app/(with-auth)/dashboard/clinical-ai/approvalDetails";
 import {
   generationReasonFor,
   generationModeClass,
@@ -6,7 +7,6 @@ import {
   providerStatusClass,
   providerStatusLabel,
 } from "@/app/(with-auth)/dashboard/clinical-ai/generationMode";
-import { approvalDetailLines } from "@/app/(with-auth)/dashboard/clinical-ai/approvalDetails";
 
 describe("Clinical AI generation mode helpers", () => {
   it("falls back from used_ai when explicit mode is absent", () => {

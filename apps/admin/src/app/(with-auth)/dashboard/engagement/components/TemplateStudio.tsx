@@ -102,6 +102,7 @@ export function TemplateStudio({
         >
           <input
             id="notification-template-id"
+            aria-label="Notification template id"
             className={inputClass}
             inputMode="numeric"
             value={notificationTemplateId}
@@ -112,6 +113,7 @@ export function TemplateStudio({
         <FieldLabel label="Locale" htmlFor="template-locale">
           <input
             id="template-locale"
+            aria-label="Locale"
             className={inputClass}
             value={locale}
             onChange={(e) => setLocale(e.target.value)}
@@ -130,6 +132,7 @@ export function TemplateStudio({
             >
               <input
                 type="checkbox"
+                aria-label={name}
                 checked={variables.includes(name)}
                 onChange={() => toggleVariable(name)}
               />

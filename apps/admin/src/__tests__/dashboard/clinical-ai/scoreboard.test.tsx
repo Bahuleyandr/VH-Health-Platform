@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import AiOutcomeScoreboardPage from "@/app/(with-auth)/dashboard/clinical-ai/scoreboard/page";
 import { getAiOutcomeScoreboard, type AiOutcomeScoreboard } from "@/lib/api/aiOutcomeScoreboard";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api/aiOutcomeScoreboard", () => ({
   getAiOutcomeScoreboard: jest.fn(),

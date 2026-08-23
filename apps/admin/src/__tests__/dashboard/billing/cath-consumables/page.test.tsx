@@ -1,3 +1,12 @@
+import CathConsumablesPage from "@/app/(with-auth)/dashboard/billing/cath-consumables/page";
+import {
+  getCathConsumablesBillingSettings,
+  listActiveInventoryItems,
+  listCathConsumablesCatalog,
+  listCathConsumablesUnbilledUsage,
+  updateCathConsumablesBillingSettings,
+  upsertCathConsumable,
+} from "@/lib/api/cathConsumables";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   fireEvent,
@@ -8,15 +17,6 @@ import {
 } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import CathConsumablesPage from "@/app/(with-auth)/dashboard/billing/cath-consumables/page";
-import {
-  getCathConsumablesBillingSettings,
-  listActiveInventoryItems,
-  listCathConsumablesCatalog,
-  listCathConsumablesUnbilledUsage,
-  updateCathConsumablesBillingSettings,
-  upsertCathConsumable,
-} from "@/lib/api/cathConsumables";
 
 jest.mock("react-hot-toast", () => ({
   __esModule: true,

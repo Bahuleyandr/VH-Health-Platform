@@ -264,6 +264,7 @@ export function CampaignWorkflow({
         <FieldLabel label="Candidate patient UIDs (one per line)" htmlFor="candidates">
           <textarea
             id="candidates"
+            aria-label="Candidate patient UIDs (one per line)"
             className={`${inputClass} min-h-28 font-mono text-xs`}
             value={candidateText}
             onChange={(e) => setCandidateText(e.target.value)}
@@ -291,6 +292,7 @@ export function CampaignWorkflow({
           <FieldLabel label="Reason (recorded on submit/approve)" htmlFor="workflow-reason">
             <input
               id="workflow-reason"
+              aria-label="Reason (recorded on submit/approve)"
               className={inputClass}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
