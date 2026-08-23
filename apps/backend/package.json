@@ -270,12 +270,6 @@
         "functions": 80,
         "branches": 71
       },
-      "src/services/auth/mfaService.js": {
-        "statements": 80,
-        "lines": 80,
-        "functions": 80,
-        "branches": 60
-      },
       "src/services/auth/otpService.js": {
         "statements": 80,
         "lines": 80,

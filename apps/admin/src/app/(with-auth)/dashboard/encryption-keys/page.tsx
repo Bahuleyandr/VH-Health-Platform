@@ -6,6 +6,7 @@ import {
   KEY_STATUSES,
   listEncryptionKeys,
   markEncryptionKeyCompromised,
+  readEncryptionKeyRefusal,
   registerEncryptionKey,
   retireEncryptionKey,
   rotateEncryptionKey,
@@ -15,7 +16,13 @@ import {
   type RotateKeyPayload,
 } from "@/lib/api/encryptionKeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, RefreshCw, RotateCw } from "lucide-react";
+import {
+  AlertTriangle,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  RotateCw,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 
@@ -23,7 +30,9 @@ import {
   CompromiseKeyDialog,
   KeyFormDialog,
   RetireKeyDialog,
+  type ActionError,
 } from "./components/KeyActionDialogs";
+import { WithheldKeysPanel } from "./components/WithheldKeysPanel";
 
 type DialogState =
   | { kind: "register" }
@@ -67,7 +76,7 @@ export default function EncryptionKeysPage() {
     "",
   );
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ActionError | null>(null);
 
   const keysQuery = useQuery({
     queryKey: ["encryption-keys", statusFilter],
@@ -84,9 +93,14 @@ export default function EncryptionKeysPage() {
     closeDialog();
     void queryClient.invalidateQueries({ queryKey: ["encryption-keys"] });
   };
-  // Surface the backend's error message verbatim inside the open dialog.
+  // Surface the backend's error message verbatim inside the open dialog, plus
+  // the machine-readable refusal when this is one of the registry fence's own
+  // codes (null for anything else — see readEncryptionKeyRefusal).
   const onActionError = (err: Error) => {
-    setActionError(err.message || "Request failed");
+    setActionError({
+      message: err.message || "Request failed",
+      refusal: readEncryptionKeyRefusal(err),
+    });
   };
 
   const registerMutation = useMutation({
@@ -96,7 +110,17 @@ export default function EncryptionKeysPage() {
   });
   const rotateMutation = useMutation({
     mutationFn: (payload: RotateKeyPayload) => rotateEncryptionKey(payload),
-    onSuccess: () => onActionSuccess("Key rotated — new key is active"),
+    // `rotated_from` is NULL only when the tenant had no active key to demote —
+    // the backend refuses rather than silently downgrading a blocked rotation
+    // to a first-key insert, so this branch cannot mean "a predecessor was
+    // skipped". Saying "rotated" there would describe a demotion that did not
+    // happen.
+    onSuccess: (row) =>
+      onActionSuccess(
+        row.rotated_from != null
+          ? "Key rotated — the previous entry is now retiring"
+          : "New key registered as active — there was no active entry to retire",
+      ),
     onError: onActionError,
   });
   const retireMutation = useMutation({
@@ -112,12 +136,20 @@ export default function EncryptionKeysPage() {
   });
 
   const keys = useMemo(() => keysQuery.data?.keys ?? [], [keysQuery.data]);
-  // List comes back ordered activated_at DESC; the newest 'active' row is the
-  // key new writes encrypt under.
-  const activeWriteKeyId = useMemo(
-    () => keys.find((k) => k.status === "active")?.id ?? null,
-    [keys],
+  // Deliberately no "this key receives new writes" marker. The listing is
+  // fenced to registry-managed rows, so the live per-tenant envelope KEKs that
+  // actually wrap PHI are never in `keys`, and the list response carries no
+  // field naming the key the write path is using. `status` is registry
+  // bookkeeping; anything stronger than that would be a guess. See
+  // src/lib/api/encryptionKeys.ts.
+  //
+  // The rows that ARE fenced out are not lost: the response reports each of
+  // them in `protected`, and WithheldKeysPanel below is where they surface.
+  const withheld = useMemo(
+    () => keysQuery.data?.protected ?? [],
+    [keysQuery.data],
   );
+  const withheldCount = keysQuery.data?.protected_count ?? 0;
 
   return (
     <div className="space-y-6">
@@ -130,11 +162,50 @@ export default function EncryptionKeysPage() {
             Encryption Key Registry
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            KEK versions for PHI encryption: which key is active for new writes,
-            which are retiring or retired. Key material lives in the KMS
-            provider — this registry stores metadata and provider references
-            only.
+            Registry bookkeeping for KEK versions: key id, KMS provider
+            reference, algorithm and lifecycle status. The rows listed here
+            carry no key material of their own — only a reference to the
+            provider that is meant to hold it.
           </p>
+          <div className="mt-3 flex max-w-3xl items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p>
+                <b>This page is not the whole key store.</b> The same backend
+                table also holds live key material — the per-tenant envelope
+                KEKs that wrap PHI — and keys whose status other subsystems read
+                as a gate. Rows like those are withheld from the table below
+                rather than dropped: every one is named under{" "}
+                <b>Withheld from this console</b> with the marker that withheld
+                it, as is any other row this console cannot prove inert or
+                cannot reach. Live key material is crypto-shredded and
+                re-provisioned on the backend; a signing key is revoked by
+                publishing a new policy version that lists it. Neither happens
+                here.
+              </p>
+              <p>
+                What a withheld row does to an action depends on the action.{" "}
+                <b>Retire</b> and <b>mark compromised</b> name a row, so they
+                refuse a withheld one outright (409) and report the class it
+                landed in. <b>Rotate</b> names no row — it looks for the newest
+                active entry it may demote; if this tenant has a visible active
+                key but not one of those, the rotation is refused rather than
+                adding a new entry beside the key that is really active.{" "}
+                <b>Register</b> has no existing row to protect, so it refuses up
+                front any entry that would be created and then withheld on the
+                next read.
+              </p>
+              <p>
+                The actions here only write registry rows. They do not create,
+                move or destroy key material, and they never re-encrypt or
+                re-wrap a stored record — carry the real change out in your KMS
+                provider. Read <b>status</b> as the state of this registry
+                entry, not as evidence of which key the platform is encrypting
+                under, and confirm what depends on an entry you do not recognise
+                before acting on it.
+              </p>
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -174,10 +245,14 @@ export default function EncryptionKeysPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <KeyRound className="h-4 w-4" />
-            Keys
+            Registry entries
             {keysQuery.data && (
+              /* Both server-side counts. `count` is the rows this console can
+                 act on; `protected_count` is what the same response withheld.
+                 Neither alone is a total for the backing table, and together
+                 they are every row this tenant can see under the filter. */
               <span className="font-normal text-muted-foreground">
-                ({keysQuery.data.count})
+                ({keysQuery.data.count} listed · {withheldCount} withheld)
               </span>
             )}
           </div>
@@ -215,8 +290,14 @@ export default function EncryptionKeysPage() {
           <EmptyState
             compact
             icon={<KeyRound className="h-8 w-8 text-muted-foreground" />}
-            title="No encryption keys registered"
-            description="Register a key to begin tracking KEK versions for this tenant."
+            title="No actionable registry entries"
+            description={
+              withheldCount > 0
+                ? `No row reached this console's actionable list under the current filter. ${withheldCount} ${
+                    withheldCount === 1 ? "row was" : "rows were"
+                  } withheld from it — each one is listed below with the reason.`
+                : "No row reached this console's actionable list under the current filter, and the response withheld none from it either."
+            }
           />
         ) : (
           <div className="overflow-x-auto">
@@ -241,12 +322,6 @@ export default function EncryptionKeysPage() {
                       <span className="font-mono text-xs text-foreground">
                         {key.key_id}
                       </span>
-                      {key.id === activeWriteKeyId && (
-                        <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800">
-                          <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
-                          Active — new writes
-                        </span>
-                      )}
                       {key.rotated_from != null && (
                         <div className="mt-0.5 text-[11px] text-muted-foreground">
                           rotated from #{key.rotated_from}
@@ -313,13 +388,22 @@ export default function EncryptionKeysPage() {
         )}
       </div>
 
+      {keysQuery.data && (
+        <WithheldKeysPanel
+          rows={withheld}
+          count={withheldCount}
+          listedCount={keysQuery.data.count}
+          statusFilterActive={statusFilter !== ""}
+        />
+      )}
+
       {(dialog?.kind === "register" || dialog?.kind === "rotate") && (
         <KeyFormDialog
           mode={dialog.kind}
           open
           onClose={closeDialog}
           submitting={registerMutation.isPending || rotateMutation.isPending}
-          errorMessage={actionError}
+          error={actionError}
           onRegister={(payload) => {
             setActionError(null);
             registerMutation.mutate(payload);
@@ -335,7 +419,7 @@ export default function EncryptionKeysPage() {
           encKey={dialog.encKey}
           onClose={closeDialog}
           submitting={retireMutation.isPending}
-          errorMessage={actionError}
+          error={actionError}
           onConfirm={() => {
             setActionError(null);
             retireMutation.mutate(dialog.encKey.id);
@@ -347,7 +431,7 @@ export default function EncryptionKeysPage() {
           encKey={dialog.encKey}
           onClose={closeDialog}
           submitting={compromiseMutation.isPending}
-          errorMessage={actionError}
+          error={actionError}
           onConfirm={(reason) => {
             setActionError(null);
             compromiseMutation.mutate({ id: dialog.encKey.id, reason });

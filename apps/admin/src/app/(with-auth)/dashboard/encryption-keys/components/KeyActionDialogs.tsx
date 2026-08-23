@@ -2,9 +2,12 @@
 
 import {
   KMS_PROVIDERS,
+  REGISTRY_ALGORITHMS,
   type EncryptionKey,
+  type EncryptionKeyRefusal,
   type KmsProvider,
   type RegisterKeyPayload,
+  type RegistryAlgorithm,
   type RotateKeyPayload,
 } from "@/lib/api/encryptionKeys";
 import { AlertTriangle } from "lucide-react";
@@ -12,6 +15,18 @@ import { useEffect, useState, type ReactNode } from "react";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
+
+/**
+ * A failed action, as the dialogs render it: the backend's message verbatim,
+ * plus the machine-readable refusal when `readEncryptionKeyRefusal` recognised
+ * one. `refusal` is null for anything that is not a registry-fence code — a
+ * transport failure, a 404, a duplicate key_id — so the strip never labels an
+ * unrelated failure a fence refusal.
+ */
+export interface ActionError {
+  message: string;
+  refusal: EncryptionKeyRefusal | null;
+}
 
 function DialogShell({
   label,
@@ -62,11 +77,31 @@ function Consequence({
   );
 }
 
-function ErrorStrip({ message }: { message: string | null }) {
-  if (!message) return null;
+/**
+ * The backend's message, unedited, plus the refusal code when there is one.
+ *
+ * Every code `readEncryptionKeyRefusal` recognises is raised either before the
+ * request's write statement runs or by a guarded statement that matched no row,
+ * so "no row was created or changed" holds for all of them.
+ */
+function ErrorStrip({ error }: { error: ActionError | null }) {
+  if (!error) return null;
   return (
     <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-      {message}
+      <p>{error.message}</p>
+      {error.refusal && (
+        <p className="mt-2 text-xs">
+          Refused by the backend registry fence — no row was created or changed.
+          Code <span className="font-mono">{error.refusal.code}</span>
+          {error.refusal.keyClass ? (
+            <>
+              , class{" "}
+              <span className="font-mono">{error.refusal.keyClass}</span>
+            </>
+          ) : null}
+          .
+        </p>
+      )}
     </div>
   );
 }
@@ -123,7 +158,7 @@ export function KeyFormDialog({
   onRegister,
   onRotate,
   submitting,
-  errorMessage,
+  error,
 }: {
   mode: "register" | "rotate";
   open: boolean;
@@ -131,12 +166,15 @@ export function KeyFormDialog({
   onRegister?: (payload: RegisterKeyPayload) => void;
   onRotate?: (payload: RotateKeyPayload) => void;
   submitting: boolean;
-  errorMessage: string | null;
+  error: ActionError | null;
 }) {
   const [keyId, setKeyId] = useState("");
   const [provider, setProvider] = useState<KmsProvider>("env");
   const [providerReference, setProviderReference] = useState("");
-  const [algorithm, setAlgorithm] = useState("aes-256-gcm");
+  // Constrained, not free text: a typed algorithm the fence excludes (Ed25519)
+  // used to mint a row that vanished from the next read. See
+  // REGISTRY_ALGORITHMS in lib/api/encryptionKeys.ts.
+  const [algorithm, setAlgorithm] = useState<RegistryAlgorithm>("aes-256-gcm");
 
   useEffect(() => {
     if (open) {
@@ -157,7 +195,7 @@ export function KeyFormDialog({
     const base = {
       provider,
       provider_reference: providerReference.trim() || null,
-      algorithm: algorithm.trim() || "aes-256-gcm",
+      algorithm,
     };
     if (isRotate) {
       onRotate?.({ new_key_id: keyId.trim(), ...base });
@@ -183,7 +221,7 @@ export function KeyFormDialog({
             className={inputClass}
             value={keyId}
             onChange={(e) => setKeyId(e.target.value)}
-            placeholder="e.g. tenant-kek-v3"
+            placeholder="e.g. phi-kek-v3"
           />
         </div>
         <div>
@@ -228,32 +266,62 @@ export function KeyFormDialog({
           >
             Algorithm
           </label>
-          <input
+          <select
             id="key-form-algorithm"
             aria-label="Algorithm"
             className={inputClass}
             value={algorithm}
-            onChange={(e) => setAlgorithm(e.target.value)}
-          />
+            onChange={(e) => setAlgorithm(e.target.value as RegistryAlgorithm)}
+          >
+            {REGISTRY_ALGORITHMS.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The symmetric envelope ciphers this platform provisions. A signature
+            algorithm such as Ed25519 marks the row as a clinical-continuity
+            signing key, which this console does not manage — the backend
+            refuses to create one here, so it is not offered. For a cipher
+            outside this list, register the key through the provisioning runbook
+            rather than the console.
+          </p>
         </div>
       </div>
 
       <Consequence>
         {isRotate ? (
           <>
-            The current active key moves to <b>retiring</b> and the new key
-            becomes <b>active for new writes immediately</b>. Existing records
-            stay readable under the retiring key until they are re-wrapped.
+            The newest <b>active</b> entry this console may demote moves to{" "}
+            <b>retiring</b> and the new entry is created <b>active</b>, linked
+            back to it by <code>rotated_from</code>. This rewrites registry
+            bookkeeping only: no key material is created or moved, and no stored
+            record is re-encrypted or re-wrapped. If this tenant has a visible
+            active key but not one this console may demote, the backend refuses
+            the rotation rather than adding an unlinked entry beside the key
+            that is really active; an entry with no predecessor is created only
+            when there is no visible active key at all.
           </>
         ) : (
           <>
-            The key is registered <b>active immediately</b> and new writes may
-            begin encrypting under it. The key material must already exist in
-            the KMS provider — this registry stores metadata only.
+            The entry is created with status <b>active</b> in the registry. That
+            is bookkeeping only — it creates no key material and repoints no
+            encryption path. The key should already exist in the KMS provider
+            before you record it here.
           </>
         )}
       </Consequence>
-      <ErrorStrip message={errorMessage} />
+      <Consequence>
+        The backend refuses up front any row it would then withhold from this
+        console, so an unmanageable entry is rejected (400) rather than
+        registered and lost — that is what the fixed algorithm list above avoids
+        running into. A key id inside this tenant&apos;s reserved{" "}
+        <code>t:&lt;tenantId&gt;:v&lt;n&gt;</code> namespace is refused (400)
+        separately: those ids belong to the live envelope keys, and a metadata
+        row squatting on one burns a version the provider needs.
+      </Consequence>
+      <ErrorStrip error={error} />
 
       <FooterButtons
         onClose={onClose}
@@ -275,13 +343,13 @@ export function RetireKeyDialog({
   onClose,
   onConfirm,
   submitting,
-  errorMessage,
+  error,
 }: {
   encKey: EncryptionKey;
   onClose: () => void;
   onConfirm: () => void;
   submitting: boolean;
-  errorMessage: string | null;
+  error: ActionError | null;
 }) {
   const [typed, setTyped] = useState("");
   return (
@@ -290,9 +358,11 @@ export function RetireKeyDialog({
         Retire key <span className="font-mono">{encKey.key_id}</span>
       </h2>
       <Consequence>
-        The key is marked <b>retired</b> and can no longer serve new writes.
-        Retire a key only when no records remain encrypted under it — records
-        still wrapped under a retired key must be re-wrapped to stay readable.
+        The entry is marked <b>retired</b> in the registry. Retiring records the
+        decision; it does not carry it out — no key material is destroyed and no
+        stored record is re-wrapped. Retire an entry only once the key it
+        references is genuinely out of use, and complete the retirement in the
+        KMS provider.
       </Consequence>
       <div className="mt-4">
         <label
@@ -311,7 +381,7 @@ export function RetireKeyDialog({
           autoComplete="off"
         />
       </div>
-      <ErrorStrip message={errorMessage} />
+      <ErrorStrip error={error} />
       <FooterButtons
         onClose={onClose}
         onConfirm={onConfirm}
@@ -333,13 +403,13 @@ export function CompromiseKeyDialog({
   onClose,
   onConfirm,
   submitting,
-  errorMessage,
+  error,
 }: {
   encKey: EncryptionKey;
   onClose: () => void;
   onConfirm: (reason: string) => void;
   submitting: boolean;
-  errorMessage: string | null;
+  error: ActionError | null;
 }) {
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState("");
@@ -349,10 +419,11 @@ export function CompromiseKeyDialog({
         Mark <span className="font-mono">{encKey.key_id}</span> compromised
       </h2>
       <Consequence tone="red">
-        <b>Decryption paths move off this key immediately.</b> Records encrypted
-        under it may become unreadable until they are re-wrapped under a healthy
-        key. This cannot be undone from this console — treat it as a security
-        incident action.
+        <b>This stamps an incident record on the registry entry.</b> It does not
+        revoke, destroy or rotate key material, and it does not re-wrap any
+        stored record — carry the actual revocation out in the KMS provider, or
+        this entry will say &quot;compromised&quot; while the key keeps working.
+        This cannot be undone from this console.
       </Consequence>
       <div className="mt-4 space-y-3">
         <div>
@@ -389,7 +460,7 @@ export function CompromiseKeyDialog({
           />
         </div>
       </div>
-      <ErrorStrip message={errorMessage} />
+      <ErrorStrip error={error} />
       <FooterButtons
         onClose={onClose}
         onConfirm={() => onConfirm(reason.trim())}
