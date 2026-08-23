@@ -12,7 +12,13 @@ import {
   type EscalationRulePayload,
 } from "@/lib/api/workflowEscalations";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
+import {
+  AlertTriangle,
+  Pencil,
+  Plus,
+  RefreshCw,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-hot-toast";
 
@@ -22,7 +28,11 @@ import {
   SlaDefinitionsPanel,
   WorkflowRunsPanel,
 } from "./components/ReadOnlyPanels";
-import { StatusPill, formatDateTime, summarizeActionPayload } from "./components/shared";
+import {
+  StatusPill,
+  formatDateTime,
+  summarizeActionPayload,
+} from "./components/shared";
 
 export default function WorkflowEscalationsPage() {
   const queryClient = useQueryClient();
@@ -54,7 +64,9 @@ export default function WorkflowEscalationsPage() {
       setDialogOpen(false);
       setEditingRule(null);
       setSaveError(null);
-      void queryClient.invalidateQueries({ queryKey: ["workflow-escalations", "rules"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workflow-escalations", "rules"],
+      });
     },
     onError: (err: Error) => {
       // Surface the backend's message verbatim inside the dialog.
@@ -93,7 +105,11 @@ export default function WorkflowEscalationsPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void queryClient.invalidateQueries({ queryKey: ["workflow-escalations"] })}
+            onClick={() =>
+              void queryClient.invalidateQueries({
+                queryKey: ["workflow-escalations"],
+              })
+            }
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
           >
             <RefreshCw className="h-4 w-4" />
@@ -159,7 +175,9 @@ export default function WorkflowEscalationsPage() {
                   <th className="px-3 py-2 text-left">Rule</th>
                   <th className="px-3 py-2 text-left">Scope</th>
                   <th className="px-3 py-2 text-left">Trigger</th>
-                  <th className="px-3 py-2 text-left">Action · tiers / roles</th>
+                  <th className="px-3 py-2 text-left">
+                    Action · tiers / roles
+                  </th>
                   <th className="px-3 py-2 text-left">Enabled</th>
                   <th className="px-3 py-2 text-left">Updated</th>
                   <th className="px-3 py-2 text-right">
@@ -171,16 +189,22 @@ export default function WorkflowEscalationsPage() {
                 {rules.map((rule) => (
                   <tr key={rule.id}>
                     <td className="px-3 py-3 align-top">
-                      <div className="font-medium text-foreground">{rule.display_name}</div>
+                      <div className="font-medium text-foreground">
+                        {rule.display_name}
+                      </div>
                       {rule.description && (
-                        <div className="mt-0.5 text-xs text-muted-foreground">{rule.description}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {rule.description}
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-3 align-top">
                       <StatusPill value={rule.scope} />
                     </td>
                     <td className="px-3 py-3 align-top text-xs">
-                      <span className="font-mono">{rule.trigger_condition}</span>
+                      <span className="font-mono">
+                        {rule.trigger_condition}
+                      </span>
                       {rule.trigger_window_minutes != null && (
                         <div className="text-muted-foreground">
                           window {rule.trigger_window_minutes} min
@@ -194,7 +218,9 @@ export default function WorkflowEscalationsPage() {
                       </div>
                     </td>
                     <td className="px-3 py-3 align-top">
-                      <StatusPill value={rule.is_active ? "active" : "inactive"} />
+                      <StatusPill
+                        value={rule.is_active ? "active" : "inactive"}
+                      />
                     </td>
                     <td className="px-3 py-3 align-top text-xs text-muted-foreground">
                       {formatDateTime(rule.updated_at)}
@@ -229,7 +255,10 @@ export default function WorkflowEscalationsPage() {
         />
         <ApprovalsPanel
           approvals={approvalsQuery.data?.approvals ?? []}
-          state={{ isLoading: approvalsQuery.isLoading, error: approvalsQuery.error }}
+          state={{
+            isLoading: approvalsQuery.isLoading,
+            error: approvalsQuery.error,
+          }}
         />
       </div>
 

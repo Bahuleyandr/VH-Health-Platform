@@ -145,9 +145,7 @@ describe("<NabhPacksPage />", () => {
     await computePeriod();
     await screen.findByText("Not frozen yet");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Freeze period pack" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Freeze period pack" }));
     expect(freezeNabhPeriodPack).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Freeze pack" }));
 
@@ -163,7 +161,7 @@ describe("<NabhPacksPage />", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Aggregate quality indicators only; no patient identifiers or raw clinical payloads.',
+        "Aggregate quality indicators only; no patient identifiers or raw clinical payloads.",
       ),
     ).toBeInTheDocument();
   });

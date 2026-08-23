@@ -67,8 +67,8 @@ export default function NabhPacksPage() {
             NABH Accreditation Packs
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Aggregate quality indicators only — no patient identifiers. Freeze
-            a period to produce the assessor evidence pack.
+            Aggregate quality indicators only — no patient identifiers. Freeze a
+            period to produce the assessor evidence pack.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">

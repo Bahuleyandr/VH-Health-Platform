@@ -135,16 +135,24 @@ export function JobsPanel({
               {jobs.map((job) => (
                 <tr
                   key={job.id}
-                  className={selectedJobId === job.id ? "bg-muted/40" : undefined}
+                  className={
+                    selectedJobId === job.id ? "bg-muted/40" : undefined
+                  }
                 >
                   <td className="px-3 py-3">
-                    <div className="font-medium text-foreground">{job.job_name}</div>
-                    <div className="font-mono text-xs text-muted-foreground">#{job.id}</div>
+                    <div className="font-medium text-foreground">
+                      {job.job_name}
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      #{job.id}
+                    </div>
                   </td>
                   <td className="px-3 py-3 text-xs text-muted-foreground">
                     {job.source_system ?? "-"}
                   </td>
-                  <td className="px-3 py-3 text-xs">{job.import_kind.replace(/_/g, " ")}</td>
+                  <td className="px-3 py-3 text-xs">
+                    {job.import_kind.replace(/_/g, " ")}
+                  </td>
                   <td className="px-3 py-3">
                     <StatusPill value={job.status} />
                   </td>

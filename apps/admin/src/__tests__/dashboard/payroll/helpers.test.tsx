@@ -110,7 +110,9 @@ describe("statusBadge", () => {
   it("green for approved / issued / completed (positive-state consistency)", () => {
     for (const s of ["approved", "issued", "completed"]) {
       const { container } = render(<>{statusBadge(s)}</>);
-      expect(container.querySelector("span")!.className).toMatch(/bg-green-100/);
+      expect(container.querySelector("span")!.className).toMatch(
+        /bg-green-100/,
+      );
     }
   });
 

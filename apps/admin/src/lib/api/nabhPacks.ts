@@ -124,9 +124,7 @@ export function saveNabhSnapshot(period: NabhPeriod) {
   );
 }
 
-export function listNabhSnapshots(
-  params: { from?: string; to?: string } = {},
-) {
+export function listNabhSnapshots(params: { from?: string; to?: string } = {}) {
   return getJSON<NabhSnapshotList>("/quality/nabh/snapshots", {
     from: params.from || undefined,
     to: params.to || undefined,

@@ -33,7 +33,8 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export function StatusPill({ value }: { value: string }) {
-  const style = STATUS_STYLES[value] ?? "border-slate-200 bg-slate-50 text-slate-700";
+  const style =
+    STATUS_STYLES[value] ?? "border-slate-200 bg-slate-50 text-slate-700";
   return (
     <span
       className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${style}`}

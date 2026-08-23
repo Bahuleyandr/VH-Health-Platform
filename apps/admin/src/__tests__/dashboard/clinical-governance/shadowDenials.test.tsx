@@ -1,4 +1,3 @@
-
 import ClinicalGovernancePage from "@/app/(with-auth)/dashboard/clinical-governance/page";
 import {
   addCareTeamMember,
@@ -65,24 +64,41 @@ describe("<ClinicalGovernancePage /> shadow denials tab", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (listCareTeams as jest.Mock).mockResolvedValue({ care_teams: [], count: 0 });
-    (listCareTeamMembers as jest.Mock).mockResolvedValue({ members: [], count: 0 });
-    (listPatientAccessAudit as jest.Mock).mockResolvedValue({ access_events: [], count: 0 });
-    (listLabSpecimens as jest.Mock).mockResolvedValue({ specimens: [], count: 0 });
-    (listLabAnalyzers as jest.Mock).mockResolvedValue({ analyzers: [], count: 0 });
+    (listCareTeams as jest.Mock).mockResolvedValue({
+      care_teams: [],
+      count: 0,
+    });
+    (listCareTeamMembers as jest.Mock).mockResolvedValue({
+      members: [],
+      count: 0,
+    });
+    (listPatientAccessAudit as jest.Mock).mockResolvedValue({
+      access_events: [],
+      count: 0,
+    });
+    (listLabSpecimens as jest.Mock).mockResolvedValue({
+      specimens: [],
+      count: 0,
+    });
+    (listLabAnalyzers as jest.Mock).mockResolvedValue({
+      analyzers: [],
+      count: 0,
+    });
     (listLabQcRuns as jest.Mock).mockResolvedValue({ qc_runs: [], count: 0 });
     (listPatientAccessShadowDenials as jest.Mock).mockResolvedValue({
       range: { date_from: "2026-07-01", date_to: "2026-07-02" },
       count: 1,
       total_denials: 3,
-      shadow_denials: [{
-        day: "2026-07-01",
-        actor_role: "DOCTOR",
-        resource_family: "PRESCRIPTION",
-        denial_count: 3,
-        first_seen_at: "2026-07-01T03:45:00.000Z",
-        last_seen_at: "2026-07-01T04:35:00.000Z",
-      }],
+      shadow_denials: [
+        {
+          day: "2026-07-01",
+          actor_role: "DOCTOR",
+          resource_family: "PRESCRIPTION",
+          denial_count: 3,
+          first_seen_at: "2026-07-01T03:45:00.000Z",
+          last_seen_at: "2026-07-01T04:35:00.000Z",
+        },
+      ],
     });
     (downloadPatientAccessShadowDenialsCsv as jest.Mock).mockResolvedValue(
       new Blob(["day,actor_role\n2026-07-01,DOCTOR"], { type: "text/csv" }),
@@ -97,7 +113,9 @@ describe("<ClinicalGovernancePage /> shadow denials tab", () => {
       writable: true,
       configurable: true,
     });
-    clickSpy = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
 
     (createCareTeam as jest.Mock).mockResolvedValue({});
     (transitionCareTeam as jest.Mock).mockResolvedValue({});

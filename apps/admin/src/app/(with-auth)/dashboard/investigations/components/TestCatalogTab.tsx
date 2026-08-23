@@ -12,7 +12,9 @@ export function TestCatalogTab() {
   const [catalog, setCatalog] = useState<TestCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editItem, setEditItem] = useState<Partial<TestCatalogItem> | null>(null);
+  const [editItem, setEditItem] = useState<Partial<TestCatalogItem> | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,7 +28,9 @@ export function TestCatalogTab() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function handleSave(item: Partial<TestCatalogItem>) {
     try {
@@ -41,11 +45,14 @@ export function TestCatalogTab() {
   }
 
   // Group by category
-  const grouped = catalog.reduce<Record<string, TestCatalogItem[]>>((acc, item) => {
-    const cat = item.category || "other";
-    (acc[cat] = acc[cat] || []).push(item);
-    return acc;
-  }, {});
+  const grouped = catalog.reduce<Record<string, TestCatalogItem[]>>(
+    (acc, item) => {
+      const cat = item.category || "other";
+      (acc[cat] = acc[cat] || []).push(item);
+      return acc;
+    },
+    {},
+  );
 
   const categoryLabels: Record<string, string> = {
     blood: "🩸 Blood",
@@ -56,14 +63,24 @@ export function TestCatalogTab() {
     pathology: "🔬 Pathology",
   };
 
-  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading catalog…</div>;
+  if (loading)
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        Loading catalog…
+      </div>
+    );
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Test Catalog ({catalog.length} tests)</h3>
+        <h3 className="text-lg font-semibold">
+          Test Catalog ({catalog.length} tests)
+        </h3>
         <button
-          onClick={() => { setEditItem({}); setShowForm(true); }}
+          onClick={() => {
+            setEditItem({});
+            setShowForm(true);
+          }}
           className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
         >
           + Add Test
@@ -75,7 +92,10 @@ export function TestCatalogTab() {
         <CatalogForm
           initial={editItem ?? {}}
           onSave={handleSave}
-          onCancel={() => { setShowForm(false); setEditItem(null); }}
+          onCancel={() => {
+            setShowForm(false);
+            setEditItem(null);
+          }}
         />
       )}
 
@@ -101,17 +121,28 @@ export function TestCatalogTab() {
                 {items.map((item) => (
                   <tr key={item.id}>
                     <td className="px-3 py-2">{item.name}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{item.code ?? "—"}</td>
-                    <td className="px-3 py-2">{item.default_cost != null ? `₹${item.default_cost}` : "—"}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {item.code ?? "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      {item.default_cost != null
+                        ? `₹${item.default_cost}`
+                        : "—"}
+                    </td>
                     <td className="px-3 py-2">{item.turnaround_hours}h</td>
                     <td className="px-3 py-2">
                       {item.requires_fasting && (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">Fasting</span>
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                          Fasting
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2">
                       <button
-                        onClick={() => { setEditItem(item); setShowForm(true); }}
+                        onClick={() => {
+                          setEditItem(item);
+                          setShowForm(true);
+                        }}
                         className="text-xs text-primary hover:underline"
                       >
                         Edit
@@ -155,40 +186,103 @@ function CatalogForm({
 
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">
-      <h4 className="mb-3 font-semibold">{initial.id ? "Edit Test" : "Add New Test"}</h4>
+      <h4 className="mb-3 font-semibold">
+        {initial.id ? "Edit Test" : "Add New Test"}
+      </h4>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <input placeholder="Test Name *" value={form.name ?? ""} onChange={(e) => set("name", e.target.value)}
-          className="rounded border px-3 py-1.5 text-sm" />
-        <input placeholder="Code" value={form.code ?? ""} onChange={(e) => set("code", e.target.value)}
-          className="rounded border px-3 py-1.5 text-sm" />
-        <select value={form.category ?? "blood"} onChange={(e) => set("category", e.target.value)}
-          className="rounded border px-3 py-1.5 text-sm">
-          {["blood", "urine", "radiology", "microbiology", "cardiac", "pathology"].map((c) => (
-            <option key={c} value={c}>{c}</option>
+        <input
+          placeholder="Test Name *"
+          value={form.name ?? ""}
+          onChange={(e) => set("name", e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <input
+          placeholder="Code"
+          value={form.code ?? ""}
+          onChange={(e) => set("code", e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <select
+          value={form.category ?? "blood"}
+          onChange={(e) => set("category", e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        >
+          {[
+            "blood",
+            "urine",
+            "radiology",
+            "microbiology",
+            "cardiac",
+            "pathology",
+          ].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
           ))}
         </select>
-        <input type="number" placeholder="Cost (₹)" value={form.default_cost ?? ""} onChange={(e) => set("default_cost", e.target.value ? Number(e.target.value) : undefined)}
-          className="rounded border px-3 py-1.5 text-sm" />
-        <input type="number" placeholder="TAT (hours)" value={form.turnaround_hours ?? 24} onChange={(e) => set("turnaround_hours", Number(e.target.value))}
-          className="rounded border px-3 py-1.5 text-sm" />
-        <input placeholder="Normal Range" value={form.normal_range ?? ""} onChange={(e) => set("normal_range", e.target.value)}
-          className="rounded border px-3 py-1.5 text-sm" />
-        <input placeholder="Unit" value={form.unit ?? ""} onChange={(e) => set("unit", e.target.value)}
-          className="rounded border px-3 py-1.5 text-sm" />
+        <input
+          type="number"
+          placeholder="Cost (₹)"
+          value={form.default_cost ?? ""}
+          onChange={(e) =>
+            set(
+              "default_cost",
+              e.target.value ? Number(e.target.value) : undefined,
+            )
+          }
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <input
+          type="number"
+          placeholder="TAT (hours)"
+          value={form.turnaround_hours ?? 24}
+          onChange={(e) => set("turnaround_hours", Number(e.target.value))}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <input
+          placeholder="Normal Range"
+          value={form.normal_range ?? ""}
+          onChange={(e) => set("normal_range", e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <input
+          placeholder="Unit"
+          value={form.unit ?? ""}
+          onChange={(e) => set("unit", e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.requires_fasting ?? false} onChange={(e) => set("requires_fasting", e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={form.requires_fasting ?? false}
+            onChange={(e) => set("requires_fasting", e.target.checked)}
+          />
           Requires Fasting
         </label>
-        <input placeholder="Patient Instructions" value={form.patient_instructions ?? ""} onChange={(e) => set("patient_instructions", e.target.value)}
-          className="col-span-full rounded border px-3 py-1.5 text-sm" />
-        <input placeholder="Description" value={form.description ?? ""} onChange={(e) => set("description", e.target.value)}
-          className="col-span-full rounded border px-3 py-1.5 text-sm" />
+        <input
+          placeholder="Patient Instructions"
+          value={form.patient_instructions ?? ""}
+          onChange={(e) => set("patient_instructions", e.target.value)}
+          className="col-span-full rounded border px-3 py-1.5 text-sm"
+        />
+        <input
+          placeholder="Description"
+          value={form.description ?? ""}
+          onChange={(e) => set("description", e.target.value)}
+          className="col-span-full rounded border px-3 py-1.5 text-sm"
+        />
       </div>
       <div className="mt-3 flex gap-2">
-        <button onClick={() => onSave(form)} className="rounded bg-primary px-4 py-1.5 text-sm text-primary-foreground">
+        <button
+          onClick={() => onSave(form)}
+          className="rounded bg-primary px-4 py-1.5 text-sm text-primary-foreground"
+        >
           {initial.id ? "Update" : "Add"}
         </button>
-        <button onClick={onCancel} className="rounded border px-4 py-1.5 text-sm">
+        <button
+          onClick={onCancel}
+          className="rounded border px-4 py-1.5 text-sm"
+        >
           Cancel
         </button>
       </div>

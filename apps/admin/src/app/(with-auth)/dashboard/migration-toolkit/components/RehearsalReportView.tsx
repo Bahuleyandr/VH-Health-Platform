@@ -101,12 +101,18 @@ export function RehearsalReportView({
             <tbody className="divide-y divide-border">
               {findings.slice(0, 100).map((finding) => (
                 <tr key={finding.id}>
-                  <td className="px-3 py-2 text-xs">{finding.source_row_number ?? "-"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {finding.source_row_number ?? "-"}
+                  </td>
                   <td className="px-3 py-2">
                     <StatusPill value={finding.severity} />
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{finding.finding_code}</td>
-                  <td className="px-3 py-2 text-xs">{finding.field_name ?? "-"}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {finding.finding_code}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {finding.field_name ?? "-"}
+                  </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {finding.message_redacted}
                   </td>
@@ -123,8 +129,14 @@ export function RehearsalReportView({
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <JsonDetails label="No-write proof (dry-run evidence)" value={report.no_write_proof} />
-        <JsonDetails label="Validation findings by code" value={report.validation_summary?.by_code} />
+        <JsonDetails
+          label="No-write proof (dry-run evidence)"
+          value={report.no_write_proof}
+        />
+        <JsonDetails
+          label="Validation findings by code"
+          value={report.validation_summary?.by_code}
+        />
       </div>
     </div>
   );

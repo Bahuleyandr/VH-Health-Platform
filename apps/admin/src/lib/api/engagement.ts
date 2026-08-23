@@ -20,8 +20,7 @@ export const ENGAGEMENT_CAMPAIGN_TYPES = [
   "generic_follow_up_reminder",
   "rpm_enrollment_reminder",
 ] as const;
-export type EngagementCampaignType =
-  (typeof ENGAGEMENT_CAMPAIGN_TYPES)[number];
+export type EngagementCampaignType = (typeof ENGAGEMENT_CAMPAIGN_TYPES)[number];
 
 export const ENGAGEMENT_CHANNELS = [
   "push",
@@ -223,7 +222,8 @@ export interface MaterializedRecipient {
   channel: EngagementChannel;
   contact_route: string | null;
   due_at: string;
-  status: "eligible" | "suppressed" | "queued" | "sent" | "failed" | "cancelled";
+  status:
+    "eligible" | "suppressed" | "queued" | "sent" | "failed" | "cancelled";
   suppression_reason: string | null;
   outbox_id: number | null;
   idempotency_key: string;
@@ -283,10 +283,7 @@ export function materializeCampaignRecipients(
   );
 }
 
-export function submitCampaignForApproval(
-  campaignId: number,
-  reason?: string,
-) {
+export function submitCampaignForApproval(campaignId: number, reason?: string) {
   return postJSON<EngagementCampaign>(
     `/engagement/campaigns/${campaignId}/submit-approval`,
     { reason: reason || null },

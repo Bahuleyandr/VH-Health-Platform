@@ -119,17 +119,21 @@ export function JobWorkspace({
       >
         <p className="text-sm text-muted-foreground">
           Two-phase contract: <strong>rehearsal</strong> is a dry run that only
-          writes redacted evidence to the toolkit tables; <strong>commit</strong>{" "}
-          is a separate, explicitly confirmed step that re-validates the same
-          source files and then writes live rows. Nothing below commits until
-          the commit confirmation is accepted.
+          writes redacted evidence to the toolkit tables;{" "}
+          <strong>commit</strong> is a separate, explicitly confirmed step that
+          re-validates the same source files and then writes live rows. Nothing
+          below commits until the commit confirmation is accepted.
         </p>
 
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-semibold text-foreground">
             Source files (used by both phases)
           </h3>
-          <SourceFilesEditor files={files} onChange={setFiles} profiles={profiles} />
+          <SourceFilesEditor
+            files={files}
+            onChange={setFiles}
+            profiles={profiles}
+          />
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -140,7 +144,9 @@ export function JobWorkspace({
             className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
           >
             <FlaskConical className="h-4 w-4" />
-            {rehearseMutation.isPending ? "Rehearsing..." : "Run rehearsal (dry run)"}
+            {rehearseMutation.isPending
+              ? "Rehearsing..."
+              : "Run rehearsal (dry run)"}
           </button>
 
           <label className="block text-xs font-medium text-muted-foreground">
@@ -198,7 +204,9 @@ export function JobWorkspace({
               <StatusPill value={lastCommit.batch.status} />
               <span className="text-xs text-muted-foreground">
                 Batch #{lastCommit.batch.id} · key{" "}
-                <span className="font-mono">{lastCommit.batch.idempotency_key}</span>
+                <span className="font-mono">
+                  {lastCommit.batch.idempotency_key}
+                </span>
               </span>
               {lastCommit.replayed && (
                 <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
@@ -219,7 +227,10 @@ export function JobWorkspace({
                   label="Opening balance totals"
                   value={lastCommit.report.opening_balance_totals}
                 />
-                <JsonDetails label="Replay proof" value={lastCommit.report.replay_proof} />
+                <JsonDetails
+                  label="Replay proof"
+                  value={lastCommit.report.replay_proof}
+                />
                 <JsonDetails
                   label="Rollback proof (operator review required)"
                   value={lastCommit.report.rollback_proof ?? null}
@@ -241,15 +252,17 @@ export function JobWorkspace({
               <p>
                 This is <strong>phase 2 of the two-phase contract</strong>. The
                 rehearsal was a dry run; confirming here writes migrated
-                patients, encounters, and opening-AR rows into this tenant&apos;s
-                live authoritative tables.
+                patients, encounters, and opening-AR rows into this
+                tenant&apos;s live authoritative tables.
               </p>
               <p>
                 The same source files are re-submitted and re-validated — any
                 error-severity finding blocks the entire commit. The batch runs
                 under idempotency key{" "}
-                <span className="font-mono">{idempotencyKey.trim() || `job-${job.id}-csv`}</span>;
-                replaying the same key returns the earlier batch instead of
+                <span className="font-mono">
+                  {idempotencyKey.trim() || `job-${job.id}-csv`}
+                </span>
+                ; replaying the same key returns the earlier batch instead of
                 writing twice.
               </p>
               <p>

@@ -11,7 +11,13 @@ export function formatDateTime(value?: string | null) {
   });
 }
 
-const GREEN = new Set(["active", "completed", "approved", "running", "started"]);
+const GREEN = new Set([
+  "active",
+  "completed",
+  "approved",
+  "running",
+  "started",
+]);
 const AMBER = new Set(["pending", "blocked", "retiring", "queued"]);
 const RED = new Set(["failed", "rejected", "cancelled", "expired", "inactive"]);
 
@@ -34,7 +40,9 @@ export function StatusPill({ value }: { value: string }) {
 
 function describeValue(v: unknown): string {
   if (Array.isArray(v)) {
-    if (v.every((item) => typeof item === "string" || typeof item === "number")) {
+    if (
+      v.every((item) => typeof item === "string" || typeof item === "number")
+    ) {
       return v.join(", ");
     }
     return `${v.length} entries`;

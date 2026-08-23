@@ -110,7 +110,9 @@ describe("<EncryptionKeysPage />", () => {
       await screen.findByText(/Decryption paths move off this key immediately/),
     ).toBeInTheDocument();
 
-    const confirmButton = screen.getByRole("button", { name: "Confirm compromise" });
+    const confirmButton = screen.getByRole("button", {
+      name: "Confirm compromise",
+    });
     expect(confirmButton).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Reason/), {
@@ -139,7 +141,9 @@ describe("<EncryptionKeysPage />", () => {
     // Second Retire button belongs to the retiring key row.
     fireEvent.click(screen.getAllByRole("button", { name: "Retire" })[1]);
 
-    const confirmButton = await screen.findByRole("button", { name: "Confirm retire" });
+    const confirmButton = await screen.findByRole("button", {
+      name: "Confirm retire",
+    });
     expect(confirmButton).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Type the key id/), {

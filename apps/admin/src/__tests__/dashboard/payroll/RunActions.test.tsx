@@ -22,7 +22,11 @@
 
 import { RunActions } from "@/app/(with-auth)/dashboard/payroll/components/RunActions";
 import type { PayrollRun } from "@/lib/api/payroll";
-import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/payroll", () => ({
@@ -72,10 +76,18 @@ function runWithFailures(overrides: Partial<PayrollRun> = {}): PayrollRun {
 
 // A minimal useMutation return-object shape acceptable to TS. Parameter
 // type must match the RunActions issueMut prop.
-type IssueVariables = { month: number; year: number; acknowledge_failed_payslips?: boolean };
+type IssueVariables = {
+  month: number;
+  year: number;
+  acknowledge_failed_payslips?: boolean;
+};
 type IssueMut = ReturnType<typeof useMutation<unknown, Error, IssueVariables>>;
 function makeIssueMut(spy?: jest.Mock) {
-  function Wrapper({ children }: { children: (m: IssueMut) => React.ReactElement }) {
+  function Wrapper({
+    children,
+  }: {
+    children: (m: IssueMut) => React.ReactElement;
+  }) {
     const m = useMutation<unknown, Error, IssueVariables>({
       mutationFn: async (variables) => {
         spy?.(variables);
@@ -98,13 +110,22 @@ describe("<RunActions />", () => {
     render(
       withQueryClient(
         <IssueWrapper>
-          {(issueMut) => <RunActions run={baseRun({ status: "completed" })} issueMut={issueMut} />}
+          {(issueMut) => (
+            <RunActions
+              run={baseRun({ status: "completed" })}
+              issueMut={issueMut}
+            />
+          )}
         </IssueWrapper>,
       ),
     );
     expect(screen.getByRole("button", { name: /HR Sign/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Countersign/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Issue/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Countersign/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Issue/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("status=completed + HR-signed + no Admin → shows 'Admin Countersign' CTA and 'HR Signed' badge", () => {
@@ -126,7 +147,9 @@ describe("<RunActions />", () => {
       ),
     );
     expect(screen.getByText(/HR Signed/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Admin Countersign/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Admin Countersign/ }),
+    ).toBeInTheDocument();
   });
 
   it("status=approved → shows 'Issue to Staff' CTA", () => {
@@ -148,7 +171,9 @@ describe("<RunActions />", () => {
       ),
     );
     expect(screen.getByText(/HR \+ Admin signed/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Issue to Staff/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Issue to Staff/ }),
+    ).toBeInTheDocument();
   });
 
   it("status=locked → shows '✓ Issued', NO action buttons (dangerous re-issue blocked)", () => {
@@ -178,15 +203,26 @@ describe("<RunActions />", () => {
     const { container } = render(
       withQueryClient(
         <IssueWrapper>
-          {(issueMut) => <RunActions run={baseRun({ status: "draft" })} issueMut={issueMut} />}
+          {(issueMut) => (
+            <RunActions
+              run={baseRun({ status: "draft" })}
+              issueMut={issueMut}
+            />
+          )}
         </IssueWrapper>,
       ),
     );
     // The wrapper still renders, but RunActions itself returns null.
     // Check no HR/Admin/Issue buttons leaked.
-    expect(screen.queryByRole("button", { name: /HR Sign/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Countersign/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Issue/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /HR Sign/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Countersign/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Issue/ }),
+    ).not.toBeInTheDocument();
     // Verify RunActions itself returned null (no wrapper divs from it).
     expect(container.textContent).toBe("");
   });
@@ -198,7 +234,9 @@ describe("<RunActions /> completed_with_errors acknowledgement (R7)", () => {
     render(
       withQueryClient(
         <IssueWrapper>
-          {(issueMut) => <RunActions run={runWithFailures()} issueMut={issueMut} />}
+          {(issueMut) => (
+            <RunActions run={runWithFailures()} issueMut={issueMut} />
+          )}
         </IssueWrapper>,
       ),
     );
@@ -210,14 +248,18 @@ describe("<RunActions /> completed_with_errors acknowledgement (R7)", () => {
     render(
       withQueryClient(
         <IssueWrapper>
-          {(issueMut) => <RunActions run={runWithFailures()} issueMut={issueMut} />}
+          {(issueMut) => (
+            <RunActions run={runWithFailures()} issueMut={issueMut} />
+          )}
         </IssueWrapper>,
       ),
     );
     fireEvent.click(screen.getByRole("button", { name: /HR Sign/ }));
 
     // The signer sees which payslips failed…
-    expect(screen.getByText(/2 payslips failed in this run/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 payslips failed in this run/),
+    ).toBeInTheDocument();
     expect(screen.getByText("Bad Nurse")).toBeInTheDocument();
     expect(screen.getByText("Sad Porter")).toBeInTheDocument();
 
@@ -233,7 +275,9 @@ describe("<RunActions /> completed_with_errors acknowledgement (R7)", () => {
     render(
       withQueryClient(
         <IssueWrapper>
-          {(issueMut) => <RunActions run={runWithFailures()} issueMut={issueMut} />}
+          {(issueMut) => (
+            <RunActions run={runWithFailures()} issueMut={issueMut} />
+          )}
         </IssueWrapper>,
       ),
     );
@@ -263,7 +307,9 @@ describe("<RunActions /> completed_with_errors acknowledgement (R7)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirm HR Sign/ }));
 
     await waitFor(() =>
-      expect(payrollApi.hrSignPayrollRun).toHaveBeenCalledWith("1", { comment: "" }),
+      expect(payrollApi.hrSignPayrollRun).toHaveBeenCalledWith("1", {
+        comment: "",
+      }),
     );
   });
 
@@ -354,6 +400,8 @@ describe("<RunActions /> completed_with_errors acknowledgement (R7)", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Issue to Staff/ }));
 
-    await waitFor(() => expect(issueSpy).toHaveBeenCalledWith({ month: 4, year: 2026 }));
+    await waitFor(() =>
+      expect(issueSpy).toHaveBeenCalledWith({ month: 4, year: 2026 }),
+    );
   });
 });

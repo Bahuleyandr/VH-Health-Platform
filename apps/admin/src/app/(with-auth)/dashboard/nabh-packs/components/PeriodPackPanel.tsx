@@ -142,7 +142,9 @@ export function PeriodPackPanel({ period }: { period: NabhPeriod }) {
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Evidence control</dt>
+              <dt className="text-xs text-muted-foreground">
+                Evidence control
+              </dt>
               <dd className="font-mono text-xs text-foreground">
                 {pack.evidence_attachment.control_code} ·{" "}
                 {pack.evidence_attachment.status}

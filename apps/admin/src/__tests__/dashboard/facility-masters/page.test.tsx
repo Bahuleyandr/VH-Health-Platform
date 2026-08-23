@@ -93,7 +93,9 @@ describe("<FacilityMastersPage />", () => {
     renderPage();
     await screen.findByText("Main Hospital");
 
-    fireEvent.click(screen.getByRole("button", { name: /Seed default facility/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Seed default facility/ }),
+    );
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
     expect(seedDefaultFacility).not.toHaveBeenCalled();
 
@@ -105,7 +107,9 @@ describe("<FacilityMastersPage />", () => {
     renderPage();
     await screen.findByText("Main Hospital");
 
-    fireEvent.click(screen.getByRole("button", { name: /Seed default facility/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Seed default facility/ }),
+    );
     await screen.findByRole("alertdialog");
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
 

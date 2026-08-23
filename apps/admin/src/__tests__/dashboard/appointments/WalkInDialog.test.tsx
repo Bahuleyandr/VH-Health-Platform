@@ -49,11 +49,15 @@ describe("<WalkInDialog />", () => {
   });
 
   it("renders the expected form fields + CTAs", () => {
-    render(withQueryClient(<WalkInDialog onClose={() => {}} onSuccess={() => {}} />));
+    render(
+      withQueryClient(<WalkInDialog onClose={() => {}} onSuccess={() => {}} />),
+    );
 
     expect(screen.getByText(/Register Walk-in Patient/)).toBeInTheDocument();
     // Fields
-    expect(screen.getByPlaceholderText(/10-digit mobile number/i)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/10-digit mobile number/i),
+    ).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Full name/i)).toBeInTheDocument();
     // Doctor + Department + Gender are <select> dropdowns sourced from
     // the backend. Use getAllByRole since there are multiple comboboxes.
@@ -62,14 +66,18 @@ describe("<WalkInDialog />", () => {
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
     // CTAs
     expect(screen.getByRole("button", { name: /Cancel/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Register Walk-in/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Register Walk-in/ }),
+    ).toBeInTheDocument();
   });
 
   it("submitting with empty phone fires a toast + blocks the API call", async () => {
     const user = userEvent.setup();
     const onClose = jest.fn();
     const onSuccess = jest.fn();
-    render(withQueryClient(<WalkInDialog onClose={onClose} onSuccess={onSuccess} />));
+    render(
+      withQueryClient(<WalkInDialog onClose={onClose} onSuccess={onSuccess} />),
+    );
 
     await user.click(screen.getByRole("button", { name: /Register Walk-in/ }));
 
@@ -82,7 +90,9 @@ describe("<WalkInDialog />", () => {
   it("Cancel button calls onClose and does NOT submit", async () => {
     const user = userEvent.setup();
     const onClose = jest.fn();
-    render(withQueryClient(<WalkInDialog onClose={onClose} onSuccess={() => {}} />));
+    render(
+      withQueryClient(<WalkInDialog onClose={onClose} onSuccess={() => {}} />),
+    );
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(registerWalkInAdmin).not.toHaveBeenCalled();
@@ -90,12 +100,19 @@ describe("<WalkInDialog />", () => {
 
   it("submitting with phone filled calls registerWalkInAdmin", async () => {
     const user = userEvent.setup();
-    (registerWalkInAdmin as jest.Mock).mockResolvedValueOnce({ data: { token_number: 7 } });
+    (registerWalkInAdmin as jest.Mock).mockResolvedValueOnce({
+      data: { token_number: 7 },
+    });
     const onClose = jest.fn();
     const onSuccess = jest.fn();
-    render(withQueryClient(<WalkInDialog onClose={onClose} onSuccess={onSuccess} />));
+    render(
+      withQueryClient(<WalkInDialog onClose={onClose} onSuccess={onSuccess} />),
+    );
 
-    await user.type(screen.getByPlaceholderText(/10-digit mobile number/i), "9999988888");
+    await user.type(
+      screen.getByPlaceholderText(/10-digit mobile number/i),
+      "9999988888",
+    );
     await user.click(screen.getByRole("button", { name: /Register Walk-in/ }));
 
     await screen.findByRole("button", { name: /Register Walk-in/ });
@@ -109,10 +126,17 @@ describe("<WalkInDialog />", () => {
 
   it("phone + name passes through to the backend payload", async () => {
     const user = userEvent.setup();
-    (registerWalkInAdmin as jest.Mock).mockResolvedValueOnce({ data: { token_number: 12 } });
-    render(withQueryClient(<WalkInDialog onClose={() => {}} onSuccess={() => {}} />));
+    (registerWalkInAdmin as jest.Mock).mockResolvedValueOnce({
+      data: { token_number: 12 },
+    });
+    render(
+      withQueryClient(<WalkInDialog onClose={() => {}} onSuccess={() => {}} />),
+    );
 
-    await user.type(screen.getByPlaceholderText(/10-digit mobile number/i), "9999988888");
+    await user.type(
+      screen.getByPlaceholderText(/10-digit mobile number/i),
+      "9999988888",
+    );
     await user.type(screen.getByPlaceholderText(/Full name/i), "Jane Doe");
     await user.click(screen.getByRole("button", { name: /Register Walk-in/ }));
 

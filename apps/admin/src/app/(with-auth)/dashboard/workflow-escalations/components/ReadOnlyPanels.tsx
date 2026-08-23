@@ -42,7 +42,9 @@ function Panel({
         <LoadingSpinner label={`Loading ${title.toLowerCase()}…`} />
       ) : state.error ? (
         <div className="p-4 text-sm text-red-700">
-          {state.error instanceof Error ? state.error.message : "Failed to load"}
+          {state.error instanceof Error
+            ? state.error.message
+            : "Failed to load"}
         </div>
       ) : isEmpty ? (
         <EmptyState
@@ -130,16 +132,30 @@ export function WorkflowRunsPanel({
           {runs.map((run) => (
             <tr key={run.id}>
               <td className={td}>
-                <span className="font-medium text-foreground">{run.workflow_key}</span>
-                <span className="ml-1 text-xs text-muted-foreground">v{run.workflow_version}</span>
+                <span className="font-medium text-foreground">
+                  {run.workflow_key}
+                </span>
+                <span className="ml-1 text-xs text-muted-foreground">
+                  v{run.workflow_version}
+                </span>
                 {run.failure_reason && (
-                  <div className="mt-0.5 text-xs text-red-700">{run.failure_reason}</div>
+                  <div className="mt-0.5 text-xs text-red-700">
+                    {run.failure_reason}
+                  </div>
                 )}
               </td>
-              <td className={td}><StatusPill value={run.status} /></td>
-              <td className={`${td} font-mono text-xs`}>{run.current_step_key ?? "—"}</td>
-              <td className={`${td} text-xs text-muted-foreground`}>{formatDateTime(run.started_at)}</td>
-              <td className={`${td} text-xs text-muted-foreground`}>{formatDateTime(run.due_at)}</td>
+              <td className={td}>
+                <StatusPill value={run.status} />
+              </td>
+              <td className={`${td} font-mono text-xs`}>
+                {run.current_step_key ?? "—"}
+              </td>
+              <td className={`${td} text-xs text-muted-foreground`}>
+                {formatDateTime(run.started_at)}
+              </td>
+              <td className={`${td} text-xs text-muted-foreground`}>
+                {formatDateTime(run.due_at)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -182,12 +198,18 @@ export function ApprovalsPanel({
                   ? `${approval.subject_resource_type} #${approval.subject_resource_id ?? "?"}`
                   : "—"}
                 {approval.rejection_reason && (
-                  <div className="mt-0.5 text-red-700">{approval.rejection_reason}</div>
+                  <div className="mt-0.5 text-red-700">
+                    {approval.rejection_reason}
+                  </div>
                 )}
               </td>
               <td className={td}>{approval.required_role ?? "—"}</td>
-              <td className={td}><StatusPill value={approval.status} /></td>
-              <td className={`${td} text-xs text-muted-foreground`}>{formatDateTime(approval.decided_at)}</td>
+              <td className={td}>
+                <StatusPill value={approval.status} />
+              </td>
+              <td className={`${td} text-xs text-muted-foreground`}>
+                {formatDateTime(approval.decided_at)}
+              </td>
             </tr>
           ))}
         </tbody>

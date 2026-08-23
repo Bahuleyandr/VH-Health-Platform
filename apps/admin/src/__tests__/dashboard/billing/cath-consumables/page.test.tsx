@@ -17,7 +17,6 @@ import {
 } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-
 jest.mock("react-hot-toast", () => ({
   __esModule: true,
   default: { success: jest.fn(), error: jest.fn() },

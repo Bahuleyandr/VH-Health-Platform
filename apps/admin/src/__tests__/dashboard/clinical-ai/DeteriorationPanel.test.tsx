@@ -29,9 +29,13 @@ describe("DeteriorationPanel load states", () => {
     render(<DeteriorationPanel />);
 
     expect(
-      screen.getByText(/failed to load deterioration snapshots: readiness endpoint unavailable/i),
+      screen.getByText(
+        /failed to load deterioration snapshots: readiness endpoint unavailable/i,
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/no snapshots in this band/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/no snapshots in this band/i),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -46,8 +50,12 @@ describe("DeteriorationPanel load states", () => {
       refetch: jest.fn(),
     });
     const { rerender } = render(<DeteriorationPanel />);
-    expect(screen.getByText(/loading deterioration snapshots/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no snapshots in this band/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/loading deterioration snapshots/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no snapshots in this band/i),
+    ).not.toBeInTheDocument();
 
     mockUseQuery.mockReturnValue({
       data: { snapshots: [] },

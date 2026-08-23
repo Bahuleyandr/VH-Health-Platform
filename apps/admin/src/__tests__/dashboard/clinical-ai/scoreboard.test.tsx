@@ -1,5 +1,8 @@
 import AiOutcomeScoreboardPage from "@/app/(with-auth)/dashboard/clinical-ai/scoreboard/page";
-import { getAiOutcomeScoreboard, type AiOutcomeScoreboard } from "@/lib/api/aiOutcomeScoreboard";
+import {
+  getAiOutcomeScoreboard,
+  type AiOutcomeScoreboard,
+} from "@/lib/api/aiOutcomeScoreboard";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,7 +12,9 @@ jest.mock("@/lib/api/aiOutcomeScoreboard", () => ({
   getAiOutcomeScoreboard: jest.fn(),
 }));
 
-const mockedGetScoreboard = getAiOutcomeScoreboard as jest.MockedFunction<typeof getAiOutcomeScoreboard>;
+const mockedGetScoreboard = getAiOutcomeScoreboard as jest.MockedFunction<
+  typeof getAiOutcomeScoreboard
+>;
 
 function renderWithQuery(ui: ReactElement) {
   const qc = new QueryClient({
@@ -42,7 +47,11 @@ const SCOREBOARD: AiOutcomeScoreboard = {
         used_rate_pct: 83.3,
         avg_review_latency_minutes: 42.4,
       },
-      edits: { sample_count: 2, mean_edit_distance_pct: 12.5, median_edit_distance_pct: 12.5 },
+      edits: {
+        sample_count: 2,
+        mean_edit_distance_pct: 12.5,
+        median_edit_distance_pct: 12.5,
+      },
       safety: {
         flagged_total: 5,
         flagged_decided: 4,
@@ -82,7 +91,11 @@ const SCOREBOARD: AiOutcomeScoreboard = {
         used_rate_pct: null,
         avg_review_latency_minutes: null,
       },
-      edits: { sample_count: 0, mean_edit_distance_pct: null, median_edit_distance_pct: null },
+      edits: {
+        sample_count: 0,
+        mean_edit_distance_pct: null,
+        median_edit_distance_pct: null,
+      },
       safety: {
         flagged_total: 0,
         flagged_decided: 0,
@@ -109,7 +122,11 @@ const SCOREBOARD: AiOutcomeScoreboard = {
       acceptance_rate_pct: 50,
       used_rate_pct: 83.3,
     },
-    edits: { sample_count: 2, mean_edit_distance_pct: 12.5, median_edit_distance_pct: 12.5 },
+    edits: {
+      sample_count: 2,
+      mean_edit_distance_pct: 12.5,
+      median_edit_distance_pct: 12.5,
+    },
     safety: {
       flagged_total: 5,
       flagged_decided: 4,
@@ -119,7 +136,12 @@ const SCOREBOARD: AiOutcomeScoreboard = {
       flag_override_rate_pct: 25,
       missed_reject_count: 2,
     },
-    time_to_sign: { ai_signed_count: 6, baseline_signed_count: 20, ai_avg_minutes: 14, baseline_avg_minutes: 31 },
+    time_to_sign: {
+      ai_signed_count: 6,
+      baseline_signed_count: 20,
+      ai_avg_minutes: 14,
+      baseline_avg_minutes: 31,
+    },
   },
   medication_safety: {
     finding_count: 16,
@@ -147,7 +169,8 @@ const SCOREBOARD: AiOutcomeScoreboard = {
     ],
   },
   definitions: {
-    acceptance_rate_pct: "Reviews decided accepted/signed/approved as a share of all decided reviews.",
+    acceptance_rate_pct:
+      "Reviews decided accepted/signed/approved as a share of all decided reviews.",
     null_rates: "Rates are null when there is no data to rate.",
   },
   computed_at: "2026-06-10T12:00:00.000Z",
@@ -193,7 +216,9 @@ describe("<AiOutcomeScoreboardPage />", () => {
     await screen.findByText("discharge_summary");
 
     await user.selectOptions(screen.getByLabelText("Period"), "30");
-    await waitFor(() => expect(mockedGetScoreboard).toHaveBeenCalledWith({ periodDays: 30 }));
+    await waitFor(() =>
+      expect(mockedGetScoreboard).toHaveBeenCalledWith({ periodDays: 30 }),
+    );
   });
 
   it("filters the table by module without refetching", async () => {
@@ -201,7 +226,10 @@ describe("<AiOutcomeScoreboardPage />", () => {
     renderWithQuery(<AiOutcomeScoreboardPage />);
     await screen.findByText("discharge_summary");
 
-    await user.selectOptions(screen.getByLabelText("Module filter"), "idle_enabled_module");
+    await user.selectOptions(
+      screen.getByLabelText("Module filter"),
+      "idle_enabled_module",
+    );
     // Mono module keys render only in table rows, so they prove the filter.
     expect(screen.queryByText("discharge_summary")).not.toBeInTheDocument();
     expect(screen.getByText("idle_enabled_module")).toBeInTheDocument();

@@ -29,7 +29,11 @@ function DialogShell({
       aria-label={label}
       className="fixed inset-0 z-40 flex items-center justify-center"
     >
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+        aria-hidden="true"
+      />
       <div className="relative z-10 mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
         {children}
       </div>
@@ -37,13 +41,21 @@ function DialogShell({
   );
 }
 
-function Consequence({ children, tone = "amber" }: { children: ReactNode; tone?: "amber" | "red" }) {
+function Consequence({
+  children,
+  tone = "amber",
+}: {
+  children: ReactNode;
+  tone?: "amber" | "red";
+}) {
   const color =
     tone === "red"
       ? "border-red-300 bg-red-50 text-red-900"
       : "border-amber-300 bg-amber-50 text-amber-900";
   return (
-    <div className={`mt-3 flex items-start gap-2 rounded-md border p-3 text-sm ${color}`}>
+    <div
+      className={`mt-3 flex items-start gap-2 rounded-md border p-3 text-sm ${color}`}
+    >
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>{children}</div>
     </div>
@@ -159,7 +171,10 @@ export function KeyFormDialog({
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
       <div className="mt-4 space-y-3">
         <div>
-          <label htmlFor="key-form-key-id" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="key-form-key-id"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
             {keyLabel}
           </label>
           <input
@@ -172,7 +187,10 @@ export function KeyFormDialog({
           />
         </div>
         <div>
-          <label htmlFor="key-form-provider" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="key-form-provider"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
             KMS provider
           </label>
           <select
@@ -182,12 +200,17 @@ export function KeyFormDialog({
             onChange={(e) => setProvider(e.target.value as KmsProvider)}
           >
             {KMS_PROVIDERS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>
+                {p}
+              </option>
             ))}
           </select>
         </div>
         <div>
-          <label htmlFor="key-form-provider-ref" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="key-form-provider-ref"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
             Provider reference (ARN / resource name, optional)
           </label>
           <input
@@ -199,7 +222,10 @@ export function KeyFormDialog({
           />
         </div>
         <div>
-          <label htmlFor="key-form-algorithm" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="key-form-algorithm"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
             Algorithm
           </label>
           <input
@@ -269,8 +295,12 @@ export function RetireKeyDialog({
         still wrapped under a retired key must be re-wrapped to stay readable.
       </Consequence>
       <div className="mt-4">
-        <label htmlFor="retire-confirm-input" className="mb-1 block text-xs font-medium text-muted-foreground">
-          Type the key id <span className="font-mono">{encKey.key_id}</span> to confirm
+        <label
+          htmlFor="retire-confirm-input"
+          className="mb-1 block text-xs font-medium text-muted-foreground"
+        >
+          Type the key id <span className="font-mono">{encKey.key_id}</span> to
+          confirm
         </label>
         <input
           id="retire-confirm-input"
@@ -319,14 +349,17 @@ export function CompromiseKeyDialog({
         Mark <span className="font-mono">{encKey.key_id}</span> compromised
       </h2>
       <Consequence tone="red">
-        <b>Decryption paths move off this key immediately.</b> Records
-        encrypted under it may become unreadable until they are re-wrapped
-        under a healthy key. This cannot be undone from this console — treat it
-        as a security incident action.
+        <b>Decryption paths move off this key immediately.</b> Records encrypted
+        under it may become unreadable until they are re-wrapped under a healthy
+        key. This cannot be undone from this console — treat it as a security
+        incident action.
       </Consequence>
       <div className="mt-4 space-y-3">
         <div>
-          <label htmlFor="compromise-reason" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="compromise-reason"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
             Reason (recorded in the key&apos;s audit metadata)
           </label>
           <textarea
@@ -339,8 +372,12 @@ export function CompromiseKeyDialog({
           />
         </div>
         <div>
-          <label htmlFor="compromise-confirm-input" className="mb-1 block text-xs font-medium text-muted-foreground">
-            Type the key id <span className="font-mono">{encKey.key_id}</span> to confirm
+          <label
+            htmlFor="compromise-confirm-input"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
+          >
+            Type the key id <span className="font-mono">{encKey.key_id}</span>{" "}
+            to confirm
           </label>
           <input
             id="compromise-confirm-input"

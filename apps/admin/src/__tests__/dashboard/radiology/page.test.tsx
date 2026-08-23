@@ -23,15 +23,12 @@ jest.mock("@/lib/api", () => {
   };
 });
 
-const mockRealtime = jest.fn(
-   
-  (..._args: unknown[]) => ({
-    connected: false,
-    subscribed: false,
-    denied: null as string | null,
-    lastEventAt: null as number | null,
-  }),
-);
+const mockRealtime = jest.fn((..._args: unknown[]) => ({
+  connected: false,
+  subscribed: false,
+  denied: null as string | null,
+  lastEventAt: null as number | null,
+}));
 jest.mock("@/hooks/useRealtimeInvalidation", () => ({
   useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
 }));

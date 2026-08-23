@@ -64,13 +64,11 @@ export function ExecuteErasurePanel() {
 
   return (
     <section className="space-y-3 rounded-md border border-border bg-card p-4">
-      <h2 className="text-lg font-semibold text-foreground">
-        Execute erasure
-      </h2>
+      <h2 className="text-lg font-semibold text-foreground">Execute erasure</h2>
       <p className="text-sm text-muted-foreground">
         Permanently erases or anonymizes the subject&apos;s data across all
-        processed tables. Irreversible; every run is recorded in the erasure
-        log with your identity and the reason below.
+        processed tables. Irreversible; every run is recorded in the erasure log
+        with your identity and the reason below.
       </p>
 
       <div className="grid gap-3 md:grid-cols-2">

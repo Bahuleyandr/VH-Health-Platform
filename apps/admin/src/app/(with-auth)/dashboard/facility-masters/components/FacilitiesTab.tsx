@@ -208,7 +208,9 @@ export function FacilitiesTab({
                 <td colSpan={7}>
                   <EmptyState
                     compact
-                    icon={<Building2 className="h-8 w-8 text-muted-foreground" />}
+                    icon={
+                      <Building2 className="h-8 w-8 text-muted-foreground" />
+                    }
                     title="No facilities yet"
                     description="Create one, or seed the tenant's default facility."
                   />
@@ -276,24 +278,98 @@ export function FacilitiesTab({
           onSubmit={submit}
           pending={saveMutation.isPending}
         >
-          <TextInput label="Facility code" value={form.facility_code} onChange={(v) => set({ facility_code: v })} />
-          <TextInput label="Display name" value={form.display_name} onChange={(v) => set({ display_name: v })} />
-          <SelectInput label="Facility kind" value={form.facility_kind} onChange={(v) => set({ facility_kind: v })} options={toEnumOptions(FACILITY_KINDS)} />
-          <SelectInput label="Status" value={form.status} onChange={(v) => set({ status: v })} options={toEnumOptions(FACILITY_STATUSES)} />
-          <TextInput label="Legal entity name" value={form.legal_entity_name} onChange={(v) => set({ legal_entity_name: v })} />
-          <TextInput label="Registration number" value={form.registration_number} onChange={(v) => set({ registration_number: v })} />
-          <TextInput label="Address line 1" value={form.address_line1} onChange={(v) => set({ address_line1: v })} />
-          <TextInput label="Address line 2" value={form.address_line2} onChange={(v) => set({ address_line2: v })} />
-          <TextInput label="City" value={form.city} onChange={(v) => set({ city: v })} />
-          <TextInput label="State" value={form.state} onChange={(v) => set({ state: v })} />
-          <TextInput label="Country" value={form.country} onChange={(v) => set({ country: v })} />
-          <TextInput label="Postal code" value={form.postal_code} onChange={(v) => set({ postal_code: v })} />
-          <TextInput label="Timezone" value={form.timezone} onChange={(v) => set({ timezone: v })} />
-          <TextInput label="Phone" value={form.phone} onChange={(v) => set({ phone: v })} />
-          <TextInput label="Email" value={form.email} onChange={(v) => set({ email: v })} />
-          <TextInput label="Latitude" value={form.geo_lat} onChange={(v) => set({ geo_lat: v })} />
-          <TextInput label="Longitude" value={form.geo_lng} onChange={(v) => set({ geo_lng: v })} />
-          <CheckboxInput label="Default facility for tenant" checked={form.is_default} onChange={(v) => set({ is_default: v })} />
+          <TextInput
+            label="Facility code"
+            value={form.facility_code}
+            onChange={(v) => set({ facility_code: v })}
+          />
+          <TextInput
+            label="Display name"
+            value={form.display_name}
+            onChange={(v) => set({ display_name: v })}
+          />
+          <SelectInput
+            label="Facility kind"
+            value={form.facility_kind}
+            onChange={(v) => set({ facility_kind: v })}
+            options={toEnumOptions(FACILITY_KINDS)}
+          />
+          <SelectInput
+            label="Status"
+            value={form.status}
+            onChange={(v) => set({ status: v })}
+            options={toEnumOptions(FACILITY_STATUSES)}
+          />
+          <TextInput
+            label="Legal entity name"
+            value={form.legal_entity_name}
+            onChange={(v) => set({ legal_entity_name: v })}
+          />
+          <TextInput
+            label="Registration number"
+            value={form.registration_number}
+            onChange={(v) => set({ registration_number: v })}
+          />
+          <TextInput
+            label="Address line 1"
+            value={form.address_line1}
+            onChange={(v) => set({ address_line1: v })}
+          />
+          <TextInput
+            label="Address line 2"
+            value={form.address_line2}
+            onChange={(v) => set({ address_line2: v })}
+          />
+          <TextInput
+            label="City"
+            value={form.city}
+            onChange={(v) => set({ city: v })}
+          />
+          <TextInput
+            label="State"
+            value={form.state}
+            onChange={(v) => set({ state: v })}
+          />
+          <TextInput
+            label="Country"
+            value={form.country}
+            onChange={(v) => set({ country: v })}
+          />
+          <TextInput
+            label="Postal code"
+            value={form.postal_code}
+            onChange={(v) => set({ postal_code: v })}
+          />
+          <TextInput
+            label="Timezone"
+            value={form.timezone}
+            onChange={(v) => set({ timezone: v })}
+          />
+          <TextInput
+            label="Phone"
+            value={form.phone}
+            onChange={(v) => set({ phone: v })}
+          />
+          <TextInput
+            label="Email"
+            value={form.email}
+            onChange={(v) => set({ email: v })}
+          />
+          <TextInput
+            label="Latitude"
+            value={form.geo_lat}
+            onChange={(v) => set({ geo_lat: v })}
+          />
+          <TextInput
+            label="Longitude"
+            value={form.geo_lng}
+            onChange={(v) => set({ geo_lng: v })}
+          />
+          <CheckboxInput
+            label="Default facility for tenant"
+            checked={form.is_default}
+            onChange={(v) => set({ is_default: v })}
+          />
         </FormDialog>
       )}
 

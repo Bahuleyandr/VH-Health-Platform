@@ -17,8 +17,15 @@ import {
 } from "@/lib/api/investigations";
 import { Chip, formatDate, priorityColor, statusColor } from "./helpers";
 
-type InvestigationSortKey = "id" | "test_name" | "priority" | "status" | "requested_at";
-const INVESTIGATION_SORT_KEYS: InvestigationSortKey[] = ["id", "test_name", "priority", "status", "requested_at"];
+type InvestigationSortKey =
+  "id" | "test_name" | "priority" | "status" | "requested_at";
+const INVESTIGATION_SORT_KEYS: InvestigationSortKey[] = [
+  "id",
+  "test_name",
+  "priority",
+  "status",
+  "requested_at",
+];
 const PAGE_SIZE_OPTIONS = [10, 50, 100];
 
 export function AllInvestigationsTab() {
@@ -30,7 +37,12 @@ export function AllInvestigationsTab() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<InvestigationSortKey>("requested_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [filters, setFilters] = useState({ status: "", priority: "", from: "", to: "" });
+  const [filters, setFilters] = useState({
+    status: "",
+    priority: "",
+    from: "",
+    to: "",
+  });
   const [showOrderForm, setShowOrderForm] = useState(false);
 
   const load = useCallback(async () => {
@@ -61,11 +73,17 @@ export function AllInvestigationsTab() {
     }
   }, [filters, page, pageSize, search, sortDirection, sortKey]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [filters, pageSize, search, sortDirection, sortKey]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useEffect(() => {
+    setPage(1);
+  }, [filters, pageSize, search, sortDirection, sortKey]);
 
   const handleSort = (key: InvestigationSortKey) => {
-    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortDirection((current) =>
+      sortKey === key && current === "asc" ? "desc" : "asc",
+    );
     setSortKey(key);
   };
 
@@ -99,12 +117,17 @@ export function AllInvestigationsTab() {
         }}
         onApplySavedView={(view) => {
           setSearch(String(view.search ?? ""));
-          if (INVESTIGATION_SORT_KEYS.includes(view.sortKey as InvestigationSortKey)) {
+          if (
+            INVESTIGATION_SORT_KEYS.includes(
+              view.sortKey as InvestigationSortKey,
+            )
+          ) {
             setSortKey(view.sortKey as InvestigationSortKey);
           }
           setSortDirection(view.sortDirection === "asc" ? "asc" : "desc");
           const nextPageSize = Number(view.pageSize);
-          if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
+          if (PAGE_SIZE_OPTIONS.includes(nextPageSize))
+            setPageSize(nextPageSize);
           setFilters({
             status: String(view.status ?? ""),
             priority: String(view.priority ?? ""),
@@ -124,26 +147,61 @@ export function AllInvestigationsTab() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-          className="rounded border px-2 py-1 text-sm">
+        <select
+          value={filters.status}
+          onChange={(e) =>
+            setFilters((f) => ({ ...f, status: e.target.value }))
+          }
+          className="rounded border px-2 py-1 text-sm"
+        >
           <option value="">All Status</option>
-          {["PENDING", "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map((s) => (
-            <option key={s} value={s}>{s}</option>
+          {[
+            "PENDING",
+            "SCHEDULED",
+            "IN_PROGRESS",
+            "COMPLETED",
+            "CANCELLED",
+          ].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
           ))}
         </select>
-        <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
-          className="rounded border px-2 py-1 text-sm">
+        <select
+          value={filters.priority}
+          onChange={(e) =>
+            setFilters((f) => ({ ...f, priority: e.target.value }))
+          }
+          className="rounded border px-2 py-1 text-sm"
+        >
           <option value="">All Priority</option>
           {["URGENT", "HIGH", "NORMAL", "LOW"].map((p) => (
-            <option key={p} value={p}>{p}</option>
+            <option key={p} value={p}>
+              {p}
+            </option>
           ))}
         </select>
-        <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))}
-          className="rounded border px-2 py-1 text-sm" placeholder="From" />
-        <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))}
-          className="rounded border px-2 py-1 text-sm" placeholder="To" />
-        <button onClick={() => { setPage(1); load(); }}
-          className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground">
+        <input
+          type="date"
+          value={filters.from}
+          onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))}
+          className="rounded border px-2 py-1 text-sm"
+          placeholder="From"
+        />
+        <input
+          type="date"
+          value={filters.to}
+          onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))}
+          className="rounded border px-2 py-1 text-sm"
+          placeholder="To"
+        />
+        <button
+          onClick={() => {
+            setPage(1);
+            load();
+          }}
+          className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
+        >
           Filter
         </button>
       </div>
@@ -151,51 +209,110 @@ export function AllInvestigationsTab() {
       {loading ? (
         <div className="py-12 text-center text-muted-foreground">Loading…</div>
       ) : investigations.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">No investigations found</div>
+        <div className="py-12 text-center text-muted-foreground">
+          No investigations found
+        </div>
       ) : (
         <>
           <div className="overflow-x-auto rounded border">
             <table className="min-w-[980px] w-full text-sm">
               <thead className="bg-muted text-left">
                 <tr>
-                  <SortableTableHeader label="ID" sortKey="id" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                  <SortableTableHeader
+                    label="ID"
+                    sortKey="id"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
                   <th className="px-3 py-2">Patient</th>
                   <th className="px-3 py-2">Phone</th>
-                  <SortableTableHeader label="Test" sortKey="test_name" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                  <SortableTableHeader label="Priority" sortKey="priority" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                  <SortableTableHeader label="Status" sortKey="status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                  <SortableTableHeader label="Ordered" sortKey="requested_at" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                  <SortableTableHeader
+                    label="Test"
+                    sortKey="test_name"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Priority"
+                    sortKey="priority"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Status"
+                    sortKey="status"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Ordered"
+                    sortKey="requested_at"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
                   <th className="px-3 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {investigations.map((inv) => {
-                  const isUrgent = ["URGENT", "STAT"].includes(inv.priority?.toUpperCase());
+                  const isUrgent = ["URGENT", "STAT"].includes(
+                    inv.priority?.toUpperCase(),
+                  );
                   return (
                     <tr key={inv.id} className={isUrgent ? "bg-red-50/60" : ""}>
                       <td className="px-3 py-2 font-mono text-xs">{inv.id}</td>
                       <td className="px-3 py-2">{inv.patient_name ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{inv.phone ?? "—"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {inv.phone ?? "—"}
+                      </td>
                       <td className="px-3 py-2">{inv.test_name}</td>
                       <td className="px-3 py-2">
-                        <Chip label={inv.priority ?? "—"} className={priorityColor(inv.priority)} />
+                        <Chip
+                          label={inv.priority ?? "—"}
+                          className={priorityColor(inv.priority)}
+                        />
                       </td>
                       <td className="px-3 py-2">
-                        <Chip label={inv.status ?? "—"} className={statusColor(inv.status)} />
+                        <Chip
+                          label={inv.status ?? "—"}
+                          className={statusColor(inv.status)}
+                        />
                       </td>
-                      <td className="px-3 py-2 text-xs">{formatDate(inv.ordered_date)}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {formatDate(inv.ordered_date)}
+                      </td>
                       <td className="px-3 py-2">
                         <select
                           defaultValue=""
                           onChange={(e) => {
-                            if (e.target.value) handleStatusUpdate(inv.id, e.target.value);
+                            if (e.target.value)
+                              handleStatusUpdate(inv.id, e.target.value);
                             e.target.value = "";
                           }}
                           className="rounded border px-1 py-0.5 text-xs"
                         >
-                          <option value="" disabled>Update…</option>
-                          {["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                          <option value="" disabled>
+                            Update…
+                          </option>
+                          {[
+                            "PENDING",
+                            "IN_PROGRESS",
+                            "COMPLETED",
+                            "CANCELLED",
+                          ].map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
                           ))}
                         </select>
                       </td>
@@ -269,7 +386,11 @@ function OrderInvestigationModal({
       toast.success("Investigation ordered");
       onSuccess();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to order investigation");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to order investigation",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -277,7 +398,10 @@ function OrderInvestigationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-xl">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-xl"
+      >
         <h3 className="mb-4 text-lg font-bold">Order Investigation</h3>
         <div className="space-y-3">
           <div>
@@ -308,8 +432,17 @@ function OrderInvestigationModal({
                 onChange={(event) => setType(event.target.value)}
                 className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
               >
-                {["LAB", "RADIOLOGY", "PATHOLOGY", "CARDIOLOGY", "PULMONARY", "ENDOSCOPY"].map((value) => (
-                  <option key={value} value={value}>{value}</option>
+                {[
+                  "LAB",
+                  "RADIOLOGY",
+                  "PATHOLOGY",
+                  "CARDIOLOGY",
+                  "PULMONARY",
+                  "ENDOSCOPY",
+                ].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
                 ))}
               </select>
             </div>
@@ -321,7 +454,9 @@ function OrderInvestigationModal({
                 className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
               >
                 {["NORMAL", "HIGH", "URGENT", "LOW"].map((value) => (
-                  <option key={value} value={value}>{value}</option>
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
                 ))}
               </select>
             </div>
@@ -338,7 +473,11 @@ function OrderInvestigationModal({
           </div>
         </div>
         <div className="mt-4 flex gap-3">
-          <button type="button" onClick={onClose} className="flex-1 rounded border px-4 py-2 text-sm hover:bg-muted">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded border px-4 py-2 text-sm hover:bg-muted"
+          >
             Cancel
           </button>
           <button

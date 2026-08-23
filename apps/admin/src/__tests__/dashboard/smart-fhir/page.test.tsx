@@ -91,9 +91,9 @@ describe("<SmartFhirPage />", () => {
 
     // client_id shows in the apps table, the token-panel app filter, and
     // the token row's app column.
-    expect((await screen.findAllByText("cardio-viewer")).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      (await screen.findAllByText("cardio-viewer")).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Cardio Viewer")).toBeInTheDocument();
     expect(screen.getByText("/api/v1/fhir")).toBeInTheDocument();
     // token row (id + app label via client_id)

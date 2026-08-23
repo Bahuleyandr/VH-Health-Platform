@@ -1,4 +1,3 @@
-
 import { CreateAdminForm } from "@/app/(with-auth)/dashboard/admin-management/components/CreateAdminForm";
 import { postJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
@@ -35,12 +34,17 @@ describe("<CreateAdminForm />", () => {
 
     await screen.findByText("Admin user created successfully!");
 
-    expect(mockedPostJSON).toHaveBeenCalledWith(API_ENDPOINTS.auth.admin.createAdmin, {
-      username: "new-admin",
-      name: "New Admin",
-      email: "new.admin@vhhealth.app",
-      password: "SuperSecret1!",
-    });
-    expect(screen.queryByRole("option", { name: "Super Admin" })).not.toBeInTheDocument();
+    expect(mockedPostJSON).toHaveBeenCalledWith(
+      API_ENDPOINTS.auth.admin.createAdmin,
+      {
+        username: "new-admin",
+        name: "New Admin",
+        email: "new.admin@vhhealth.app",
+        password: "SuperSecret1!",
+      },
+    );
+    expect(
+      screen.queryByRole("option", { name: "Super Admin" }),
+    ).not.toBeInTheDocument();
   });
 });

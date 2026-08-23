@@ -160,9 +160,7 @@ export function CampaignComposer({
       <button
         type="button"
         onClick={() => mutation.mutate()}
-        disabled={
-          mutation.isPending || !templateId.trim() || !objective.trim()
-        }
+        disabled={mutation.isPending || !templateId.trim() || !objective.trim()}
         className="mt-4 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
       >
         Create draft campaign

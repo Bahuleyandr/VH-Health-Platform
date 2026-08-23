@@ -42,7 +42,9 @@ function StatusPill({ value }: { value: EncryptionKeyStatus }) {
           ? "border-red-200 bg-red-50 text-red-800"
           : "border-slate-200 bg-slate-50 text-slate-700";
   return (
-    <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${color}`}>
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${color}`}
+    >
       {value}
     </span>
   );
@@ -61,7 +63,9 @@ function formatDateTime(value?: string | null) {
 
 export default function EncryptionKeysPage() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<"" | EncryptionKeyStatus>("");
+  const [statusFilter, setStatusFilter] = useState<"" | EncryptionKeyStatus>(
+    "",
+  );
   const [dialog, setDialog] = useState<DialogState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -126,10 +130,10 @@ export default function EncryptionKeysPage() {
             Encryption Key Registry
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            KEK versions for PHI encryption: which key is active for new
-            writes, which are retiring or retired. Key material lives in the
-            KMS provider — this registry stores metadata and provider
-            references only.
+            KEK versions for PHI encryption: which key is active for new writes,
+            which are retiring or retired. Key material lives in the KMS
+            provider — this registry stores metadata and provider references
+            only.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -143,7 +147,10 @@ export default function EncryptionKeysPage() {
           </button>
           <button
             type="button"
-            onClick={() => { setActionError(null); setDialog({ kind: "rotate" }); }}
+            onClick={() => {
+              setActionError(null);
+              setDialog({ kind: "rotate" });
+            }}
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
           >
             <RotateCw className="h-4 w-4" />
@@ -151,7 +158,10 @@ export default function EncryptionKeysPage() {
           </button>
           <button
             type="button"
-            onClick={() => { setActionError(null); setDialog({ kind: "register" }); }}
+            onClick={() => {
+              setActionError(null);
+              setDialog({ kind: "register" });
+            }}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" />
@@ -179,11 +189,15 @@ export default function EncryptionKeysPage() {
               id="key-status-filter"
               className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "" | EncryptionKeyStatus)}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as "" | EncryptionKeyStatus)
+              }
             >
               <option value="">All statuses</option>
               {KEY_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>
+                  {s}
+                </option>
               ))}
             </select>
           </div>
@@ -215,14 +229,18 @@ export default function EncryptionKeysPage() {
                   <th className="px-3 py-2 text-left">Status</th>
                   <th className="px-3 py-2 text-left">Activated</th>
                   <th className="px-3 py-2 text-left">Retiring / retired</th>
-                  <th className="px-3 py-2 text-right"><span className="sr-only">Actions</span></th>
+                  <th className="px-3 py-2 text-right">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {keys.map((key) => (
                   <tr key={key.id}>
                     <td className="px-3 py-3 align-top">
-                      <span className="font-mono text-xs text-foreground">{key.key_id}</span>
+                      <span className="font-mono text-xs text-foreground">
+                        {key.key_id}
+                      </span>
                       {key.id === activeWriteKeyId && (
                         <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
@@ -238,13 +256,20 @@ export default function EncryptionKeysPage() {
                     <td className="px-3 py-3 align-top text-xs">
                       {key.provider}
                       {key.provider_reference && (
-                        <div className="max-w-[220px] truncate text-muted-foreground" title={key.provider_reference}>
+                        <div
+                          className="max-w-[220px] truncate text-muted-foreground"
+                          title={key.provider_reference}
+                        >
                           {key.provider_reference}
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-3 align-top text-xs">{key.algorithm ?? "—"}</td>
-                    <td className="px-3 py-3 align-top"><StatusPill value={key.status} /></td>
+                    <td className="px-3 py-3 align-top text-xs">
+                      {key.algorithm ?? "—"}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <StatusPill value={key.status} />
+                    </td>
                     <td className="px-3 py-3 align-top text-xs text-muted-foreground">
                       {formatDateTime(key.activated_at)}
                     </td>
@@ -253,10 +278,14 @@ export default function EncryptionKeysPage() {
                     </td>
                     <td className="px-3 py-3 text-right align-top">
                       <div className="flex justify-end gap-2">
-                        {(key.status === "active" || key.status === "retiring") && (
+                        {(key.status === "active" ||
+                          key.status === "retiring") && (
                           <button
                             type="button"
-                            onClick={() => { setActionError(null); setDialog({ kind: "retire", encKey: key }); }}
+                            onClick={() => {
+                              setActionError(null);
+                              setDialog({ kind: "retire", encKey: key });
+                            }}
                             className="rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
                           >
                             Retire
@@ -265,7 +294,10 @@ export default function EncryptionKeysPage() {
                         {key.status !== "compromised" && (
                           <button
                             type="button"
-                            onClick={() => { setActionError(null); setDialog({ kind: "compromise", encKey: key }); }}
+                            onClick={() => {
+                              setActionError(null);
+                              setDialog({ kind: "compromise", encKey: key });
+                            }}
                             className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
                           >
                             Mark compromised

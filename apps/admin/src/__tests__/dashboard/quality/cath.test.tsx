@@ -48,7 +48,8 @@ function rollupResponse(thresholdsStatus: string, breachCount: number | null) {
     period: { from: "2026-03-01", to: "2026-08-31" },
     group_by: "month",
     thresholds_status: thresholdsStatus,
-    thresholds: thresholdsStatus === "configured" ? configuredSettings.settings : null,
+    thresholds:
+      thresholdsStatus === "configured" ? configuredSettings.settings : null,
     rows: [
       {
         bucket: "2026-08",
@@ -86,7 +87,9 @@ describe("<DoseRollupTab />", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("2026-08")).toBeInTheDocument();
     expect(screen.getByText("pending")).toBeInTheDocument();
-    expect(screen.getByText(/No default dose limits are assumed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No default dose limits are assumed/),
+    ).toBeInTheDocument();
   });
 
   it("shows breach counts once thresholds are configured", async () => {
@@ -102,23 +105,29 @@ describe("<DoseRollupTab />", () => {
     expect(await screen.findByText("2026-08")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.queryByText("pending")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Edit thresholds/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Edit thresholds/ }),
+    ).toBeInTheDocument();
   });
 
   it("saves owner thresholds through the quality/cath endpoint", async () => {
     const user = userEvent.setup();
-    fetchAdminAPIMock.mockImplementation((endpoint: string, init?: { method?: string }) => {
-      if (endpoint.startsWith("/quality/cath/dose-settings")) {
-        if (init?.method === "PUT") {
-          return Promise.resolve({ settings: configuredSettings.settings });
+    fetchAdminAPIMock.mockImplementation(
+      (endpoint: string, init?: { method?: string }) => {
+        if (endpoint.startsWith("/quality/cath/dose-settings")) {
+          if (init?.method === "PUT") {
+            return Promise.resolve({ settings: configuredSettings.settings });
+          }
+          return Promise.resolve(pendingSettings);
         }
-        return Promise.resolve(pendingSettings);
-      }
-      return Promise.resolve(rollupResponse("thresholds_pending", null));
-    });
+        return Promise.resolve(rollupResponse("thresholds_pending", null));
+      },
+    );
 
     render(withQueryClient(<DoseRollupTab />));
-    await user.click(await screen.findByRole("button", { name: /Configure thresholds/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Configure thresholds/ }),
+    );
     const inputs = screen.getAllByPlaceholderText("unset");
     await user.type(inputs[0], "30");
     await user.click(screen.getByRole("button", { name: /Save thresholds/ }));
@@ -174,12 +183,16 @@ describe("<ComplicationRegistryTab />", () => {
 
   it("posts a review transition for an entry", async () => {
     const user = userEvent.setup();
-    fetchAdminAPIMock.mockImplementation((endpoint: string, init?: { method?: string }) => {
-      if (endpoint.includes("/review") && init?.method === "POST") {
-        return Promise.resolve({ entry: { ...entry, review_status: "reviewed" } });
-      }
-      return Promise.resolve({ entries: [entry], count: 1 });
-    });
+    fetchAdminAPIMock.mockImplementation(
+      (endpoint: string, init?: { method?: string }) => {
+        if (endpoint.includes("/review") && init?.method === "POST") {
+          return Promise.resolve({
+            entry: { ...entry, review_status: "reviewed" },
+          });
+        }
+        return Promise.resolve({ entries: [entry], count: 1 });
+      },
+    );
 
     render(withQueryClient(<ComplicationRegistryTab />));
     await user.click(await screen.findByRole("button", { name: /Review/ }));

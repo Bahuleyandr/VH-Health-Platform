@@ -56,22 +56,27 @@ function renderPage() {
 describe("<WorkflowEscalationsPage />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (listEscalationRules as jest.Mock).mockResolvedValue({ rules: [RULE], count: 1 });
+    (listEscalationRules as jest.Mock).mockResolvedValue({
+      rules: [RULE],
+      count: 1,
+    });
     (listSlaDefinitions as jest.Mock).mockResolvedValue({
       count: 1,
-      slas: [{
-        id: 1,
-        tenant_id: RULE.tenant_id,
-        sla_key: "critical-result-ack",
-        display_name: "Critical result acknowledgement",
-        description: null,
-        target_minutes: 30,
-        warn_at_pct: 75,
-        business_hours_only: false,
-        metadata: null,
-        created_at: "2026-08-01T10:00:00.000Z",
-        updated_at: "2026-08-01T10:00:00.000Z",
-      }],
+      slas: [
+        {
+          id: 1,
+          tenant_id: RULE.tenant_id,
+          sla_key: "critical-result-ack",
+          display_name: "Critical result acknowledgement",
+          description: null,
+          target_minutes: 30,
+          warn_at_pct: 75,
+          business_hours_only: false,
+          metadata: null,
+          created_at: "2026-08-01T10:00:00.000Z",
+          updated_at: "2026-08-01T10:00:00.000Z",
+        },
+      ],
     });
     (listWorkflowRuns as jest.Mock).mockResolvedValue({ runs: [], count: 0 });
     (listApprovals as jest.Mock).mockResolvedValue({ approvals: [], count: 0 });
@@ -105,7 +110,9 @@ describe("<WorkflowEscalationsPage />", () => {
 
     // Confirmation restates the paging consequence before anything is sent.
     expect(
-      await screen.findByText(/a wrong edit can silence a critical-result page/i),
+      await screen.findByText(
+        /a wrong edit can silence a critical-result page/i,
+      ),
     ).toBeInTheDocument();
     expect(saveEscalationRule).not.toHaveBeenCalled();
 

@@ -1,4 +1,3 @@
-
 import SystemAuditPage from "@/app/(with-auth)/dashboard/system-audit/page";
 import { getJSON } from "@/lib/api/core";
 import { exportCsvText } from "@/lib/exportToCsv";
@@ -58,7 +57,12 @@ function eventList(
 const auditHealthWarning = {
   generated_at: "2026-07-10T10:20:00.000Z",
   total_events: 120,
-  completeness: { total_events: 120, actor_attributed: 118, patient_attributed: 112, request_correlated: 109 },
+  completeness: {
+    total_events: 120,
+    actor_attributed: 118,
+    patient_attributed: 112,
+    request_correlated: 109,
+  },
   canonical_write_coverage: { coverage_percent: 98.5 },
   integrity: {
     total_events: 120,
@@ -132,13 +136,15 @@ const auditHealthHealthy = {
     first_missing_hash_id: null,
     intact: true,
   },
-  resource_completeness: auditHealthWarning.resource_completeness.map((resource) => ({
-    ...resource,
-    audited_resource_rows: resource.resource_rows,
-    orphan_resource_rows: 0,
-    dangling_audit_events: 0,
-    coverage_percent: 100,
-  })),
+  resource_completeness: auditHealthWarning.resource_completeness.map(
+    (resource) => ({
+      ...resource,
+      audited_resource_rows: resource.resource_rows,
+      orphan_resource_rows: 0,
+      dangling_audit_events: 0,
+      coverage_percent: 100,
+    }),
+  ),
   anomalies: {
     ...auditHealthWarning.anomalies,
     denied_attempts: 0,
@@ -163,7 +169,9 @@ function installApiMock(
   getJSONMock.mockImplementation((path: string) => {
     if (path === "/api/v1/admin/audit/events") {
       listCalls += 1;
-      return Promise.resolve(listCalls === 1 || !secondList ? firstList : secondList);
+      return Promise.resolve(
+        listCalls === 1 || !secondList ? firstList : secondList,
+      );
     }
     if (path.startsWith("/api/v1/admin/audit/events/")) {
       return Promise.resolve({
@@ -177,7 +185,9 @@ function installApiMock(
       });
     }
     if (path === "/api/v1/admin/audit/export") {
-      return Promise.resolve("Time,Actor,Action\r\n2026-07-10,doc-1,prescription.signed");
+      return Promise.resolve(
+        "Time,Actor,Action\r\n2026-07-10,doc-1,prescription.signed",
+      );
     }
     if (path === "/api/v1/admin/audit/health") {
       return Promise.resolve(healthResponse);
@@ -270,7 +280,9 @@ describe("<SystemAuditPage /> accountability workspace", () => {
     renderPage();
     openAuditWorkspace();
 
-    const nextButton = await screen.findByRole("button", { name: "Next audit page" });
+    const nextButton = await screen.findByRole("button", {
+      name: "Next audit page",
+    });
     await waitFor(() => expect(nextButton).toBeEnabled());
     fireEvent.click(nextButton);
 
@@ -281,7 +293,9 @@ describe("<SystemAuditPage /> accountability workspace", () => {
       ),
     );
     expect(await screen.findByText("note · signed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous audit page" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Previous audit page" }),
+    ).toBeEnabled();
   });
 
   it("loads a safe event detail and never renders sensitive values", async () => {
@@ -295,7 +309,9 @@ describe("<SystemAuditPage /> accountability workspace", () => {
       }),
     );
 
-    expect(await screen.findByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: "Audit event details" }),
+    ).toBeInTheDocument();
     await screen.findByText("cpoe");
     expect(screen.getAllByText("Redacted in admin view")).toHaveLength(2);
     expect(screen.queryByText("should-not-render")).not.toBeInTheDocument();
@@ -310,14 +326,24 @@ describe("<SystemAuditPage /> accountability workspace", () => {
     expect(await screen.findByText("Audit source status")).toBeInTheDocument();
     expect(screen.getByText("98.5%")).toBeInTheDocument();
     expect(screen.getByText("120")).toBeInTheDocument();
-    expect(screen.getByText("Audit health requires attention")).toBeInTheDocument();
-    expect(screen.getByText("Hash chain requires attention")).toBeInTheDocument();
-    expect(screen.getByText("Canonical resource completeness")).toBeInTheDocument();
+    expect(
+      screen.getByText("Audit health requires attention"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Hash chain requires attention"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Canonical resource completeness"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Clinical Notes")).toBeInTheDocument();
     expect(screen.getByText("Review gaps")).toBeInTheDocument();
     expect(screen.getByText(/audit-problem-81/)).toBeInTheDocument();
     expect(screen.getByText("doc-broad-access")).toBeInTheDocument();
-    expect(screen.getByText("Threshold: 20 distinct patients in the selected window.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Threshold: 20 distinct patients in the selected window.",
+      ),
+    ).toBeInTheDocument();
     expect(getJSONMock).toHaveBeenCalledWith("/api/v1/admin/audit/health");
   });
 
@@ -327,10 +353,14 @@ describe("<SystemAuditPage /> accountability workspace", () => {
     openAuditWorkspace();
     fireEvent.click(screen.getByRole("tab", { name: "Audit health" }));
 
-    expect(await screen.findByText("Audit evidence is healthy")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Audit evidence is healthy"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Hash chain verified")).toBeInTheDocument();
     expect(screen.getAllByText("Complete")).toHaveLength(2);
-    expect(screen.queryByText("Audit health requires attention")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Audit health requires attention"),
+    ).not.toBeInTheDocument();
   });
 
   it("requests a server-audited CSV export for the current filters", async () => {
@@ -340,7 +370,9 @@ describe("<SystemAuditPage /> accountability workspace", () => {
       target: { value: "doc-1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Export filtered CSV" }),
+    );
 
     await waitFor(() =>
       expect(getJSONMock).toHaveBeenCalledWith(

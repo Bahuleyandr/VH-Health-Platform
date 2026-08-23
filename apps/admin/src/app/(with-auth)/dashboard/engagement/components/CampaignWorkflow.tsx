@@ -111,9 +111,9 @@ export function CampaignWorkflow({
   onUpdate: (campaign: EngagementCampaign) => void;
 }) {
   const [candidateText, setCandidateText] = useState("");
-  const [channelOverride, setChannelOverride] = useState<"" | EngagementChannel>(
-    "",
-  );
+  const [channelOverride, setChannelOverride] = useState<
+    "" | EngagementChannel
+  >("");
   const [reason, setReason] = useState("");
   const [queueLimit, setQueueLimit] = useState("50");
   const [lastRefusal, setLastRefusal] = useState<string | null>(null);
@@ -261,7 +261,10 @@ export function CampaignWorkflow({
       )}
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <FieldLabel label="Candidate patient UIDs (one per line)" htmlFor="candidates">
+        <FieldLabel
+          label="Candidate patient UIDs (one per line)"
+          htmlFor="candidates"
+        >
           <textarea
             id="candidates"
             aria-label="Candidate patient UIDs (one per line)"
@@ -272,7 +275,10 @@ export function CampaignWorkflow({
           />
         </FieldLabel>
         <div className="space-y-3">
-          <FieldLabel label="Channel override (optional)" htmlFor="channel-override">
+          <FieldLabel
+            label="Channel override (optional)"
+            htmlFor="channel-override"
+          >
             <select
               id="channel-override"
               className={inputClass}
@@ -289,7 +295,10 @@ export function CampaignWorkflow({
               ))}
             </select>
           </FieldLabel>
-          <FieldLabel label="Reason (recorded on submit/approve)" htmlFor="workflow-reason">
+          <FieldLabel
+            label="Reason (recorded on submit/approve)"
+            htmlFor="workflow-reason"
+          >
             <input
               id="workflow-reason"
               aria-label="Reason (recorded on submit/approve)"

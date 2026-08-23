@@ -1,4 +1,3 @@
-
 import CarePathwaysPage from "@/app/(with-auth)/dashboard/care-pathways/page";
 import { getCarePathwayReconciliationEvidence } from "@/lib/api/carePathways";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -57,7 +56,9 @@ describe("Care pathway evidence page", () => {
     renderPage();
     expect(await screen.findByText("Diagnostics")).toBeInTheDocument();
     expect(screen.getByText("Clean shadow evidence")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /activate/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /activate/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("loads bounded history only when the operator selects it", async () => {
@@ -65,7 +66,9 @@ describe("Care pathway evidence page", () => {
     await screen.findByText("Diagnostics");
     fireEvent.click(screen.getByRole("button", { name: "History" }));
     await waitFor(() => {
-      expect(getCarePathwayReconciliationEvidence).toHaveBeenCalledWith("history");
+      expect(getCarePathwayReconciliationEvidence).toHaveBeenCalledWith(
+        "history",
+      );
     });
   });
 });
