@@ -41,6 +41,13 @@ async function seed() {
     `INSERT INTO tenants (id, slug, name)
      VALUES ($1::uuid, 'aa574-tenant-b', 'AA574 Tenant B')
      ON CONFLICT (id) DO NOTHING`, TENANT_B);
+  // Admin surface is entitlement-gated barrel-wide (once-over 2026-08-23):
+  // give every test tenant a package, mirroring production provisioning.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source)
+     SELECT id, 'enterprise', 'active', NOW(), 'test_seed' FROM tenants
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+  );
   await prisma.$executeRawUnsafe(
     `INSERT INTO audit_log
        (tenant_id, actor_uid, uid, user_id, user_name, user_role, method, path,

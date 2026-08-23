@@ -333,6 +333,19 @@ export const envSchema = Joi.object({
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
 
+  // Security-event paging (utils/securityWebhook.js). These four names are
+  // canonical — the sealed-secret schema previously declared different names
+  // that nothing read, leaving paging silently inert in every deployment
+  // (2026-08-23 once-over HIGH). Optional, but production warns loudly below
+  // when disabled or misconfigured.
+  SECURITY_WEBHOOKS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .optional()
+    .label('SECURITY_WEBHOOKS_ENABLED'),
+  SECURITY_WEBHOOK_URL: Joi.string().uri().allow('').optional().label('SECURITY_WEBHOOK_URL'),
+  SECURITY_WEBHOOK_CRITICAL: Joi.string().uri().allow('').optional().label('SECURITY_WEBHOOK_CRITICAL'),
+  SECURITY_WEBHOOK_SECRET: Joi.string().allow('').optional().label('SECURITY_WEBHOOK_SECRET'),
+
   // C3.1 signed continuity generation is disabled by default. Legacy static
   // ward packs retain their temp fallback, but the signed writer requires an
   // explicit operator-owned root whenever it is enabled.
@@ -922,6 +935,19 @@ if (envVars.FIREBASE_AUTH_ENABLED === 'true') {
 }
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
+}
+// Security paging posture must be discoverable at boot (once-over 2026-08-23:
+// the channel was silently inert everywhere). Disabled is a legitimate state,
+// but never an invisible one; enabled-without-URL is a misconfiguration.
+if (envVars.SECURITY_WEBHOOKS_ENABLED === 'true' && !envVars.SECURITY_WEBHOOK_URL) {
+  optionalWarnings.push(
+    'SECURITY_WEBHOOKS_ENABLED=true but SECURITY_WEBHOOK_URL is not set — security paging is NOT delivering',
+  );
+} else if (envVars.SECURITY_WEBHOOKS_ENABLED !== 'true' && process.env.NODE_ENV === 'production') {
+  optionalWarnings.push(
+    'Security webhooks are disabled — brute-force/break-glass/audit-tamper events will not page '
+    + '(set SECURITY_WEBHOOKS_ENABLED=true and seal SECURITY_WEBHOOK_URL to enable)',
+  );
 }
 // Make the file-scanning posture discoverable at boot without reading code:
 // an operator scanning pod logs must be able to answer "is this deployment

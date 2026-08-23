@@ -6,6 +6,7 @@ import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { checkLegalHold } from '../services/gdpr/dataErasureService.js';
+import { success, error } from '../utils/responseHelper.js';
 
 import { maskPhoneForLog } from '../utils/logMasking.js';
 const router = Router();
@@ -38,13 +39,13 @@ router.get('/my-data', async (req, res) => {
   const tenantId = deriveTenantIdFromRequest(req);
 
   if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return error(res, 'Unauthorized', 401);
   }
 
   try {
     const user = await findCurrentPatient(req);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return error(res, 'User not found', 404);
     }
 
     const phone = user.phone;
@@ -170,12 +171,14 @@ router.get('/my-data', async (req, res) => {
     // Audit log
     logger.info(`📦 Data export requested by user ${uid} (${maskPhoneForLog(phone)})`);
 
+    // Deliberately NOT the success() envelope: this response is the export
+    // ARTIFACT itself (Content-Disposition download), not an API payload.
     res.setHeader('Content-Disposition', `attachment; filename="patient-data-${uid}.json"`);
     res.setHeader('Content-Type', 'application/json');
     return res.json(exportData);
   } catch (err) {
     logger.error(`Data export failed for ${userId}: ${err.message}`);
-    return res.status(500).json({ error: 'Failed to export data' });
+    return error(res, 'Failed to export data', 500);
   }
 });
 
@@ -189,13 +192,13 @@ router.delete('/my-data', async (req, res) => {
   const tenantId = deriveTenantIdFromRequest(req);
 
   if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return error(res, 'Unauthorized', 401);
   }
 
   try {
     const user = await findCurrentPatient(req);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return error(res, 'User not found', 404);
     }
 
     const phone = user.phone;
@@ -204,9 +207,8 @@ router.delete('/my-data', async (req, res) => {
     const now = new Date().toISOString();
     const holdCheck = await checkLegalHold(uid, { tenantId });
     if (holdCheck.hasHold) {
-      return res.status(403).json({
-        error: 'Cannot erase: user has an active legal hold',
-        code: 'LEGAL_HOLD_ACTIVE',
+      return error(res, 'Cannot erase: user has an active legal hold', 403, {
+        topLevel: { code: 'LEGAL_HOLD_ACTIVE' },
       });
     }
 
@@ -248,13 +250,14 @@ router.delete('/my-data', async (req, res) => {
 
     logger.info(`🗑️ Data deletion requested by user ${uid} (${maskPhoneForLog(phone)}) — soft-deleted across ${results.length} tables`);
 
-    return res.json({
-      message: 'Your data has been marked for deletion. It will be retained for the legally required period before permanent removal.',
-      details: results,
-    });
+    return success(
+      res,
+      { details: results },
+      'Your data has been marked for deletion. It will be retained for the legally required period before permanent removal.',
+    );
   } catch (err) {
     logger.error(`Data deletion failed for ${userId}: ${err.message}`);
-    return res.status(500).json({ error: 'Failed to process deletion request' });
+    return error(res, 'Failed to process deletion request', 500);
   }
 });
 

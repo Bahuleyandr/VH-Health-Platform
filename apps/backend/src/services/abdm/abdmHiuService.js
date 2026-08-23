@@ -968,10 +968,20 @@ export async function startHiuFetch({
               key_material_private_ciphertext = NULL, updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid`,
       session.id, tid, String(err.message).slice(0, 500),
-    ).catch(() => {});
+    ).catch((markErr) => {
+      // If THIS fails the session stays live-looking and the encrypted private
+      // key material is NOT destroyed — a security condition, never silent.
+      logger.error('ABDM HIU failed-session mark (incl. key-material destroy) did not persist', {
+        sessionId: session.id, error: markErr.message,
+      });
+    });
     await transitionDataTransfer({
       tenantId: tid, id: transfer.id, nextStatus: 'failed', failureReason: err.message,
-    }).catch(() => {});
+    }).catch((transErr) => {
+      logger.warn('ABDM HIU data-transfer failed-transition did not persist', {
+        transferId: transfer.id, error: transErr.message,
+      });
+    });
     throw err;
   }
 
@@ -1517,7 +1527,13 @@ export async function handleHiuDataPush({
           id: session.data_transfer_id,
           nextStatus: 'succeeded',
           attemptIncrement: true,
-        }).catch(() => {});
+        }).catch((transErr) => {
+          // Data DID arrive; losing this transition lets the stale-sweep later
+          // mark the transfer FAILED against reality.
+          logger.warn('ABDM HIU succeeded-transition did not persist after data push', {
+            transferId: session.data_transfer_id, error: transErr.message,
+          });
+        });
       }
       // Best-effort HIU-side transfer notification.
       try {
@@ -1535,7 +1551,11 @@ export async function handleHiuDataPush({
 
     await markWebhookProcessed({
       tenantId: tid, id: Number(eventIntake.event.id), status: 'processed',
-    }).catch(() => {});
+    }).catch((markErr) => {
+      logger.warn('ABDM HIU webhook processed-marker did not persist', {
+        eventId: eventIntake.event.id, error: markErr.message,
+      });
+    });
     logger.info('ABDM HIU data push handled', {
       sessionId: session.id, pageNumber, pageCount, stored: preparedBundles.length,
     });
@@ -1618,7 +1638,11 @@ export async function handleHiuDataPush({
       if (ownsWebhookEvent) {
         await markWebhookProcessed({
           tenantId: tid, id: Number(eventIntake.event.id), status: 'processed',
-        }).catch(() => {});
+        }).catch((markErr) => {
+          logger.warn('ABDM HIU duplicate-page webhook processed-marker did not persist', {
+            eventId: eventIntake.event.id, error: markErr.message,
+          });
+        });
       }
       return {
         duplicate: true,
@@ -1655,7 +1679,11 @@ export async function handleHiuDataPush({
             AND claim_id = $3::uuid AND status = 'claimed'`,
         pageClaim.page.id, tid, claimId,
         String(err?.message || 'page processing failed').slice(0, 500),
-      ).catch(() => {});
+      ).catch((markErr) => {
+        logger.warn('ABDM HIU page failed-status mark did not persist', {
+          pageId: pageClaim.page.id, error: markErr.message,
+        });
+      });
     }
     if (ownsWebhookEvent) await markWebhookFailed(tid, eventIntake.event, err);
     throw err;

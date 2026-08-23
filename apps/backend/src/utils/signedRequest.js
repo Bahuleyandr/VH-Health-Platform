@@ -429,7 +429,11 @@ export async function assertSharedReplayOnce({
   if (Math.random() < 0.02) {
     prisma.$executeRawUnsafe(
       `DELETE FROM interop_replay_guard WHERE expires_at < NOW()`,
-    ).catch(() => {});
+    ).catch((cleanupErr) => {
+      // Sustained failure here grows a security-relevant table unboundedly —
+      // visible at warn, never silent.
+      logger.warn('interop_replay_guard expiry cleanup failed', { error: cleanupErr.message });
+    });
   }
 
   return true;

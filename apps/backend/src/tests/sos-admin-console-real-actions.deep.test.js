@@ -99,6 +99,13 @@ d('Admin SOS console executes real logic (F1)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'f1-sos-tenant-b', 'F1 SOS Tenant B')
        ON CONFLICT (id) DO NOTHING`, TENANT_B);
+  // Admin surface is entitlement-gated barrel-wide (once-over 2026-08-23):
+  // give every test tenant a package, mirroring production provisioning.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source)
+     SELECT id, 'enterprise', 'active', NOW(), 'test_seed' FROM tenants
+     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+  );
     await seedStaff(TENANT_A, '+919000f10101');
     await seedStaff(TENANT_A, '+919000f10102');
     await seedPhonelessStaff(TENANT_A);

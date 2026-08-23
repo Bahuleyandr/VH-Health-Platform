@@ -122,15 +122,11 @@ const review = await hrServices.createPerformanceReview(reviewData);
 
 
 
-\### Import from Legacy Location (Deprecated)
+\### Import from Legacy Location (Removed 2026-08-23)
 
-```javascript
-
-// Still works but shows deprecation warning
-
-import { getHRDashboardData } from './services/staff/hrService.js';
-
-```
+The `services/staff/hrService.js` compatibility shim was deleted once every
+consumer had migrated to `services/staff/hr/index.js`. Import from the modular
+location only.
 
 
 

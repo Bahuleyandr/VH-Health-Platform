@@ -331,7 +331,7 @@ From [`apps/backend/src/middleware/rateLimitMiddleware.js`](../apps/backend/src/
 | `dashboard` | 1 min | 10 / IP | /dashboard |
 | `sos` | 1 hr | 3 / user | POST /sos/ |
 
-Anomaly detection lives in [`src/utils/loginAnomalyDetector.js`](../apps/backend/src/utils/loginAnomalyDetector.js) — credential-stuffing (10+ accounts/IP), IP threat level, adaptive rate limiting. Critical events (ACCOUNT_LOCKED, BRUTE_FORCE_DETECTED) fire Slack/PagerDuty via [`securityWebhook.js`](../apps/backend/src/utils/securityWebhook.js).
+Anomaly detection lives in [`src/utils/loginAnomalyDetector.js`](../apps/backend/src/utils/loginAnomalyDetector.js) — credential-stuffing (10+ accounts/IP), IP threat level, adaptive rate limiting. Critical events (ACCOUNT_LOCKED, BRUTE_FORCE_DETECTED) page via [`securityWebhook.js`](../apps/backend/src/utils/securityWebhook.js) when `SECURITY_WEBHOOKS_ENABLED=true` + `SECURITY_WEBHOOK_URL` are configured; the `security-events` Prometheus rule group alerts on the same counters independently of webhook configuration.
 
 ---
 
