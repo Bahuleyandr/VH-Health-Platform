@@ -3164,6 +3164,13 @@ class AppLocalizationsTe extends AppLocalizations {
   String get billDetailLoadFailed => 'బిల్ లోడ్ కాలేదు. మళ్లీ ప్రయత్నించండి.';
 
   @override
+  String get billDetailDownloadPdf => 'PDF డౌన్‌లోడ్ చేయండి';
+
+  @override
+  String get billDetailDownloadFailed =>
+      'బిల్లు డౌన్‌లోడ్ కాలేదు. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
   String get billDetailPaymentLinkFailed => 'చెల్లింపు లింక్ రూపొందించలేకపోయాం';
 
   @override
@@ -3347,6 +3354,17 @@ class AppLocalizationsTe extends AppLocalizations {
   @override
   String get settingsDeleteAccountFailed =>
       'ఖాతా తొలగించలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get settingsExportDataTitle => 'నా డేటాను డౌన్‌లోడ్ చేయండి';
+
+  @override
+  String get settingsExportDataSubtitle =>
+      'ఆసుపత్రిలో ఉన్న మీ మొత్తం సమాచారాన్ని ఫైల్‌గా ఎగుమతి చేయండి';
+
+  @override
+  String get settingsExportDataFailed =>
+      'మీ డేటాను ఎగుమతి చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
   String get settingsDeleteAccountTitle => 'ఖాతాను తొలగించు';

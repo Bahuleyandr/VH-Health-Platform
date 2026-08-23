@@ -145,6 +145,7 @@ class DeepLinkService {
       case 'COLLECTOR_DISPATCHED':
         return '/investigations';
       case 'LAB_RESULT_READY':
+      case 'LAB_RESULT_CORRECTED':
       case 'RESULTS_READY':
         return '/portal/lab-results';
       case 'DIAGNOSTIC_RESULT_READY':
@@ -163,6 +164,7 @@ class DeepLinkService {
       case 'SECURE_MESSAGE':
       case 'MESSAGE':
       case 'PORTAL_MESSAGE':
+      case 'PATIENT_MESSAGE':
         return '/portal/messages';
       case 'SOS':
       case 'SOS_ALERT':

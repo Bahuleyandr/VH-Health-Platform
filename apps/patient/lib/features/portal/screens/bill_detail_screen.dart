@@ -4,8 +4,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -26,6 +29,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   List<Map<String, dynamic>> _payments = const [];
   Map<String, dynamic>? _tpaBreakdown;
   bool _generatingLink = false;
+  bool _downloadingPdf = false;
   String? _linkUrl;
   String? _linkToken;
 
@@ -69,6 +73,48 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _downloadPdf() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final l = AppLocalizations.of(context)!;
+    setState(() => _downloadingPdf = true);
+    try {
+      // Same authenticated-download pattern as lab reports and prescriptions
+      // (lab_orders_screen.dart) — bills were the one document type without it.
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/portal/bills/${widget.invoiceId}/pdf',
+      );
+      final resp = await http
+          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
+          .timeout(const Duration(seconds: 30));
+      if (!mounted) return;
+      if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+        final fileName =
+            'Bill_${_invoice?['invoice_number'] ?? widget.invoiceId}.pdf';
+        final file = await CacheFileUtils.saveBytesToCache(
+          fileName,
+          resp.bodyBytes,
+        );
+        if (file != null) {
+          await CacheFileUtils.openCachedFile(file.path);
+        } else {
+          throw Exception('Could not save file');
+        }
+      } else {
+        messenger.showSnackBar(
+          SnackBar(content: Text(l.billDetailDownloadFailed)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(l.billDetailDownloadFailed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingPdf = false);
     }
   }
 
@@ -132,6 +178,20 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
       icon: Icons.receipt_long,
       color: colors.primary,
       scrollable: true,
+      actions: [
+        if (_invoice != null)
+          IconButton(
+            tooltip: l.billDetailDownloadPdf,
+            onPressed: _downloadingPdf ? null : _downloadPdf,
+            icon: _downloadingPdf
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined),
+          ),
+      ],
       child: _loading
           ? const Center(
               child: Padding(

@@ -334,6 +334,24 @@ List<Widget> buildSettingsSections(SettingsController c) {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: Icon(Icons.file_download_outlined, color: cs.primary),
+            title: Text(c.loc.settingsExportDataTitle),
+            subtitle: Text(c.loc.settingsExportDataSubtitle),
+            trailing: c.exportingData
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
+            onTap: c.exportingData ? null : c.exportMyData,
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: Icon(Icons.delete_forever_outlined, color: cs.error),
             title: Text(
               c.loc.settingsDeleteAccountTitle,

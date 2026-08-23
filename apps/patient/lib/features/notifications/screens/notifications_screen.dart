@@ -120,7 +120,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ? (notification['data'] as Map)['type']?.toString()
             : null) ??
         '';
-    // ignore: unused_local_variable
     final data = notification['data'] is Map
         ? notification['data'] as Map<String, dynamic>
         : <String, dynamic>{};
@@ -141,6 +140,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
       case 'diagnostic_result_ready':
         context.push('/portal/diagnostic-results');
+        break;
+      // The single most common clinical notification dead-ended here until
+      // 2026-08-23: pushes are privacy-stripped to the inbox, and the inbox
+      // row's type had no case — tapping only marked it read.
+      case 'lab_result_ready':
+      case 'lab_result_corrected':
+        context.push('/portal/lab-results');
+        break;
+      case 'patient_message':
+        final threadId = data['thread_id']?.toString();
+        context.push(
+          threadId != null && threadId.isNotEmpty
+              ? '/portal/messages/$threadId'
+              : '/portal/messages',
+        );
         break;
       case 'referral_response_ready':
       case 'referral_update':

@@ -324,6 +324,14 @@ remains `Consultation notes`.
 | TPA claims / detail | `/portal/tpa/claims`, `/portal/tpa/claims/:id` | GET |
 | Secure messages / thread | `/portal/messages`, `/portal/messages/:id` | GET |
 | Mark thread read | `/portal/messages/:id/read` | POST |
+| Bill PDF download | `/portal/bills/:id/pdf` | GET |
+| **ABHA self-enrolment** (P13, 2026-08-23) | | |
+| Start enrolment (Aadhaar OTP) | `/portal/abdm/enrolment/start` | POST |
+| Verify enrolment OTP | `/portal/abdm/enrolment/otp` | POST |
+| Resend / cancel enrolment | `/portal/abdm/enrolment/resend`, `/portal/abdm/enrolment/cancel` | POST |
+| Enrolment status | `/portal/abdm/enrolment/status` | GET |
+| **Data rights** | | |
+| Export my data (JSON download) | `/data-export/my-data` | GET |
 | **Maternity** | | |
 | ANC timeline | `/portal/maternity/timeline` | GET |
 | ANC advice | `/portal/maternity/anc-advice?language=&trimester=` | GET |

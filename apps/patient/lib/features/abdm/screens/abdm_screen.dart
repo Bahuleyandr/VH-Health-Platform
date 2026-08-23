@@ -10,6 +10,7 @@ import 'package:vhhealth_core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/services/abdm_api_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
+import 'package:vhhealth/features/abdm/widgets/abha_enrolment_flow.dart';
 
 /// Links an EXISTING ABHA to the signed-in patient's account.
 typedef LinkAbha = Future<void> Function({
@@ -109,6 +110,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
   String? _abhaNumber;
   String? _abhaAddress;
   bool _showRegistration = false;
+  bool _showEnrolment = false;
 
   final _formKey = GlobalKey<FormState>();
   final _abhaNumberController = TextEditingController();
@@ -224,6 +226,17 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       return _buildErrorState(theme);
     }
 
+    // Aadhaar-OTP self-enrolment for a NEW ABHA (P13/#809 Flutter half).
+    if (_showEnrolment) {
+      return AbhaEnrolmentFlow(
+        onEnrolled: () {
+          setState(() => _showEnrolment = false);
+          _checkAbha();
+        },
+        onCancelled: () => setState(() => _showEnrolment = false),
+      );
+    }
+
     // Link-an-existing-ABHA form
     if (_showRegistration) {
       return _buildLinkForm(theme);
@@ -322,6 +335,13 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             onPressed: () => setState(() => _showRegistration = true),
             icon: const Icon(Icons.app_registration),
             label: Text(l.abdmRegister),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const ValueKey('abha_enrol_entry'),
+            onPressed: () => setState(() => _showEnrolment = true),
+            icon: const Icon(Icons.fingerprint),
+            label: const Text("Don't have an ABHA? Create one"),
           ),
         ],
       ),
