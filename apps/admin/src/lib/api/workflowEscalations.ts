@@ -140,7 +140,8 @@ export async function listEscalationRules(
   params: { is_active?: boolean; scope?: EscalationScope } = {},
 ) {
   const query: Record<string, string> = {};
-  if (params.is_active !== undefined) query.is_active = String(params.is_active);
+  if (params.is_active !== undefined)
+    query.is_active = String(params.is_active);
   if (params.scope) query.scope = params.scope;
   return getJSON<{ rules: EscalationRule[]; count: number }>(
     "/admin/workflow/escalation-rules",

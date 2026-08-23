@@ -13,14 +13,28 @@ import { StructureTab } from "./components/StructureTab";
 type Tab = "facilities" | "structure" | "services";
 
 const TABS: Array<{ key: Tab; label: string; icon: React.ReactNode }> = [
-  { key: "facilities", label: "Facilities", icon: <Building2 className="h-4 w-4" /> },
-  { key: "structure", label: "Locations & Rooms", icon: <MapPin className="h-4 w-4" /> },
-  { key: "services", label: "Service Catalog", icon: <Stethoscope className="h-4 w-4" /> },
+  {
+    key: "facilities",
+    label: "Facilities",
+    icon: <Building2 className="h-4 w-4" />,
+  },
+  {
+    key: "structure",
+    label: "Locations & Rooms",
+    icon: <MapPin className="h-4 w-4" />,
+  },
+  {
+    key: "services",
+    label: "Service Catalog",
+    icon: <Stethoscope className="h-4 w-4" />,
+  },
 ];
 
 export default function FacilityMastersPage() {
   const [tab, setTab] = useState<Tab>("facilities");
-  const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
+  const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(
+    null,
+  );
 
   const facilitiesQuery = useQuery({
     queryKey: ["facility-masters", "facilities"],
@@ -55,7 +69,10 @@ export default function FacilityMastersPage() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-border pb-2" role="tablist">
+      <div
+        className="flex flex-wrap gap-2 border-b border-border pb-2"
+        role="tablist"
+      >
         {TABS.map((entry) => (
           <button
             key={entry.key}

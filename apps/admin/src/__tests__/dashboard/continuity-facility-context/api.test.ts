@@ -134,7 +134,7 @@ describe("continuity facility-context typed absence", () => {
         headers: expect.any(Headers),
       }),
     );
-    const headers = (mockedApiFetch.mock.calls[0]?.[1]?.headers as Headers);
+    const headers = mockedApiFetch.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get("Idempotency-Key")).toBe("device-loss-retry-key");
     expect(headers.get("Content-Type")).toBe("application/json");
   });

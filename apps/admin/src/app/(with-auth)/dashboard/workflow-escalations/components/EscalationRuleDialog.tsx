@@ -115,7 +115,10 @@ export function EscalationRuleDialog({
       const windowMinutes = form.trigger_window_minutes.trim()
         ? Number.parseInt(form.trigger_window_minutes, 10)
         : null;
-      if (windowMinutes !== null && (!Number.isFinite(windowMinutes) || windowMinutes < 1)) {
+      if (
+        windowMinutes !== null &&
+        (!Number.isFinite(windowMinutes) || windowMinutes < 1)
+      ) {
         throw new Error("Trigger window must be a positive number of minutes");
       }
       const payload: EscalationRulePayload = {
@@ -151,7 +154,11 @@ export function EscalationRuleDialog({
       aria-label={rule ? "Edit escalation rule" : "New escalation rule"}
       className="fixed inset-0 z-40 flex items-center justify-center"
     >
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+        aria-hidden="true"
+      />
       <div className="relative z-10 mx-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
         <h2 className="text-lg font-semibold text-foreground">
           {rule ? `Edit rule — ${rule.display_name}` : "New escalation rule"}
@@ -159,7 +166,10 @@ export function EscalationRuleDialog({
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="md:col-span-2">
-            <label htmlFor="rule-display-name" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-display-name"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Display name
             </label>
             <input
@@ -171,7 +181,10 @@ export function EscalationRuleDialog({
             />
           </div>
           <div className="md:col-span-2">
-            <label htmlFor="rule-description" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-description"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Description
             </label>
             <input
@@ -183,37 +196,54 @@ export function EscalationRuleDialog({
             />
           </div>
           <div>
-            <label htmlFor="rule-scope" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-scope"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Scope
             </label>
             <select
               id="rule-scope"
               className={inputClass}
               value={form.scope}
-              onChange={(e) => set({ scope: e.target.value as EscalationScope })}
+              onChange={(e) =>
+                set({ scope: e.target.value as EscalationScope })
+              }
             >
               {ESCALATION_SCOPES.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>
+                  {s}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="rule-trigger" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-trigger"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Trigger condition
             </label>
             <select
               id="rule-trigger"
               className={inputClass}
               value={form.trigger_condition}
-              onChange={(e) => set({ trigger_condition: e.target.value as EscalationTrigger })}
+              onChange={(e) =>
+                set({ trigger_condition: e.target.value as EscalationTrigger })
+              }
             >
               {ESCALATION_TRIGGERS.map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="rule-window" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-window"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Trigger window (minutes)
             </label>
             <input
@@ -228,22 +258,32 @@ export function EscalationRuleDialog({
             />
           </div>
           <div>
-            <label htmlFor="rule-action" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-action"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Action kind
             </label>
             <select
               id="rule-action"
               className={inputClass}
               value={form.action_kind}
-              onChange={(e) => set({ action_kind: e.target.value as EscalationAction })}
+              onChange={(e) =>
+                set({ action_kind: e.target.value as EscalationAction })
+              }
             >
               {ESCALATION_ACTIONS.map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>
+                  {a}
+                </option>
               ))}
             </select>
           </div>
           <div className="md:col-span-2">
-            <label htmlFor="rule-match-filter" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-match-filter"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Match filter (JSON object)
             </label>
             <textarea
@@ -255,7 +295,10 @@ export function EscalationRuleDialog({
             />
           </div>
           <div className="md:col-span-2">
-            <label htmlFor="rule-action-payload" className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="rule-action-payload"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
+            >
               Action payload — tiers / roles (JSON object)
             </label>
             <textarea

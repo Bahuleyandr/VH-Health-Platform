@@ -75,7 +75,9 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
             aria-label="HL7 ADT messages"
             className="mt-1 min-h-32 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
             value={raw}
-            placeholder={"MSH|^~\\&|LEGACY|...\nPID|1|...\nPV1|1|I|...\n\nMSH|^~\\&|LEGACY|..."}
+            placeholder={
+              "MSH|^~\\&|LEGACY|...\nPID|1|...\nPV1|1|I|...\n\nMSH|^~\\&|LEGACY|..."
+            }
             onChange={(e) => setRaw(e.target.value)}
           />
         </label>
@@ -87,7 +89,8 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
             className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
           >
             <FileWarning className="h-4 w-4" />
-            Import {messages.length || ""} ADT message{messages.length === 1 ? "" : "s"}...
+            Import {messages.length || ""} ADT message
+            {messages.length === 1 ? "" : "s"}...
           </button>
         </div>
       </div>
@@ -101,7 +104,10 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
             </span>
           </div>
           {result.report && (
-            <JsonDetails label="Acceptance summary" value={result.report.acceptance_summary} />
+            <JsonDetails
+              label="Acceptance summary"
+              value={result.report.acceptance_summary}
+            />
           )}
         </div>
       )}
@@ -115,9 +121,11 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
               <p>
                 This imports {messages.length} ADT message
                 {messages.length === 1 ? "" : "s"} for job #{job.id} and{" "}
-                <strong>commits patients and encounters to live tables in this
-                single call</strong> — there is no separate rehearsal for HL7
-                ADT.
+                <strong>
+                  commits patients and encounters to live tables in this single
+                  call
+                </strong>{" "}
+                — there is no separate rehearsal for HL7 ADT.
               </p>
               <p>
                 Validation errors in any message block the whole batch. Replays

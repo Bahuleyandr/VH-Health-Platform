@@ -26,20 +26,22 @@ describe("<NursingAssessmentsPage /> partial NEWS2 presentation", () => {
     jest.clearAllMocks();
     mockedFetchAdminAPI.mockImplementation(async (path, init) => {
       if (!init && String(path).startsWith("/nursing-assessments/dashboard/")) {
-        return [{
-          id: 41,
-          patient_uid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          admission_id: null,
-          assessment_kind: "news2",
-          total_score: 0,
-          band: null,
-          partial_score: true,
-          risk_band_available: false,
-          missing_params: ["spo2", "temperature"],
-          assessed_at: "2026-08-11T08:00:00.000Z",
-          next_assessment_due_at: null,
-          minutes_overdue: 0,
-        }] as never;
+        return [
+          {
+            id: 41,
+            patient_uid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            admission_id: null,
+            assessment_kind: "news2",
+            total_score: 0,
+            band: null,
+            partial_score: true,
+            risk_band_available: false,
+            missing_params: ["spo2", "temperature"],
+            assessed_at: "2026-08-11T08:00:00.000Z",
+            next_assessment_due_at: null,
+            minutes_overdue: 0,
+          },
+        ] as never;
       }
       if (init?.method === "POST" && path === "/nursing-assessments/score") {
         return {
@@ -49,7 +51,13 @@ describe("<NursingAssessmentsPage /> partial NEWS2 presentation", () => {
           reassessmentMins: null,
           partial: true,
           risk_band_available: false,
-          missing: ["spo2", "temperature", "systolic_bp", "heart_rate", "consciousness"],
+          missing: [
+            "spo2",
+            "temperature",
+            "systolic_bp",
+            "heart_rate",
+            "consciousness",
+          ],
         } as never;
       }
       return [] as never;
@@ -60,13 +68,21 @@ describe("<NursingAssessmentsPage /> partial NEWS2 presentation", () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText("Partial — risk band unavailable")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Partial — risk band unavailable"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "+ NEWS2" }));
     await user.click(screen.getByRole("button", { name: "Preview score" }));
 
-    expect(await screen.findByText(/Score 0 — Partial; risk band unavailable/i)).toBeInTheDocument();
-    expect(screen.getByText(/Complete the missing observations/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Continue routine monitoring/i)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/Score 0 — Partial; risk band unavailable/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Complete the missing observations/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Continue routine monitoring/i),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/^LOW$/i)).not.toBeInTheDocument();
   });
 });

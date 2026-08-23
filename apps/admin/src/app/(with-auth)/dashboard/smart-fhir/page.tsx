@@ -30,8 +30,8 @@ export default function SmartFhirPage() {
             SMART-on-FHIR Apps
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Registry and lifecycle management for third-party SMART apps.
-            The public OAuth surface at{" "}
+            Registry and lifecycle management for third-party SMART apps. The
+            public OAuth surface at{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
               /api/v1/fhir
             </code>{" "}
@@ -39,8 +39,8 @@ export default function SmartFhirPage() {
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
               /.well-known/smart-configuration
             </code>
-            ) — apps registered here can immediately request tokens against
-            it, and revoking a token here cuts that access off.
+            ) — apps registered here can immediately request tokens against it,
+            and revoking a token here cuts that access off.
           </p>
         </div>
         <button

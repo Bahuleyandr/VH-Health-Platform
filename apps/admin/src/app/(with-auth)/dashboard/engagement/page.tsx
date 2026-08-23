@@ -61,8 +61,8 @@ export default function EngagementPage() {
             Engagement Campaigns
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Consent-gated patient outreach with a mandatory dry-run and
-            approval step before anything can be queued for delivery.
+            Consent-gated patient outreach with a mandatory dry-run and approval
+            step before anything can be queued for delivery.
           </p>
         </div>
         <button

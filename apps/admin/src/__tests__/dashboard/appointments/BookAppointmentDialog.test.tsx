@@ -62,8 +62,12 @@ describe("<BookAppointmentDialog /> patient identity lookup", () => {
   });
 
   it("ignores an older phone lookup that resolves after the current lookup", async () => {
-    const firstLookup = deferred<{ patients: Array<{ id: number; name: string; phone: string }> }>();
-    const secondLookup = deferred<{ patients: Array<{ id: number; name: string; phone: string }> }>();
+    const firstLookup = deferred<{
+      patients: Array<{ id: number; name: string; phone: string }>;
+    }>();
+    const secondLookup = deferred<{
+      patients: Array<{ id: number; name: string; phone: string }>;
+    }>();
     fetchAdminAPIMock.mockImplementation((path) => {
       const requestPath = String(path);
       if (requestPath.startsWith("/appointments/doctors/options")) {
@@ -81,7 +85,9 @@ describe("<BookAppointmentDialog /> patient identity lookup", () => {
     });
 
     renderDialog();
-    expect(screen.getByRole("option", { name: "Dr Example" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Dr Example" }),
+    ).toBeInTheDocument();
     const phone = screen.getByPlaceholderText("10 digit mobile number");
 
     fireEvent.change(phone, { target: { value: "9000000001" } });
@@ -107,7 +113,9 @@ describe("<BookAppointmentDialog /> patient identity lookup", () => {
 
     expect(screen.getByText("Existing patient found: #22")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Patient B")).toBeInTheDocument();
-    expect(screen.queryByText("Existing patient found: #11")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Existing patient found: #11"),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
       target: { value: "7" },

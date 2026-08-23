@@ -53,11 +53,7 @@ export function SectionCard({
 }
 
 /** Render a labelled map of counters (e.g. by_severity, by_code). */
-export function CountGrid({
-  entries,
-}: {
-  entries: Record<string, number>;
-}) {
+export function CountGrid({ entries }: { entries: Record<string, number> }) {
   const keys = Object.keys(entries);
   if (keys.length === 0) {
     return <p className="text-sm text-muted-foreground">None</p>;
@@ -65,9 +61,16 @@ export function CountGrid({
   return (
     <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {keys.map((key) => (
-        <div key={key} className="rounded-md border border-border bg-background px-3 py-2">
-          <dt className="text-xs text-muted-foreground">{key.replace(/_/g, " ")}</dt>
-          <dd className="text-lg font-semibold text-foreground">{entries[key]}</dd>
+        <div
+          key={key}
+          className="rounded-md border border-border bg-background px-3 py-2"
+        >
+          <dt className="text-xs text-muted-foreground">
+            {key.replace(/_/g, " ")}
+          </dt>
+          <dd className="text-lg font-semibold text-foreground">
+            {entries[key]}
+          </dd>
         </div>
       ))}
     </dl>
@@ -126,7 +129,9 @@ export function ConfirmDialog({
     >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-5 shadow-xl">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <div className="mt-2 space-y-2 text-sm text-muted-foreground">{body}</div>
+        <div className="mt-2 space-y-2 text-sm text-muted-foreground">
+          {body}
+        </div>
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"

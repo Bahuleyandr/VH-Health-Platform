@@ -1,4 +1,3 @@
-
 import EditPermissionsPage from "@/app/(with-auth)/dashboard/admin-management/edit-permissions/[id]/page";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getJSON, putJSON } from "@/lib/api";
@@ -22,7 +21,9 @@ jest.mock("@/hooks/usePermissions", () => ({
 
 const mockedGetJSON = getJSON as jest.MockedFunction<typeof getJSON>;
 const mockedPutJSON = putJSON as jest.MockedFunction<typeof putJSON>;
-const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePermissions>;
+const mockedUsePermissions = usePermissions as jest.MockedFunction<
+  typeof usePermissions
+>;
 
 function makeAdmin(overrides: Partial<AdminUser> = {}): AdminUser {
   return {
@@ -88,7 +89,10 @@ describe("<EditPermissionsPage />", () => {
     expect(calledUrl).toBe(API_ENDPOINTS.auth.admin.updatePermissions);
     expect(calledBody).toEqual({
       adminId: "admin-uid-1",
-      permissions: expect.arrayContaining(["userManagement", "doctorManagement"]),
+      permissions: expect.arrayContaining([
+        "userManagement",
+        "doctorManagement",
+      ]),
     });
     expect(calledBody).not.toHaveProperty("action");
   });

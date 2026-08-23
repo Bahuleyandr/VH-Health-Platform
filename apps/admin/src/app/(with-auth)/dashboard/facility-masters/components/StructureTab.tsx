@@ -94,7 +94,10 @@ export function StructureTab({
   const locationsQuery = useQuery({
     queryKey: ["facility-masters", "locations", facilityId],
     queryFn: () =>
-      listFacilityLocations({ facility_id: facilityId ?? undefined, limit: 200 }),
+      listFacilityLocations({
+        facility_id: facilityId ?? undefined,
+        limit: 200,
+      }),
     enabled: facilityId != null,
   });
   const roomsQuery = useQuery({
@@ -138,7 +141,10 @@ export function StructureTab({
 
   const submitLocation = () => {
     if (!locationForm || facilityId == null) return;
-    if (!locationForm.location_code.trim() || !locationForm.display_name.trim()) {
+    if (
+      !locationForm.location_code.trim() ||
+      !locationForm.display_name.trim()
+    ) {
       toast.error("Location code and display name are required");
       return;
     }
@@ -148,7 +154,8 @@ export function StructureTab({
       parent_id: optionalNumber(locationForm.parent_id),
       location_code: locationForm.location_code.trim(),
       display_name: locationForm.display_name.trim(),
-      location_kind: locationForm.location_kind as FacilityLocationPayload["location_kind"],
+      location_kind:
+        locationForm.location_kind as FacilityLocationPayload["location_kind"],
       floor: optionalText(locationForm.floor),
       building: optionalText(locationForm.building),
       status: locationForm.status as FacilityLocationPayload["status"],
@@ -159,7 +166,11 @@ export function StructureTab({
   const submitRoom = () => {
     if (!roomForm || facilityId == null) return;
     const locationId = optionalNumber(roomForm.location_id);
-    if (!roomForm.room_code.trim() || !roomForm.display_name.trim() || locationId == null) {
+    if (
+      !roomForm.room_code.trim() ||
+      !roomForm.display_name.trim() ||
+      locationId == null
+    ) {
       toast.error("Room code, display name, and location are required");
       return;
     }
@@ -224,7 +235,10 @@ export function StructureTab({
             ) : (
               <div className="divide-y divide-border">
                 {locations.map((location: FacilityLocation) => (
-                  <div key={location.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div
+                    key={location.id}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
                     <div>
                       <div className="font-medium text-foreground">
                         {location.display_name}
@@ -234,9 +248,11 @@ export function StructureTab({
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {location.location_kind.replace(/_/g, " ")}
-                        {location.parent_id != null && ` · under ${locationLabel(location.parent_id)}`}
+                        {location.parent_id != null &&
+                          ` · under ${locationLabel(location.parent_id)}`}
                         {location.floor && ` · floor ${location.floor}`}
-                        {location.capacity_hint != null && ` · cap ${location.capacity_hint}`}
+                        {location.capacity_hint != null &&
+                          ` · cap ${location.capacity_hint}`}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -249,11 +265,17 @@ export function StructureTab({
                             location_code: location.location_code,
                             display_name: location.display_name,
                             location_kind: location.location_kind,
-                            parent_id: location.parent_id != null ? String(location.parent_id) : "",
+                            parent_id:
+                              location.parent_id != null
+                                ? String(location.parent_id)
+                                : "",
                             floor: location.floor ?? "",
                             building: location.building ?? "",
                             status: location.status,
-                            capacity_hint: location.capacity_hint != null ? String(location.capacity_hint) : "",
+                            capacity_hint:
+                              location.capacity_hint != null
+                                ? String(location.capacity_hint)
+                                : "",
                           })
                         }
                         className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-muted"
@@ -289,7 +311,10 @@ export function StructureTab({
             ) : (
               <div className="divide-y divide-border">
                 {rooms.map((room: FacilityRoom) => (
-                  <div key={room.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div
+                    key={room.id}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
                     <div>
                       <div className="font-medium text-foreground">
                         {room.display_name}
@@ -298,8 +323,10 @@ export function StructureTab({
                         </span>
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        {room.room_kind.replace(/_/g, " ")} · {locationLabel(room.location_id)}
-                        {room.bed_capacity != null && ` · ${room.bed_capacity} beds`}
+                        {room.room_kind.replace(/_/g, " ")} ·{" "}
+                        {locationLabel(room.location_id)}
+                        {room.bed_capacity != null &&
+                          ` · ${room.bed_capacity} beds`}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -313,7 +340,10 @@ export function StructureTab({
                             room_code: room.room_code,
                             display_name: room.display_name,
                             room_kind: room.room_kind,
-                            bed_capacity: room.bed_capacity != null ? String(room.bed_capacity) : "",
+                            bed_capacity:
+                              room.bed_capacity != null
+                                ? String(room.bed_capacity)
+                                : "",
                             floor: room.floor ?? "",
                             status: room.status,
                           })
@@ -338,9 +368,28 @@ export function StructureTab({
           onSubmit={submitLocation}
           pending={locationMutation.isPending}
         >
-          <TextInput label="Location code" value={locationForm.location_code} onChange={(v) => setLocationForm({ ...locationForm, location_code: v })} />
-          <TextInput label="Location name" value={locationForm.display_name} onChange={(v) => setLocationForm({ ...locationForm, display_name: v })} />
-          <SelectInput label="Location kind" value={locationForm.location_kind} onChange={(v) => setLocationForm({ ...locationForm, location_kind: v })} options={toEnumOptions(LOCATION_KINDS)} />
+          <TextInput
+            label="Location code"
+            value={locationForm.location_code}
+            onChange={(v) =>
+              setLocationForm({ ...locationForm, location_code: v })
+            }
+          />
+          <TextInput
+            label="Location name"
+            value={locationForm.display_name}
+            onChange={(v) =>
+              setLocationForm({ ...locationForm, display_name: v })
+            }
+          />
+          <SelectInput
+            label="Location kind"
+            value={locationForm.location_kind}
+            onChange={(v) =>
+              setLocationForm({ ...locationForm, location_kind: v })
+            }
+            options={toEnumOptions(LOCATION_KINDS)}
+          />
           <SelectInput
             label="Parent location"
             value={locationForm.parent_id}
@@ -349,13 +398,35 @@ export function StructureTab({
               { value: "", label: "None (top level)" },
               ...locations
                 .filter((location) => location.id !== locationForm.id)
-                .map((location) => ({ value: String(location.id), label: location.display_name })),
+                .map((location) => ({
+                  value: String(location.id),
+                  label: location.display_name,
+                })),
             ]}
           />
-          <TextInput label="Floor" value={locationForm.floor} onChange={(v) => setLocationForm({ ...locationForm, floor: v })} />
-          <TextInput label="Building" value={locationForm.building} onChange={(v) => setLocationForm({ ...locationForm, building: v })} />
-          <SelectInput label="Location status" value={locationForm.status} onChange={(v) => setLocationForm({ ...locationForm, status: v })} options={toEnumOptions(LOCATION_STATUSES)} />
-          <TextInput label="Capacity hint" value={locationForm.capacity_hint} onChange={(v) => setLocationForm({ ...locationForm, capacity_hint: v })} />
+          <TextInput
+            label="Floor"
+            value={locationForm.floor}
+            onChange={(v) => setLocationForm({ ...locationForm, floor: v })}
+          />
+          <TextInput
+            label="Building"
+            value={locationForm.building}
+            onChange={(v) => setLocationForm({ ...locationForm, building: v })}
+          />
+          <SelectInput
+            label="Location status"
+            value={locationForm.status}
+            onChange={(v) => setLocationForm({ ...locationForm, status: v })}
+            options={toEnumOptions(LOCATION_STATUSES)}
+          />
+          <TextInput
+            label="Capacity hint"
+            value={locationForm.capacity_hint}
+            onChange={(v) =>
+              setLocationForm({ ...locationForm, capacity_hint: v })
+            }
+          />
         </FormDialog>
       )}
 
@@ -366,21 +437,50 @@ export function StructureTab({
           onSubmit={submitRoom}
           pending={roomMutation.isPending}
         >
-          <TextInput label="Room code" value={roomForm.room_code} onChange={(v) => setRoomForm({ ...roomForm, room_code: v })} />
-          <TextInput label="Room name" value={roomForm.display_name} onChange={(v) => setRoomForm({ ...roomForm, display_name: v })} />
+          <TextInput
+            label="Room code"
+            value={roomForm.room_code}
+            onChange={(v) => setRoomForm({ ...roomForm, room_code: v })}
+          />
+          <TextInput
+            label="Room name"
+            value={roomForm.display_name}
+            onChange={(v) => setRoomForm({ ...roomForm, display_name: v })}
+          />
           <SelectInput
             label="Location"
             value={roomForm.location_id}
             onChange={(v) => setRoomForm({ ...roomForm, location_id: v })}
             options={[
               { value: "", label: "Select location..." },
-              ...locations.map((location) => ({ value: String(location.id), label: location.display_name })),
+              ...locations.map((location) => ({
+                value: String(location.id),
+                label: location.display_name,
+              })),
             ]}
           />
-          <SelectInput label="Room kind" value={roomForm.room_kind} onChange={(v) => setRoomForm({ ...roomForm, room_kind: v })} options={toEnumOptions(ROOM_KINDS)} />
-          <TextInput label="Bed capacity" value={roomForm.bed_capacity} onChange={(v) => setRoomForm({ ...roomForm, bed_capacity: v })} />
-          <TextInput label="Room floor" value={roomForm.floor} onChange={(v) => setRoomForm({ ...roomForm, floor: v })} />
-          <SelectInput label="Room status" value={roomForm.status} onChange={(v) => setRoomForm({ ...roomForm, status: v })} options={toEnumOptions(ROOM_STATUSES)} />
+          <SelectInput
+            label="Room kind"
+            value={roomForm.room_kind}
+            onChange={(v) => setRoomForm({ ...roomForm, room_kind: v })}
+            options={toEnumOptions(ROOM_KINDS)}
+          />
+          <TextInput
+            label="Bed capacity"
+            value={roomForm.bed_capacity}
+            onChange={(v) => setRoomForm({ ...roomForm, bed_capacity: v })}
+          />
+          <TextInput
+            label="Room floor"
+            value={roomForm.floor}
+            onChange={(v) => setRoomForm({ ...roomForm, floor: v })}
+          />
+          <SelectInput
+            label="Room status"
+            value={roomForm.status}
+            onChange={(v) => setRoomForm({ ...roomForm, status: v })}
+            options={toEnumOptions(ROOM_STATUSES)}
+          />
         </FormDialog>
       )}
     </div>

@@ -1,6 +1,7 @@
 # CLAUDE.md — VHHealth Admin Portal
 
 ## Project Overview
+
 Next.js 16 admin dashboard for the VHHealth hospital management system. Used by hospital administrators and super-admins to manage patients, staff, appointments, departments, pharmacy, investigations, and system settings.
 
 ## Deployment
@@ -14,6 +15,7 @@ Full runbook: [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md)
 Hardware spec: [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
 
 ## Tech Stack
+
 - **Framework**: Next.js 16 (App Router), React 19, TypeScript
 - **State/Data**: TanStack Query v5 + React Context
 - **Styling**: Tailwind CSS v4
@@ -21,6 +23,7 @@ Hardware spec: [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUI
 - **API Client**: Custom 3-layer abstraction (apiFetch → requestJSON → domain functions)
 
 ## Repository Layout
+
 ```
 src/
   app/
@@ -54,6 +57,7 @@ src/
 ```
 
 ## Key Architecture Decisions
+
 - **fetchAdminAPI** auto-prepends `/api/v1` to short paths and passes them through VERBATIM — the legacy endpoint-rewrite shim was deleted 2026-08-23, so a wrong path 404s loudly instead of being silently rewritten. Used by most dashboard pages.
 - **getJSON/postJSON/putJSON** use full paths (e.g., `/api/v1/auth/admin/login`). Used by auth and admin management.
 - **Auth token**: Stored in an **httpOnly, Secure, SameSite=Strict** `auth_token` cookie (4h max-age). The browser never sees the token. `localStorage` only holds the non-sensitive `adminUser` profile cache (4h TTL).
@@ -61,6 +65,7 @@ src/
 - **Middleware** verifies the cookie's JWT signature via `jose.jwtVerify` on `/dashboard/*` and `/api/proxy/*` routes. Fails closed in production when `JWT_SECRET` is unset.
 
 ## Auth Flow
+
 1. User submits username + password (optionally followed by a TOTP MFA challenge)
 2. `adminLogin()` → `POST /api/login` (Next.js route) → proxies to backend → backend returns JWT
 3. `/api/login` sets `auth_token` as an httpOnly cookie (4h, `Secure` in prod, `SameSite=Strict`). The browser never touches the token.
@@ -69,6 +74,7 @@ src/
 6. Logout clears `adminUser` cache + calls `/api/logout` (cookie expired) + backend logout endpoint.
 
 ## API Client Layers
+
 ```
 apiFetch (api-fetch.ts)     — raw fetch, adds headers
   ↓
@@ -79,6 +85,7 @@ fetchAdminAPI (api.ts)      — back-compat, auto-adds /api/v1 prefix
 ```
 
 ## Running
+
 ```bash
 npm run dev    # Development (port 3001)
 npm run build  # Production build (also runs inside the container image build)
@@ -93,7 +100,9 @@ Public URL: `https://admin.vhhealth.app` — via Cloudflare Tunnel →
 ingress-nginx → `Service/vhhealth-admin`.
 
 ## Environment
+
 `.env.local`:
+
 - `NEXT_PUBLIC_API_URL` — backend URL (default: `https://api.vhhealth.app`)
 - `BACKEND_API_KEY` (or legacy `API_KEY`) — **server-only** API key; injected by `/api/proxy` and `/api/login`. Never expose as `NEXT_PUBLIC_*`.
 - `NEXT_PUBLIC_ALLOWED_ORIGIN` — CSRF origin allowlist for `/api/login`, `/api/refresh`, `/api/logout`, `/api/proxy` mutations.
@@ -124,6 +133,7 @@ one file per logical seam. The page itself becomes a thin tab orchestrator
 - `dashboard/billing/page.tsx` (976→50 LOC, 4 components)
 
 Rules:
+
 - Each tab is its own `"use client"` file under `components/`.
 - Shared UI primitives (StatCard, StatusBadge, formatters) live in
   `components/shared.tsx` or `components/helpers.tsx`.
@@ -144,15 +154,15 @@ pages instead of creating long-lived scratch roadmaps.
   (added batch 41); `npx playwright install chromium` once per clone.
   `npm run test:e2e` runs against an existing `npm run dev` on :3001.
   Two projects:
-    - `setup` — runs `e2e/auth.setup.ts` once, logs in as the seeded
-      `playwright-admin` test user (ADMIN role, no MFA), writes
-      `playwright/.auth/admin.json` storage state. DB seed SQL in the
-      file header.
-    - `chromium` — depends on setup, reuses the storage state for
-      `e2e/authenticated.spec.ts` journeys. `e2e/smoke.spec.ts`
-      explicitly opts out via `test.use({ storageState: { cookies:
-      [], origins: [] } })` so its redirect assertions fire.
-  Currently 5 smoke + 5 authenticated journey tests.
+  - `setup` — runs `e2e/auth.setup.ts` once, logs in as the seeded
+    `playwright-admin` test user (ADMIN role, no MFA), writes
+    `playwright/.auth/admin.json` storage state. DB seed SQL in the
+    file header.
+  - `chromium` — depends on setup, reuses the storage state for
+    `e2e/authenticated.spec.ts` journeys. `e2e/smoke.spec.ts`
+    explicitly opts out via `test.use({ storageState: { cookies:
+[], origins: [] } })` so its redirect assertions fire.
+    Currently 5 smoke + 5 authenticated journey tests.
 
 ## Generated API types
 
@@ -166,6 +176,7 @@ run `npm run generate:types` once. Consumers import spec-derived types via
 request body). Don't hand-author response interfaces that the spec already types.
 
 ## Conventions
+
 - Use `fetchAdminAPI` for dashboard pages (auto-prepends /api/v1)
 - Use `getJSON`/`postJSON` with full paths for auth-related calls
 - **Never** read/write `localStorage.getItem("adminToken")` — the token is httpOnly. The proxy handles auth server-side; client code passes nothing.
@@ -175,7 +186,6 @@ request body). Don't hand-author response interfaces that the spec already types
 - All new pages go under `src/app/(with-auth)/dashboard/`
 - Use TanStack Query for data fetching (not raw useEffect + useState)
 - Backend response envelope: `{ success, message, data }` — `requestJSON` auto-unwraps `.data`
-
 
 ## Future Directions
 

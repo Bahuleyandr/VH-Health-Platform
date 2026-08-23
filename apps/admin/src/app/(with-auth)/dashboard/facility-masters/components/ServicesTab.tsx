@@ -74,7 +74,8 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (payload: ServiceCatalogPayload) => saveFacilityService(payload),
+    mutationFn: (payload: ServiceCatalogPayload) =>
+      saveFacilityService(payload),
     onSuccess: () => {
       toast.success("Service saved");
       setForm(null);
@@ -124,7 +125,10 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
               label="Status filter"
               value={statusFilter}
               onChange={setStatusFilter}
-              options={[{ value: "", label: "All statuses" }, ...toEnumOptions(SERVICE_STATUSES)]}
+              options={[
+                { value: "", label: "All statuses" },
+                ...toEnumOptions(SERVICE_STATUSES),
+              ]}
             />
           </div>
           <div className="w-44">
@@ -132,7 +136,10 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
               label="Kind filter"
               value={kindFilter}
               onChange={setKindFilter}
-              options={[{ value: "", label: "All kinds" }, ...toEnumOptions(SERVICE_KINDS)]}
+              options={[
+                { value: "", label: "All kinds" },
+                ...toEnumOptions(SERVICE_KINDS),
+              ]}
             />
           </div>
         </div>
@@ -174,7 +181,9 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
                   <td colSpan={9}>
                     <EmptyState
                       compact
-                      icon={<Stethoscope className="h-8 w-8 text-muted-foreground" />}
+                      icon={
+                        <Stethoscope className="h-8 w-8 text-muted-foreground" />
+                      }
                       title="No services in catalog"
                       description="Define consultations, procedures, packages, and other billable services."
                     />
@@ -183,15 +192,29 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
               ) : (
                 services.map((service: ServiceCatalogItem) => (
                   <tr key={service.id}>
-                    <td className="px-3 py-3 font-mono text-xs">{service.service_code}</td>
-                    <td className="px-3 py-3 font-medium text-foreground">{service.display_name}</td>
-                    <td className="px-3 py-3 text-xs">{service.service_kind.replace(/_/g, " ")}</td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">{service.specialty ?? "-"}</td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">{facilityLabel(service.facility_id)}</td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {service.default_duration_minutes != null ? `${service.default_duration_minutes} min` : "-"}
+                    <td className="px-3 py-3 font-mono text-xs">
+                      {service.service_code}
                     </td>
-                    <td className="px-3 py-3 text-xs">{service.is_telehealth_eligible ? "Yes" : "No"}</td>
+                    <td className="px-3 py-3 font-medium text-foreground">
+                      {service.display_name}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {service.service_kind.replace(/_/g, " ")}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {service.specialty ?? "-"}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {facilityLabel(service.facility_id)}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {service.default_duration_minutes != null
+                        ? `${service.default_duration_minutes} min`
+                        : "-"}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {service.is_telehealth_eligible ? "Yes" : "No"}
+                    </td>
                     <td className="px-3 py-3">
                       <StatusPill value={service.status} />
                     </td>
@@ -205,15 +228,20 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
                             display_name: service.display_name,
                             service_kind: service.service_kind,
                             specialty: service.specialty ?? "",
-                            facility_id: service.facility_id != null ? String(service.facility_id) : "",
+                            facility_id:
+                              service.facility_id != null
+                                ? String(service.facility_id)
+                                : "",
                             description: service.description ?? "",
                             default_duration_minutes:
                               service.default_duration_minutes != null
                                 ? String(service.default_duration_minutes)
                                 : "",
                             requires_appointment: service.requires_appointment,
-                            is_telehealth_eligible: service.is_telehealth_eligible,
-                            default_tariff_item_code: service.default_tariff_item_code ?? "",
+                            is_telehealth_eligible:
+                              service.is_telehealth_eligible,
+                            default_tariff_item_code:
+                              service.default_tariff_item_code ?? "",
                             status: service.status,
                           })
                         }
@@ -237,25 +265,70 @@ export function ServicesTab({ facilities }: { facilities: Facility[] }) {
           onSubmit={submit}
           pending={saveMutation.isPending}
         >
-          <TextInput label="Service code" value={form.service_code} onChange={(v) => set({ service_code: v })} />
-          <TextInput label="Service name" value={form.display_name} onChange={(v) => set({ display_name: v })} />
-          <SelectInput label="Service kind" value={form.service_kind} onChange={(v) => set({ service_kind: v })} options={toEnumOptions(SERVICE_KINDS)} />
-          <TextInput label="Specialty" value={form.specialty} onChange={(v) => set({ specialty: v })} />
+          <TextInput
+            label="Service code"
+            value={form.service_code}
+            onChange={(v) => set({ service_code: v })}
+          />
+          <TextInput
+            label="Service name"
+            value={form.display_name}
+            onChange={(v) => set({ display_name: v })}
+          />
+          <SelectInput
+            label="Service kind"
+            value={form.service_kind}
+            onChange={(v) => set({ service_kind: v })}
+            options={toEnumOptions(SERVICE_KINDS)}
+          />
+          <TextInput
+            label="Specialty"
+            value={form.specialty}
+            onChange={(v) => set({ specialty: v })}
+          />
           <SelectInput
             label="Facility scope"
             value={form.facility_id}
             onChange={(v) => set({ facility_id: v })}
             options={[
               { value: "", label: "All facilities" },
-              ...facilities.map((facility) => ({ value: String(facility.id), label: facility.display_name })),
+              ...facilities.map((facility) => ({
+                value: String(facility.id),
+                label: facility.display_name,
+              })),
             ]}
           />
-          <TextInput label="Default duration (minutes)" value={form.default_duration_minutes} onChange={(v) => set({ default_duration_minutes: v })} />
-          <TextInput label="Default tariff item code" value={form.default_tariff_item_code} onChange={(v) => set({ default_tariff_item_code: v })} />
-          <SelectInput label="Service status" value={form.status} onChange={(v) => set({ status: v })} options={toEnumOptions(SERVICE_STATUSES)} />
-          <TextInput label="Description" value={form.description} onChange={(v) => set({ description: v })} />
-          <CheckboxInput label="Requires appointment" checked={form.requires_appointment} onChange={(v) => set({ requires_appointment: v })} />
-          <CheckboxInput label="Telehealth eligible" checked={form.is_telehealth_eligible} onChange={(v) => set({ is_telehealth_eligible: v })} />
+          <TextInput
+            label="Default duration (minutes)"
+            value={form.default_duration_minutes}
+            onChange={(v) => set({ default_duration_minutes: v })}
+          />
+          <TextInput
+            label="Default tariff item code"
+            value={form.default_tariff_item_code}
+            onChange={(v) => set({ default_tariff_item_code: v })}
+          />
+          <SelectInput
+            label="Service status"
+            value={form.status}
+            onChange={(v) => set({ status: v })}
+            options={toEnumOptions(SERVICE_STATUSES)}
+          />
+          <TextInput
+            label="Description"
+            value={form.description}
+            onChange={(v) => set({ description: v })}
+          />
+          <CheckboxInput
+            label="Requires appointment"
+            checked={form.requires_appointment}
+            onChange={(v) => set({ requires_appointment: v })}
+          />
+          <CheckboxInput
+            label="Telehealth eligible"
+            checked={form.is_telehealth_eligible}
+            onChange={(v) => set({ is_telehealth_eligible: v })}
+          />
         </FormDialog>
       )}
     </div>

@@ -42,7 +42,9 @@ export function SourceFilesEditor({
   profiles: MigrationMappingProfile[];
 }) {
   const update = (key: number, patch: Partial<EditableFile>) =>
-    onChange(files.map((file) => (file.key === key ? { ...file, ...patch } : file)));
+    onChange(
+      files.map((file) => (file.key === key ? { ...file, ...patch } : file)),
+    );
 
   return (
     <div className="space-y-3">
@@ -53,10 +55,15 @@ export function SourceFilesEditor({
       )}
       {files.map((file, index) => {
         const kindProfiles = profiles.filter(
-          (profile) => profile.target_kind === file.file_kind && profile.status !== "archived",
+          (profile) =>
+            profile.target_kind === file.file_kind &&
+            profile.status !== "archived",
         );
         return (
-          <div key={file.key} className="rounded-md border border-border bg-background p-3">
+          <div
+            key={file.key}
+            className="rounded-md border border-border bg-background p-3"
+          >
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="block text-xs font-medium text-muted-foreground">
                 <span>File kind #{index + 1}</span>
@@ -84,7 +91,9 @@ export function SourceFilesEditor({
                   className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
                   value={file.source_filename}
                   placeholder={`${file.file_kind}s.csv`}
-                  onChange={(e) => update(file.key, { source_filename: e.target.value })}
+                  onChange={(e) =>
+                    update(file.key, { source_filename: e.target.value })
+                  }
                 />
               </label>
               <label className="block text-xs font-medium text-muted-foreground">
@@ -92,7 +101,9 @@ export function SourceFilesEditor({
                 <select
                   className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
                   value={file.mapping_profile_id}
-                  onChange={(e) => update(file.key, { mapping_profile_id: e.target.value })}
+                  onChange={(e) =>
+                    update(file.key, { mapping_profile_id: e.target.value })
+                  }
                 >
                   <option value="">Auto (header-name mapping)</option>
                   {kindProfiles.map((profile) => (
@@ -116,7 +127,9 @@ export function SourceFilesEditor({
             <div className="mt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => onChange(files.filter((f) => f.key !== file.key))}
+                onClick={() =>
+                  onChange(files.filter((f) => f.key !== file.key))
+                }
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
               >
                 <Trash2 className="h-3 w-3" />

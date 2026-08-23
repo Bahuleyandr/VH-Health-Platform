@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "react-hot-toast";
-import { getInvestigationsList, type Investigation } from "@/lib/api/investigations";
+import {
+  getInvestigationsList,
+  type Investigation,
+} from "@/lib/api/investigations";
 import { formatDate } from "./helpers";
 
 export function NotificationsTab() {
@@ -12,7 +15,12 @@ export function NotificationsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { status: "COMPLETED", notified: "false", limit: 50, page: 1 };
+      const params = {
+        status: "COMPLETED",
+        notified: "false",
+        limit: 50,
+        page: 1,
+      };
       const res = await getInvestigationsList(params);
       const all = res.investigations ?? [];
       // Filter client-side to only show un-notified completed
@@ -24,7 +32,9 @@ export function NotificationsTab() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   function hoursSince(dateStr: string | null) {
     if (!dateStr) return "—";
@@ -32,15 +42,23 @@ export function NotificationsTab() {
     return diff.toFixed(1);
   }
 
-  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
+  if (loading)
+    return (
+      <div className="py-12 text-center text-muted-foreground">Loading…</div>
+    );
   if (investigations.length === 0) {
-    return <div className="py-12 text-center text-muted-foreground">All completed investigations have been notified ✅</div>;
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        All completed investigations have been notified ✅
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {investigations.length} completed investigation(s) pending patient notification
+        {investigations.length} completed investigation(s) pending patient
+        notification
       </p>
       <div className="overflow-x-auto rounded border">
         <table className="w-full text-sm">
@@ -57,10 +75,16 @@ export function NotificationsTab() {
             {investigations.map((inv) => (
               <tr key={inv.id}>
                 <td className="px-3 py-2">{inv.patient_name ?? "—"}</td>
-                <td className="px-3 py-2 font-mono text-xs">{inv.phone ?? "—"}</td>
+                <td className="px-3 py-2 font-mono text-xs">
+                  {inv.phone ?? "—"}
+                </td>
                 <td className="px-3 py-2">{inv.test_name}</td>
-                <td className="px-3 py-2 text-xs">{formatDate(inv.completed_date)}</td>
-                <td className="px-3 py-2 font-mono">{hoursSince(inv.completed_date)}</td>
+                <td className="px-3 py-2 text-xs">
+                  {formatDate(inv.completed_date)}
+                </td>
+                <td className="px-3 py-2 font-mono">
+                  {hoursSince(inv.completed_date)}
+                </td>
               </tr>
             ))}
           </tbody>

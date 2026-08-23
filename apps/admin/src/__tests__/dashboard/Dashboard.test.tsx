@@ -16,15 +16,12 @@ jest.mock(
   }),
 );
 
-const mockRealtime = jest.fn(
-   
-  (..._args: unknown[]) => ({
-    connected: false,
-    subscribed: false,
-    denied: null as string | null,
-    lastEventAt: null as number | null,
-  }),
-);
+const mockRealtime = jest.fn((..._args: unknown[]) => ({
+  connected: false,
+  subscribed: false,
+  denied: null as string | null,
+  lastEventAt: null as number | null,
+}));
 
 jest.mock("@/hooks/useRealtimeData", () => ({
   useRealtimeData: (...args: unknown[]) => mockRealtime(...args),

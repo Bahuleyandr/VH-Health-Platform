@@ -178,11 +178,11 @@ export function RegisterAppForm({ onDone }: { onDone?: () => void }) {
         Register SMART app
       </div>
       <p className="text-xs text-muted-foreground">
-        Registration is create-only: the admin API exposes no edit endpoint,
-        so re-register under a new client_id to change an app. Production
+        Registration is create-only: the admin API exposes no edit endpoint, so
+        re-register under a new client_id to change an app. Production
         registrations start paused (production_pending) until a super-admin
-        approves activation; confidential apps receive a one-time client
-        secret on this screen.
+        approves activation; confidential apps receive a one-time client secret
+        on this screen.
       </p>
       <div className="grid gap-3 md:grid-cols-2">
         <div>
@@ -282,8 +282,8 @@ export function RegisterAppForm({ onDone }: { onDone?: () => void }) {
       </div>
       <div>
         <label className={labelClass} htmlFor="smart-redirect-uris">
-          Redirect URIs (one per line; exact HTTPS URIs, no wildcards —
-          sandbox loopback http allowed)
+          Redirect URIs (one per line; exact HTTPS URIs, no wildcards — sandbox
+          loopback http allowed)
         </label>
         <textarea
           id="smart-redirect-uris"
@@ -347,9 +347,7 @@ export function RegisterAppForm({ onDone }: { onDone?: () => void }) {
                 aria-label="Production contract ref"
                 className={inputClass}
                 value={form.production_contract_ref}
-                onChange={(e) =>
-                  set("production_contract_ref", e.target.value)
-                }
+                onChange={(e) => set("production_contract_ref", e.target.value)}
               />
             </div>
             <div>

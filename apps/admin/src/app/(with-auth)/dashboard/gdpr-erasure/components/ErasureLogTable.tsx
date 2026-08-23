@@ -2,10 +2,7 @@
 
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
-import {
-  describeGdprApiError,
-  getErasureLog,
-} from "@/lib/api/gdprErasure";
+import { describeGdprApiError, getErasureLog } from "@/lib/api/gdprErasure";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FileSearch, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -114,9 +111,9 @@ export function ErasureLogTable() {
       <div className="flex items-center justify-between">
         <p className="max-w-xl text-xs text-muted-foreground">
           The log lists entries only while the subject&apos;s user row still
-          exists in this tenant — fully deleted subjects and phone-only
-          erasures may not appear here even though they remain in the
-          underlying audit table.
+          exists in this tenant — fully deleted subjects and phone-only erasures
+          may not appear here even though they remain in the underlying audit
+          table.
         </p>
         <div className="flex items-center gap-2">
           <button

@@ -72,7 +72,9 @@ export default function MigrationToolkitPage() {
             selectedJobId={selectedJobId}
             onSelect={setSelectedJobId}
           />
-          {selectedJob && <JobWorkspace job={selectedJob} profiles={profiles} />}
+          {selectedJob && (
+            <JobWorkspace job={selectedJob} profiles={profiles} />
+          )}
           <MappingProfilesPanel profiles={profiles} />
         </>
       )}

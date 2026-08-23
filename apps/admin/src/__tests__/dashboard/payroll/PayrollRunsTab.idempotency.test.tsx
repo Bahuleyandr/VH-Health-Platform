@@ -7,7 +7,6 @@
 // module, so the real `payroll.ts` → `core.ts` path executes and the assertions
 // are about what actually goes on the wire.
 
-
 import { PayrollRunsTab } from "@/app/(with-auth)/dashboard/payroll/components/PayrollRunsTab";
 import { apiFetch } from "@/lib/api-fetch";
 import { IDEMPOTENCY_KEY_PATTERN } from "@/lib/idempotencyKey";

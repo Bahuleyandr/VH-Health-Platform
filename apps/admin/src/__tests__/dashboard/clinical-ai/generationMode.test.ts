@@ -17,13 +17,19 @@ describe("Clinical AI generation mode helpers", () => {
   it("uses provider status when legacy rows lack an explicit generation mode", () => {
     expect(generationModeFor({ provider_status: "used" })).toBe("ai");
     expect(generationModeFor({ provider_status: "blocked" })).toBe("blocked");
-    expect(generationModeFor({ provider_status: "schema_unavailable" })).toBe("schema_unavailable");
-    expect(generationModeFor({ provider_status: "error" })).toBe("template_fallback");
+    expect(generationModeFor({ provider_status: "schema_unavailable" })).toBe(
+      "schema_unavailable",
+    );
+    expect(generationModeFor({ provider_status: "error" })).toBe(
+      "template_fallback",
+    );
   });
 
   it("keeps blocked and schema-unavailable states visually urgent", () => {
     expect(generationModeLabel("blocked")).toBe("Blocked");
-    expect(generationModeLabel("schema_unavailable")).toBe("Schema unavailable");
+    expect(generationModeLabel("schema_unavailable")).toBe(
+      "Schema unavailable",
+    );
     expect(generationModeClass("blocked")).toContain("bg-red");
     expect(generationModeClass("schema_unavailable")).toContain("bg-red");
   });
@@ -39,24 +45,31 @@ describe("Clinical AI generation mode helpers", () => {
     expect(providerStatusLabel("used")).toBe("Provider used");
     expect(providerStatusLabel("blocked")).toBe("Provider blocked");
     expect(providerStatusClass("blocked")).toContain("bg-red");
-    expect(generationReasonFor({
-      fallback_reason: "tenant_region_not_allowed_for_stt",
-      readiness_reason: "provider_not_ready",
-    })).toBe("tenant_region_not_allowed_for_stt");
+    expect(
+      generationReasonFor({
+        fallback_reason: "tenant_region_not_allowed_for_stt",
+        readiness_reason: "provider_not_ready",
+      }),
+    ).toBe("tenant_region_not_allowed_for_stt");
   });
 
   it("summarizes risky module approval payloads for approvers", () => {
-    expect(approvalDetailLines({
-      approval_type: "module_governance_change",
-      payload: {
-        scope: "tenant",
-        changed_fields: ["enabled", "external_allowed"],
-        next: { enabled: true, external_allowed: true },
-        reasons: ["two_person_enablement", "risky_runtime_change:external_allowed"],
-        eval_gate: { provider: "openai", model: "gpt-4.1", eval_run_id: 17 },
-        requested_change_hash: "abcdef1234567890",
-      },
-    })).toEqual([
+    expect(
+      approvalDetailLines({
+        approval_type: "module_governance_change",
+        payload: {
+          scope: "tenant",
+          changed_fields: ["enabled", "external_allowed"],
+          next: { enabled: true, external_allowed: true },
+          reasons: [
+            "two_person_enablement",
+            "risky_runtime_change:external_allowed",
+          ],
+          eval_gate: { provider: "openai", model: "gpt-4.1", eval_run_id: 17 },
+          requested_change_hash: "abcdef1234567890",
+        },
+      }),
+    ).toEqual([
       "Scope: tenant",
       "Changes: enabled, external_allowed",
       "Requested: enabled=true, external_allowed=true",

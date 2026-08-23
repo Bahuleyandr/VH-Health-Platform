@@ -1,4 +1,3 @@
-
 import ContinuityReconciliationPage from "@/app/(with-auth)/dashboard/continuity-reconciliation/page";
 import {
   attestClinicalContinuityHeldMessageRelease,
@@ -49,13 +48,13 @@ const mockedAttest =
   attestClinicalContinuityHeldMessageRelease as jest.MockedFunction<
     typeof attestClinicalContinuityHeldMessageRelease
   >;
-const mockedRelease = releaseClinicalContinuityHeldMessage as jest.MockedFunction<
-  typeof releaseClinicalContinuityHeldMessage
->;
-const mockedExternalLoad =
-  loadExternalRecoveryWorkbench as jest.MockedFunction<
-    typeof loadExternalRecoveryWorkbench
+const mockedRelease =
+  releaseClinicalContinuityHeldMessage as jest.MockedFunction<
+    typeof releaseClinicalContinuityHeldMessage
   >;
+const mockedExternalLoad = loadExternalRecoveryWorkbench as jest.MockedFunction<
+  typeof loadExternalRecoveryWorkbench
+>;
 const incidentId = "11111111-1111-4111-8111-111111111111";
 
 const workbench = {
@@ -113,9 +112,7 @@ describe("continuity reconciliation workbench", () => {
 
   it("offers I03 on both exact-partition external-recovery controls", async () => {
     render(<ContinuityReconciliationPage />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "External recovery" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "External recovery" }));
 
     await waitFor(() =>
       expect(mockedExternalLoad).toHaveBeenCalledWith({
@@ -237,7 +234,9 @@ describe("continuity reconciliation workbench", () => {
     expect(
       screen.getByRole("button", { name: "Release send authority" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /I18/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /I18/ }),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(
       screen.getByLabelText(

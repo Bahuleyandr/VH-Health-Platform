@@ -1,10 +1,15 @@
-
 import { AdminsTable } from "@/app/(with-auth)/dashboard/admin-management/components/AdminsTable";
 import { usePermissions } from "@/hooks/usePermissions";
 import { postJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import type { AdminUser } from "@/lib/types";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   postJSON: jest.fn(),
@@ -15,7 +20,9 @@ jest.mock("@/hooks/usePermissions", () => ({
 }));
 
 const mockedPostJSON = postJSON as jest.MockedFunction<typeof postJSON>;
-const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePermissions>;
+const mockedUsePermissions = usePermissions as jest.MockedFunction<
+  typeof usePermissions
+>;
 
 function makeAdmin(overrides: Partial<AdminUser> = {}): AdminUser {
   return {
@@ -74,10 +81,13 @@ describe("<AdminsTable />", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Deactivate" }));
 
     await waitFor(() =>
-      expect(mockedPostJSON).toHaveBeenCalledWith(API_ENDPOINTS.auth.admin.deactivate, {
-        adminId: "admin-uid-1",
-        reason: "Deactivated via admin portal",
-      }),
+      expect(mockedPostJSON).toHaveBeenCalledWith(
+        API_ENDPOINTS.auth.admin.deactivate,
+        {
+          adminId: "admin-uid-1",
+          reason: "Deactivated via admin portal",
+        },
+      ),
     );
   });
 
@@ -89,9 +99,12 @@ describe("<AdminsTable />", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Reactivate" }));
 
     await waitFor(() =>
-      expect(mockedPostJSON).toHaveBeenCalledWith(API_ENDPOINTS.auth.admin.reactivate, {
-        adminId: "admin-uid-1",
-      }),
+      expect(mockedPostJSON).toHaveBeenCalledWith(
+        API_ENDPOINTS.auth.admin.reactivate,
+        {
+          adminId: "admin-uid-1",
+        },
+      ),
     );
   });
 });

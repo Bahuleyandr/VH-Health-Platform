@@ -61,10 +61,9 @@ function RevokeDialog({
           Revoke access token #{token.id}
         </div>
         <p className="text-sm text-muted-foreground">
-          Immediately cuts off <span className="font-medium">{appLabel}</span>{" "}
-          ({token.environment}) from the FHIR surface for this token. This
-          cannot be undone; the app must complete a new OAuth flow to regain
-          access.
+          Immediately cuts off <span className="font-medium">{appLabel}</span> (
+          {token.environment}) from the FHIR surface for this token. This cannot
+          be undone; the app must complete a new OAuth flow to regain access.
         </p>
         <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
           Scopes: {token.granted_scopes.join(" ") || "-"}
@@ -138,8 +137,7 @@ export function TokensPanel({ apps }: { apps: SmartApp[] }) {
   });
 
   const tokens = tokensQuery.data?.tokens ?? [];
-  const appLabel = (id: number) =>
-    appById.get(id)?.client_id ?? `app #${id}`;
+  const appLabel = (id: number) => appById.get(id)?.client_id ?? `app #${id}`;
 
   return (
     <section className="space-y-3">
