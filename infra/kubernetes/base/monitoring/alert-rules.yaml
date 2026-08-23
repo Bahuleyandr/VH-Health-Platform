@@ -354,7 +354,7 @@ spec:
           expr: increase(vhhealth_security_webhook_events_total{event_type="AUDIT_CHAIN_TAMPERED"}[15m]) > 0
           labels:
             severity: critical
-            team: security
+            team: backend
           annotations:
             summary: "Audit hash-chain tamper detected"
             description: "The nightly audit-chain verifier found broken links. Treat as an active integrity incident; identify the first broken sequence from the backend logs and audit_log."
@@ -362,7 +362,7 @@ spec:
           expr: increase(vhhealth_security_webhook_events_total{event_type=~"BREAK_GLASS_.*"}[15m]) > 0
           labels:
             severity: warning
-            team: security
+            team: backend
           annotations:
             summary: "A break-glass access grant was activated or revoked"
             description: "Break-glass use is legitimate but must always be reviewed. Cross-check the actor and reason in audit_log and the break-glass review queue."
@@ -371,7 +371,7 @@ spec:
           for: 5m
           labels:
             severity: warning
-            team: security
+            team: backend
           annotations:
             summary: "Security events occurred while webhook paging is disabled"
             description: "sendSecurityWebhook dropped events because SECURITY_WEBHOOKS_ENABLED/SECURITY_WEBHOOK_URL are unset. Either enable paging (ConfigMap flag + sealed URL) or accept and silence during quiet hours."

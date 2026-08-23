@@ -66,8 +66,11 @@ describe('self-service data export erasure legal hold', () => {
       .delete('/data-export/my-data')
       .expect(403);
 
-    expect(response.body).toEqual({
-      error: 'Cannot erase: user has an active legal hold',
+    // Once-over train A: the route now uses the error() envelope with the
+    // code merged at top level.
+    expect(response.body).toMatchObject({
+      success: false,
+      message: 'Cannot erase: user has an active legal hold',
       code: 'LEGAL_HOLD_ACTIVE',
     });
     expect(checkLegalHoldMock).toHaveBeenCalledWith(PATIENT_UID, { tenantId: TENANT });

@@ -114,12 +114,14 @@ describe('GDPR data-export surface — PHI logging + erasure response hygiene', 
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.statusCode).toBe(200);
-    expect(Array.isArray(res.body.details)).toBe(true);
+    // Once-over train A: DELETE now uses the success() envelope.
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data.details)).toBe(true);
 
     // Deterministic on this schema: only `users` carries deleted_at, so the
     // other whitelisted tables MUST appear as skipped — the exact branch that
     // used to echo `column "deleted_at" of relation "…" does not exist`.
-    const skipped = res.body.details.filter((d) => d.skipped);
+    const skipped = res.body.data.details.filter((d) => d.skipped);
     expect(skipped.length).toBeGreaterThan(0);
     for (const entry of skipped) {
       expect(entry.reason).toBe('Table not eligible for soft deletion');
@@ -133,7 +135,7 @@ describe('GDPR data-export surface — PHI logging + erasure response hygiene', 
     expect(body).not.toMatch(/prisma/i);
 
     // The erasure itself still works where the schema supports it.
-    const usersEntry = res.body.details.find((d) => d.table === 'users');
+    const usersEntry = res.body.data.details.find((d) => d.table === 'users');
     expect(usersEntry).toMatchObject({ table: 'users', affected: 1 });
     const [row] = await prisma.$queryRawUnsafe(
       'SELECT deleted_at FROM users WHERE uid = $1::uuid',
