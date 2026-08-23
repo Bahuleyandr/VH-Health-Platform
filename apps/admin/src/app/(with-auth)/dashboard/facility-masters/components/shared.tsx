@@ -54,6 +54,7 @@ export function TextInput({
       <span>{label}</span>
       <input
         type={type}
+        aria-label={label}
         className={`mt-1 ${inputClass}`}
         value={value}
         placeholder={placeholder}
@@ -105,6 +106,7 @@ export function CheckboxInput({
     <label className="flex items-center gap-2 text-sm text-foreground">
       <input
         type="checkbox"
+        aria-label={label}
         className="h-4 w-4 rounded border-border"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}

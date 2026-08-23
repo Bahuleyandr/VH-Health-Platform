@@ -6,9 +6,9 @@
  * close-button wiring, custom `maxW` propagation.
  */
 
+import { Modal } from "@/app/(with-auth)/dashboard/payroll/components/Modal";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Modal } from "@/app/(with-auth)/dashboard/payroll/components/Modal";
 
 describe("<Modal />", () => {
   it("renders nothing when open={false} — never leaks content to the DOM", () => {

@@ -1,7 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Inbox } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import type {
@@ -9,6 +7,9 @@ import type {
   WorkflowApproval,
   WorkflowRun,
 } from "@/lib/api/workflowEscalations";
+import { Inbox } from "lucide-react";
+import type { ReactNode } from "react";
+
 import { StatusPill, formatDateTime } from "./shared";
 
 interface PanelState {

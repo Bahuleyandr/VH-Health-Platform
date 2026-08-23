@@ -101,6 +101,7 @@ export function CampaignComposer({
           ) : (
             <input
               id="campaign-template-id"
+              aria-label="Template id"
               className={inputClass}
               inputMode="numeric"
               value={templateId}
@@ -113,6 +114,7 @@ export function CampaignComposer({
           <FieldLabel label="Objective" htmlFor="campaign-objective">
             <textarea
               id="campaign-objective"
+              aria-label="Objective"
               className={`${inputClass} min-h-16`}
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
@@ -132,6 +134,7 @@ export function CampaignComposer({
               >
                 <input
                   type="checkbox"
+                  aria-label={channel}
                   checked={channels.includes(channel)}
                   onChange={() => toggleChannel(channel)}
                 />

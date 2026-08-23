@@ -1,5 +1,3 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import ClinicalGovernancePage from "@/app/(with-auth)/dashboard/clinical-governance/page";
 import {
@@ -21,6 +19,8 @@ import {
   transitionCareTeamMember,
   transitionLabSpecimen,
 } from "@/lib/api/clinicalGovernance";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/clinicalGovernance", () => ({
   addCareTeamMember: jest.fn(),

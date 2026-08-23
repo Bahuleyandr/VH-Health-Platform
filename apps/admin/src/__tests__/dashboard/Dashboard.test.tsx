@@ -1,9 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import Dashboard from "@/app/(with-auth)/dashboard/Dashboard";
 import { useDashboardData } from "@/app/(with-auth)/dashboard/hooks/useDashboardData";
 import { useTeleconsultOpsSnapshot } from "@/app/(with-auth)/dashboard/hooks/useTeleconsultOpsSnapshot";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("@/app/(with-auth)/dashboard/hooks/useDashboardData", () => ({
   useDashboardData: jest.fn(),
@@ -17,7 +17,7 @@ jest.mock(
 );
 
 const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,

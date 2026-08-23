@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import IncidentsPage from "@/app/(with-auth)/dashboard/incidents/page";
 import { getIncidents, getIncidentStats } from "@/lib/api/reports";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api/reports", () => ({
   getIncidents: jest.fn(),
@@ -11,7 +11,7 @@ jest.mock("@/lib/api/reports", () => ({
 }));
 
 const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,

@@ -1,11 +1,11 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
 import {
   FILE_KINDS,
   type FileKind,
   type MigrationMappingProfile,
 } from "@/lib/api/migrationToolkit";
+import { Plus, Trash2 } from "lucide-react";
 
 export interface EditableFile {
   key: number;
@@ -80,6 +80,7 @@ export function SourceFilesEditor({
               <label className="block text-xs font-medium text-muted-foreground">
                 <span>Filename #{index + 1}</span>
                 <input
+                  aria-label={`Filename #${index + 1}`}
                   className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
                   value={file.source_filename}
                   placeholder={`${file.file_kind}s.csv`}
@@ -105,6 +106,7 @@ export function SourceFilesEditor({
             <label className="mt-3 block text-xs font-medium text-muted-foreground">
               <span>CSV content #{index + 1}</span>
               <textarea
+                aria-label={`CSV content #${index + 1}`}
                 className="mt-1 min-h-28 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-xs"
                 value={file.csv_text}
                 placeholder={"header1,header2\nvalue1,value2"}

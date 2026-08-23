@@ -1,5 +1,3 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import MigrationToolkitPage from "@/app/(with-auth)/dashboard/migration-toolkit/page";
 import {
   commitImportJob,
@@ -8,6 +6,8 @@ import {
   listMappingProfiles,
   rehearseImportJob,
 } from "@/lib/api/migrationToolkit";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/migrationToolkit", () => ({
   IMPORT_KINDS: ["patient", "encounter", "opening_ar", "mixed", "hl7_adt"],

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileWarning } from "lucide-react";
-import { toast } from "react-hot-toast";
 import {
   importHl7AdtBatch,
   type Hl7AdtImportResult,
   type MigrationImportJob,
 } from "@/lib/api/migrationToolkit";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { FileWarning } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
 import { ConfirmDialog, JsonDetails, SectionCard, StatusPill } from "./shared";
 
 function splitMessages(raw: string): string[] {
@@ -62,6 +63,7 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
         <label className="block text-xs font-medium text-muted-foreground">
           <span>ADT source filename</span>
           <input
+            aria-label="ADT source filename"
             className="mt-1 w-64 rounded-md border border-border bg-background px-3 py-2 text-sm"
             value={sourceFilename}
             onChange={(e) => setSourceFilename(e.target.value)}
@@ -70,6 +72,7 @@ export function Hl7AdtPanel({ job }: { job: MigrationImportJob }) {
         <label className="block text-xs font-medium text-muted-foreground">
           <span>HL7 ADT messages</span>
           <textarea
+            aria-label="HL7 ADT messages"
             className="mt-1 min-h-32 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
             value={raw}
             placeholder={"MSH|^~\\&|LEGACY|...\nPID|1|...\nPV1|1|I|...\n\nMSH|^~\\&|LEGACY|..."}

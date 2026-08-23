@@ -84,6 +84,7 @@ export function SettingsPanel({ settings }: { settings: EngagementSettings }) {
         <FieldLabel label="Quiet hours start" htmlFor="quiet-start">
           <input
             id="quiet-start"
+            aria-label="Quiet hours start"
             className={inputClass}
             value={quietStart}
             onChange={(e) => setQuietStart(e.target.value)}
@@ -93,6 +94,7 @@ export function SettingsPanel({ settings }: { settings: EngagementSettings }) {
         <FieldLabel label="Quiet hours end" htmlFor="quiet-end">
           <input
             id="quiet-end"
+            aria-label="Quiet hours end"
             className={inputClass}
             value={quietEnd}
             onChange={(e) => setQuietEnd(e.target.value)}
@@ -102,6 +104,7 @@ export function SettingsPanel({ settings }: { settings: EngagementSettings }) {
         <FieldLabel label="Tenant daily cap" htmlFor="daily-cap">
           <input
             id="daily-cap"
+            aria-label="Tenant daily cap"
             className={inputClass}
             inputMode="numeric"
             value={dailyCap}
@@ -111,6 +114,7 @@ export function SettingsPanel({ settings }: { settings: EngagementSettings }) {
         <FieldLabel label="Per-patient cooldown (hours)" htmlFor="cooldown">
           <input
             id="cooldown"
+            aria-label="Per-patient cooldown (hours)"
             className={inputClass}
             inputMode="numeric"
             value={cooldown}

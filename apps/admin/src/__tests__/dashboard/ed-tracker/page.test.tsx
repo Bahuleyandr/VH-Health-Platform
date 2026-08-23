@@ -1,16 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import EdTrackerPage from "@/app/(with-auth)/dashboard/ed-tracker/page";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
 }));
 
 const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,

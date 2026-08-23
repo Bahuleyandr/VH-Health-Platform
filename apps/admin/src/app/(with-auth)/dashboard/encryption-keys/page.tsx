@@ -1,9 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, RefreshCw, RotateCw } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
@@ -18,6 +14,11 @@ import {
   type RegisterKeyPayload,
   type RotateKeyPayload,
 } from "@/lib/api/encryptionKeys";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { KeyRound, Plus, RefreshCw, RotateCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
+
 import {
   CompromiseKeyDialog,
   KeyFormDialog,
@@ -106,7 +107,7 @@ export default function EncryptionKeysPage() {
     onError: onActionError,
   });
 
-  const keys = keysQuery.data?.keys ?? [];
+  const keys = useMemo(() => keysQuery.data?.keys ?? [], [keysQuery.data]);
   // List comes back ordered activated_at DESC; the newest 'active' row is the
   // key new writes encrypt under.
   const activeWriteKeyId = useMemo(

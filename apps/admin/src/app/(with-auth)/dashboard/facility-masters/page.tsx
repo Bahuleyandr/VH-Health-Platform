@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Building2, MapPin, RefreshCw, Stethoscope } from "lucide-react";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { listFacilities } from "@/lib/api/facilityMasters";
+import { useQuery } from "@tanstack/react-query";
+import { Building2, MapPin, RefreshCw, Stethoscope } from "lucide-react";
+import { useState } from "react";
+
 import { FacilitiesTab } from "./components/FacilitiesTab";
 import { ServicesTab } from "./components/ServicesTab";
 import { StructureTab } from "./components/StructureTab";

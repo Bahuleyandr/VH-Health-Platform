@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FacilityMastersPage from "@/app/(with-auth)/dashboard/facility-masters/page";
 import {
   listFacilities,
   saveFacility,
   seedDefaultFacility,
 } from "@/lib/api/facilityMasters";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/facilityMasters", () => ({
   FACILITY_KINDS: ["hospital", "clinic", "other"],

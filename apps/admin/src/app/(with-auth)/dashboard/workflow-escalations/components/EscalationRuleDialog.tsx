@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   ENGINE_EVALUATED_SCOPES,
@@ -16,6 +14,8 @@ import {
   type EscalationScope,
   type EscalationTrigger,
 } from "@/lib/api/workflowEscalations";
+import { AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface FormState {
   display_name: string;
@@ -164,6 +164,7 @@ export function EscalationRuleDialog({
             </label>
             <input
               id="rule-display-name"
+              aria-label="Display name"
               className={inputClass}
               value={form.display_name}
               onChange={(e) => set({ display_name: e.target.value })}
@@ -175,6 +176,7 @@ export function EscalationRuleDialog({
             </label>
             <input
               id="rule-description"
+              aria-label="Description"
               className={inputClass}
               value={form.description}
               onChange={(e) => set({ description: e.target.value })}
@@ -216,6 +218,7 @@ export function EscalationRuleDialog({
             </label>
             <input
               id="rule-window"
+              aria-label="Trigger window (minutes)"
               type="number"
               min={1}
               className={inputClass}
@@ -245,6 +248,7 @@ export function EscalationRuleDialog({
             </label>
             <textarea
               id="rule-match-filter"
+              aria-label="Match filter (JSON object)"
               className={`${inputClass} min-h-20 font-mono text-xs`}
               value={form.match_filter_json}
               onChange={(e) => set({ match_filter_json: e.target.value })}
@@ -256,6 +260,7 @@ export function EscalationRuleDialog({
             </label>
             <textarea
               id="rule-action-payload"
+              aria-label="Action payload — tiers / roles (JSON object)"
               className={`${inputClass} min-h-20 font-mono text-xs`}
               value={form.action_payload_json}
               onChange={(e) => set({ action_payload_json: e.target.value })}
@@ -264,6 +269,7 @@ export function EscalationRuleDialog({
           <div className="md:col-span-2 flex items-center gap-2">
             <input
               id="rule-is-active"
+              aria-label="Enabled (rule is evaluated by the escalation engine)"
               type="checkbox"
               checked={form.is_active}
               onChange={(e) => set({ is_active: e.target.checked })}

@@ -20,10 +20,10 @@
  * each test wraps the component in a fresh QueryClientProvider.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
-import type { PayrollRun } from "@/lib/api/payroll";
 import { RunActions } from "@/app/(with-auth)/dashboard/payroll/components/RunActions";
+import type { PayrollRun } from "@/lib/api/payroll";
+import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/payroll", () => ({
   hrSignPayrollRun: jest.fn(async () => ({})),

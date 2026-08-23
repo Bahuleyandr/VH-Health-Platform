@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import BedsPage from "@/app/(with-auth)/dashboard/beds/page";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
@@ -11,7 +11,7 @@ jest.mock("@/lib/api", () => ({
 
 const mockRealtime = jest.fn(
   // args are captured for toHaveBeenCalledWith; the mock's return is what matters.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,

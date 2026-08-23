@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import AppointmentsPage from "@/app/(with-auth)/dashboard/appointments/page";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -23,7 +23,7 @@ jest.mock(
 );
 
 const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   (..._args: unknown[]) => ({ connected: false, subscribed: false, denied: null as string | null, lastEventAt: null as number | null }),
 );
 jest.mock("@/hooks/useRealtimeInvalidation", () => ({

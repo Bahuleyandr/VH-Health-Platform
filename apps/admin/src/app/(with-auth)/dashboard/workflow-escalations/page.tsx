@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
@@ -15,6 +11,11 @@ import {
   type EscalationRule,
   type EscalationRulePayload,
 } from "@/lib/api/workflowEscalations";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Pencil, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
 import { EscalationRuleDialog } from "./components/EscalationRuleDialog";
 import {
   ApprovalsPanel,

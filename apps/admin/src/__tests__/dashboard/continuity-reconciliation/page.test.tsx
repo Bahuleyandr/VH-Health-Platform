@@ -1,10 +1,3 @@
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
 
 import ContinuityReconciliationPage from "@/app/(with-auth)/dashboard/continuity-reconciliation/page";
 import {
@@ -14,6 +7,13 @@ import {
   releaseClinicalContinuityHeldMessage,
 } from "@/lib/api/clinicalContinuityReconciliation";
 import { loadExternalRecoveryWorkbench } from "@/lib/api/externalRecoveryOperability";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 jest.mock("@/lib/api/clinicalContinuityReconciliation", () => ({
   approveClinicalContinuityIdentityMatch: jest.fn(),

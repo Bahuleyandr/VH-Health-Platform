@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TenantsAdminPage from "@/app/(with-auth)/dashboard/tenants/page";
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   createTenant,
   getTenantKekRewrapJob,
@@ -11,8 +11,8 @@ import {
   updateTenantBrandKit,
   upsertTenantInteropSecret,
 } from "@/lib/api/tenants";
-import { usePermissions } from "@/hooks/usePermissions";
-import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/tenants", () => ({
   createTenant: jest.fn(),

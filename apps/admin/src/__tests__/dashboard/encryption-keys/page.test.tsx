@@ -1,5 +1,3 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import EncryptionKeysPage from "@/app/(with-auth)/dashboard/encryption-keys/page";
 import {
   listEncryptionKeys,
@@ -8,6 +6,8 @@ import {
   retireEncryptionKey,
   rotateEncryptionKey,
 } from "@/lib/api/encryptionKeys";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/encryptionKeys", () => {
   const actual = jest.requireActual("@/lib/api/encryptionKeys");

@@ -7,7 +7,6 @@
  * five screens at once.
  */
 
-import { render, screen } from "@testing-library/react";
 import {
   unwrap,
   MONTHS,
@@ -16,6 +15,7 @@ import {
   fmtDate,
   statusBadge,
 } from "@/app/(with-auth)/dashboard/payroll/components/helpers";
+import { render, screen } from "@testing-library/react";
 
 describe("unwrap", () => {
   it("returns the value untouched when there's no `data` key", () => {

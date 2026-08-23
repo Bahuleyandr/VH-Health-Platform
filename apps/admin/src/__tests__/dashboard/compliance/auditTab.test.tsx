@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { AuditTab } from "@/app/(with-auth)/dashboard/compliance/components/AuditTab";
 import type { AuditSearchResult } from "@/app/(with-auth)/dashboard/compliance/components/types";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
