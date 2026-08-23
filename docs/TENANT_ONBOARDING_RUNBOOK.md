@@ -52,6 +52,20 @@ Inputs: `slug` (e.g. `acme`), `name`, `region`, `compliance_profile`, brand colo
 optional logo URL, whether the tenant federates (ABDM/HL7).
 
 ### B1 — Create + seed the tenant (backend)
+
+> **PREREQUISITE — `FIELD_ENCRYPTION_MASTER_KEK`.** Step 3 below wraps the new
+> tenant's KEK under a master KEK scrypt-derived from this secret, and
+> `provisionTenantKek` throws without it, so the script fails at step 3 and the
+> tenant is left half-onboarded. Seal it into `vhhealth-backend-env` first
+> (`docs/DEPLOYMENT_GUIDE.md` §5.4) and export the **same** value into the
+> shell that runs the script. The backend warns at every boot while it is
+> unset — that warning also names the four live request paths that 500 without
+> it (payroll run, payslip-password reveal, HL7 I03 recovery, PHI re-wrap).
+>
+> Use one master KEK for the life of the deployment. Migration 672 makes tenant
+> KEK material write-once, so changing it strands every existing tenant's
+> ciphertext (see *Un-shredding is impossible* below).
+
 Run the orchestrator (idempotent — safe to re-run):
 ```bash
 node apps/backend/scripts/onboard-tenant.mjs \

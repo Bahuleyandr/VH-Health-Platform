@@ -668,3 +668,374 @@ tests:
       - eval_time: 7m
         alertname: ExternalRecoveryCriticalReviewUnacknowledged
         exp_alerts: []
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # security-events group (re-audit 2026-08-23). The group shipped with NO
+  # promtool coverage, which is exactly how SecurityBreakGlassActivated shipped
+  # with a matcher that could never match: Prometheus label regexes are fully
+  # anchored, so `event_type=~"BREAK_GLASS_.*"` never saw the
+  # 'PHI_BREAK_GLASS_ACTIVATED' / 'PHI_BREAK_GLASS_REVOKED' values that
+  # alertBreakGlass() in
+  # apps/backend/src/services/security/breakGlassService.js actually emits.
+  #
+  # Every input_series below therefore uses the REAL label values produced by
+  # the backend, not a convenient abbreviation. Against the pre-fix rule the
+  # first block fails (exp_alerts non-empty, actual empty), which is the whole
+  # point of adding it.
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Break-glass ACTIVATED, recorded while webhook paging is unconfigured — the
+  # deployed state the once-over found. Both the break-glass rule and the
+  # paging-unconfigured rule must fire off the same counter.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_security_webhook_events_total{event_type="PHI_BREAK_GLASS_ACTIVATED",outcome="disabled",pod="backend-0"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SecurityBreakGlassActivated
+        exp_alerts:
+          - exp_labels:
+              event_type: PHI_BREAK_GLASS_ACTIVATED
+              outcome: disabled
+              pod: backend-0
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "A break-glass access grant was activated or revoked"
+              description: "Break-glass use is legitimate but must always be reviewed. Cross-check the actor and reason in audit_log and the break-glass review queue."
+      - eval_time: 20m
+        alertname: SecurityPagingUnconfigured
+        exp_alerts:
+          - exp_labels:
+              event_type: PHI_BREAK_GLASS_ACTIVATED
+              outcome: disabled
+              pod: backend-0
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Security events occurred while webhook paging is disabled"
+              description: "sendSecurityWebhook dropped events because SECURITY_WEBHOOKS_ENABLED/SECURITY_WEBHOOK_URL are unset. Either enable paging (ConfigMap flag + sealed URL) or accept and silence during quiet hours."
+      # The webhook counter is moving, so the pairing meta-alert must stay quiet.
+      - eval_time: 20m
+        alertname: SecurityWebhookCounterMissing
+        exp_alerts: []
+
+  # Break-glass REVOKED, delivered successfully. The revoke half of the
+  # lifecycle must page too, and a non-'disabled' outcome must not trip
+  # SecurityPagingUnconfigured.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_security_webhook_events_total{event_type="PHI_BREAK_GLASS_REVOKED",outcome="sent",pod="backend-1"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SecurityBreakGlassActivated
+        exp_alerts:
+          - exp_labels:
+              event_type: PHI_BREAK_GLASS_REVOKED
+              outcome: sent
+              pod: backend-1
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "A break-glass access grant was activated or revoked"
+              description: "Break-glass use is legitimate but must always be reviewed. Cross-check the actor and reason in audit_log and the break-glass review queue."
+      - eval_time: 20m
+        alertname: SecurityPagingUnconfigured
+        exp_alerts: []
+
+  # Audit-chain tamper. Also pins the break-glass matcher's negative side: a
+  # neighbouring event type on the same counter must NOT satisfy
+  # `.*BREAK_GLASS.*`.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_security_webhook_events_total{event_type="AUDIT_CHAIN_TAMPERED",outcome="sent",pod="backend-0"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SecurityAuditChainTampered
+        exp_alerts:
+          - exp_labels:
+              event_type: AUDIT_CHAIN_TAMPERED
+              outcome: sent
+              pod: backend-0
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "Audit hash-chain tamper detected"
+              description: "The nightly audit-chain verifier found broken links. Treat as an active integrity incident; identify the first broken sequence from the backend logs and audit_log."
+      - eval_time: 20m
+        alertname: SecurityBreakGlassActivated
+        exp_alerts: []
+
+  # vhhealth_security_events_total consumers. BRUTE_FORCE_DETECTED and a
+  # lockout surge page off the audit funnel, so they work while the webhook
+  # channel stays disabled. No webhook series exists at all here, which is also
+  # the SecurityWebhookCounterMissing positive case: an event type that always
+  # calls sendSecurityWebhook advanced while the webhook counter recorded
+  # nothing.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_security_events_total{event_type="BRUTE_FORCE_DETECTED",pod="backend-1"}'
+        values: '0+1x40'
+      - series: 'vhhealth_security_events_total{event_type="ACCOUNT_LOCKED",pod="backend-1"}'
+        values: '0+4x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: SecurityBruteForceDetected
+        exp_alerts:
+          - exp_labels:
+              event_type: BRUTE_FORCE_DETECTED
+              pod: backend-1
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "Credential-stuffing pattern detected against the auth endpoints"
+              description: "loginAnomalyDetector flagged one client IP failing logins against 10 or more distinct accounts inside its 15-minute window. Identify the IP from the BRUTE_FORCE_DETECTED rows in audit_log (module='security'), block it at the edge, and check whether any targeted account succeeded afterwards. Detection requires Redis: trackFailedLogin returns early when the Redis client is disconnected, so a Redis outage silences this signal entirely — cross-check RateLimitStoreDegraded before reading quiet as safe."
+      - eval_time: 25m
+        alertname: SecurityAccountLockoutSurge
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Account lockouts are surging — credential attack, or staff shut out of clinical systems"
+              description: "More than 25 ACCOUNT_LOCKED events fleet-wide in 15 minutes. The counter is labelled by event type only — the account and the lockout reason are on the audit_log row — so this is deliberately a surge threshold and not a per-account notice: one locked-out clinician retrying contributes several events, because the lockout check re-fires on every subsequent attempt inside the window. Read the ACCOUNT_LOCKED rows in audit_log to tell distributed credential guessing apart from an auth or deployment fault locking real staff out."
+      - eval_time: 25m
+        alertname: SecurityWebhookCounterMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Security events fired but the webhook counter recorded nothing — three security rules are blind"
+              description: "vhhealth_security_events_total advanced for an event type that always calls sendSecurityWebhook, yet vhhealth_security_webhook_events_total did not move. SecurityAuditChainTampered, SecurityBreakGlassActivated and SecurityPagingUnconfigured are all inert in that state. Check that /metrics still exposes vhhealth_security_webhook_events_total and that serializeSecurityEventMetrics is still wired into metricsRoutes.js."
+
+  # Healthy pipeline: the webhook counter advances alongside the events counter,
+  # and lockouts stay under the surge threshold (15 in 15 minutes, not >25).
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_security_events_total{event_type="BRUTE_FORCE_DETECTED",pod="backend-1"}'
+        values: '0+1x40'
+      - series: 'vhhealth_security_events_total{event_type="ACCOUNT_LOCKED",pod="backend-1"}'
+        values: '0+1x40'
+      - series: 'vhhealth_security_webhook_events_total{event_type="BRUTE_FORCE_DETECTED",outcome="sent",pod="backend-1"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: SecurityWebhookCounterMissing
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: SecurityAccountLockoutSurge
+        exp_alerts: []
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # postgres group (re-audit 2026-08-23). Four rules referenced the CNPG
+  # user-defined queries by their query-local names (vhhealth_replication_lag_
+  # seconds, vhhealth_connections_total/_max_conn) instead of the exported
+  # cnpg_<query>_<column> spelling, so they could never match a sample. Round 2
+  # then found that the seconds column itself could not measure per-standby lag
+  # on a primary, so the series is now cnpg_vhhealth_replication_replay_lag_
+  # seconds, fed by pg_stat_replication.replay_lag.
+  #
+  # These blocks feed the exported names AND the LABEL columns declared
+  # alongside them in infra/kubernetes/base/cnpg/cluster.yaml. Note what that
+  # does and does not buy: promtool only proves the rules behave as written
+  # against samples written here by the same author, which is why both defects
+  # passed a green fixture. check-cnpg-metric-parity.mjs is the half that reads
+  # cluster.yaml — it validates the series names in these input_series too, so a
+  # fixture cannot invent a metric no query produces.
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Primary with one badly lagging standby and a nearly exhausted pool.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_vhhealth_replication_replay_lag_seconds{namespace="vhhealth-platform",pod="vhhealth-pg-1",client="10.42.0.7",application_name="vhhealth-pg-2",state="streaming"}'
+        values: '420x20'
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '180x20'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '200x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PostgresReplicationLagHigh
+        exp_alerts:
+          - exp_labels:
+              application_name: vhhealth-pg-2
+              client: "10.42.0.7"
+              namespace: vhhealth-platform
+              pod: vhhealth-pg-1
+              state: streaming
+              severity: warning
+              team: database
+            exp_annotations:
+              summary: "Postgres replica 10.42.0.7 lagging > 60s"
+              description: "pg_stat_replication.replay_lag for this standby, read on the primary: the delay between the primary flushing WAL and this standby reporting it applied. Currently 420s."
+      - eval_time: 6m
+        alertname: PostgresReplicationLagCritical
+        exp_alerts:
+          - exp_labels:
+              application_name: vhhealth-pg-2
+              client: "10.42.0.7"
+              namespace: vhhealth-platform
+              pod: vhhealth-pg-1
+              state: streaming
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "Postgres replica 10.42.0.7 lagging > 5 minutes"
+              description: "Same measure as PostgresReplicationLagHigh — pg_stat_replication.replay_lag for this standby — past the 300s budget. Check cnpg_vhhealth_replication_flush_lag_seconds and cnpg_vhhealth_replication_lag_bytes on the same labels to tell a slow apply apart from a stalled stream."
+      # 180/200 = 0.90. Both operands carry identical labels, so the division
+      # matches per instance and keeps namespace/pod.
+      - eval_time: 6m
+        alertname: PostgresConnectionsHigh
+        exp_alerts:
+          - exp_labels:
+              namespace: vhhealth-platform
+              pod: vhhealth-pg-1
+              severity: warning
+              team: database
+            exp_annotations:
+              summary: "Postgres connection usage is above 85% of max_connections"
+              description: "Both operands come from the same vhhealth_connections query row, so they carry identical labels and divide per CNPG instance. Check for a connection leak or a runaway client before the pool exhausts max_connections."
+      # A normal in-cluster standby is not the C6.2 DR standby.
+      - eval_time: 6m
+        alertname: C6WarmStandbyReplicationLagHigh
+        exp_alerts: []
+      # The series exist, so neither meta-alert may fire.
+      - eval_time: 16m
+        alertname: PostgresConnectionMetricsAbsent
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts: []
+
+  # The C6.2 warm standby is identified by application_name, a LABEL column on
+  # the same user-defined query — it survives both the metric rename and the
+  # change of measure. 45s of replay_lag is over the 30s DR budget but under the
+  # 60s general threshold.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_vhhealth_replication_replay_lag_seconds{namespace="vhhealth-platform",pod="vhhealth-pg-1",client="10.42.9.4",application_name="vhhealth-pg-dr-1",state="streaming"}'
+        values: '45x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: C6WarmStandbyReplicationLagHigh
+        exp_alerts:
+          - exp_labels:
+              application_name: vhhealth-pg-dr-1
+              client: "10.42.9.4"
+              namespace: vhhealth-platform
+              pod: vhhealth-pg-1
+              state: streaming
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "C6.2 warm-standby streaming lag exceeds 30 seconds"
+              description: "The Phase 2 target is evaluated only by a promotion drill; this signal protects the async stream and does not itself prove RPO."
+              runbook: "docs/runbooks/C6_2_WARM_STANDBY_PROMOTION_FAILBACK.md"
+      - eval_time: 6m
+        alertname: PostgresReplicationLagHigh
+        exp_alerts: []
+
+  # THE DURABLE GUARD. Nothing exports the assumed names at all — the exact
+  # state the four rules above were shipped in. The ungated arm must page.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="node-c"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PostgresConnectionMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: database
+            exp_annotations:
+              summary: "CNPG connection-usage metrics are not being exported — PostgresConnectionsHigh is blind"
+              description: "The vhhealth_connections user-defined query reads pg_stat_activity, so it yields a row on every instance whenever the exporter is scraped at all. Absence means the customQueriesConfigMap is not mounted, the query is erroring, or the exported names are not cnpg_vhhealth_connections_total / cnpg_vhhealth_connections_max_conn. Read the real names off a live instance before editing the rules: kubectl exec -n vhhealth-platform vhhealth-pg-1 -c postgres -- curl -s localhost:9187/metrics | grep vhhealth"
+      # With no connections series the instance count is unknown, so the gated
+      # arm deliberately stays silent and the ungated arm carries the page.
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts: []
+
+  # Multi-instance cluster (two scraped exporters) with no replication series:
+  # either nothing is streaming or the metric name is wrong. Both page.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '20x40'
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-2"}'
+        values: '5x40'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '200x40'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-2"}'
+        values: '200x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: database
+            exp_annotations:
+              summary: "CNPG replication-lag metric is missing on a multi-instance cluster — three replication alerts are blind"
+              description: "PostgresReplicationLagHigh, PostgresReplicationLagCritical and C6WarmStandbyReplicationLagHigh all read cnpg_vhhealth_replication_replay_lag_seconds, exported by the primary from pg_stat_replication. On a cluster with more than one instance it must exist. Either no standby is streaming at all — a synchronous-commit and DR-readiness incident — or the exported metric name is not what those rules assume. If the connections series is missing too this rule stays silent by design; PostgresConnectionMetricsAbsent is the arm that fires for a wholesale naming miss."
+      - eval_time: 16m
+        alertname: PostgresConnectionMetricsAbsent
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresConnectionsHigh
+        exp_alerts: []
+
+  # Single-instance cluster (overlays/dev patches spec.instances to 1):
+  # pg_stat_replication is legitimately empty, so the gated arm must NOT page.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '20x40'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '200x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresConnectionMetricsAbsent
+        exp_alerts: []
+
+  # ── Boundary: exactly at the DR budget, and flush behind replay ──────────────
+  # The DR standby sits at replay_lag = 30s, which `> 30` must NOT trip, with
+  # flush_lag = 12s behind it — the real ordering, since WAL is flushed before it
+  # is applied and flush_lag is therefore never larger than replay_lag. Nothing
+  # may fire: this is the block that would break if a rule were retargeted from
+  # replay_lag onto a different column without its threshold being reconsidered.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_vhhealth_replication_replay_lag_seconds{namespace="vhhealth-platform",pod="vhhealth-pg-1",client="10.42.9.4",application_name="vhhealth-pg-dr-1",state="streaming"}'
+        values: '30x40'
+      - series: 'cnpg_vhhealth_replication_flush_lag_seconds{namespace="vhhealth-platform",pod="vhhealth-pg-1",client="10.42.9.4",application_name="vhhealth-pg-dr-1",state="streaming"}'
+        values: '12x40'
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '20x40'
+      - series: 'cnpg_vhhealth_connections_total{namespace="vhhealth-platform",pod="vhhealth-pg-2"}'
+        values: '4x40'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
+        values: '200x40'
+      - series: 'cnpg_vhhealth_connections_max_conn{namespace="vhhealth-platform",pod="vhhealth-pg-2"}'
+        values: '200x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PostgresReplicationLagHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresReplicationLagCritical
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: C6WarmStandbyReplicationLagHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts: []

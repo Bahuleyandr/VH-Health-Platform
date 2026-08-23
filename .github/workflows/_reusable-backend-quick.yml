@@ -91,6 +91,13 @@ jobs:
       - name: Timestamptz clock-comparison guard (no driver Date vs process clock)
         run: npm run check:timestamptz-clock
 
+      # Same guard as the canonical gate's static-checks job — see the comment
+      # there. It belongs in BOTH tiers: a new migration arrives on an ordinary
+      # feature push, which is exactly the event this affected gate covers,
+      # while the full tier runs only behind the final `[full-ci]` marker.
+      - name: Migration number collision guard (no duplicate numeric prefixes)
+        run: npm run check:migration-numbers
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

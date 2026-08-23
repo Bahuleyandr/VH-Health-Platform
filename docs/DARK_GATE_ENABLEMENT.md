@@ -243,8 +243,169 @@ with the tenant flag off it returns `FACILITY_ASSETS_DISABLED` (403).
 
 ---
 
+## 5. PHI shadow-column envelope encryption
+
+**Posture: DORMANT by configuration, and deliberately so.**
+
+This one does not follow the three-layer pattern above — there is no env kill
+switch, no tenant flag and no config row. It is armed purely by the *presence*
+of two secrets, which is exactly why it went unnoticed: both were read at
+runtime and declared in no manifest, so "off" and "forgotten" were
+indistinguishable (2026-08-23 once-over). The backend now prints its resolved
+state on every boot:
+
+```
+🔐 PHI shadow-column envelope encryption: DORMANT by configuration
+   (KMS_MASTER_KEY + PHI_SEARCH_HASH_KEY both unset) …
+```
+
+### What exists today
+
+Migration 132 (`132_phi_column_rotation.sql`) added shadow columns beside the
+highest-PHI plaintext columns:
+
+| Table | Shadow columns |
+|---|---|
+| `users` | `name_encrypted`, `phone_encrypted`, `address_encrypted`, `phone_search_hash` |
+| `medical_records` | `description_encrypted`, `diagnosis_encrypted`, `treatment_encrypted` |
+
+The migration header describes a four-step rollout. **Only step 1 is wired.**
+
+| Step | State |
+|---|---|
+| 1. Dual-write on every insert/update | wired — `userService.writePhiShadows`, `recordService.writeRecordPhiShadows` |
+| 2. Backfill existing rows | never run — `apps/backend/scripts/phi-backfill.mjs` |
+| 3. Flip reads to encrypted-first | **not built** — `phiColumnEncryption.readWithFallback` / `decryptColumn` have zero production callers |
+| 4. Drop the plaintext columns | not built |
+
+Because step 3 does not exist, the plaintext columns remain authoritative for
+every read and the shadow columns are write-only. Nothing is lost by leaving
+the subsystem dormant, and arming it without steps 2-4 produces partly
+encrypted tables that no reader consumes.
+
+The one shadow column any code reads today is `users.phone_search_hash`, and
+only as *evidence*: account deletion records whether a hash existed
+(`beforeState.hadPhoneSearchHash`) and then NULLs it with the other identity
+columns. No lookup path filters on it.
+
+### Layers
+
+| Layer | Setting | How |
+|---|---|---|
+| Secret | `KMS_MASTER_KEY` — exactly 32 base64-decoded bytes | seal into `vhhealth-backend-env` |
+| Secret | `PHI_SEARCH_HASH_KEY` — ≥16 base64-decoded bytes, a **different** value | seal into `vhhealth-backend-env` |
+| Optional | `KMS_PROVIDER` (only `env` is accepted), `KMS_KEY_ID` (default `env-default`) | backend configmap |
+
+Both secrets are listed, commented out, in
+`infra/kubernetes/apps/backend/sealed-secret.yaml.example`.
+
+**They must be sealed together.** `validateEnv.js` refuses to boot when
+exactly one is set: the dual-write call sites catch a missing-key error and
+log a warning, so a half-armed deployment writes `users.phone_encrypted` while
+silently leaving `users.phone_search_hash` NULL.
+
+### Before arming — two things to fix first
+
+1. **`users.phone` shadows are written on CREATE only.**
+   `writePhiShadows` guards the phone branch with `isCreate`, and the update
+   path (`userService.js:316`) does not pass it. A phone number changed after
+   registration leaves `phone_encrypted` and `phone_search_hash` holding the
+   *old* value. Harmless while nothing reads them; a correctness bug the
+   moment step 3 lands. Fix this before any read or lookup path uses them.
+2. **`KMS_KEY_ID` is write-once.** `EnvKmsProvider.unwrapDek` rejects an
+   envelope whose `kid` does not match the configured id
+   (`KMS_KID_MISMATCH`). Pick the id before the first write and do not change
+   it; there is no rotation path for it today.
+
+### Bring-up
+
+1. Generate two independent values:
+   `openssl rand -base64 32` (KMS_MASTER_KEY) and again for
+   PHI_SEARCH_HASH_KEY. Never reuse one for both — the separation is what
+   stops the deterministic hash from revealing the wrap key.
+2. Add both to the plaintext `vhhealth-backend-env` Secret, re-seal, and sync
+   (procedure: `docs/DEPLOYMENT_GUIDE.md` §5).
+3. Restart the backend and confirm the boot line reads
+   `PHI shadow-column envelope encryption: ARMED`. A half-armed seal will
+   crash-loop the pod with a message naming the missing key — that is the
+   gate working.
+4. Run the backfill with the same two values in the environment:
+   ```bash
+   node apps/backend/scripts/phi-backfill.mjs --dry-run
+   node apps/backend/scripts/phi-backfill.mjs --batch-size 500
+   ```
+   It is idempotent and only touches rows whose encrypted column is NULL.
+5. Verify: no `PHI shadow-column encrypt skipped` or
+   `medical_records PHI shadow encrypt skipped` warnings in pod logs after a
+   user or record write, and `SELECT count(*) FROM users WHERE name IS NOT
+   NULL AND name_encrypted IS NULL` returns 0.
+
+> `scripts/rebuild-search-hashes.mjs` is a **different** system
+> (`FIELD_SEARCH_HMAC_KEY`, `utils/fieldEncryption.js`) and has no targets
+> today. It does not rebuild `phone_search_hash`; `phi-backfill.mjs` does.
+
+---
+
+## 6. Client force-upgrade gates
+
+**Posture: DISABLED by choice (`0`), for both apps.**
+
+`GET /api/v1/config` publishes `min_patient_version_code` and
+`min_staff_version_code`; both Flutter apps ship the client half
+(`apps/patient/lib/core/services/minimum_version_gate_service.dart`,
+`apps/staff/lib/core/services/minimum_version_gate_service.dart`). The route
+coerces anything unusable to `0`, which disables the gate — so a typo used to
+fail silently open. Both names are now declared in the backend configmap as
+the literal string `"0"`, and the backend prints the resolved state at boot:
+
+```
+📱 Client force-upgrade gates (GET /api/v1/config): patient=DISABLED (0), staff=DISABLED (0)
+```
+
+Leave the ConfigMap values as `"0"`, never empty — an empty string fails the
+Joi number check and the pod will not start.
+
+### Staff gate — arming
+
+Safe to set on its own. Every staff build implements the unsigned comparison
+and fails open when `/config` is unusable, so there is no signed envelope.
+
+1. Confirm the minimum acceptable staff build number is already published and
+   installable from your distribution channel.
+2. Set `MIN_STAFF_VERSION_CODE: "<build>"` in
+   `infra/kubernetes/apps/backend/configmap.yaml`, commit, sync, restart.
+3. Verify `curl -s https://api.vhhealth.app/api/v1/config` returns the new
+   `min_staff_version_code`, and that a staff build below it shows the
+   blocking upgrade screen while one above it does not.
+
+### Patient gate — arming (COUPLED, refuses to boot half-configured)
+
+A non-zero `MIN_PATIENT_VERSION_CODE` **requires** a valid signed
+`PATIENT_MINIMUM_VERSION_POLICY_JSON`. `validateEnv.js` checks both presence
+and structural validity and exits 1 otherwise, because patient builds already
+in the field fail closed on a minimum they cannot verify: a bare non-zero code
+burns their 24h bootstrap grace and then blocks **every** install — including
+installs already above the code, and including their SOS path.
+
+1. Mint the envelope offline:
+   `npm run patient:min-version:sign -- …`
+   (`apps/backend/scripts/sign-patient-minimum-version-policy.mjs`). The
+   matching public key must already be stamped into shipped patient builds.
+2. Seal `PATIENT_MINIMUM_VERSION_POLICY_JSON` into `vhhealth-backend-env`.
+3. Only then set `MIN_PATIENT_VERSION_CODE` in the configmap and sync.
+4. Verify `/api/v1/config` returns both `min_patient_version_code` and a
+   `minimum_version_policy` object. If the policy object is missing, roll the
+   code back to `"0"` immediately — that response shape is the bricking one.
+
+---
+
 ### Explicitly out of scope
 
 - **UHI** stays dark (flagged lowest-value/droppable at merge).
 - LiveKit, `FILE_SCAN_POLICY` (needs clamd), continuity C-D14, and ambulance
   GPS are operator/hardware-blocked; the console surfaces them read-only.
+- **`FIELD_ENCRYPTION_MASTER_KEK`** is not a gate — it is a missing secret for
+  features that are already live. Without it, payroll runs, payslip-password
+  reveal, HL7 I03 inbound recovery and the admin PHI re-wrap return 500, and
+  tenant onboarding cannot provision a tenant KEK. Provisioning procedure:
+  `docs/DEPLOYMENT_GUIDE.md` §5.4 and `docs/TENANT_ONBOARDING_RUNBOOK.md`.

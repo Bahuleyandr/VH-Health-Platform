@@ -1,7 +1,13 @@
 // infra/kubernetes/base/monitoring/validate-monitoring.mjs
 // Validates the monitoring assets WITHOUT a cluster: promtool check/test rules,
-// metadata-only team-label parity, and JSON.parse over every dashboard. Deploy
-// is HELD, so this remains preparation evidence, NOT live delivery proof.
+// metadata-only team-label parity, CNPG metric parity against the custom-query
+// definitions in infra/kubernetes/base/cnpg/cluster.yaml, and JSON.parse over
+// every dashboard. Deploy is HELD, so this remains preparation evidence, NOT
+// live delivery proof.
+//
+// This is the entry point CI runs (.github/workflows/_reusable-kubernetes-
+// manifests.yml, "Validate monitoring rules + dashboards"), so a new monitoring
+// guard belongs in the script list below rather than as its own CI step.
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -36,7 +42,16 @@ for (const f of ruleFiles) {
   }
 }
 
-for (const script of ['verify-rule-metadata.mjs', 'run-promtool-rule-tests.mjs']) {
+// check-cnpg-metric-parity.mjs needs no promtool: it reads the alert
+// expressions and the CNPG custom-query definitions and refuses to let them
+// disagree. It runs before the promtool suite because a rule that selects a
+// series nothing exports still passes promtool — the fixture author supplies
+// both halves — so the parity failure is the more useful first message.
+for (const script of [
+  'verify-rule-metadata.mjs',
+  'check-cnpg-metric-parity.mjs',
+  'run-promtool-rule-tests.mjs',
+]) {
   try {
     const out = execFileSync(process.execPath, [join(here, script)], {
       encoding: 'utf8',
