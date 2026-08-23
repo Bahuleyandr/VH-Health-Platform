@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RevenueCycleTab } from "@/app/(with-auth)/dashboard/billing/components/RevenueCycleTab";
 import { getARAging, getClaimQueue } from "@/lib/api";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   getARAging: jest.fn(),
@@ -8,7 +8,9 @@ jest.mock("@/lib/api", () => ({
 }));
 
 const mockedGetARAging = getARAging as jest.MockedFunction<typeof getARAging>;
-const mockedGetClaimQueue = getClaimQueue as jest.MockedFunction<typeof getClaimQueue>;
+const mockedGetClaimQueue = getClaimQueue as jest.MockedFunction<
+  typeof getClaimQueue
+>;
 
 function mockRevenueCycleData() {
   mockedGetARAging.mockResolvedValue({
@@ -81,10 +83,15 @@ describe("RevenueCycleTab", () => {
   it("renders A/R aging and claim follow-up data from revenue-cycle APIs", async () => {
     render(<RevenueCycleTab />);
 
-    await waitFor(() => expect(screen.getByText("Total A/R")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Total A/R")).toBeInTheDocument(),
+    );
 
     expect(mockedGetARAging).toHaveBeenCalledWith({ limit: 8 });
-    expect(mockedGetClaimQueue).toHaveBeenCalledWith({ status: undefined, limit: 10 });
+    expect(mockedGetClaimQueue).toHaveBeenCalledWith({
+      status: undefined,
+      limit: 10,
+    });
     expect(screen.getByText("Total A/R")).toBeInTheDocument();
     expect(screen.getByText("₹12,500.00")).toBeInTheDocument();
     expect(screen.getByText("90+ days")).toBeInTheDocument();
@@ -101,7 +108,10 @@ describe("RevenueCycleTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "under review" }));
 
     await waitFor(() => {
-      expect(mockedGetClaimQueue).toHaveBeenLastCalledWith({ status: "under_review", limit: 10 });
+      expect(mockedGetClaimQueue).toHaveBeenLastCalledWith({
+        status: "under_review",
+        limit: 10,
+      });
     });
   });
 });

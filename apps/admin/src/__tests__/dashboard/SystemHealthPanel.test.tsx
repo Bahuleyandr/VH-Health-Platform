@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
 import { SystemHealthSection } from "@/app/(with-auth)/dashboard/components/SystemHealthPanel";
+import { render, screen } from "@testing-library/react";
 
 describe("SystemHealthSection truthfulness", () => {
   const updated = new Date("2026-08-13T10:00:00.000Z");

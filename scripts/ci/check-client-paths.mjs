@@ -213,17 +213,10 @@ export const SOURCES = [
  * Exact-match rewrites the admin client applies before prepending /api/v1.
  * Keys are the pre-rewrite path with any /api/v1 prefix already stripped.
  */
-export const ADMIN_REWRITES = new Map([
-  ['/admin/users', '/users'],
-  ['/admin/doctors', '/doctors'],
-  ['/admin/departments', '/departments'],
-  ['/feedback', '/feedback/recent'],
-  ['/feedback/stats', '/feedback/dashboard'],
-  ['/notifications', '/notifications/admin/manage'],
-  ['/notifications/stats', '/notifications/admin/overview'],
-  ['/admin/appointments', '/appointments/list'],
-  ['/appointments', '/appointments/list'],
-]);
+// The legacy normalizeAdminEndpoint shim was DELETED from core.ts (once-over
+// 2026-08-23): admin endpoints now pass through verbatim, so the mirror map is
+// empty by design. The paired unit test pins that core.ts stays shim-free.
+export const ADMIN_REWRITES = new Map([]);
 
 /** Mirror of `toApiV1Endpoint(path)`; input may or may not carry /api/v1. */
 export function applyAdminRewrites(path) {

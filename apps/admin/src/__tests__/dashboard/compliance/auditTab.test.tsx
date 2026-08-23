@@ -1,9 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
 import { AuditTab } from "@/app/(with-auth)/dashboard/compliance/components/AuditTab";
 import type { AuditSearchResult } from "@/app/(with-auth)/dashboard/compliance/components/types";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
@@ -11,7 +10,9 @@ jest.mock("@/lib/api", () => ({
 
 const mockedFetch = fetchAdminAPI as jest.MockedFunction<typeof fetchAdminAPI>;
 
-function makeRow(overrides: Partial<AuditSearchResult> = {}): AuditSearchResult {
+function makeRow(
+  overrides: Partial<AuditSearchResult> = {},
+): AuditSearchResult {
   return {
     id: 1,
     user_id: "42",
@@ -64,12 +65,24 @@ describe("<AuditTab />", () => {
     mockedFetch.mockResolvedValue([makeRow()]);
     renderTab();
 
-    fireEvent.change(screen.getByLabelText("Patient UID"), { target: { value: " P-100 " } });
-    fireEvent.change(screen.getByLabelText("Staff UID"), { target: { value: "42" } });
-    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "create_clinical_note" } });
-    fireEvent.change(screen.getByLabelText("Module"), { target: { value: "emr" } });
-    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-07-01" } });
-    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-07-10" } });
+    fireEvent.change(screen.getByLabelText("Patient UID"), {
+      target: { value: " P-100 " },
+    });
+    fireEvent.change(screen.getByLabelText("Staff UID"), {
+      target: { value: "42" },
+    });
+    fireEvent.change(screen.getByLabelText("Action"), {
+      target: { value: "create_clinical_note" },
+    });
+    fireEvent.change(screen.getByLabelText("Module"), {
+      target: { value: "emr" },
+    });
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-07-01" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-07-10" },
+    });
     runSearch();
 
     await screen.findByText("Dr Meena Iyer");
@@ -97,7 +110,14 @@ describe("<AuditTab />", () => {
 
     const { pathname, params } = calledParams();
     expect(pathname).toBe("/compliance/audit/search");
-    for (const key of ["patient_uid", "staff_uid", "action", "module", "date_from", "date_to"]) {
+    for (const key of [
+      "patient_uid",
+      "staff_uid",
+      "action",
+      "module",
+      "date_from",
+      "date_to",
+    ]) {
       expect(params.has(key)).toBe(false);
     }
   });
@@ -144,7 +164,9 @@ describe("<AuditTab />", () => {
     runSearch();
     await screen.findAllByText("Dr Meena Iyer");
 
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Previous page" }),
+    ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
 
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(2));

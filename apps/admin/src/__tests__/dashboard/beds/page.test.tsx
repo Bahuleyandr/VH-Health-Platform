@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import BedsPage from "@/app/(with-auth)/dashboard/beds/page";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
@@ -11,7 +11,7 @@ jest.mock("@/lib/api", () => ({
 
 const mockRealtime = jest.fn(
   // args are captured for toHaveBeenCalledWith; the mock's return is what matters.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   (..._args: unknown[]) => ({
     connected: false,
     subscribed: false,
@@ -23,7 +23,9 @@ jest.mock("@/hooks/useRealtimeInvalidation", () => ({
   useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
 }));
 
-const mockedFetchAdminAPI = fetchAdminAPI as jest.MockedFunction<typeof fetchAdminAPI>;
+const mockedFetchAdminAPI = fetchAdminAPI as jest.MockedFunction<
+  typeof fetchAdminAPI
+>;
 
 function renderWithQuery(ui: ReactElement) {
   const qc = new QueryClient({
@@ -35,13 +37,32 @@ function renderWithQuery(ui: ReactElement) {
 describe("<BedsPage />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRealtime.mockReturnValue({ connected: false, subscribed: false, denied: null, lastEventAt: null });
+    mockRealtime.mockReturnValue({
+      connected: false,
+      subscribed: false,
+      denied: null,
+      lastEventAt: null,
+    });
 
     mockedFetchAdminAPI.mockImplementation(async (endpoint, init) => {
       if (!init && endpoint === "/beds") {
         return [
-          { id: 1, bed_number: "B-101", status: "occupied", ward_id: 1, ward_name: "Ward A", patient_name: "Asha" },
-          { id: 2, bed_number: "B-102", status: "available", ward_id: 1, ward_name: "Ward A", patient_name: null },
+          {
+            id: 1,
+            bed_number: "B-101",
+            status: "occupied",
+            ward_id: 1,
+            ward_name: "Ward A",
+            patient_name: "Asha",
+          },
+          {
+            id: 2,
+            bed_number: "B-102",
+            status: "available",
+            ward_id: 1,
+            ward_name: "Ward A",
+            patient_name: null,
+          },
         ] as never;
       }
       // BedsPage gained an /beds/occupancy summary fetch (page.tsx:95-103);
@@ -61,19 +82,39 @@ describe("<BedsPage />", () => {
             occupancy_rate: 50,
           },
           by_ward: [
-            { ward_id: 1, ward_name: "Ward A", floor: 2, total: 2, occupied: 1, available: 1 },
+            {
+              ward_id: 1,
+              ward_name: "Ward A",
+              floor: 2,
+              total: 2,
+              occupied: 1,
+              available: 1,
+            },
           ],
           by_type: [],
         } as never;
       }
       if (!init && endpoint === "/wards") {
-        return [{ id: 1, name: "Ward A", floor: 2, total_beds: 2, bed_count: 2, occupied_count: 1 }] as never;
+        return [
+          {
+            id: 1,
+            name: "Ward A",
+            floor: 2,
+            total_beds: 2,
+            bed_count: 2,
+            occupied_count: 1,
+          },
+        ] as never;
       }
       if (init?.method === "POST" && endpoint === "/wards") {
-        return { ward: { id: 2, name: "Ward B", floor: 4, total_beds: 2 } } as never;
+        return {
+          ward: { id: 2, name: "Ward B", floor: 4, total_beds: 2 },
+        } as never;
       }
       if (init?.method === "POST" && endpoint === "/beds") {
-        return { bed: { id: 3, bed_number: "B-103", status: "available", ward_id: 1 } } as never;
+        return {
+          bed: { id: 3, bed_number: "B-103", status: "available", ward_id: 1 },
+        } as never;
       }
       if (init?.method === "PUT" && String(endpoint).startsWith("/beds/")) {
         return { success: true } as never;
@@ -156,7 +197,8 @@ describe("<BedsPage />", () => {
 
   it("creates a ward from the admin bed master controls", async () => {
     const user = userEvent.setup();
-    const promptSpy = jest.spyOn(window, "prompt")
+    const promptSpy = jest
+      .spyOn(window, "prompt")
       .mockReturnValueOnce("Ward B")
       .mockReturnValueOnce("4")
       .mockReturnValueOnce("2");
@@ -183,7 +225,8 @@ describe("<BedsPage />", () => {
 
   it("creates a bed in a selected ward from the admin bed master controls", async () => {
     const user = userEvent.setup();
-    const promptSpy = jest.spyOn(window, "prompt")
+    const promptSpy = jest
+      .spyOn(window, "prompt")
       .mockReturnValueOnce("1")
       .mockReturnValueOnce("B-103")
       .mockReturnValueOnce("general")
@@ -224,7 +267,12 @@ describe("<BedsPage />", () => {
   });
 
   it("shows ● Live when subscribed", async () => {
-    mockRealtime.mockReturnValue({ connected: true, subscribed: true, denied: null, lastEventAt: Date.now() });
+    mockRealtime.mockReturnValue({
+      connected: true,
+      subscribed: true,
+      denied: null,
+      lastEventAt: Date.now(),
+    });
     renderWithQuery(<BedsPage />);
     const ind = await screen.findByTestId("beds-realtime-indicator");
     expect(ind).toHaveTextContent("Live");

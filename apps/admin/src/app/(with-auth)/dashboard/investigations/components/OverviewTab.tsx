@@ -12,16 +12,15 @@ export function OverviewTab() {
     const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     return d.toISOString().split("T")[0];
   });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [toDate, setToDate] = useState(
+    () => new Date().toISOString().split("T")[0],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getSLADashboard(fromDate, toDate);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = res as any;
-      const data = raw?.data ?? raw;
-      setDashboard(data as SLADashboard);
+      setDashboard(res);
     } catch {
       toast.error("Failed to load SLA dashboard");
     } finally {
@@ -29,10 +28,20 @@ export function OverviewTab() {
     }
   }, [fromDate, toDate]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading dashboard…</div>;
-  if (!dashboard) return <div className="py-12 text-center text-muted-foreground">No data</div>;
+  if (loading)
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        Loading dashboard…
+      </div>
+    );
+  if (!dashboard)
+    return (
+      <div className="py-12 text-center text-muted-foreground">No data</div>
+    );
 
   const s = dashboard.summary;
 
@@ -42,15 +51,26 @@ export function OverviewTab() {
       <div className="flex items-end gap-4">
         <label className="text-sm">
           From
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-            className="ml-2 rounded border px-2 py-1 text-sm" />
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="ml-2 rounded border px-2 py-1 text-sm"
+          />
         </label>
         <label className="text-sm">
           To
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-            className="ml-2 rounded border px-2 py-1 text-sm" />
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="ml-2 rounded border px-2 py-1 text-sm"
+          />
         </label>
-        <button onClick={load} className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground">
+        <button
+          onClick={load}
+          className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
+        >
           Refresh
         </button>
       </div>
@@ -58,16 +78,33 @@ export function OverviewTab() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <SummaryCard label="Total" value={s.total} />
-        <SummaryCard label="Completed" value={s.completed} color="text-green-600" />
-        <SummaryCard label="Pending" value={s.pending} color="text-yellow-600" />
-        <SummaryCard label="Urgent Pending" value={s.urgent_pending} color="text-red-600" />
-        <SummaryCard label="Avg TAT (hrs)" value={s.avg_tat_hours ? Number(s.avg_tat_hours).toFixed(1) : "—"} />
+        <SummaryCard
+          label="Completed"
+          value={s.completed}
+          color="text-green-600"
+        />
+        <SummaryCard
+          label="Pending"
+          value={s.pending}
+          color="text-yellow-600"
+        />
+        <SummaryCard
+          label="Urgent Pending"
+          value={s.urgent_pending}
+          color="text-red-600"
+        />
+        <SummaryCard
+          label="Avg TAT (hrs)"
+          value={s.avg_tat_hours ? Number(s.avg_tat_hours).toFixed(1) : "—"}
+        />
       </div>
 
       {/* Urgent pending table */}
       {dashboard.urgent_pending.length > 0 && (
         <section>
-          <h3 className="mb-2 text-lg font-semibold text-red-700">⚠️ Urgent Pending</h3>
+          <h3 className="mb-2 text-lg font-semibold text-red-700">
+            ⚠️ Urgent Pending
+          </h3>
           <div className="overflow-x-auto rounded border">
             <table className="w-full text-sm">
               <thead className="bg-muted text-left">
@@ -81,14 +118,21 @@ export function OverviewTab() {
               </thead>
               <tbody>
                 {dashboard.urgent_pending.map((inv) => (
-                  <tr key={inv.id}
-                    className={Number(inv.hours_waiting) > 2 ? "bg-red-50" : ""}>
+                  <tr
+                    key={inv.id}
+                    className={Number(inv.hours_waiting) > 2 ? "bg-red-50" : ""}
+                  >
                     <td className="px-3 py-2">{inv.patient_name ?? "—"}</td>
                     <td className="px-3 py-2">{inv.test_name}</td>
                     <td className="px-3 py-2">{inv.doctor_name ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono">{inv.hours_waiting ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono">
+                      {inv.hours_waiting ?? "—"}
+                    </td>
                     <td className="px-3 py-2">
-                      <Chip label={inv.priority} className={priorityColor(inv.priority)} />
+                      <Chip
+                        label={inv.priority}
+                        className={priorityColor(inv.priority)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -117,9 +161,14 @@ export function OverviewTab() {
                   <tr key={inv.id}>
                     <td className="px-3 py-2">{inv.patient_name ?? "—"}</td>
                     <td className="px-3 py-2">{inv.test_name}</td>
-                    <td className="px-3 py-2 font-mono">{inv.tat_hours ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono">
+                      {inv.tat_hours ?? "—"}
+                    </td>
                     <td className="px-3 py-2">
-                      <Chip label={inv.status} className={statusColor(inv.status)} />
+                      <Chip
+                        label={inv.status}
+                        className={statusColor(inv.status)}
+                      />
                     </td>
                   </tr>
                 ))}

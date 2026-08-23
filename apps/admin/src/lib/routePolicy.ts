@@ -199,6 +199,26 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   entitlements: { minRank: SUPER_ADMIN_ONLY },
   // admin account lifecycle is SUPER_ADMIN-only + step-up on the backend.
   "admin-management": { minRank: SUPER_ADMIN_ONLY },
+
+  // ── Once-over train E (2026-08-23): previously curl-only surfaces ─────────
+  // Escalation-rule CRUD pages clinicians on breached SLAs; backend is ADMIN+.
+  "workflow-escalations": { minRank: ADMIN_ONLY },
+  // Facility/location/room/service masters mirror facilityRoutes (ADMIN+).
+  "facility-masters": { minRank: ADMIN_ONLY },
+  // Campaign authoring is ADMIN+; send authority stays backend-gated
+  // (dry-run → approve → materialize order enforced server-side).
+  engagement: { minRank: ADMIN_ONLY },
+  // Accreditation evidence reads mirror the compliance surfaces (ADMIN+).
+  "nabh-packs": { minRank: ADMIN_ONLY },
+  // PHI key registry ops change live decryption paths — SUPER_ADMIN only,
+  // matching encryptionKeyRoutes' backend gate.
+  "encryption-keys": { minRank: SUPER_ADMIN_ONLY },
+  // App registry + token revocation for the LIVE public OAuth surface.
+  "smart-fhir": { minRank: SUPER_ADMIN_ONLY },
+  // Data-subject erasure execution is destructive and audit-bound.
+  "gdpr-erasure": { minRank: SUPER_ADMIN_ONLY },
+  // Two-phase hospital-data import (rehearsal/commit) — operator ceremony.
+  "migration-toolkit": { minRank: SUPER_ADMIN_ONLY },
 };
 
 /**

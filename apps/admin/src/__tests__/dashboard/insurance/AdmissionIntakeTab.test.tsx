@@ -1,15 +1,17 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import { AdmissionIntakeTab } from "@/app/(with-auth)/dashboard/insurance/components/AdmissionIntakeTab";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
 }));
 
-const mockedFetchAdminAPI = fetchAdminAPI as jest.MockedFunction<typeof fetchAdminAPI>;
+const mockedFetchAdminAPI = fetchAdminAPI as jest.MockedFunction<
+  typeof fetchAdminAPI
+>;
 
 function renderWithQuery(ui: ReactElement) {
   const qc = new QueryClient({
@@ -92,7 +94,10 @@ describe("<AdmissionIntakeTab />", () => {
           created_at: "2026-05-18T08:05:00Z",
         } as never;
       }
-      if (endpoint === "/insurance/preauth/9/submit" && init?.method === "POST") {
+      if (
+        endpoint === "/insurance/preauth/9/submit" &&
+        init?.method === "POST"
+      ) {
         return {
           id: 9,
           preauth_number: "PA-2627-00009",
@@ -126,7 +131,9 @@ describe("<AdmissionIntakeTab />", () => {
     await user.clear(screen.getByLabelText("Expected cost *"));
     await user.type(screen.getByLabelText("Expected cost *"), "65000");
 
-    await user.click(screen.getByRole("button", { name: "Create and submit pre-auth" }));
+    await user.click(
+      screen.getByRole("button", { name: "Create and submit pre-auth" }),
+    );
 
     await waitFor(() => {
       expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
@@ -159,6 +166,8 @@ describe("<AdmissionIntakeTab />", () => {
       "/insurance/preauth/9/submit",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(await screen.findByText("Submitted: PA-2627-00009")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Submitted: PA-2627-00009"),
+    ).toBeInTheDocument();
   });
 });

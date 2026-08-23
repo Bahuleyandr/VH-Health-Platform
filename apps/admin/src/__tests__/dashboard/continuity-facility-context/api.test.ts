@@ -1,11 +1,11 @@
-import { APIError } from "@/lib/api/core";
-import { apiFetch } from "@/lib/api-fetch";
 import {
   CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE,
   classifyContinuityFacilityError,
   listContinuityFacilityGrants,
   orchestrateContinuityDeviceLoss,
 } from "@/lib/api/continuityFacilityContext";
+import { APIError } from "@/lib/api/core";
+import { apiFetch } from "@/lib/api-fetch";
 
 jest.mock("@/lib/api-fetch", () => ({ apiFetch: jest.fn() }));
 
@@ -134,7 +134,7 @@ describe("continuity facility-context typed absence", () => {
         headers: expect.any(Headers),
       }),
     );
-    const headers = (mockedApiFetch.mock.calls[0]?.[1]?.headers as Headers);
+    const headers = mockedApiFetch.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get("Idempotency-Key")).toBe("device-loss-retry-key");
     expect(headers.get("Content-Type")).toBe("application/json");
   });

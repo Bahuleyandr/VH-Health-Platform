@@ -7,7 +7,6 @@
  * five screens at once.
  */
 
-import { render, screen } from "@testing-library/react";
 import {
   unwrap,
   MONTHS,
@@ -16,6 +15,7 @@ import {
   fmtDate,
   statusBadge,
 } from "@/app/(with-auth)/dashboard/payroll/components/helpers";
+import { render, screen } from "@testing-library/react";
 
 describe("unwrap", () => {
   it("returns the value untouched when there's no `data` key", () => {
@@ -110,7 +110,9 @@ describe("statusBadge", () => {
   it("green for approved / issued / completed (positive-state consistency)", () => {
     for (const s of ["approved", "issued", "completed"]) {
       const { container } = render(<>{statusBadge(s)}</>);
-      expect(container.querySelector("span")!.className).toMatch(/bg-green-100/);
+      expect(container.querySelector("span")!.className).toMatch(
+        /bg-green-100/,
+      );
     }
   });
 

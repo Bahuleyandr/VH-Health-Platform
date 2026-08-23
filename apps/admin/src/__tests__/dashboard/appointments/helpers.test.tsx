@@ -9,7 +9,6 @@
  * AllAppointmentsTab.
  */
 
-import { render, screen } from "@testing-library/react";
 import {
   isObj,
   normalizeAppointmentsResponse,
@@ -17,6 +16,7 @@ import {
   fmtDateTime,
   StatusBadge,
 } from "@/app/(with-auth)/dashboard/appointments/components/helpers";
+import { render, screen } from "@testing-library/react";
 
 describe("isObj type guard", () => {
   it("true for plain objects", () => {

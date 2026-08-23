@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TenantsAdminPage from "@/app/(with-auth)/dashboard/tenants/page";
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   createTenant,
   getTenantKekRewrapJob,
@@ -11,8 +11,8 @@ import {
   updateTenantBrandKit,
   upsertTenantInteropSecret,
 } from "@/lib/api/tenants";
-import { usePermissions } from "@/hooks/usePermissions";
-import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api/tenants", () => ({
   createTenant: jest.fn(),
@@ -26,7 +26,9 @@ jest.mock("@/lib/api/tenants", () => ({
 }));
 
 jest.mock("@/hooks/usePermissions", () => ({ usePermissions: jest.fn() }));
-jest.mock("@/contexts/ActingTenantContext", () => ({ useActingTenant: jest.fn() }));
+jest.mock("@/contexts/ActingTenantContext", () => ({
+  useActingTenant: jest.fn(),
+}));
 jest.mock("react-hot-toast", () => ({
   toast: { success: jest.fn(), error: jest.fn() },
 }));
@@ -95,20 +97,25 @@ describe("<TenantsAdminPage /> tenant operations", () => {
       isPending: false,
       setActAs: jest.fn(),
     });
-    (listTenants as jest.Mock).mockResolvedValue({ tenants: [TENANT], count: 1 });
+    (listTenants as jest.Mock).mockResolvedValue({
+      tenants: [TENANT],
+      count: 1,
+    });
     (listTenantInteropSecrets as jest.Mock).mockResolvedValue({
       count: 1,
-      secrets: [{
-        id: 7,
-        tenant_id: TENANT.id,
-        kind: "abdm_callback",
-        sender_identifier: "HIP-ACME",
-        status: "active",
-        has_secret: true,
-        secret_masked: "********",
-        created_at: "2026-07-03T07:00:00.000Z",
-        updated_at: "2026-07-03T07:05:00.000Z",
-      }],
+      secrets: [
+        {
+          id: 7,
+          tenant_id: TENANT.id,
+          kind: "abdm_callback",
+          sender_identifier: "HIP-ACME",
+          status: "active",
+          has_secret: true,
+          secret_masked: "********",
+          created_at: "2026-07-03T07:00:00.000Z",
+          updated_at: "2026-07-03T07:05:00.000Z",
+        },
+      ],
     });
     (upsertTenantInteropSecret as jest.Mock).mockResolvedValue({
       id: 8,
@@ -142,7 +149,14 @@ describe("<TenantsAdminPage /> tenant operations", () => {
       started_at: "2026-07-03T07:15:01.000Z",
       completed_at: "2026-07-03T07:15:02.000Z",
       updated_at: "2026-07-03T07:15:02.000Z",
-      summary: { tenant_id: TENANT.id, key_id: "t:tenant:v1", dry_run: false, scanned: 1, rewrapped: 1, tables: [] },
+      summary: {
+        tenant_id: TENANT.id,
+        key_id: "t:tenant:v1",
+        dry_run: false,
+        scanned: 1,
+        rewrapped: 1,
+        tables: [],
+      },
       error: null,
     });
     (createTenant as jest.Mock).mockResolvedValue(TENANT);
@@ -157,10 +171,17 @@ describe("<TenantsAdminPage /> tenant operations", () => {
         legalName: null,
         legalFooter: null,
         helpCenterUrl: "https://help.acme.example",
-        document: { legalName: null, footerText: "Acme legal footer", letterheadUrl: null },
+        document: {
+          legalName: null,
+          footerText: "Acme legal footer",
+          letterheadUrl: null,
+        },
         email: { fromName: "Acme Care", replyTo: "support@acme.example" },
         assets: { logo: null, documentLetterhead: null },
-        mobile: { identityMode: "stamped_build", tokenColorSource: "VH_TENANT_PRIMARY" },
+        mobile: {
+          identityMode: "stamped_build",
+          tokenColorSource: "VH_TENANT_PRIMARY",
+        },
       },
     });
   });
@@ -174,16 +195,24 @@ describe("<TenantsAdminPage /> tenant operations", () => {
     expect(screen.getByText("********")).toBeInTheDocument();
     expect(screen.queryByText("secret-value")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Interop kind"), { target: { value: "hl7_inbound" } });
-    fireEvent.change(screen.getByLabelText("Sender identifier"), { target: { value: "MSH-ACME" } });
-    fireEvent.change(screen.getByLabelText("Secret value"), { target: { value: "secret-value" } });
+    fireEvent.change(screen.getByLabelText("Interop kind"), {
+      target: { value: "hl7_inbound" },
+    });
+    fireEvent.change(screen.getByLabelText("Sender identifier"), {
+      target: { value: "MSH-ACME" },
+    });
+    fireEvent.change(screen.getByLabelText("Secret value"), {
+      target: { value: "secret-value" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Store/ }));
 
-    await waitFor(() => expect(upsertTenantInteropSecret).toHaveBeenCalledWith(TENANT.id, {
-      kind: "hl7_inbound",
-      senderIdentifier: "MSH-ACME",
-      secret: "secret-value",
-    }));
+    await waitFor(() =>
+      expect(upsertTenantInteropSecret).toHaveBeenCalledWith(TENANT.id, {
+        kind: "hl7_inbound",
+        senderIdentifier: "MSH-ACME",
+        secret: "secret-value",
+      }),
+    );
     expect(screen.queryByText("secret-value")).not.toBeInTheDocument();
   });
 
@@ -192,9 +221,13 @@ describe("<TenantsAdminPage /> tenant operations", () => {
     await screen.findByText("Acme Hospital");
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Queue re-wrap/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Queue re-wrap/ }),
+    );
 
-    await waitFor(() => expect(startTenantKekRewrapJob).toHaveBeenCalledWith(TENANT.id));
+    await waitFor(() =>
+      expect(startTenantKekRewrapJob).toHaveBeenCalledWith(TENANT.id),
+    );
     await screen.findByText("job-123");
   });
 
@@ -203,17 +236,28 @@ describe("<TenantsAdminPage /> tenant operations", () => {
     await screen.findByText("Acme Hospital");
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
 
-    fireEvent.change(await screen.findByLabelText("Brand name"), { target: { value: "Acme White Label" } });
-    fireEvent.change(screen.getByLabelText("Primary color"), { target: { value: "#005A4A" } });
-    fireEvent.change(screen.getByLabelText("Logo storage key"), { target: { value: "uploads/admin/new-logo.png" } });
+    fireEvent.change(await screen.findByLabelText("Brand name"), {
+      target: { value: "Acme White Label" },
+    });
+    fireEvent.change(screen.getByLabelText("Primary color"), {
+      target: { value: "#005A4A" },
+    });
+    fireEvent.change(screen.getByLabelText("Logo storage key"), {
+      target: { value: "uploads/admin/new-logo.png" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Save brand kit/ }));
 
-    await waitFor(() => expect(updateTenantBrandKit).toHaveBeenCalledWith(TENANT.id, expect.objectContaining({
-      name: "Acme White Label",
-      primaryColor: "#005A4A",
-      assets: expect.objectContaining({
-        logo: { storageKey: "uploads/admin/new-logo.png" },
-      }),
-    })));
+    await waitFor(() =>
+      expect(updateTenantBrandKit).toHaveBeenCalledWith(
+        TENANT.id,
+        expect.objectContaining({
+          name: "Acme White Label",
+          primaryColor: "#005A4A",
+          assets: expect.objectContaining({
+            logo: { storageKey: "uploads/admin/new-logo.png" },
+          }),
+        }),
+      ),
+    );
   });
 });

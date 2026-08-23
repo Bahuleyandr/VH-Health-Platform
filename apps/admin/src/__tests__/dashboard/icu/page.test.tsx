@@ -1,21 +1,18 @@
-import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
-import ICUPage from "@/app/(with-auth)/dashboard/icu/page";
 import FlowsheetTab from "@/app/(with-auth)/dashboard/icu/components/FlowsheetTab";
+import ICUPage from "@/app/(with-auth)/dashboard/icu/page";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({ fetchAdminAPI: jest.fn() }));
 
-const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  (..._args: unknown[]) => ({
-    connected: false,
-    subscribed: false,
-    denied: null as string | null,
-    lastEventAt: null as number | null,
-  }),
-);
+const mockRealtime = jest.fn((..._args: unknown[]) => ({
+  connected: false,
+  subscribed: false,
+  denied: null as string | null,
+  lastEventAt: null as number | null,
+}));
 jest.mock("@/hooks/useRealtimeInvalidation", () => ({
   useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
 }));

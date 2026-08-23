@@ -1,6 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SosPage from "@/app/(with-auth)/dashboard/sos/page";
 import { adminService } from "@/services/admin.service";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 jest.mock("@/services/admin.service", () => ({
   adminService: {

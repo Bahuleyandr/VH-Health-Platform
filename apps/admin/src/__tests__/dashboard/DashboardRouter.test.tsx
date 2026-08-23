@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
 import DashboardRouter from "@/app/(with-auth)/dashboard/DashboardRouter";
 import { usePermissions } from "@/hooks/usePermissions";
+import { render, screen } from "@testing-library/react";
 
 jest.mock(
   "next/dynamic",

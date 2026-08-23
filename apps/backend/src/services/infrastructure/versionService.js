@@ -220,7 +220,7 @@ export class VersionService {
           description: 'Emergency response and alert system'
         },
         administration: {
-          endpoints: ['GET /admin/users', 'POST /admin/reports', 'GET /admin/analytics'],
+          endpoints: ['GET /users', 'POST /admin/reports', 'GET /admin/analytics'],
           description: 'Administrative tools and reporting'
         }
       },

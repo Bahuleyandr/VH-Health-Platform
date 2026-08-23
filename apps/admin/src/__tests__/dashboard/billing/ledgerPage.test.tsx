@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import GeneralLedgerPage from "@/app/(with-auth)/dashboard/billing/ledger/page";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   getTrialBalance,
   getArAging,
@@ -7,7 +7,7 @@ import {
   getCashPosition,
   getDailyCollection,
 } from "@/lib/api";
-import { usePermissions } from "@/hooks/usePermissions";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   getTrialBalance: jest.fn(),
@@ -19,7 +19,9 @@ jest.mock("@/lib/api", () => ({
 
 jest.mock("@/hooks/usePermissions", () => ({ usePermissions: jest.fn() }));
 
-const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePermissions>;
+const mockedUsePermissions = usePermissions as jest.MockedFunction<
+  typeof usePermissions
+>;
 
 function setPermissions(over: Record<string, unknown> = {}) {
   mockedUsePermissions.mockReturnValue({
@@ -47,8 +49,18 @@ function setPermissions(over: Record<string, unknown> = {}) {
 function seedReports() {
   (getTrialBalance as jest.Mock).mockResolvedValue({
     accounts: [
-      { code: "PATIENT_AR", type: "ASSET", balancePaise: 750000, balance: "7500.00" },
-      { code: "REVENUE", type: "REVENUE", balancePaise: 750000, balance: "7500.00" },
+      {
+        code: "PATIENT_AR",
+        type: "ASSET",
+        balancePaise: 750000,
+        balance: "7500.00",
+      },
+      {
+        code: "REVENUE",
+        type: "REVENUE",
+        balancePaise: 750000,
+        balance: "7500.00",
+      },
     ],
     signedTotalPaise: 0,
     balanced: true,
@@ -96,12 +108,18 @@ describe("<GeneralLedgerPage />", () => {
 
   it("renders all five report sections with data for a finance/admin user", async () => {
     render(<GeneralLedgerPage />);
-    expect(screen.getByRole("heading", { name: "General Ledger" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "General Ledger" }),
+    ).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByText("Balanced")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Balanced")).toBeInTheDocument(),
+    );
     expect(screen.getByText("PATIENT_AR")).toBeInTheDocument();
     expect(screen.getAllByText("₹7,500.00").length).toBeGreaterThan(0);
-    expect(screen.getByText("No outstanding insurer receivables.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No outstanding insurer receivables."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Cash on hand")).toBeInTheDocument();
     expect(screen.getByText("#7")).toBeInTheDocument();
     expect(getDailyCollection).toHaveBeenCalled();
@@ -109,13 +127,22 @@ describe("<GeneralLedgerPage />", () => {
 
   it("collapses a section when its header is clicked", async () => {
     render(<GeneralLedgerPage />);
-    await waitFor(() => expect(screen.getByText("Balanced")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Balanced")).toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Trial Balance/ }));
-    await waitFor(() => expect(screen.queryByText("Balanced")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("Balanced")).not.toBeInTheDocument(),
+    );
   });
 
   it("blocks non-finance users with a finance-access empty state", () => {
-    setPermissions({ isAdmin: false, isSuperAdmin: false, role: "STAFF", user: { role: "STAFF" } });
+    setPermissions({
+      isAdmin: false,
+      isSuperAdmin: false,
+      role: "STAFF",
+      user: { role: "STAFF" },
+    });
     render(<GeneralLedgerPage />);
     expect(screen.getByText("Finance access required")).toBeInTheDocument();
     expect(getTrialBalance).not.toHaveBeenCalled();
@@ -124,10 +151,15 @@ describe("<GeneralLedgerPage />", () => {
   it("re-fetches daily collection with the chosen date range on Apply", async () => {
     render(<GeneralLedgerPage />);
     await waitFor(() => expect(getDailyCollection).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-06-01" } });
+    fireEvent.change(screen.getByLabelText("From"), {
+      target: { value: "2026-06-01" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
-      expect(getDailyCollection).toHaveBeenLastCalledWith({ from: "2026-06-01", to: undefined }),
+      expect(getDailyCollection).toHaveBeenLastCalledWith({
+        from: "2026-06-01",
+        to: undefined,
+      }),
     );
   });
 });

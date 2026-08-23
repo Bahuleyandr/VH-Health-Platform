@@ -1,13 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
-import type { ReactElement } from "react";
-
 import CathConsumablesPage from "@/app/(with-auth)/dashboard/billing/cath-consumables/page";
 import {
   getCathConsumablesBillingSettings,
@@ -17,6 +7,15 @@ import {
   updateCathConsumablesBillingSettings,
   upsertCathConsumable,
 } from "@/lib/api/cathConsumables";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("react-hot-toast", () => ({
   __esModule: true,

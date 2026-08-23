@@ -7,13 +7,12 @@
 // module, so the real `payroll.ts` → `core.ts` path executes and the assertions
 // are about what actually goes on the wire.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
-
 import { PayrollRunsTab } from "@/app/(with-auth)/dashboard/payroll/components/PayrollRunsTab";
 import { apiFetch } from "@/lib/api-fetch";
 import { IDEMPOTENCY_KEY_PATTERN } from "@/lib/idempotencyKey";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api-fetch", () => ({ apiFetch: jest.fn() }));
 jest.mock("@/lib/browserNavigation", () => ({ navigateToLogin: jest.fn() }));

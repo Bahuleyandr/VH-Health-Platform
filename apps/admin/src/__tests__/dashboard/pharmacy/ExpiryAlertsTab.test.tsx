@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
 import { ExpiryAlertsTab } from "@/app/(with-auth)/dashboard/pharmacy/components/ExpiryAlertsTab";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
@@ -25,7 +24,10 @@ describe("<ExpiryAlertsTab />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedFetch.mockImplementation((url: unknown) => {
-      if (typeof url === "string" && url.startsWith("/pharmacy/inventory/v2/expiry-alerts")) {
+      if (
+        typeof url === "string" &&
+        url.startsWith("/pharmacy/inventory/v2/expiry-alerts")
+      ) {
         return Promise.resolve({ data: [] });
       }
       return Promise.resolve({});
@@ -40,9 +42,12 @@ describe("<ExpiryAlertsTab />", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run scan" }));
 
     await waitFor(() =>
-      expect(mockedFetch).toHaveBeenCalledWith("/pharmacy/inventory/v2/run-expiry-scan", {
-        method: "POST",
-      }),
+      expect(mockedFetch).toHaveBeenCalledWith(
+        "/pharmacy/inventory/v2/run-expiry-scan",
+        {
+          method: "POST",
+        },
+      ),
     );
   });
 });

@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import BloodBankPage from "@/app/(with-auth)/dashboard/blood-bank/page";
 import { postJSONEnvelope } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn().mockResolvedValue({ data: [] }),
@@ -11,15 +11,12 @@ jest.mock("@/lib/api", () => ({
   putJSON: jest.fn().mockResolvedValue({}),
 }));
 
-const mockRealtime = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  (..._args: unknown[]) => ({
-    connected: false,
-    subscribed: false,
-    denied: null as string | null,
-    lastEventAt: null as number | null,
-  }),
-);
+const mockRealtime = jest.fn((..._args: unknown[]) => ({
+  connected: false,
+  subscribed: false,
+  denied: null as string | null,
+  lastEventAt: null as number | null,
+}));
 jest.mock("@/hooks/useRealtimeInvalidation", () => ({
   useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
 }));
@@ -32,20 +29,32 @@ function renderWithQuery(ui: ReactElement) {
 describe("<BloodBankPage />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRealtime.mockReturnValue({ connected: false, subscribed: false, denied: null, lastEventAt: null });
+    mockRealtime.mockReturnValue({
+      connected: false,
+      subscribed: false,
+      denied: null,
+      lastEventAt: null,
+    });
   });
 
   afterEach(() => jest.restoreAllMocks());
 
-  it("subscribes to staff:blood-bank on the [\"blood-bank\"] root and shows ○ Offline when down", async () => {
+  it('subscribes to staff:blood-bank on the ["blood-bank"] root and shows ○ Offline when down', async () => {
     renderWithQuery(<BloodBankPage />);
     const ind = await screen.findByTestId("blood-bank-realtime-indicator");
     expect(ind).toHaveTextContent("Offline");
-    expect(mockRealtime).toHaveBeenCalledWith("staff:blood-bank", [["blood-bank"]]);
+    expect(mockRealtime).toHaveBeenCalledWith("staff:blood-bank", [
+      ["blood-bank"],
+    ]);
   });
 
   it("shows ● Live when subscribed", async () => {
-    mockRealtime.mockReturnValue({ connected: true, subscribed: true, denied: null, lastEventAt: Date.now() });
+    mockRealtime.mockReturnValue({
+      connected: true,
+      subscribed: true,
+      denied: null,
+      lastEventAt: Date.now(),
+    });
     renderWithQuery(<BloodBankPage />);
     const ind = await screen.findByTestId("blood-bank-realtime-indicator");
     expect(ind).toHaveTextContent("Live");
@@ -82,7 +91,9 @@ describe("<BloodBankPage />", () => {
     postRequest
       .mockRejectedValueOnce(new Error("Service unavailable"))
       .mockResolvedValueOnce({ success: true, data: {} });
-    const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => undefined);
+    const alertSpy = jest
+      .spyOn(window, "alert")
+      .mockImplementation(() => undefined);
     renderWithQuery(<BloodBankPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "New Request" }));
@@ -94,12 +105,18 @@ describe("<BloodBankPage />", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("Service unavailable"));
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith("Service unavailable"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
 
     await waitFor(() => expect(postRequest).toHaveBeenCalledTimes(2));
-    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)["Idempotency-Key"];
-    const retryKey = (postRequest.mock.calls[1][3] as Record<string, string>)["Idempotency-Key"];
+    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)[
+      "Idempotency-Key"
+    ];
+    const retryKey = (postRequest.mock.calls[1][3] as Record<string, string>)[
+      "Idempotency-Key"
+    ];
     expect(retryKey).toBe(firstKey);
   });
 
@@ -108,7 +125,9 @@ describe("<BloodBankPage />", () => {
     postRequest
       .mockRejectedValueOnce(new Error("Service unavailable"))
       .mockResolvedValueOnce({ success: true, data: {} });
-    const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => undefined);
+    const alertSpy = jest
+      .spyOn(window, "alert")
+      .mockImplementation(() => undefined);
     renderWithQuery(<BloodBankPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "New Request" }));
@@ -120,15 +139,21 @@ describe("<BloodBankPage />", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("Service unavailable"));
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith("Service unavailable"),
+    );
     fireEvent.change(screen.getByPlaceholderText("Clinical indication"), {
       target: { value: "Active bleeding with haemodynamic instability" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
 
     await waitFor(() => expect(postRequest).toHaveBeenCalledTimes(2));
-    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)["Idempotency-Key"];
-    const changedPayloadKey = (postRequest.mock.calls[1][3] as Record<string, string>)["Idempotency-Key"];
+    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)[
+      "Idempotency-Key"
+    ];
+    const changedPayloadKey = (
+      postRequest.mock.calls[1][3] as Record<string, string>
+    )["Idempotency-Key"];
     expect(changedPayloadKey).not.toBe(firstKey);
   });
 
@@ -145,11 +170,17 @@ describe("<BloodBankPage />", () => {
         target: { value: "Symptomatic anaemia Hb 6.2" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
-      await waitFor(() => expect(postRequest).toHaveBeenCalledTimes(attempt + 1));
+      await waitFor(() =>
+        expect(postRequest).toHaveBeenCalledTimes(attempt + 1),
+      );
     }
 
-    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)["Idempotency-Key"];
-    const newIntentKey = (postRequest.mock.calls[1][3] as Record<string, string>)["Idempotency-Key"];
+    const firstKey = (postRequest.mock.calls[0][3] as Record<string, string>)[
+      "Idempotency-Key"
+    ];
+    const newIntentKey = (
+      postRequest.mock.calls[1][3] as Record<string, string>
+    )["Idempotency-Key"];
     expect(newIntentKey).not.toBe(firstKey);
   });
 });

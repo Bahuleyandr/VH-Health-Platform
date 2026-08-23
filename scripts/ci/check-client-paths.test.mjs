@@ -100,7 +100,7 @@ describe('normalizer', () => {
   });
 });
 
-describe('admin runtime rewrite mirror', () => {
+describe('admin runtime pass-through', () => {
   test('prepends /api/v1 to a bare path', () => {
     assert.equal(applyAdminRewrites('/wards'), '/api/v1/wards');
   });
@@ -109,41 +109,28 @@ describe('admin runtime rewrite mirror', () => {
     assert.equal(applyAdminRewrites('/api/v1/blood-bank/request'), '/api/v1/blood-bank/request');
   });
 
-  test('applies the alias rewrites, prefixed or not', () => {
-    assert.equal(applyAdminRewrites('/admin/users'), '/api/v1/users');
-    assert.equal(applyAdminRewrites('/api/v1/admin/users'), '/api/v1/users');
-    assert.equal(applyAdminRewrites('/admin/users?${params}'), '/api/v1/users');
-    assert.equal(applyAdminRewrites('/appointments'), '/api/v1/appointments/list');
-    assert.equal(applyAdminRewrites('/notifications/stats'), '/api/v1/notifications/admin/overview');
+  test('applies NO alias rewrites — the shim is deleted', () => {
+    assert.equal(applyAdminRewrites('/admin/users'), '/api/v1/admin/users');
+    assert.equal(applyAdminRewrites('/appointments'), '/api/v1/appointments');
+    assert.equal(applyAdminRewrites('/notifications/stats'), '/api/v1/notifications/stats');
   });
 
-  test('does not rewrite a sub-path of an aliased base', () => {
-    // core.ts matches the alias EXACTLY; /admin/doctors/:id/profile passes through.
-    assert.equal(applyAdminRewrites('/admin/doctors/7/profile'), '/api/v1/admin/doctors/7/profile');
-  });
-
-  test('verbatim helpers skip the rewrite table', () => {
+  test('verbatim helpers behave identically to the default path', () => {
     assert.equal(resolveRuntimePath('/api/v1/admin/users', 'admin', false), '/api/v1/admin/users');
-    assert.equal(resolveRuntimePath('/api/v1/admin/users', 'admin', true), '/api/v1/users');
+    assert.equal(resolveRuntimePath('/api/v1/admin/users', 'admin', true), '/api/v1/admin/users');
   });
 
-  // The mirror is only safe while it matches the source it mirrors. If someone
-  // adds a rewrite to core.ts, this fails and names the drift.
-  test('stays in sync with normalizeAdminEndpoint in apps/admin/src/lib/api/core.ts', () => {
+  // The mirror is only safe while it matches the source it mirrors: core.ts
+  // deleted normalizeAdminEndpoint (once-over 2026-08-23). If a rewrite shim
+  // ever returns, this fails and demands the map be restored to match.
+  test('core.ts stays shim-free', () => {
     const source = readFileSync(join(repoRoot, 'apps/admin/src/lib/api/core.ts'), 'utf8');
-    const start = source.indexOf('function normalizeAdminEndpoint');
-    assert.ok(start !== -1, 'normalizeAdminEndpoint not found — the admin API layer moved');
-    const body = source.slice(start, source.indexOf('\n}', start));
-
-    const sources = new Set();
-    for (const m of body.matchAll(/path\s*===\s*"([^"]+)"/g)) sources.add(m[1]);
-
-    assert.deepEqual(
-      [...sources].sort(),
-      [...ADMIN_REWRITES.keys()].sort(),
-      'ADMIN_REWRITES has drifted from normalizeAdminEndpoint — update the map in ' +
-        'scripts/ci/check-client-paths.mjs to match core.ts',
+    assert.ok(
+      !source.includes('function normalizeAdminEndpoint'),
+      'normalizeAdminEndpoint reappeared in core.ts — restore ADMIN_REWRITES in ' +
+        'scripts/ci/check-client-paths.mjs to mirror it',
     );
+    assert.equal(ADMIN_REWRITES.size, 0, 'ADMIN_REWRITES must stay empty while core.ts is shim-free');
   });
 });
 

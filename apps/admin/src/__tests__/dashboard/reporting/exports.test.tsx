@@ -1,7 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DataExporter } from "@/app/(with-auth)/dashboard/reporting/components/DataExporter";
 import { ReportGenerator } from "@/app/(with-auth)/dashboard/reporting/components/ReportGenerator";
 import type { Doctor, User } from "@/lib/types";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 function blobResponse(body: string, type: string): Response {
   return {
@@ -35,7 +41,9 @@ describe("reporting export flows", () => {
       writable: true,
       configurable: true,
     });
-    clickSpy = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -43,7 +51,9 @@ describe("reporting export flows", () => {
   });
 
   it("downloads appointment exports through the proxied /api/v1 route with backend query names", async () => {
-    fetchMock.mockResolvedValueOnce(blobResponse("id,name\n1,Asha", "text/csv"));
+    fetchMock.mockResolvedValueOnce(
+      blobResponse("id,name\n1,Asha", "text/csv"),
+    );
 
     render(<DataExporter />);
 
@@ -66,15 +76,19 @@ describe("reporting export flows", () => {
   });
 
   it("routes filtered record exports through the proxied record export endpoint", async () => {
-    fetchMock.mockResolvedValueOnce(blobResponse("%PDF-1.4", "application/pdf"));
+    fetchMock.mockResolvedValueOnce(
+      blobResponse("%PDF-1.4", "application/pdf"),
+    );
 
     render(
       <ReportGenerator
-        users={[
-          { id: 1, name: "Asha", email: "asha@example.com" } as User,
-        ]}
+        users={[{ id: 1, name: "Asha", email: "asha@example.com" } as User]}
         doctors={[
-          { user_id: 99, name: "Mehta", specialization: "Cardiology" } as Doctor,
+          {
+            user_id: 99,
+            name: "Mehta",
+            specialization: "Cardiology",
+          } as Doctor,
         ]}
       />,
     );

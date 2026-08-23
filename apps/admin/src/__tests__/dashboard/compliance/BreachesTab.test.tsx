@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
 import { BreachesTab } from "@/app/(with-auth)/dashboard/compliance/components/BreachesTab";
 import { fetchAdminAPI } from "@/lib/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
@@ -36,15 +35,29 @@ describe("<BreachesTab />", () => {
     await screen.findByText("No breach notifications");
 
     fireEvent.click(screen.getByRole("button", { name: /Report Breach/ }));
-    fireEvent.change(screen.getByPlaceholderText("Brief description of the breach"), {
-      target: { value: "Lost laptop" },
+    fireEvent.change(
+      screen.getByPlaceholderText("Brief description of the breach"),
+      {
+        target: { value: "Lost laptop" },
+      },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("Detailed description of what happened..."),
+      {
+        target: {
+          value: "Unencrypted laptop went missing from the front desk.",
+        },
+      },
+    );
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "high" },
     });
-    fireEvent.change(screen.getByPlaceholderText("Detailed description of what happened..."), {
-      target: { value: "Unencrypted laptop went missing from the front desk." },
+    fireEvent.change(screen.getByRole("spinbutton"), {
+      target: { value: "12" },
     });
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "high" } });
-    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "12" } });
-    fireEvent.click(screen.getByLabelText(/PHI \(Protected Health Information\) involved/));
+    fireEvent.click(
+      screen.getByLabelText(/PHI \(Protected Health Information\) involved/),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
 
@@ -68,19 +81,27 @@ describe("<BreachesTab />", () => {
     await screen.findByText("No breach notifications");
 
     fireEvent.click(screen.getByRole("button", { name: /Report Breach/ }));
-    fireEvent.change(screen.getByPlaceholderText("Brief description of the breach"), {
-      target: { value: "Misfiled paper chart" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Detailed description of what happened..."), {
-      target: { value: "A paper chart was left in a public waiting area." },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("Brief description of the breach"),
+      {
+        target: { value: "Misfiled paper chart" },
+      },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("Detailed description of what happened..."),
+      {
+        target: { value: "A paper chart was left in a public waiting area." },
+      },
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
 
     await waitFor(() =>
       expect(mockedFetch).toHaveBeenCalledWith(
         "/compliance/breach/report",
-        expect.objectContaining({ body: expect.objectContaining({ phi_involved: false }) }),
+        expect.objectContaining({
+          body: expect.objectContaining({ phi_involved: false }),
+        }),
       ),
     );
   });

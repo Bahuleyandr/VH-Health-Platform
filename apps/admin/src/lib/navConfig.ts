@@ -520,6 +520,17 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredRole: "ADMIN",
       },
       { name: "BMW Register", href: "/dashboard/bmw", requiredRole: "ADMIN" },
+      // Once-over train E: previously curl-only operator surfaces.
+      {
+        name: "GDPR Erasure",
+        href: "/dashboard/gdpr-erasure",
+        requiredRole: "SUPER_ADMIN",
+      },
+      {
+        name: "NABH Packs",
+        href: "/dashboard/nabh-packs",
+        requiredRole: "ADMIN",
+      },
     ],
   },
   {
@@ -560,6 +571,27 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/dashboard/terminology",
         requiredRole: "ADMIN",
       },
+      // Once-over train E: previously curl-only operator surfaces.
+      {
+        name: "Workflow & Escalations",
+        href: "/dashboard/workflow-escalations",
+        requiredRole: "ADMIN",
+      },
+      {
+        name: "SMART-on-FHIR Apps",
+        href: "/dashboard/smart-fhir",
+        requiredRole: "SUPER_ADMIN",
+      },
+      {
+        name: "Facility Masters",
+        href: "/dashboard/facility-masters",
+        requiredRole: "ADMIN",
+      },
+      {
+        name: "Engagement Campaigns",
+        href: "/dashboard/engagement",
+        requiredRole: "ADMIN",
+      },
     ],
   },
   {
@@ -574,6 +606,17 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         name: "Feature Flags",
         href: "/dashboard/feature-flags",
+        requiredRole: "SUPER_ADMIN",
+      },
+      // Once-over train E: previously curl-only operator surfaces.
+      {
+        name: "Encryption Keys",
+        href: "/dashboard/encryption-keys",
+        requiredRole: "SUPER_ADMIN",
+      },
+      {
+        name: "Migration Toolkit",
+        href: "/dashboard/migration-toolkit",
         requiredRole: "SUPER_ADMIN",
       },
       {
