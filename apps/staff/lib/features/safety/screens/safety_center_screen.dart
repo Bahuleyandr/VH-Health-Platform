@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/config/role_config.dart';
 import '../../../core/providers/notification_provider.dart';
@@ -97,11 +101,36 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   List<Map<String, dynamic>> _housekeepingTasks = const [];
   List<Map<String, dynamic>> _resusEvents = const [];
 
+  StreamSubscription<dynamic>? _realtimeSub;
+  Timer? _realtimeDebounce;
+
+  Future<void> _attachRealtime() async {
+    // Live board updates (once-over train F): the backend already broadcasts
+    // on staff:incidents — subscribe like the bed board does.
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    _realtimeSub = rt.events('staff:incidents').listen((_) {
+      _realtimeDebounce?.cancel();
+      _realtimeDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        _load();
+      });
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _loadSosEntitlement();
     _load();
+    _attachRealtime();
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    _realtimeDebounce?.cancel();
+    super.dispose();
   }
 
   /// SOS response is role-gated (generated sos_response contract group —

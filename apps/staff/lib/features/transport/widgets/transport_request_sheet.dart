@@ -186,7 +186,7 @@ class _TransportRequestSheetState extends State<_TransportRequestSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'New transport request',
+                    AppStrings.of(context).transportRequestTitle,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -215,7 +215,7 @@ class _TransportRequestSheetState extends State<_TransportRequestSheet> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'Patient transport is not enabled for this hospital.',
+                        AppStrings.of(context).transportDisabledBanner,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onErrorContainer,
                         ),

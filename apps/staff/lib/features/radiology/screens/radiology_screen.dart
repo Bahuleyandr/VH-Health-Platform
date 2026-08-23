@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:vhhealth_core/services/realtime_client.dart';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -47,10 +49,35 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     'corrected',
   ];
 
+  StreamSubscription<dynamic>? _realtimeSub;
+  Timer? _realtimeDebounce;
+
+  Future<void> _attachRealtime() async {
+    // Live board updates (once-over train F): the backend already broadcasts
+    // on staff:radiology — subscribe like the bed board does.
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    _realtimeSub = rt.events('staff:radiology').listen((_) {
+      _realtimeDebounce?.cancel();
+      _realtimeDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        _fetchWorklist();
+      });
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _fetchWorklist();
+    _attachRealtime();
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    _realtimeDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchWorklist() async {

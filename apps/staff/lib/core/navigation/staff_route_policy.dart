@@ -328,6 +328,11 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/dental', anyFeatureIds: {'dental_charting'}),
     StaffRouteMetadata('/med-rec', anyFeatureIds: {'med_rec'}),
     StaffRouteMetadata('/transport', anyFeatureIds: {'patient_transport'}),
+    StaffRouteMetadata(
+      '/scheduling-workbench',
+      anyFeatureIds: {'scheduling_workbench'},
+    ),
+    StaffRouteMetadata('/perfusion', anyFeatureIds: {'perfusion'}),
     StaffRouteMetadata('/physiotherapy', anyFeatureIds: {'physiotherapy'}),
     StaffRouteMetadata('/transplant', anyFeatureIds: {'transplant_program'}),
     StaffRouteMetadata('/theatre', anyFeatureIds: {'theatre'}),

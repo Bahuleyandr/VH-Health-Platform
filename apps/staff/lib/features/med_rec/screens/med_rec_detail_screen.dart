@@ -182,10 +182,7 @@ class _MedRecDetailScreenState extends State<MedRecDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(AppStrings.of(context).medRecCompleteConfirm),
-        content: const Text(
-          'Every medication needs a documented decision. The backend will '
-          'refuse completion while discrepancies remain unresolved.',
-        ),
+        content: Text(AppStrings.of(context).medRecCompleteHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -297,7 +294,7 @@ class _MedRecDetailScreenState extends State<MedRecDetailScreen> {
             padding: const EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Text(
-                'No medications were found on any source list.',
+                AppStrings.of(context).medRecNoSources,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

@@ -126,6 +126,8 @@ import '../../features/dietary/screens/kitchen_screen.dart';
 import '../../features/dental/screens/dental_screen.dart';
 import '../../features/med_rec/screens/med_rec_screen.dart';
 import '../../features/transport/screens/transport_tasks_screen.dart';
+import '../../features/scheduling/screens/scheduling_workbench_screen.dart';
+import '../../features/perfusion/screens/perfusion_record_screen.dart';
 import '../../features/physio/screens/physio_screen.dart';
 import '../../features/transplant/screens/transplant_program_screen.dart';
 
@@ -1091,6 +1093,21 @@ final GoRouter appRouter = GoRouter(
               ),
             );
           },
+        ),
+        GoRoute(
+          path: '/scheduling-workbench',
+          name: 'scheduling-workbench',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: SchedulingWorkbenchScreen()),
+        ),
+        GoRoute(
+          path: '/perfusion',
+          name: 'perfusion',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: PerfusionRecordScreen(
+              theatreCaseRef: state.uri.queryParameters['case_ref'],
+            ),
+          ),
         ),
         GoRoute(
           path: '/transport',

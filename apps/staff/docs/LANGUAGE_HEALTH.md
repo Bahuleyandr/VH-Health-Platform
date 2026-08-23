@@ -138,3 +138,13 @@ otherwise). Their strings queue for the next translator pass alongside the
 specialty-module backlog. The verifier heuristic now also catches English
 assigned to error/message state variables — the blind spot that hid the MAR
 hard-stop message (now localized ×5 with `mar_scan.mismatch_blocked`).
+
+## Unused-getter headline overstates (2026-08-23, once-over train F)
+
+The verifier's "declared but never called: N" counts GETTERS, but several
+key families are consumed dynamically via `AppStrings.lookup('<key>')`
+(e.g. `appt_queue.notes_optional` from three screens) or from the
+front-office workbench dialogs — deleting by that list would break live
+strings. A safe purge needs per-key cross-referencing of getter calls AND
+dynamic lookups; deliberately deferred to the translator-review pass
+rather than done mechanically.

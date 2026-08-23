@@ -240,7 +240,7 @@ class _MedRecScreenState extends State<MedRecScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 32),
                         child: Center(
                           child: Text(
-                            'No reconciliations yet for this patient.',
+                            AppStrings.of(context).medRecNoneYet,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
