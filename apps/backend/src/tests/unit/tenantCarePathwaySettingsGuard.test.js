@@ -1,10 +1,14 @@
 import { jest } from '@jest/globals';
 
 const queryRawMock = jest.fn();
+// createTenant's post-insert provisioning (entitlement seed, TAT threshold
+// copies — once-over trains A/B) runs through $executeRawUnsafe.
+const executeRawMock = jest.fn().mockResolvedValue(1);
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryRawMock,
+    $executeRawUnsafe: executeRawMock,
   },
 }));
 
@@ -43,6 +47,8 @@ const INVALID_SETTINGS_ROOTS = [
 describe('tenant care-pathway settings mutation boundary', () => {
   beforeEach(() => {
     queryRawMock.mockReset();
+    executeRawMock.mockReset();
+    executeRawMock.mockResolvedValue(1);
   });
 
   it.each(RESERVED_SETTINGS)(
