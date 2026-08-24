@@ -2,6 +2,8 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { sendSMS } from '../../services/smsService.js';
 import { sendEmail } from './sendEmailNotification.js';
 import { notificationOutbox } from './notificationOutbox.js';
@@ -32,6 +34,42 @@ function normalizeSmsProviderResult(result) {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Tenant to stamp on the in-app `notifications` row.
+ *
+ * `notifications.tenant_id` DEFAULTs to the GUC-reading expression migration
+ * 310 installed, which falls back to the LITERAL default tenant whenever
+ * `app.current_tenant_id` is unset, empty, or `'bypass'`. That covers every
+ * path this dispatcher actually runs on outside a request with RLS
+ * enforcement on: a bare `prisma.$transaction`, a SUPER_ADMIN bypass context,
+ * a cron that never entered `runInTenantContext`, and all of dev/QA/CI (where
+ * `AUTH_ENFORCE_TENANT_RLS` is off so the prisma wrapper never issues the
+ * GUC at all). In each of those the row lands on the default tenant and is
+ * invisible to the recipient, whose reader filters
+ * `WHERE ... AND tenant_id = $n` (notificationService). CRITICAL vital-sign
+ * alerts route through here, so the tenant is bound explicitly — the provable
+ * form (PR #684 house rule) rather than relying on session context.
+ *
+ * Context wins over the recipient row because the caller's tenant is what the
+ * RLS WITH CHECK will be evaluated against; a recipient resolved into a
+ * DIFFERENT tenant is a cross-tenant misroute, not something to paper over, so
+ * it is refused terminally instead of being written into either tenant.
+ */
+function resolveInAppTenantId(user) {
+  const contextTenant = String(getCurrentTenantId() || '').trim();
+  const recipientTenant = String(user?.tenant_id || '').trim();
+  if (contextTenant && recipientTenant
+      && contextTenant.toLowerCase() !== recipientTenant.toLowerCase()) {
+    throw Object.assign(
+      new Error('Recipient belongs to a different tenant than the dispatch context'),
+      { code: 'recipient_tenant_mismatch' },
+    );
+  }
+  // Fails closed on no tenant at all unless ALLOW_DEFAULT_TENANT sanctions the
+  // single-tenant default (W1 no-default-tenant-fallback rule).
+  return requireTenantId(contextTenant || recipientTenant || null);
+}
 
 /**
  * Unified notification dispatcher.
@@ -90,14 +128,14 @@ export async function dispatch({
 
     const res = UUID_RE.test(identifier)
       ? await prisma.$queryRawUnsafe(
-        `SELECT id, uid, phone, email, name, device_token, preferred_channel
+        `SELECT id, uid, phone, email, name, device_token, preferred_channel, tenant_id
          FROM users
          WHERE uid = $1::uuid OR phone = $1
          LIMIT 1`,
         identifier
       )
       : await prisma.$queryRawUnsafe(
-        `SELECT id, uid, phone, email, name, device_token, preferred_channel
+        `SELECT id, uid, phone, email, name, device_token, preferred_channel, tenant_id
          FROM users
          WHERE id::text = $1 OR phone = $1
          LIMIT 1`,
@@ -181,11 +219,15 @@ export async function dispatch({
   // In-app notification
   if (channels.includes('inapp')) {
     try {
+      const inAppTenantId = resolveInAppTenantId(user);
       const stored = await prisma.$queryRawUnsafe(
-        `INSERT INTO notifications (user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
-         VALUES ($1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
+        // tenant_id is bound explicitly ($7) rather than left to the column
+        // DEFAULT — see resolveInAppTenantId above for why the DEFAULT is not
+        // enough on the paths this dispatcher runs on.
+        `INSERT INTO notifications (tenant_id, user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
+         VALUES ($7::uuid, $1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
          RETURNING id`,
-        user.id, user.uid, user.phone, title, body, type
+        user.id, user.uid, user.phone, title, body, type, inAppTenantId
       );
       results.inapp = providerReceiptMode
         ? {
@@ -197,8 +239,12 @@ export async function dispatch({
         : 'stored';
     } catch (err) {
       logger.error(`Notification dispatch [inapp] failed for ${userId}: ${err.message}`);
+      // A tenant mismatch is terminal — a retry re-derives the same two tenants,
+      // so it must not be classified `uncertain` and re-queued forever.
       results.inapp = providerReceiptMode
-        ? uncertain('inapp_commit_failed', err)
+        ? (err?.code === 'recipient_tenant_mismatch'
+          ? rejected('recipient_tenant_mismatch')
+          : uncertain('inapp_commit_failed', err))
         : 'error';
     }
   }

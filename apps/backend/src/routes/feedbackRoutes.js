@@ -63,10 +63,13 @@ wrapAutoRBAC(
       ['/quick-rating', feedbackController.submitQuickRating],
 
       // 📈 NPS Rating (0-10, stored separately from 1-5 star feedback)
-      ['/nps', sanitizeFeedbackFields, feedbackController.submitNpsResponse],
+      ['/nps', sanitizeFeedbackFields, feedbackController.submitNpsResponse]
 
-      // 💬 Respond to Feedback (Staff access)
-      ['/respond', feedbackController.respondToFeedback]
+      // NOTE: `POST /respond` (staff reply to an Ask-a-Doubt question) was
+      // removed in the re-audit I tenancy sweep — its service wrote to
+      // `feedback_responses`, a table that exists in no migration, so the
+      // path always 500'd and stored nothing. Staff follow-up belongs on the
+      // `/nps` service-recovery surface above.
     ],
 
     delete: [

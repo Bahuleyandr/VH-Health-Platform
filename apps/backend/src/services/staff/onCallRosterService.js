@@ -338,13 +338,19 @@ export async function endOnCallAssignment({ id, reason = null, actorUser, tenant
     );
     try {
       await tx.$executeRawUnsafe(
+        // Same idiom as the assign side above: tenant_id stamped from the
+        // recipient row and the lookup tenant-filtered. A bare
+        // prisma.$transaction leaves app.current_tenant_id unset, so the column
+        // DEFAULT would land this notice on the literal default tenant —
+        // invisible to the recipient's tenant-filtered notification list.
         `INSERT INTO notifications
-           (uid, user_id, phone, title, body, type, priority, data, is_read,
+           (tenant_id, uid, user_id, phone, title, body, type, priority, data, is_read,
             created_at, updated_at, recipient_role)
-         SELECT u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'ON_CALL', 'NORMAL', $3::jsonb,
+         SELECT u.tenant_id, u.uid, u.id, COALESCE(u.phone, ''), $1, $2, 'ON_CALL', 'NORMAL', $3::jsonb,
                 false, NOW(), NOW(), u.role
            FROM users u
-          WHERE u.id = $4::int`,
+          WHERE u.id = $4::int
+            AND u.tenant_id = $5::uuid`,
         'On-call duty ended',
         `Your on-call stint for ${existing.department} was ended${reason ? `: ${reason}` : ''}.`,
         JSON.stringify({
@@ -352,7 +358,8 @@ export async function endOnCallAssignment({ id, reason = null, actorUser, tenant
           department: existing.department,
           source: 'on_call_ended',
         }),
-        existing.staff_id
+        existing.staff_id,
+        tenant
       );
     } catch (err) {
       logger.warn('On-call end notification failed', { id: assignmentId, error: err.message });

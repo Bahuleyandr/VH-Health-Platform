@@ -1,5 +1,9 @@
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  recordCriticalThresholdLookup,
+} from '../../observability/labCriticalThresholdMetrics.js';
 
 const CRITICAL_THRESHOLD_ALIASES = [
   {
@@ -107,6 +111,40 @@ export async function assertConfiguredCriticalAnalytesNumeric({
   }
 }
 
+/**
+ * Count one lookup that matched no active threshold for this tenant.
+ *
+ * DELIBERATELY ISSUES NO QUERY. An earlier revision probed here to separate
+ * "this analyte has no limit" (ordinary) from "this tenant has none at all"
+ * (the tenancy defect) — but every production caller passes its OPEN
+ * TRANSACTION as `client`, and a failed statement aborts that transaction in
+ * Postgres. The catch swallowed the JS rejection while the next write died
+ * with 25P02, so an observability probe could stop a lab result being
+ * recorded — the exact failure this whole change set exists to prevent, and
+ * the transaction-boundary trap documented in apps/backend/CLAUDE.md.
+ *
+ * The tenant-wide question is answered out of band by the canary check, which
+ * runs on its own connection outside any clinical transaction.
+ *
+ * @param {object} args
+ * @param {string} args.tenantId
+ * @param {object} args.result   the lab result row being evaluated
+ * @returns {void}
+ */
+function noteUnmatchedCriticalThreshold({ tenantId, result }) {
+  try {
+    recordCriticalThresholdLookup('unmatched');
+  } catch (err) {
+    logger.warn('lab critical threshold: lookup metric failed', {
+      tenantId,
+      outcome: 'unmatched',
+      test_code: result?.test_code || null,
+      loinc_code: result?.loinc_code || null,
+      err: err?.message,
+    });
+  }
+}
+
 export async function evaluateCriticalThreshold({ client = prisma, tenantId, result }) {
   if (result.value_numeric == null) {
     return { matched: false, breached: false, evaluatedValue: null };
@@ -144,11 +182,21 @@ export async function evaluateCriticalThreshold({ client = prisma, tenantId, res
     result.test_code ? String(result.test_code).trim().toUpperCase() : null,
   );
   if (!thresholds.length) {
+    // Observability only: an in-memory counter, no statement on the caller's
+    // transaction. See noteUnmatchedCriticalThreshold above.
+    noteUnmatchedCriticalThreshold({ tenantId, result });
     return {
       matched: false,
       breached: false,
       evaluatedValue: Number(result.value_numeric),
     };
+  }
+  try {
+    recordCriticalThresholdLookup('matched');
+  } catch (err) {
+    logger.warn('lab critical threshold: lookup metric failed', {
+      tenantId, outcome: 'matched', err: err?.message,
+    });
   }
 
   const bestRank = Math.min(...thresholds.map((row) => Number(row.match_rank ?? 0)));

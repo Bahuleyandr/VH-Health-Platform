@@ -193,7 +193,10 @@ function task(extra = {}) {
 }
 
 // The engine performs, per tenant, in order:
-//   q1: list distinct tenant ids with active task-scope rules  (singleton prisma)
+//   q1: list EVERY ACTIVE TENANT from `tenants`               (singleton prisma)
+//       (it used to list only tenants owning an active task-scope rule, which
+//        skipped the rule-independent overdue pass and backfill backstop for
+//        every other tenant — see 'sweeps a tenant that owns no rules' below)
 //   then per tenant inside setTenantTx:
 //     q2: UPDATE ... overdue-marking (returns affected rows)
 //     q3: SELECT active rules
@@ -252,6 +255,21 @@ describe('eligibility semantic mirror', () => {
     expect(__testing__.alreadyFired(metadata, '8')).toBe(true);
     expect(__testing__.alreadyFired(metadata, 9)).toBe(false);
     expect(__testing__.alreadyFired({ escalations: null }, 5)).toBe(false);
+  });
+
+  it('does NOT dedupe by tier: a second same-tier rule still fires on the same task', () => {
+    // This is why tenant provisioning must dedupe on the SEMANTIC tier identity
+    // (scope, trigger_condition, match_filter->>'sla_key', action_payload->>'tier')
+    // rather than on display_name: a platform rule copied alongside a tenant's
+    // own differently-labelled tier-2 would page the same breach twice, because
+    // the marker below is per rule id and the engine has no tier-level guard.
+    const alreadyFiredTier2 = { escalations: [{ rule_id: 5, tier: 2, action: 'notify' }] };
+    expect(__testing__.alreadyFired(alreadyFiredTier2, 5)).toBe(true);
+    expect(__testing__.alreadyFired(alreadyFiredTier2, 6)).toBe(false);
+    // The SQL arm of the same rule matches the marker on rule_id alone.
+    const { where } = __testing__.buildEligibilitySql({ trigger_condition: 'sla_breach' });
+    expect(where).toContain("fired.entry ->> 'rule_id' = $7::text");
+    expect(where).not.toContain("->> 'tier'");
   });
 });
 
@@ -940,9 +958,56 @@ describe('runEscalationSweep', () => {
   });
 
   it('returns a zeroed counter set and does not throw when there are no tenants', async () => {
-    queryRawMock.mockResolvedValueOnce([]); // q1 → no tenants with rules
+    queryRawMock.mockResolvedValueOnce([]); // q1 → no active tenants
     const res = await runEscalationSweep({ now: NOW });
     expect(res).toMatchObject({ scanned: 0, escalated: 0, autoResolved: 0, backfilled: 0 });
+  });
+
+  it('discovers tenants from the tenants table, never from escalation_rules', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }]) // q1 tenants
+      .mockResolvedValueOnce([]) // q2 overdue-marking
+      .mockResolvedValueOnce([]) // q3 rules
+      .mockResolvedValueOnce([]); // q5 backfill
+
+    await runEscalationSweep({ now: NOW });
+
+    // The discovery read is the first query and must not key off the rules
+    // table: escalation_rules was seeded default-tenant-only (mig 312/393/414),
+    // so a rules-derived tenant set silently excluded every other tenant.
+    const discoverySql = queryRawMock.mock.calls[0][0];
+    expect(discoverySql).toMatch(/FROM\s+tenants/i);
+    expect(discoverySql).toMatch(/status\s*=\s*'active'/i);
+    expect(discoverySql).not.toMatch(/escalation_rules/i);
+    expect(discoverySql).not.toMatch(/DISTINCT/i);
+  });
+
+  it('sweeps a tenant that owns no rules: overdue pass and backfill backstop still run', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }]) // q1 tenants (no rules at all)
+      .mockResolvedValueOnce([{ id: 11 }, { id: 12 }]) // q2 overdue-marking → 2 rows
+      .mockResolvedValueOnce([]) // q3 rules → none for this tenant
+      .mockResolvedValueOnce([{ // q5 backfill: orphan breached instance
+        id: 'sla-orphan-2',
+        tenant_id: TENANT,
+        rule_code: 'critical_result_ack',
+        patient_uid: PATIENT,
+        source_table: 'lab_result',
+        source_id: '789',
+        priority: 'critical',
+        metadata: { source: 'lab_result' },
+      }]);
+
+    const res = await runEscalationSweep({ now: NOW });
+
+    // Both rule-independent passes did their work for a rule-less tenant —
+    // the exact combination the old rules-derived discovery skipped entirely.
+    expect(res.markedOverdue).toBe(2);
+    expect(res.backfilled).toBe(1);
+    expect(enqueueCriticalResultTaskMock)
+      .toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, resourceId: '789' }));
+    // ...and nothing was escalated, because escalation genuinely needs a rule.
+    expect(res).toMatchObject({ scanned: 0, escalated: 0, autoResolved: 0 });
   });
 });
 

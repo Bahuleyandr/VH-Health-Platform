@@ -111345,26 +111345,6 @@
         }
       }
     },
-    "/api/v1/feedback/respond": {
-      "post": {
-        "operationId": "post_api_v1_feedback_respond",
-        "tags": [
-          "feedback"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/feedback/test": {
       "get": {
         "operationId": "get_api_v1_feedback_test",

@@ -38,10 +38,11 @@
 // row sets tenant_id EXPLICITLY, because raw inserts run with
 // app.current_tenant_id unset and an omitted tenant_id silently falls to the
 // column DEFAULT (the default tenant). The mig-312 tier rules are CLONED from the
-// default tenant rather than restated, both so the fixture cannot drift from the
-// migration and so runEscalationSweep's tenant discovery (SELECT DISTINCT
-// tenant_id FROM escalation_rules WHERE is_active AND scope='task') reaches this
-// tenant at all. TENANT_DECOY carries its own users in the same roles so the
+// default tenant rather than restated so the fixture cannot drift from the
+// migration — the same copy migration 728 and tenantService.createTenant now
+// perform for real tenants. (The clone is no longer what makes the sweep VISIT
+// this tenant: discovery reads `tenants WHERE status='active'`. It is what gives
+// the tenant tiers to fire.) TENANT_DECOY carries its own users in the same roles so the
 // scoping assertions are proofs rather than statements about an empty database.
 //
 // Roles are kept DISJOINT across tests (DUTY_DOCTOR / CONSULTANT / CNO) so the

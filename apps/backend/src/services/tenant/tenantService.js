@@ -8,8 +8,13 @@ import {
   RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY,
   serializeGenericTenantSettings,
 } from './tenantSettingsMutationPolicy.js';
+import {
+  DEFAULT_TENANT_ID,
+  TENANT_PROVISIONING_REGISTRY,
+  buildTenantCopySql,
+} from './tenantProvisioningRegistry.js';
 
-export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+export { DEFAULT_TENANT_ID };
 
 const VALID_REGIONS = new Set(['IN', 'EU', 'US', 'AP', 'OTHER']);
 const VALID_COMPLIANCE_PROFILES = new Set(['DPDP', 'HIPAA', 'GDPR', 'NONE']);
@@ -157,28 +162,29 @@ export async function createTenant(data = {}) {
     rows[0].id,
   );
 
-  // Copy the platform-baseline TAT thresholds from the default tenant so the
-  // new tenant's radiology/AP TAT dashboards and breach alerts work from day
-  // one (once-over 2026-08-23: the views drop unthresholded orders, so a
-  // tenant without rows rendered empty metrics silently; migration 727
-  // backfilled existing tenants the same way).
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO radiology_tat_thresholds
-       (tenant_id, priority, modality, target_minutes, warning_minutes, critical_minutes, metadata)
-     SELECT $1::uuid, d.priority, d.modality, d.target_minutes, d.warning_minutes, d.critical_minutes, d.metadata
-       FROM radiology_tat_thresholds d
-      WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-     ON CONFLICT DO NOTHING`,
-    rows[0].id,
-  );
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO ap_tat_thresholds (tenant_id, case_kind, priority, target_hours, is_active)
-     SELECT $1::uuid, d.case_kind, d.priority, d.target_hours, d.is_active
-       FROM ap_tat_thresholds d
-      WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-     ON CONFLICT (tenant_id, case_kind, priority) DO NOTHING`,
-    rows[0].id,
-  );
+  // Inherit the platform-baseline tenant-scoped config from the default tenant.
+  //
+  // WHAT is copied is declared once in tenantProvisioningRegistry.js and shared
+  // with the backfill migrations (727, 728) — this loop used to be a
+  // hand-maintained pair of copy blocks, which is precisely how
+  // lab_critical_thresholds and escalation_rules came to be missing (once-over
+  // 2026-08-23). To provision one more table, add a registry entry and its
+  // backfill migration; nothing here changes.
+  //
+  // lab_critical_thresholds is NOT one of the copied tables. It was in the
+  // registry through two rounds of review and was withdrawn — a new tenant born
+  // with copied critical limits but no agreeing lab_reference_ranges has its lab
+  // results REJECTED, not merely unalerted. That header explains it; the
+  // remaining gap is parked in docs/ROADMAP.md.
+  //
+  // A failure here still propagates, exactly as the two hand-written copies did.
+  // Swallowing it would hand back a tenant whose TAT thresholds, escalation
+  // tiers and SLA clocks are silently empty — the failure mode this loop exists
+  // to remove. Every copy is idempotent, so re-running createTenant's
+  // provisioning after a fixed fault is safe.
+  for (const entry of TENANT_PROVISIONING_REGISTRY) {
+    await prisma.$executeRawUnsafe(buildTenantCopySql(entry), rows[0].id);
+  }
 
   invalidateCache(rows[0].id);
   return rows[0];

@@ -16,7 +16,18 @@ import {
 } from '../../utils/notification/notificationHelpers.js';
 import { notificationService } from './notificationService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+
+// `notifications` has no `message`, `sender_id` or `created_by` column — the
+// table's entire DDL is 000_baseline.sql + 088 (user_id/recipient_role/
+// related_id) + 263 (tenant_id). The four INSERTs below named those phantom
+// columns and so raised 42703 on every call, which is why every admin
+// notification endpoint 500'd. Message text belongs in `body`; the actor is
+// recorded in the `data` payload. They also all omitted `updated_at`, which is
+// NOT NULL with no DEFAULT (baseline 000) — a second, independent 23502.
+const adminNotificationTenant = user => requireTenantId(user?.tenantId || user?.tenant_id);
+const recipientPhone = value => normalizePhone(value || '') || 'unknown';
 
 
 const attachQueryMetadata = (rows, rowCount = rows.length) => {
@@ -275,12 +286,19 @@ export const adminNotificationService = {
     try {
       const { phones, title, body, type = 'general' } = data;
 
+      const tenantId = adminNotificationTenant(user);
+      const actorData = JSON.stringify({ created_by: user?.uid || 'admin' });
       const inserts = phones.map(phone => {
-        const normalized = normalizePhone(phone);
+        const normalized = recipientPhone(phone);
         return query(
-          `INSERT INTO notifications (phone, title, body, type, created_at, is_read, created_by)
-           VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
-          [normalized, title, body, type, user?.uid || 'admin']
+          // tenant_id bound explicitly ($5): the column DEFAULT reads
+          // app.current_tenant_id and falls back to the literal default tenant
+          // whenever that GUC is unset, so these rows would be filed against
+          // the wrong tenant and never reach the recipient's tenant-filtered
+          // notification list.
+          `INSERT INTO notifications (phone, title, body, type, created_at, updated_at, is_read, tenant_id, data)
+           VALUES ($1, $2, $3, $4, NOW(), NOW(), false, $5::uuid, $6::jsonb)`,
+          [normalized, title, body, type, tenantId, actorData]
         );
       });
 
@@ -336,20 +354,22 @@ export const adminNotificationService = {
       }
       
       // Create notifications for all target users
+      const tenantId = adminNotificationTenant(user);
+      const senderData = JSON.stringify({ sender_id: sender_id || user?.uid || null });
       const notifications = targetUsers.map(targetUser => [
-        targetUser.id, title, message, NOTIFICATION_TYPES.ANNOUNCEMENT, priority.toUpperCase(), 
-        sender_id || user?.uid, scheduled_for, false, targetUser.phone
+        targetUser.id, title, message, NOTIFICATION_TYPES.ANNOUNCEMENT, priority.toUpperCase(),
+        senderData, scheduled_for, false, recipientPhone(targetUser.phone), tenantId
       ]);
-      
+
       const values = notifications.map((_, index) => {
-        const offset = index * 9;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, NOW(), $${offset + 9})`;
+        const offset = index * 10;
+        return `($${offset + 1}::int, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}::jsonb, $${offset + 7}::timestamp, $${offset + 8}::boolean, NOW(), NOW(), $${offset + 9}, $${offset + 10}::uuid)`;
       }).join(', ');
-      
+
       const flatParams = notifications.flat();
-      
+
       const result = await query(`
-        INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
+        INSERT INTO notifications (user_id, title, body, type, priority, data, scheduled_for, is_read, created_at, updated_at, phone, tenant_id)
         VALUES ${values}
         RETURNING id, user_id
       `, flatParams);
@@ -416,24 +436,26 @@ export const adminNotificationService = {
       }
       
       // Create notifications
+      const tenantId = adminNotificationTenant(user);
+      const senderData = JSON.stringify({ sender_id: sender_id || user?.uid || null });
       const notifications = userCheck.map(targetUser => [
         targetUser.id, title, message, type.toUpperCase(), priority.toUpperCase(),
-        sender_id || user?.uid, scheduled_for, false, targetUser.phone
+        senderData, scheduled_for, false, recipientPhone(targetUser.phone), tenantId
       ]);
-      
+
       const values = notifications.map((_, index) => {
-        const offset = index * 9;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, NOW(), $${offset + 9})`;
+        const offset = index * 10;
+        return `($${offset + 1}::int, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}::jsonb, $${offset + 7}::timestamp, $${offset + 8}::boolean, NOW(), NOW(), $${offset + 9}, $${offset + 10}::uuid)`;
       }).join(', ');
-      
+
       const flatParams = notifications.flat();
-      
+
       const result = await query(`
-        INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
+        INSERT INTO notifications (user_id, title, body, type, priority, data, scheduled_for, is_read, created_at, updated_at, phone, tenant_id)
         VALUES ${values}
         RETURNING id, user_id
       `, flatParams);
-      
+
       logger.info(`Targeted notifications sent to ${userCheck.length} users by ${user?.uid}`);
       
       return {
@@ -590,24 +612,29 @@ async performBulkOperations(data, user) {
       }
       
       // Create notifications
+      const tenantId = adminNotificationTenant(user);
+      const senderData = JSON.stringify({
+        sender_id: sender_id || user?.uid || null,
+        template_id: template.id ?? null,
+      });
       const notifications = userCheck.map(targetUser => [
         targetUser.id, title, message, template.type, template.priority,
-        sender_id || user?.uid, scheduled_for, false, targetUser.phone
+        senderData, scheduled_for, false, recipientPhone(targetUser.phone), tenantId
       ]);
-      
+
       const values = notifications.map((_, index) => {
-        const offset = index * 9;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, NOW(), $${offset + 9})`;
+        const offset = index * 10;
+        return `($${offset + 1}::int, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}::jsonb, $${offset + 7}::timestamp, $${offset + 8}::boolean, NOW(), NOW(), $${offset + 9}, $${offset + 10}::uuid)`;
       }).join(', ');
-      
+
       const flatParams = notifications.flat();
-      
+
       const result = await query(`
-        INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
+        INSERT INTO notifications (user_id, title, body, type, priority, data, scheduled_for, is_read, created_at, updated_at, phone, tenant_id)
         VALUES ${values}
         RETURNING id, user_id
       `, flatParams);
-      
+
       logger.info(`Template-based notifications sent to ${userCheck.length} users by ${user?.uid}`);
       
       return {

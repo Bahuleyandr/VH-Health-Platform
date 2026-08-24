@@ -8,7 +8,9 @@
 // calls runEscalationSweep, which evaluates active rules against overdue tasks
 // / breached mig-269 SLA instances and FIRES the configured actions.
 //
-// What it does, per sweep (design §4.3):
+// What it does, per sweep (design §4.3), for EVERY ACTIVE TENANT — (a) and (c)
+// are rule-independent, so the tenant set is `tenants WHERE status='active'`,
+// never "tenants that happen to own an escalation rule":
 //   (a) marks open tasks past due_at as 'overdue' — blocked tasks keep their
 //       status: blocked→overdue is not a TASK_TRANSITIONS edge, and because
 //       overdue→completed IS one, flipping would make blocked work directly
@@ -862,6 +864,21 @@ function taskStatusEligibilitySql() {
   )`;
 }
 
+// The fired marker is keyed on the RULE ID, not on the tier. Two active rules
+// carrying the same action_payload.tier are two independent markers, so both
+// fire on the same task and one breach pages twice.
+//
+// That is deliberate here — this engine cannot tell whether two same-tier rules
+// are a misconfiguration or two genuinely different populations, and
+// suppressing one would silently drop a page. It does mean the rule SET must
+// not contain a duplicate tier for a task's SLA family, which is a provisioning
+// invariant, not one this function can enforce:
+// tenantProvisioningRegistry's escalation_rules guard therefore keys on
+// (scope, trigger_condition, match_filter->>'sla_key', action_payload->>'tier')
+// so a tenant that authored its own tier never also receives the platform one.
+// Do not weaken that guard back to display_name — a label collision is not a
+// tier collision. An operator can still author a duplicate tier through
+// taskService.upsertEscalationRule; that path is unguarded today.
 function firedMarkerEligibilitySql() {
   return `NOT EXISTS (
     SELECT 1
@@ -984,6 +1001,11 @@ async function claimEligibleCandidate(tx, { tenantId, taskId, ruleRow, clock }) 
  * instances for every tenant, firing actions once per tier, plus a backfill
  * backstop. Best-effort + idempotent + tenant-scoped.
  *
+ * Sweeps EVERY ACTIVE TENANT, not only the ones that own an active task-scope
+ * rule: the overdue-state pass and the orphan-SLA backstop do not need a rule,
+ * and gating the whole loop on the rules table silently disabled both for any
+ * tenant without one.
+ *
  * Runs from the scheduler inside runWithSuperAdmin (GUC='bypass'), so the
  * initial tenant-discovery read sees every tenant; the per-tenant work then
  * re-scopes via setTenantTx so RLS-guarded writes stay tenant-isolated and
@@ -1003,13 +1025,35 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
 
   let tenants = [];
   try {
-    // Tenants that actually have active task-scope escalation rules. Keeps a
-    // single-tenant deployment to one iteration and avoids touching tenants
-    // with nothing to evaluate. Read on the singleton (super-admin context).
+    // EVERY active tenant — the same discovery shape utils/tenantFanout.js uses
+    // for the fanned-out crons. This deliberately no longer keys off
+    // escalation_rules.
+    //
+    // It used to read `SELECT DISTINCT tenant_id FROM escalation_rules WHERE
+    // is_active AND scope='task'`, on the reasoning that a tenant with no rules
+    // has nothing to evaluate. That was wrong for two of the three passes: only
+    // the per-rule tier firing needs a rule. The open→overdue state pass and the
+    // orphan-SLA backfill BACKSTOP are rule-independent, and a tenant with no
+    // active task-scope rule was skipped entirely — so its overdue tasks never
+    // flipped status and a breached critical-result SLA that lost its task was
+    // never re-created. Because escalation_rules was seeded default-tenant-only
+    // (re-audit 2026-08-24; migration 728 backfills it), that was every tenant
+    // but one. Rule-less tenants now still cost one cheap UPDATE and one indexed
+    // SELECT each, and contribute nothing to the escalated/autoResolved counters.
+    //
+    // The `status = 'active'` filter is the one narrowing this change makes: a
+    // suspended/offboarding tenant that still held active rules used to be
+    // swept and now is not. That matches discoverActiveTenants() in
+    // utils/tenantFanout.js, i.e. every other per-tenant cron on the platform —
+    // a suspended tenant is not being run, so it must not be paging clinicians.
+    //
+    // Read on the singleton (super-admin context); the per-tenant work re-scopes
+    // via setTenantTx.
     tenants = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT tenant_id
-         FROM escalation_rules
-        WHERE is_active = TRUE AND scope = 'task'`,
+      `SELECT id AS tenant_id
+         FROM tenants
+        WHERE status = 'active'
+        ORDER BY id`,
     );
   } catch (err) {
     logger.error('escalation sweep: tenant discovery failed', { err: err?.message });

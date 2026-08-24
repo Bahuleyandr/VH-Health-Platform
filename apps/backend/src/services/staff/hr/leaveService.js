@@ -376,14 +376,22 @@ export const applyForLeave = async (leaveData) => {
     });
     if (supervisor?.users?.phone) {
       const fmt = (d) => d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      // tenant_id stamped from the same resolved tenant the leave rows carry;
+      // the column DEFAULT reads app.current_tenant_id and falls back to the
+      // literal default tenant when that GUC is unset, which would hide the
+      // approval request from the supervisor's tenant-filtered list.
+      // `updated_at` is NOT NULL with no DEFAULT — omitting it made this create
+      // throw, so the supervisor was never notified at all.
       await prisma.notifications.create({
         data: {
+          tenant_id: tenantId,
           user_id: supervisor.users.id,
           phone: supervisor.users.phone,
           title: 'Leave Application Pending Approval',
           body: `${staff.name} has applied for ${leave_type} from ${fmt(startDate)} to ${fmt(endDate)}`,
           type: 'leave_application',
           related_id: application.id,
+          updated_at: new Date(),
         },
       });
     }

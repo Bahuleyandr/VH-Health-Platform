@@ -2023,13 +2023,17 @@ export async function notifyPatientResultRecipients({
     // In-app feed row — what GET /api/v1/notifications/my reads.
     try {
       await prisma.$executeRawUnsafe(
+        // tenant_id bound explicitly ($8) — the recipients above are already
+        // tenant-filtered, and the column DEFAULT falls back to the literal
+        // default tenant whenever app.current_tenant_id is unset, which would
+        // hide the row from the patient's tenant-filtered inbox.
         `INSERT INTO notifications
-           (uid, user_id, phone, title, body, type, priority,
+           (tenant_id, uid, user_id, phone, title, body, type, priority,
             data, is_read, created_at, updated_at)
-         VALUES ($1::uuid, $2::int, $3, $4, $5, $6,
+         VALUES ($8::uuid, $1::uuid, $2::int, $3, $4, $5, $6,
                  'NORMAL', $7::jsonb, false, NOW(), NOW())`,
         rcpt.uid, rcpt.id, normalizePhone(rcpt.phone),
-        title, body, type, JSON.stringify(data),
+        title, body, type, JSON.stringify(data), tenantId,
       );
     } catch (e) {
       logger.warn(`Lab ${type} in-app insert failed for user ${rcpt.id}: ${e.message}`);

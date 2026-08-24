@@ -279,12 +279,19 @@ SENTRY_AUTH_TOKEN, SENTRY_DSN, SENTRY_ORG, SENTRY_PROJECT
 |-------|-------------|
 | `delivery_location_updates` | Real-time delivery GPS tracking |
 
-#### Feedback & SOS (3)
+#### Feedback & SOS (2)
 | Table | Description |
 |-------|-------------|
 | `feedback` | Patient feedback submissions |
-| `feedback_responses` | Admin responses to feedback |
 | `sos_alerts` | Emergency SOS alerts |
+
+> `feedback_responses` was listed here but never existed in any migration or in
+> `000_baseline.sql`. The one service write that targeted it always raised
+> 42P01; the write path and its `POST /api/v1/feedback/respond` mount were
+> removed in the re-audit I tenancy sweep. Staff follow-up on patient feedback
+> lives on the NPS surface instead (`feedback_nps_responses` /
+> `feedback_nps_rollups`, plus a `QUALITY_OFFICER` review task raised by
+> `npsService.createServiceRecoveryTask`).
 
 #### Audit & Logs (7)
 | Table | Description |

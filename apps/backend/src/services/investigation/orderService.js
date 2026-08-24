@@ -354,8 +354,13 @@ export const createInvestigationOrder = async (orderData) => {
   // Notification is best-effort. uid is populated client-side via randomUUID
   // (matches the legacy gen_random_uuid() behavior but avoids the DB
   // round-trip Prisma can't model via @default).
+  // tenant_id bound from the resolved order tenant, not left to the column
+  // DEFAULT — that DEFAULT reads app.current_tenant_id and falls back to the
+  // literal default tenant whenever the GUC is unset, which would hide the
+  // notice from the patient's tenant-filtered notification list.
   await prisma.notifications.create({
     data: {
+      tenant_id: effectiveTenantId,
       uid: randomUUID(),
       phone: patient.phone || 'unknown',
       title: 'New Investigation Ordered',
@@ -500,8 +505,10 @@ export const createLegacyInvestigation = async ({
     return created;
   });
 
+  // Same reason as the order-placed notice above: bind the tenant explicitly.
   await prisma.notifications.create({
     data: {
+      tenant_id: effectiveTenantId,
       uid: randomUUID(),
       phone,
       title: 'Investigation Report Ready',

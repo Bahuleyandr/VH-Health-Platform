@@ -47,6 +47,7 @@ jest.unstable_mockModule('../../utils/notifications/sendWhatsAppNotification.js'
 const { dispatch, resolveDeliveryChannels } = await import(
   '../../utils/notifications/notificationDispatcher.js'
 );
+const { runInTenantContext } = await import('../../lib/tenantContext.js');
 
 describe('resolveDeliveryChannels — preferred_channel → dispatcher channels', () => {
   it('routes a feature-phone patient (sms) to SMS, never a silent push', () => {
@@ -78,6 +79,89 @@ describe('resolveDeliveryChannels — preferred_channel → dispatcher channels'
   it('is case-insensitive on the stored preference', () => {
     expect(resolveDeliveryChannels('SMS')).toEqual(['sms', 'inapp']);
     expect(resolveDeliveryChannels('Print')).toEqual(['print', 'inapp']);
+  });
+});
+
+// The in-app row is the sink CRITICAL vital-sign alerts land in. Its
+// `tenant_id` column DEFAULT reads app.current_tenant_id and falls back to the
+// LITERAL default tenant whenever that GUC is unset — which is every path
+// outside a request with RLS enforcement on. A row stamped with the default
+// tenant is invisible to the recipient, whose reader filters on tenant_id. So
+// the tenant must be bound as a parameter, and a recipient who resolves into a
+// different tenant than the dispatch context must be refused rather than
+// written into either one.
+describe('in-app channel binds tenant_id explicitly', () => {
+  const TENANT = '11111111-1111-4111-8111-111111111111';
+  const OTHER_TENANT = '22222222-2222-4222-8222-222222222222';
+
+  const userRow = tenantId => ({
+    id: 41,
+    uid: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    phone: '+919000000001',
+    email: 'patient@example.test',
+    name: 'Patient',
+    device_token: null,
+    preferred_channel: 'app',
+    tenant_id: tenantId,
+  });
+
+  beforeEach(() => {
+    mockPrisma.$queryRawUnsafe.mockReset();
+  });
+
+  function inAppInsertCall() {
+    return mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /INSERT\s+INTO\s+notifications\b/i.test(String(sql)),
+    );
+  }
+
+  it('names tenant_id and binds the dispatch context tenant', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(TENANT)]);
+
+    const result = await runInTenantContext(TENANT, () => dispatch({
+      userId: '41',
+      title: 'CRITICAL Vital Alert',
+      body: 'SpO2 82%',
+      channels: ['inapp'],
+      type: 'clinical_alert',
+    }));
+
+    expect(result.inapp).toBe('stored');
+    const call = inAppInsertCall();
+    expect(call).toBeDefined();
+    expect(call[0]).toMatch(/INSERT INTO notifications \(tenant_id,/);
+    // The tenant travels as a bound parameter, not as session state.
+    expect(call.slice(1)).toContain(TENANT);
+  });
+
+  it('falls back to the recipient row tenant under a super-admin/cron context', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(OTHER_TENANT)]);
+
+    // No tenant context at all — the cron / bootstrap shape.
+    const result = await dispatch({
+      userId: '41', title: 'Result ready', body: 'Report published',
+      channels: ['inapp'],
+    });
+
+    expect(result.inapp).toBe('stored');
+    expect(inAppInsertCall().slice(1)).toContain(OTHER_TENANT);
+  });
+
+  it('refuses terminally when the recipient belongs to another tenant', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(OTHER_TENANT)]);
+
+    const result = await runInTenantContext(TENANT, () => dispatch({
+      userId: '41', title: 'Cross-tenant', body: 'Must not be written',
+      channels: ['inapp'],
+      providerReceiptMode: true,
+    }));
+
+    expect(result.inapp).toMatchObject({
+      outcome: 'rejected',
+      providerCode: 'recipient_tenant_mismatch',
+    });
+    // Nothing was written into either tenant.
+    expect(inAppInsertCall()).toBeUndefined();
   });
 });
 

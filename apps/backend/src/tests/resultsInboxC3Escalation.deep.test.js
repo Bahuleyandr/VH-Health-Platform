@@ -213,9 +213,10 @@ async function setSlaBreachedAt(slaInstanceId, whenIso, tenantId = TENANT) {
 
 // Copy the mig-312 critical_result_ack tier rules (T1 @0 / T2 @10 / T3 @30) into
 // a suite-owned tenant. Cloned FROM the default-tenant rows rather than restated
-// so the fixture cannot drift from the migration, and so runEscalationSweep's
-// tenant discovery (SELECT DISTINCT tenant_id FROM escalation_rules WHERE
-// is_active AND scope='task') actually reaches this tenant at all.
+// so the fixture cannot drift from the migration — the same copy migration 728
+// and tenantService.createTenant now perform for real tenants. (Since the sweep
+// discovers tenants from `tenants WHERE status='active'`, this clone is what
+// gives the tenant TIERS TO FIRE, not what makes the sweep visit it.)
 async function cloneCriticalResultEscalationRules(tenantId) {
   await prisma.$executeRawUnsafe(
     `INSERT INTO escalation_rules

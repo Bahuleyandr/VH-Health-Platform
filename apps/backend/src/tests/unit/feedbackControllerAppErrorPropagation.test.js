@@ -36,8 +36,6 @@ jest.unstable_mockModule('../../services/feedback/feedbackService.js', () => ({
     getUserByPhone: getUserByPhoneMock,
     submitFeedback: submitFeedbackMock,
     submitQuickRating: submitQuickRatingMock,
-    getFeedbackById: jest.fn(async () => null),
-    respondToFeedback: jest.fn(async () => ({})),
     deleteFeedback: jest.fn(async () => null),
   },
 }));

@@ -11,9 +11,11 @@
  * REMAINING escalation-eligible (blocked is in ESCALATABLE_STATUSES, so tiers
  * still fire on it without a status change).
  *
- * Seeding note: tenant discovery reads DISTINCT tenant_id FROM escalation_rules
- * (active, scope='task'), so the suite always seeds at least one rule — a
- * tenant with tasks but no rules is skipped by the sweep entirely.
+ * Seeding note: tenant discovery reads `tenants WHERE status = 'active'`, so a
+ * tenant with tasks but no rules is swept too — its overdue pass and backfill
+ * backstop run, only the per-rule tiers are skipped. (It used to read DISTINCT
+ * tenant_id FROM escalation_rules, which skipped such a tenant entirely; the
+ * suite still seeds a rule so the with-rules path stays covered.)
  *
  * Assertions here are plain status/metadata reads with no RLS or trigger
  * dependency, so the suite follows escalationSweepAdvancement.deep.test.js and
@@ -153,8 +155,10 @@ describeIfDb('escalation sweep blocked-status gate (deep, real PostgreSQL)', () 
   }, HOOK_TIMEOUT_MS);
 
   test('the overdue pass flips open tasks but never blocked tasks', async () => {
-    // Rule filter matches nothing here — it exists so tenant discovery finds
-    // this tenant and the overdue pass actually runs.
+    // Rule filter matches nothing here. It no longer has to exist for tenant
+    // discovery — the sweep enumerates every ACTIVE tenant now, precisely so the
+    // rule-independent overdue pass runs for tenants without rules — but it is
+    // kept so this case still exercises the with-rules path end to end.
     await insertRule(owner, {
       taskKind: 'unrelated_kind',
       displayName: 'Tenant discovery seed',
@@ -174,7 +178,11 @@ describeIfDb('escalation sweep blocked-status gate (deep, real PostgreSQL)', () 
 
     // Positive control: the pass still marks the open task overdue...
     expect((await taskState(owner, openId)).status).toBe('overdue');
-    expect(result.markedOverdue).toBe(1);
+    // markedOverdue is a FLEET counter and the sweep now visits every active
+    // tenant, so it is no longer this suite's exclusive property — another
+    // suite's tenant sharing the database can legitimately add to it. The
+    // per-task status assertions above and below are the exact proof.
+    expect(result.markedOverdue).toBeGreaterThanOrEqual(1);
     // ...but the blocked task keeps its status: blocked has no sanctioned
     // edge to overdue, and overdue→completed would bypass the blocked gate.
     expect((await taskState(owner, blockedId)).status).toBe('blocked');
