@@ -2619,10 +2619,16 @@ export async function appendMessage({
         const inboxTitle = threadRow[0]?.subject || 'New message';
         const inboxPreview = String(body).slice(0, 120);
         await prisma.$executeRawUnsafe(
+          // tenant_id bound explicitly ($7), exactly like the patient_messages
+          // INSERT above. The column DEFAULT reads app.current_tenant_id and
+          // falls back to the LITERAL default tenant whenever that GUC is unset
+          // (dev/QA/CI, bypass contexts, bare transactions) — which stamped the
+          // inbox row with the wrong tenant, and the patient's inbox reader
+          // filters on tenant_id, so the row was invisible to the recipient.
           `INSERT INTO notifications
-             (uid, user_id, phone, title, body, type, priority,
+             (tenant_id, uid, user_id, phone, title, body, type, priority,
               data, is_read, created_at, updated_at)
-           VALUES ($1::uuid, $2::int, $3, $4, $5, 'patient_message',
+           VALUES ($7::uuid, $1::uuid, $2::int, $3, $4, $5, 'patient_message',
                    'NORMAL', $6::jsonb, false, NOW(), NOW())`,
           rcpt[0].uid, rcpt[0].id, rcpt[0].phone,
           inboxTitle,
@@ -2632,6 +2638,7 @@ export async function appendMessage({
             thread_id: String(thread_id),
             route: `/portal/messages/${thread_id}`,
           }),
+          tenantId,
         );
       }
     } catch (err) {

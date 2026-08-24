@@ -91,6 +91,7 @@ model abdm_consent_artifacts {
   abdm_webhook_events     abdm_webhook_events[]
 
   @@unique([tenant_id, artifact_id, environment])
+  @@unique([tenant_id, id], map: "ux_abdm_consent_artifacts_tenant_id")
   @@index([tenant_id, status, granted_at(sort: Desc)], map: "idx_consent_artifacts_tenant_status")
   @@index([tenant_id, expiry_at], map: "idx_consent_artifacts_active_expiry", where: raw("(((status)::text = 'active'::text) AND (expiry_at IS NOT NULL))"))
   @@index([consent_request_id], map: "idx_consent_artifacts_request", where: raw("(consent_request_id IS NOT NULL)"))
@@ -224,6 +225,7 @@ model abdm_data_transfers {
   abdm_webhook_events     abdm_webhook_events[]
 
   @@unique([tenant_id, transaction_id, environment])
+  @@unique([tenant_id, id], map: "ux_abdm_data_transfers_tenant_id")
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_data_transfers_tenant_status")
   @@index([consent_artifact_id], map: "idx_data_transfers_artifact", where: raw("(consent_artifact_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, status], map: "idx_data_transfers_patient", where: raw("(patient_uid IS NOT NULL)"))
@@ -8329,6 +8331,7 @@ model pharmacy_catalog {
   drug_compositions               drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pharmacy_inventory_items        pharmacy_inventory_items[]
 
+  @@unique([tenant_id, id], map: "ux_pharmacy_catalog_tenant_id")
   @@index([is_active, is_available, in_stock], map: "idx_pharmacy_catalog_active")
   @@index([category], map: "idx_pharmacy_catalog_category")
   @@index([tenant_id], map: "idx_pharmacy_catalog_tenant_id")
@@ -28096,9 +28099,9 @@ model abdm_hiu_fetch_sessions {
   pages_expected                  Int?
   next_page_number                Int                         @default(1)
   abdm_hiu_fetch_pages            abdm_hiu_fetch_pages[]
-  abdm_consent_artifacts          abdm_consent_artifacts?     @relation(fields: [consent_artifact_id], references: [id], onUpdate: NoAction)
-  abdm_data_transfers             abdm_data_transfers?        @relation(fields: [data_transfer_id], references: [id], onUpdate: NoAction)
   tenants                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_consent_artifacts          abdm_consent_artifacts?     @relation(fields: [tenant_id, consent_artifact_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_hiu_fetch_consent_artifact")
+  abdm_data_transfers             abdm_data_transfers?        @relation(fields: [tenant_id, data_transfer_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_hiu_fetch_data_transfer")
   abdm_hiu_received_bundles       abdm_hiu_received_bundles[]
 
   @@unique([tenant_id, id], map: "uq_abdm_hiu_fetch_tenant_id")
@@ -28107,6 +28110,8 @@ model abdm_hiu_fetch_sessions {
   @@index([key_material_expires_at], map: "idx_abdm_hiu_fetch_key_expiry", where: raw("((status)::text = ANY ((ARRAY['requested'::character varying, 'acknowledged'::character varying, 'receiving'::character varying])::text[]))"))
   @@index([tenant_id, patient_uid, requested_at(sort: Desc)], map: "idx_abdm_hiu_fetch_patient", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_abdm_hiu_fetch_tenant_status")
+  @@index([tenant_id, consent_artifact_id], map: "idx_abdm_hiu_fetch_tenant_artifact", where: raw("(consent_artifact_id IS NOT NULL)"))
+  @@index([tenant_id, data_transfer_id], map: "idx_abdm_hiu_fetch_tenant_transfer", where: raw("(data_transfer_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28188,8 +28193,8 @@ model abdm_patient_share_intakes {
   created_at                 DateTime      @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime      @default(now()) @db.Timestamptz(6)
   matched_patient_deleted_at DateTime?     @db.Timestamptz(6)
-  appointments               appointments? @relation(fields: [linked_appointment_id], references: [id], onUpdate: NoAction)
   tenants                    tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  appointments               appointments? @relation(fields: [tenant_id, linked_appointment_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_share_intake_linked_appointment")
   users                      users?        @relation(fields: [tenant_id, matched_patient_uid], references: [tenant_id, uid], onDelete: SetNull, onUpdate: NoAction, map: "fk_abdm_share_intake_patient")
 
   @@unique([tenant_id, request_id, environment], map: "uq_abdm_share_intake_request")
@@ -28197,6 +28202,7 @@ model abdm_patient_share_intakes {
   @@index([expires_at], map: "idx_abdm_share_intake_expiry", where: raw("((status)::text = 'received'::text)"))
   @@index([tenant_id, matched_patient_uid], map: "idx_abdm_share_intake_matched_patient", where: raw("(matched_patient_uid IS NOT NULL)"))
   @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_abdm_share_intake_tenant_status")
+  @@index([tenant_id, linked_appointment_id], map: "idx_abdm_share_intake_tenant_appointment", where: raw("(linked_appointment_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28531,13 +28537,14 @@ model uhi_transactions {
   processed_at                DateTime?     @db.Timestamptz(6)
   created_at                  DateTime      @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime      @default(now()) @db.Timestamptz(6)
-  appointments                appointments? @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  appointments                appointments? @relation(fields: [tenant_id, appointment_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uhi_txn_appointment")
   tenants                     tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, environment, counterparty_subscriber_id, transaction_id, message_id, action, direction, signature_verified], map: "uq_uhi_txn_leg")
   @@index([appointment_id], map: "idx_uhi_txn_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_uhi_txn_tenant_received")
   @@index([tenant_id, transaction_id, received_at, id], map: "idx_uhi_txn_tenant_transaction")
+  @@index([tenant_id, appointment_id], map: "idx_uhi_txn_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28556,11 +28563,12 @@ model drug_kb_catalog_links {
   created_by          String?          @db.Uuid
   created_at          DateTime         @default(now()) @db.Timestamptz(6)
   updated_at          DateTime         @default(now()) @db.Timestamptz(6)
-  pharmacy_catalog    pharmacy_catalog @relation(fields: [pharmacy_catalog_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   drug_kb_sources     drug_kb_sources? @relation(fields: [source_key], references: [source_key], onDelete: NoAction)
+  pharmacy_catalog    pharmacy_catalog @relation(fields: [tenant_id, pharmacy_catalog_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_drug_kb_catalog_links_catalog")
 
   @@index([drug_key], map: "idx_drug_kb_catalog_links_key")
   @@index([tenant_id, is_active], map: "idx_drug_kb_catalog_links_tenant_active")
+  @@index([tenant_id, pharmacy_catalog_id], map: "idx_drug_kb_catalog_links_tenant_catalog")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28568,7 +28576,7 @@ model drug_kb_catalog_links {
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model lab_analyzer_code_mappings {
   id                         BigInt                      @id @default(autoincrement())
-  tenant_id                  String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant_id                  String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   source_key                 String                      @default("any") @db.VarChar(120)
   incoming_code              String                      @db.VarChar(120)
   incoming_code_system       String?                     @db.VarChar(80)

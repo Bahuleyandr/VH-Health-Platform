@@ -1,6 +1,7 @@
 // src/services/staff/hr/performanceService.js
 import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
+import { requireTenantId } from '../../tenant/tenantService.js';
 
 const fmtDate = (d) => d
   ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -253,6 +254,7 @@ async function resolvePerformanceReviewStaff(staffId) {
       u.uid,
       u.name,
       u.phone,
+      u.tenant_id,
       s.employee_id
     FROM users u
     JOIN staff s ON s.user_id = u.uid
@@ -322,8 +324,14 @@ export const createPerformanceReview = async (reviewData) => {
   // Notify the reviewed staff member. Original INSERT omitted the
   // NOT NULL `phone` column — same bug as leaveService fixed in
   // batch 50. Use the user's phone now that we have it loaded.
+  // tenant_id is stamped from the resolved staff row rather than left to the
+  // column DEFAULT, which reads app.current_tenant_id and falls back to the
+  // literal default tenant whenever that GUC is unset — the notice would then
+  // be invisible to the reviewed staff member, whose notification list filters
+  // on tenant_id.
   await prisma.notifications.create({
     data: {
+      tenant_id: requireTenantId(user.tenant_id),
       user_id: user.id,
       phone: user.phone,
       title: 'Performance Review Completed',

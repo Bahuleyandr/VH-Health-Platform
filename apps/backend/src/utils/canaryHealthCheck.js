@@ -42,6 +42,89 @@ async function runCanaryChecksInner() {
     results.database_write = { status: 'skip', error: err.message };
   }
 
+  // 2b. Critical-lab-threshold coverage (re-audit 2026-08-23). A tenant with
+  //     no active lab_critical_thresholds rows can never raise a critical lab
+  //     alert — the lookup simply matches nothing and returns quietly. That
+  //     is the tenancy defect the re-audit found, and it is invisible from
+  //     the result-recording path itself.
+  //
+  //     It is answered HERE, not there, on purpose: every caller of
+  //     evaluateCriticalThreshold passes its open transaction, and a failed
+  //     statement aborts that transaction — an observability probe on the
+  //     clinical write path could stop a lab result being recorded. The
+  //     canary runs on its own connection, so it cannot.
+  //
+  //     Provisioning is deliberately NOT automated: thresholds must agree
+  //     with lab_reference_ranges and units, which is clinical sign-off, not
+  //     a copy. See docs/ROADMAP.md.
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT t.id::text AS tenant_id, t.name AS tenant_name
+         FROM tenants t
+        WHERE t.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM lab_critical_thresholds th
+             WHERE th.tenant_id = t.id AND th.is_active = true
+          )
+        ORDER BY t.id`,
+    );
+    results.lab_critical_threshold_coverage = rows.length
+      ? {
+        status: 'warn',
+        unconfigured_tenants: rows.length,
+        tenants: rows.map((r) => r.tenant_id),
+      }
+      : { status: 'ok', unconfigured_tenants: 0 };
+    if (rows.length) {
+      logger.warn(
+        'canary: tenants hold no active lab_critical_thresholds — no lab result can raise a critical alert for them',
+        { tenants: rows.map((r) => ({ id: r.tenant_id, name: r.tenant_name })) },
+      );
+    }
+  } catch (err) {
+    // Never let the probe read as healthy coverage.
+    results.lab_critical_threshold_coverage = { status: 'fail', error: err.message };
+  }
+
+  // 2c. Escalation-rule coverage (re-audit 2026-08-23). A tenant with no
+  //     active task-scope escalation rules never fires the critical-result,
+  //     cold-chain or mortuary tiers. The rules ARE operator-configurable
+  //     (PUT /api/v1/admin/workflow/escalation-rules), so this is reported
+  //     rather than auto-provisioned: copying the default tenant's rules
+  //     cannot be keyed safely and pages real recipients. See
+  //     services/tenant/tenantProvisioningRegistry.js.
+  //
+  //     The sweep itself no longer depends on this: it discovers tenants from
+  //     `tenants`, so the open->overdue pass and the orphan-SLA backstop run
+  //     for a rule-less tenant too.
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT t.id::text AS tenant_id, t.name AS tenant_name
+         FROM tenants t
+        WHERE t.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM escalation_rules r
+             WHERE r.tenant_id = t.id AND r.is_active = TRUE AND r.scope = 'task'
+          )
+        ORDER BY t.id`,
+    );
+    results.escalation_rule_coverage = rows.length
+      ? {
+        status: 'warn',
+        unconfigured_tenants: rows.length,
+        tenants: rows.map((r) => r.tenant_id),
+      }
+      : { status: 'ok', unconfigured_tenants: 0 };
+    if (rows.length) {
+      logger.warn(
+        'canary: tenants hold no active task-scope escalation_rules — their critical-result, cold-chain and mortuary tiers never fire',
+        { tenants: rows.map((r) => ({ id: r.tenant_id, name: r.tenant_name })) },
+      );
+    }
+  } catch (err) {
+    results.escalation_rule_coverage = { status: 'fail', error: err.message };
+  }
+
   // 3. Notification outbox health (F7/F11, audit 2026-08-10): stuck PENDING
   //    rows AND the dead-letter states. FAILED rows with retry_count >= 3 are
   //    never re-claimed by the drain. RECONCILIATION_REQUIRED rows are split

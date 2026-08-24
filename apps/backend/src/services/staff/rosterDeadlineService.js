@@ -149,10 +149,19 @@ async function notifyRosterDeadline({
   };
 
   const rows = await prisma.$queryRawUnsafe(
+    // tenant_id is stamped from the recipient row rather than left to the
+    // column DEFAULT. That DEFAULT reads app.current_tenant_id and falls back
+    // to the LITERAL default tenant when the GUC is unset — which is always
+    // the case for this sweep (it takes no tenant and runs outside any
+    // request), so every escalation was landing on the default tenant,
+    // invisible to the HR/admin recipients whose notification list filters on
+    // tenant_id. Sourcing it from `u` keeps each row in its recipient's own
+    // tenant, which is exactly what that reader looks for.
     `INSERT INTO notifications
-       (uid, user_id, phone, title, body, type, priority, data, is_read,
+       (tenant_id, uid, user_id, phone, title, body, type, priority, data, is_read,
         created_at, updated_at, recipient_role)
-     SELECT u.uid,
+     SELECT u.tenant_id,
+            u.uid,
             u.id,
             u.phone,
             $1,

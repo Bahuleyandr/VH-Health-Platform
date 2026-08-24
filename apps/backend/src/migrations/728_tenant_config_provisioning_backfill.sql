@@ -1,0 +1,181 @@
+-- 728: workflow SLA rules for every tenant, not just the default one.
+--
+-- Migrations 269/377/393/414 seeded workflow_sla_rules for tenant
+-- 00000000-0000-4000-8000-000000000001 ONLY (269, 393 and 414 omit the column
+-- and inherit the default; 377 writes the literal). Its readers accept
+-- `tenant_id IS NULL` as a global default — the shape migrations 456/641/677
+-- use — but a row pinned to the DEFAULT TENANT is not NULL, so it is invisible
+-- to every other tenant (re-audit 2026-08-24, tenancy lane).
+--
+-- The consequence is not merely silent: startWorkflowSla returns null, and
+-- pathwayRuntimePersistence THROWS PATHWAY_SLA_RULE_UNAVAILABLE. With no rule
+-- there are no workflow_sla_instances rows at all.
+--
+-- WHAT THIS MIGRATION DELIBERATELY DOES NOT DO: escalation_rules. It was in
+-- this file through three rounds and was withdrawn — the copy cannot be keyed
+-- safely (the semantic-tier key omits match_filter.task_kind and .priority
+-- that buildEligibilitySql matches on, while the NOT EXISTS never compares
+-- source rows against each other, so one operator's duplicate tier is
+-- amplified into every tenant), copied tiers page the security webhook through
+-- dispatchAction, and their notify_role DUTY/LEADERSHIP resolve against
+-- `users`, which nothing here provisions. Unlike the lab thresholds there IS
+-- an operator path — PUT /api/v1/admin/workflow/escalation-rules — and the
+-- real defect (the sweep discovering its tenant set FROM that table, so a
+-- rule-less tenant lost the open->overdue pass and the orphan-SLA backstop) is
+-- fixed in escalationEngineService.js without any copy. See
+-- src/services/tenant/tenantProvisioningRegistry.js for the full reasoning.
+--
+-- This backfills every existing non-default tenant from the default tenant's
+-- rows, which are the platform's operational baseline (an operator may have
+-- tuned them; inheriting the tuned values is the intent either way).
+--
+-- The statements below are generated from
+-- src/services/tenant/tenantProvisioningRegistry.js — the same declarations
+-- tenantService.createTenant uses to provision tenants created after this
+-- migration, and the same shape migration 727 shipped for the TAT thresholds.
+-- src/tests/unit/tenantProvisioningRegistry.test.js pins this file against the
+-- registry, so the two cannot drift.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS MIGRATION DELIBERATELY DOES NOT DO: lab_critical_thresholds
+-- ---------------------------------------------------------------------------
+--
+-- The same re-audit found lab_critical_thresholds seeded default-tenant-only by
+-- 151/193 — the one finding of the five it rated HIGH, because a CRITICAL lab
+-- result never alerts. Two earlier drafts of this migration backfilled it. BOTH were
+-- withdrawn, and it is intentionally absent here — for the backfill AND from
+-- createTenant. Do not add it back as a corrective migration.
+--
+-- Copying one hospital's critical limits into another tripped a DIFFERENT
+-- rejection on the lab RESULT-RECORDING path each time it was tried:
+--
+--   draft 1 guarded row-by-row on (loinc_code, test_code). The reader ranks by
+--     LOOKUP KEY, not by analyte, so a tenant row for the same analyte under a
+--     different key passed the guard and then tied the copied row at the best
+--     rank — evaluateCriticalThreshold throws LAB_CRITICAL_POLICY_MISMATCH
+--     {threshold_ambiguous}, "result was not recorded".
+--   draft 2 guarded on table-empty, which removes that tie but exposes the
+--     deeper problem: lab_critical_thresholds and lab_reference_ranges are two
+--     halves of ONE policy that must AGREE.
+--     labPanelService.assertCriticalPolicyAgreement compares the
+--     reference-range assessment against the threshold assessment and throws on
+--     any disagreement — reason `policy_presence` when only one side is
+--     configured, `threshold_unit` when the units differ. Since the copy
+--     supplies thresholds and touches no reference range, a backfilled tenant
+--     disagrees with itself and REJECTS lab results. That is worse than the
+--     silent non-alert being fixed, and it lands in every backfilled tenant.
+--
+-- Each round closed one throw and opened another because this is not a guard
+-- problem. A hospital's critical limits and reference intervals are clinical
+-- policy tied to its analyzers, population and units; deciding hospital A's
+-- potassium limits are safe for hospital B needs a clinical owner, not a
+-- migration. The gap is recorded in docs/ROADMAP.md under "Explicitly parked",
+-- together with the fact that there is still no operator INSERT path for the
+-- table. Meanwhile the absence is no longer silent: evaluateCriticalThreshold
+-- counts every zero-row lookup and warns, naming the tenant and analyte, when a
+-- tenant holds no active thresholds at all
+-- (src/observability/labCriticalThresholdMetrics.js).
+--
+-- ---------------------------------------------------------------------------
+-- WHY EACH GUARD IS THE SHAPE IT IS
+-- ---------------------------------------------------------------------------
+--
+-- workflow_sla_rules — ROW-KEYED on rule_code, which is sound here: rule_code is
+-- the reader's entire lookup key, the reader takes LIMIT 1 and never reports an
+-- ambiguity, and the unique index idx_workflow_sla_rules_tenant_code
+-- (269:148-149) makes a second row for the same (tenant, rule_code) impossible.
+-- That index is on an EXPRESSION, so the ON CONFLICT inference clause repeats it
+-- verbatim.
+--
+-- Re-running the statement is a no-op.
+--
+-- ---------------------------------------------------------------------------
+-- THE FIRST SWEEP AFTER THIS MIGRATION CANNOT STAMPEDE
+-- ---------------------------------------------------------------------------
+--
+-- This migration grants every active tenant the escalation tiers at once, and
+-- the same change makes runEscalationSweep visit every active tenant rather than
+-- only rule-owning ones. Fired markers live in tasks.metadata.escalations[] and
+-- are empty for every newly granted rule, so nothing suppresses a first fire.
+-- The question is whether the next 2-minute sweep can page many tenants'
+-- clinicians about a backlog of already-breached work at once.
+--
+-- FOR THE NINE SEEDED TIERS IT PROVABLY CANNOT — the reason is structural, not
+-- a rate limit:
+--
+--   1. All nine rules seeded by 312/393/414 carry trigger_condition='sla_breach'
+--      AND a non-null match_filter.sla_key ('critical_result_ack',
+--      'cold_chain_excursion_ack', 'mortuary_unclaimed_body').
+--      buildEligibilitySql binds that key as $6 (eligibilityParams:846-854) and
+--      requires s.rule_code = $6 on the workflow_sla_instances row LEFT JOINed
+--      through tasks.workflow_sla_instance_id. A task with no linked instance
+--      yields NULL there and is not eligible. The `t.sla_breached_at IS NOT
+--      NULL` arm cannot rescue it either: nothing in the tree ever writes
+--      tasks.sla_breached_at — taskService names it only in a RETURNING list,
+--      and the writers of a column by that name are on biomed_work_orders.
+--   2. Instances carrying those three rule_codes are created only by
+--      canonicalClinicalPlatformService.startWorkflowSla, which returns null
+--      when no enabled workflow_sla_rules row resolves for the tenant — exactly
+--      the state this migration is fixing. So a backfilled tenant holds ZERO of
+--      them at the moment 728 runs. The two creators that bypass the rules table
+--      (stemi/stroke pathway services, rule_id NULL) write 'stemi_*'/'stroke_*'
+--      rule_codes, and the NULL-tenant rules seeded by 456/641/677 are
+--      'porter_transport_*', 'drug_chart_first_entry' and 'sos_response_ack';
+--      none of those match any copied rule's sla_key. No migration inserts
+--      workflow_sla_instances at all.
+--   3. Every instance created AFTER this migration is born status='active' with
+--      started_at = NOW() and due_at = NOW() + target_minutes, so it is never
+--      already breached. Tiers therefore begin firing one instance at a time as
+--      breaches accrue, exactly as they already do for the default tenant.
+--
+-- THE ONE RESIDUAL PATH, stated rather than glossed: this statement copies EVERY
+-- default-tenant rule, not only the nine seeded ones, and taskService's
+-- upsertEscalationRule lets an operator author more on the default tenant. A
+-- hand-authored rule with trigger_condition='pending_too_long' and NO sla_key
+-- takes the other branch of buildEligibilitySql, which matches on t.created_at
+-- alone — so it WOULD match an aged task backlog in every backfilled tenant on
+-- the first sweep. That is inherited-by-design (the header above says a tenant
+-- inherits operator tuning), and it is bounded rather than unbounded:
+--
+--   * the candidate page is LIMIT $8 per rule PER TENANT PER SWEEP — the sweep's
+--     `limit`, default 500 / max 5000 — and a full page raises a warning plus
+--     vhhealth_escalation_candidate_page_full_total, so the backlog drains over
+--     successive sweeps instead of in one;
+--   * the fired marker makes each (task, rule) fire once, so this is a one-time
+--     drain, not a repeating load;
+--   * one tier's recipient fan-out is capped by ESCALATION_RECIPIENT_FANOUT_CAP
+--     (default 500) with its own warning and counter;
+--   * the sweep SENDS nothing. A notify persists a PENDING notification_outbox
+--     intent inside the claim transaction (escalationEngineService:526-535,
+--     notificationOutbox.queueTx); the separate notification-outbox-drain cron
+--     performs delivery in strict per-tenant/channel cursor order. Outward
+--     paging rate is therefore governed by the drain, not by how many tenants
+--     this migration touched.
+--
+-- No extra throttle is added here. A migration-side cap could only be a WHERE
+-- clause narrowing what a tenant inherits, and the copied statement is pinned
+-- byte-for-byte against the registry builder on purpose; more importantly, any
+-- delay it bought would apply equally to the real critical-result tiers, which
+-- provably cannot stampede.
+--
+-- The tenant-set widening adds one further pass per tenant, the open→overdue
+-- UPDATE. It sends no notification and does not change what can escalate —
+-- 'open' and 'overdue' are both in ESCALATABLE_STATUSES — so it is a status
+-- write, not a page.
+--
+-- Pure data backfill: no table shape changes, so prisma/schema.prisma is
+-- unchanged.
+
+INSERT INTO workflow_sla_rules
+  (tenant_id, rule_code, title, trigger_event_type, target_minutes, severity, owner_role_codes, escalation_role_codes, enabled, metadata)
+SELECT t.id, d.rule_code, d.title, d.trigger_event_type, d.target_minutes, d.severity, d.owner_role_codes, d.escalation_role_codes, d.enabled, d.metadata
+  FROM tenants t
+ CROSS JOIN workflow_sla_rules d
+ WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+   AND t.id <> '00000000-0000-4000-8000-000000000001'::uuid
+   AND NOT EXISTS (
+     SELECT 1 FROM workflow_sla_rules x
+      WHERE x.tenant_id = t.id
+        AND x.rule_code IS NOT DISTINCT FROM d.rule_code
+   )
+ON CONFLICT ((COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)), rule_code) DO NOTHING;

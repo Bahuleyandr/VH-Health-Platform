@@ -1176,9 +1176,15 @@ if (process.env.NODE_ENV !== 'test') {
   // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
   // tenant's writes re-scope via setTenantTx.
   // Fleet-scope receipt (migration 671) for the same reason as
-  // audit-chain-verify: this sweep visits only the tenants that own an active
-  // task-scope rule, so it has no discoverable tenant set to fan out over, and
-  // a failed critical-result escalation tick left no durable trace.
+  // audit-chain-verify: the sweep enumerates active tenants itself, in one body
+  // with cross-tenant counters, rather than being fanned out per tenant — and a
+  // failed critical-result escalation tick left no durable trace.
+  // (It used to visit ONLY tenants owning an active task-scope rule, which is
+  // what this comment claimed justified fleet scope. That gate was the defect:
+  // it also skipped the rule-independent overdue pass and orphan-SLA backstop
+  // for every other tenant. Fixed 2026-08-24 — discovery is now `tenants WHERE
+  // status = 'active'`; the fleet receipt stays because the sweep still runs as
+  // one aggregate body.)
   registerCron('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
     await runFleetJob('results-inbox-escalation', () => runEscalationSweep({}));
   }));

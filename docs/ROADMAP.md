@@ -193,3 +193,54 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
 - **SMS config tables RLS**: excluded from migration 726 until
   smsProviderConfigService wraps its raw calls in setTenantTx (see
   prisma/SCHEMA_NOTES.md).
+- **Per-tenant lab critical thresholds + reference ranges** (tenancy re-audit
+  2026-08-24): there is **no operator path to configure
+  `lab_critical_thresholds`**. Verified: the only `INSERT INTO
+  lab_critical_thresholds` outside tests are migrations 151 and 193, both of
+  which seed the **default tenant only**; no service, controller, route or
+  admin screen writes the table, and `src/tests/unit/tenantProvisioningRegistry.test.js`
+  now fails if one appears. So any tenant other than the founding one holds zero
+  thresholds and `evaluateCriticalThreshold` answers every lookup `matched:false`
+  — a CRITICAL lab result never raises an alert there, silently.
+
+  **Auto-copy was attempted and withdrawn — do not retry it.** Two rounds of
+  review shipped a backfill of the default tenant's rows into every tenant, and
+  each tripped a different rejection on the lab **result-recording** path:
+  round 1's `(loinc_code, test_code)` guard let a copied row tie a tenant's own
+  row at `evaluateCriticalThreshold`'s best match rank (`LAB_CRITICAL_POLICY_MISMATCH`
+  / `threshold_ambiguous`); round 2's table-empty guard removed that tie and
+  exposed the real coupling — `lab_critical_thresholds` and `lab_reference_ranges`
+  are two halves of one policy that must agree, and
+  `labPanelService.assertCriticalPolicyAgreement` throws on any disagreement
+  (`policy_presence` when only one side is configured, `threshold_unit` when the
+  units differ). Copying thresholds without matching reference ranges therefore
+  **rejected lab results in every backfilled tenant** — worse than the silent
+  non-alert. Migration 728 and the provisioning registry no longer carry the
+  table, for the backfill and for `createTenant` alike.
+
+  **What the real fix needs**, and why it is parked rather than queued: the two
+  tables must be built together, with clinical sign-off on the critical limits,
+  the reference intervals **and** the units they are expressed in — these are
+  tied to a hospital's analyzers and patient population, so one hospital's
+  potassium limits are not a safe default for another. Scope: an operator write
+  path (service + admin screen + audit) covering both tables, plus a
+  provisioning story for a new tenant that starts empty rather than inheriting.
+  `lab_reference_ranges` is already parked on the same guard test's list for the
+  same reason.
+
+  **Until then the absence is observable, not silent** (this is the part that
+  shipped): `evaluateCriticalThreshold` counts every lookup on
+  `vhhealth_lab_critical_threshold_lookups_total{outcome="matched"|"unmatched"}`,
+  and the canary check (`src/utils/canaryHealthCheck.js`) reports
+  `lab_critical_threshold_coverage` — the active tenants holding no thresholds
+  at all, warned by name.
+  
+  The split lives in the canary rather than on the result-recording path for a
+  specific reason: every caller of `evaluateCriticalThreshold` passes its open
+  transaction, and a failed statement aborts that transaction — an earlier
+  revision probed there, and a probe failure would have surfaced as 25P02 on
+  the next write, i.e. observability stopping a lab result from being recorded.
+  The lookup therefore issues no extra statement (pinned by a call-count
+  assertion, since a mocked rejection cannot reproduce a real aborted
+  transaction). Alert on `lab_critical_threshold_coverage` being non-zero:
+  those tenants can never raise a critical lab alert.

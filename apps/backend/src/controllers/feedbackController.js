@@ -320,7 +320,8 @@ export async function submitFeedbackEnhanced(req, res) {
     const feedback = await feedbackService.submitFeedback({
       phone, userUid: user.uid, rating, comment, category,
       appointment_id, doctor_id, department_id,
-      anonymous, improvement_suggestions
+      anonymous, improvement_suggestions,
+      tenantId: tenantOf(req),
     });
 
     logger.info(`Feedback submitted: ${maskPhoneForLog(phone)} rated ${rating}/5 (${category}) by ${req.user?.name || 'system'}`);
@@ -420,48 +421,17 @@ export async function submitNpsResponse(req, res) {
   }
 }
 
-// Respond to Feedback (Staff access)
-export async function respondToFeedback(req, res) {
-  try {
-    // Role-based access control
-    if (!isClinical(req.user?.role) && !isAdminRole(req.user?.role)) {
-      return error(res, 'Staff access required to respond to feedback', HTTP_STATUS.FORBIDDEN);
-    }
-
-    const { feedback_id, response } = req.body;
-    const staff_uid = req.user?.uid;
-
-    if (!feedback_id || !response) {
-      return error(res, 'Feedback ID and response are required', HTTP_STATUS.BAD_REQUEST);
-    }
-
-    // Check if feedback exists and if doctor can respond to their own feedback
-    const feedback = await feedbackService.getFeedbackById(feedback_id, tenantOf(req));
-
-    if (!feedback) {
-      return error(res, 'Feedback not found', HTTP_STATUS.NOT_FOUND);
-    }
-
-    // Doctors can only respond to their own feedback
-    if (req.user?.role === 'DOCTOR' && feedback.doctor_id !== req.user.id) {
-      return error(res, 'Can only respond to feedback about yourself', HTTP_STATUS.FORBIDDEN);
-    }
-
-    // Insert response via service
-    const result = await feedbackService.respondToFeedback(feedback_id, staff_uid, response);
-
-    logger.info(`Staff ${req.user?.name} responded to feedback ID: ${feedback_id}`);
-
-    success(res, {
-      response: result,
-      respondedBy: req.user?.name
-    }, 'Response submitted successfully');
-
-  } catch (err) {
-    logger.error('Feedback Response Error:', err);
-    error(res, 'Failed to submit response', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-}
+// REMOVED (re-audit I, tenancy sweep): `respondToFeedback` and its
+// `POST /api/v1/feedback/respond` mount.
+//
+// The handler's only durable effect was `feedbackService.respondToFeedback`,
+// which INSERTed into `feedback_responses` — a table that exists in no
+// migration and no baseline. The call always raised 42P01 and the handler's
+// catch returned a generic 500, so nothing was ever stored. No read side was
+// ever built, and no client (admin portal, patient app, staff app, generated
+// Dart core client) called the endpoint. The endpoint was removed rather than
+// backed by a new table; the reasoning is in the block comment in
+// services/feedback/feedbackService.js.
 
 // Delete Inappropriate Feedback (Admin only)
 export async function deleteFeedback(req, res) {

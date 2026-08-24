@@ -381,7 +381,8 @@ class FeedbackService {
     const {
       phone, userUid, rating, comment, category,
       appointment_id, doctor_id, department_id,
-      anonymous, improvement_suggestions
+      anonymous, improvement_suggestions,
+      tenantId = DEFAULT_TENANT_ID,
     } = data;
     const combinedComment = [comment, improvement_suggestions && `Improvement suggestions: ${improvement_suggestions}`]
       .filter(Boolean)
@@ -411,14 +412,24 @@ class FeedbackService {
     if (rating <= 2) {
       try {
         await prisma.$queryRawUnsafe(
+          // tenant_id bound explicitly ($6) rather than left to the column
+          // DEFAULT, which reads app.current_tenant_id and falls back to the
+          // literal default tenant whenever that GUC is unset — the alert would
+          // otherwise be filed against the wrong tenant entirely.
+          // NOTE (pre-existing, NOT fixed here): `notifications.phone` is
+          // NOT NULL with no default, so this statement still raises 23502 and
+          // is swallowed by the catch below; and no read path in the backend
+          // selects on `recipient_role`, so a role-targeted row has no reader
+          // even once it lands. Both are reported as separate findings.
           `INSERT INTO notifications (
-            recipient_role, title, body, type, priority, created_at
-          ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+            recipient_role, title, body, type, priority, created_at, tenant_id
+          ) VALUES ($1, $2, $3, $4, $5, NOW(), $6::uuid)`,
           'ADMIN',
           'Critical Feedback Alert',
           `Poor rating (${rating}/5) received from patient. Category: ${category}`,
           'feedback_alert',
           'high',
+          tenantId,
         );
       } catch (notifErr) {
         logger.warn('Failed to send critical feedback notification:', notifErr.message);
@@ -450,31 +461,31 @@ class FeedbackService {
     return result[0];
   }
 
-  /**
-   * Respond to feedback (staff action).
-   * Extracted from respondToFeedback controller.
-   */
-  async respondToFeedback(feedbackId, staffUid, response) {
-    // Insert response
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO feedback_responses (
-        feedback_id, responder_uid, response_text, created_at
-      ) VALUES ($1, $2, $3, NOW())
-      RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
-      feedbackId,
-      staffUid,
-      response,
-    );
-
-    // Mark feedback as responded
-    await prisma.$queryRawUnsafe(
-      'UPDATE feedback SET responded_at = NOW(), response_status = $1 WHERE id = $2',
-      'responded',
-      feedbackId,
-    );
-
-    return result[0];
-  }
+  // REMOVED (re-audit I, tenancy sweep): `respondToFeedback` + its
+  // `getFeedbackById` permission-check helper.
+  //
+  // The method INSERTed into `feedback_responses`, a table that exists in no
+  // migration, is absent from `000_baseline.sql`, and has no Prisma model —
+  // verified by applying every published migration to a clean database and
+  // finding `to_regclass('public.feedback_responses')` NULL. The
+  // "migration 023" reference in docs/DB-SCHEMA-REFERENCE.md was stale
+  // (023 is prior-authorization automation). Every call therefore raised
+  // 42P01 and surfaced as a generic 500, so the staff answer to an
+  // Ask-a-Doubt question was never stored and the follow-up
+  // `UPDATE feedback SET response_status = 'responded'` never ran — which is
+  // also why `responded_count` on the feedback dashboard/report has always
+  // been 0. Removing the endpoint changes neither fact.
+  //
+  // The INSERT's own RETURNING list (`id, uid, phone, type, comment, rating,
+  // status, ...`) names `feedback` columns, not columns of a responses table,
+  // so the statement could never have executed against any schema.
+  //
+  // No read side existed anywhere — not in this service, not in any
+  // controller, not in the admin portal, not in either Flutter app — so
+  // creating the table would have persisted patient-visible answers that no
+  // surface renders. Do NOT reintroduce this path; build staff follow-up on
+  // the NPS / service-recovery surface (`npsService.submitNpsResponse`),
+  // which is wired end to end.
 
   /**
    * Delete feedback and log admin action.
@@ -524,22 +535,6 @@ class FeedbackService {
     const result = await prisma.$queryRawUnsafe(
       'SELECT uid, name FROM users WHERE phone = $1 AND tenant_id = $2::uuid',
       phone,
-      tenantId,
-    );
-    return result[0] || null;
-  }
-
-  /**
-   * Look up feedback by ID. Used for permission checks before responding.
-   */
-  async getFeedbackById(feedbackId, tenantId = DEFAULT_TENANT_ID) {
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT f.id, f.phone, f.rating, f.doctor_id
-         FROM feedback f
-         ${FEEDBACK_TENANT_JOIN}
-        WHERE f.id = $1
-          AND ${FEEDBACK_TENANT_EXPR} = $2::uuid`,
-      feedbackId,
       tenantId,
     );
     return result[0] || null;

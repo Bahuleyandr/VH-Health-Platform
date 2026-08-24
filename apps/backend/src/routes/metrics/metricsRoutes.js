@@ -15,6 +15,9 @@ import { serializeEscalationMetrics } from '../../observability/escalationMetric
 import { serializeInterfaceEngineMetrics } from '../../observability/interfaceEngineMetrics.js';
 import { serializeRateLimitPostureMetrics } from '../../observability/rateLimitPostureMetrics.js';
 import { serializeSecurityEventMetrics } from '../../observability/securityEventMetrics.js';
+import {
+  serializeLabCriticalThresholdMetrics,
+} from '../../observability/labCriticalThresholdMetrics.js';
 
 const router = Router();
 
@@ -39,7 +42,9 @@ router.get('/', (_req, res) => {
       + '\n'
       + serializeRateLimitPostureMetrics()
       + '\n'
-      + serializeSecurityEventMetrics(),
+      + serializeSecurityEventMetrics()
+      + '\n'
+      + serializeLabCriticalThresholdMetrics(),
   );
 });
 

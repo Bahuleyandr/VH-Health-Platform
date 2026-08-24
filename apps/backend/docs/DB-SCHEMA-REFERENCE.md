@@ -150,8 +150,19 @@ and the Docker-backed backend guardrail runner.
 | Table | Source | Columns | Purpose |
 |-------|--------|---------|---------|
 | `feedback` | Prisma | 15 | Patient feedback with rating, category, doctor/dept |
-| `feedback_responses` | Migration 023 | 5 | Staff responses to patient feedback |
+| `feedback_nps_responses` | Migration 452 | 25 | 0-10 NPS responses (the live staff-follow-up surface) |
 | `staff_messages` | Migration 022 | 10 | Internal staff messaging |
+
+> **Correction (re-audit I tenancy sweep).** This table previously listed
+> `feedback_responses` as "Migration 023 / 5 columns / staff responses to
+> patient feedback". No such table exists: migration 023 is
+> `023_prior_authorization.sql`, `feedback_responses` appears in no migration
+> and not in `000_baseline.sql`, and applying every migration 000..727 to a
+> clean database leaves `to_regclass('public.feedback_responses')` NULL. The
+> single service write that targeted it (`feedbackService.respondToFeedback`,
+> reached by `POST /api/v1/feedback/respond`) always raised 42P01 and was
+> removed rather than backfilled — there was no read side anywhere to make the
+> feature work end to end.
 
 ### 🆘 Emergency
 | Table | Columns | Purpose |
