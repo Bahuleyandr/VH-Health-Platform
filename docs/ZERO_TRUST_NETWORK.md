@@ -50,6 +50,7 @@ Operator live evidence after sync:
 ```bash
 kubectl get networkpolicy -A
 kubectl -n vhhealth-platform describe networkpolicy allow-backend-to-cnpg
+kubectl -n vhhealth-platform describe networkpolicy vhhealth-pg-rw-pooler
 kubectl -n vhhealth-platform describe networkpolicy redis-allow-app-ingress
 kubectl -n vhhealth-platform describe networkpolicy minio-allow-cluster-access
 ```
@@ -58,6 +59,7 @@ Expected posture:
 
 - Every `vhhealth-*` namespace has a default-deny ingress and egress policy.
 - CNPG ingress from the app namespace is limited to `vhhealth-backend`, `vhhealth-backend-migrate`, and `ward-downtime-packs` on TCP 5432.
+- The PgBouncer pooler is selected by `cnpg.io/poolerName`, not `cnpg.io/cluster`, and carries its own policy: the same three app-namespace clients in on TCP 5432, and out only to the CNPG pods on TCP 5432 plus the private-range Kubernetes API on TCP 443. Reachability is not adoption — the runtime DSN still points at the CNPG primary service, and moving it is an operator action (`docs/PRODUCTION_DB_HARDENING.md`).
 - Redis ingress from the app namespace is limited to `vhhealth-backend` and `vhhealth-admin` on TCP 6379 and 26379.
 - MinIO API ingress from the app namespace is limited to `vhhealth-backend`, `vhhealth-backend-r2-sync`, and `ward-downtime-packs` on TCP 9000.
 - Optional tenant namespaces start default-deny and opt pods into edge ingress, backend API egress, or monitoring through labels.

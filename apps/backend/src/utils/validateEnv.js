@@ -37,6 +37,21 @@ function rejectProductionAbdmNonProductionHost(value, helpers) {
   return value;
 }
 
+/**
+ * Joi custom validator for a base64 secret whose DECODED byte length matters.
+ * Buffer.from(value, 'base64') is what the consuming code does, so the check
+ * measures exactly what that code will measure. An empty value is left to
+ * `.allow('')` / `.optional()` — absence is a separate question from shape.
+ */
+function requireBase64Bytes(min, max = Infinity) {
+  return (value, helpers) => {
+    if (value === '') return value;
+    const bytes = Buffer.from(String(value), 'base64').length;
+    if (bytes < min || bytes > max) return helpers.error('any.invalid');
+    return value;
+  };
+}
+
 const ENCRYPTION_KEY_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
   'See docs/DEPLOYMENT_GUIDE.md#secrets for the full procedure.';
@@ -450,6 +465,98 @@ export const envSchema = Joi.object({
     .min(MIN_KEY_LENGTH)
     .required()
     .label('BACKUP_ENCRYPTION_KEY'),
+
+  // ── Per-tenant field-encryption master KEK (W3 WS5) ───────────────────────
+  // services/security/tenantKekProvider.js scrypt-derives the master KEK from
+  // this value and every per-tenant KEK in `encryption_keys` is wrapped under
+  // it. `masterKek()` THROWS when it is unset, and four live paths reach it:
+  //   • payroll run generation      (payrollService.executePayrollRun, and
+  //                                  editPayslipAndRegenerate)
+  //   • payslip-password reveal     (payrollService.revealPayslipCredential)
+  //   • HL7 I03 inbound recovery    (externalHl7InboundRecoveryService
+  //                                  .requireI03TenantKek)
+  //   • admin PHI re-wrap           (tenantKekRewrapService.runTenantKekRewrap)
+  // plus step 3 of scripts/onboard-tenant.mjs (provisionTenantKek).
+  //
+  // Deliberately OPTIONAL rather than .required(): validateEnv exits the
+  // process on any schema error, so requiring it would convert a missing
+  // secret into a refuse-to-boot for the WHOLE API — trading four contained
+  // 500s for a hospital-wide outage. The boot-time signal is therefore a loud
+  // WARNING (emitted below) that names those exact paths. A value that IS
+  // present must still be long enough to be worth deriving from, so a short
+  // one fails closed here instead of silently weakening the master KEK.
+  FIELD_ENCRYPTION_MASTER_KEK: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .allow('')
+    .optional()
+    .label('FIELD_ENCRYPTION_MASTER_KEK'),
+
+  // ── PHI shadow-column envelope encryption (migration 132) ─────────────────
+  // DORMANT BY DESIGN. Migration 132 added shadow columns
+  // (users.name/phone/address_encrypted + users.phone_search_hash,
+  // medical_records.description/diagnosis/treatment_encrypted) as step 1 of a
+  // four-step rollout. Only step 1 is wired: userService.writePhiShadows and
+  // recordService.writeRecordPhiShadows dual-WRITE those columns, and no read
+  // path uses them — phiColumnEncryption.readWithFallback/decryptColumn have
+  // zero production callers, so the plaintext columns stay authoritative.
+  // Steps 2-4 (scripts/phi-backfill.mjs, the read cutover, dropping the
+  // plaintext columns) have never been run.
+  //
+  // Registering the names here is what makes that dormancy a declaration
+  // instead of an accident: all four were read at runtime, carried no
+  // boot-time validation, and appeared in no cluster manifest, so a
+  // wrong-length or half-provisioned key could never surface (2026-08-23
+  // once-over). Arming procedure:
+  // docs/DARK_GATE_ENABLEMENT.md#5-phi-shadow-column-envelope-encryption.
+  //
+  // KMS_PROVIDER is restricted to 'env' on purpose: kmsProviderService's
+  // AwsKmsProvider and VaultKmsProvider are stubs whose constructors throw
+  // 'not yet implemented', and that throw is swallowed by the dual-write call
+  // sites — naming either here would disable shadow writes silently.
+  KMS_PROVIDER: Joi.string()
+    .valid('env')
+    .allow('')
+    .optional()
+    .messages({
+      'any.only':
+        'KMS_PROVIDER must be "env" — aws-kms and vault are unimplemented stubs in '
+        + 'services/security/kmsProviderService.js whose constructors throw, and the '
+        + 'PHI dual-write call sites swallow that throw, so naming one silently '
+        + 'disables shadow-column encryption',
+    })
+    .label('KMS_PROVIDER'),
+  // Key id stamped into every wrapped DEK. EnvKmsProvider.unwrapDek refuses a
+  // `kid` that does not match (KMS_KID_MISMATCH), so this is write-once for
+  // the life of the ciphertext: changing it strands every envelope already
+  // written under the old id. Defaults to 'env-default' when unset.
+  KMS_KEY_ID: Joi.string().allow('').optional().label('KMS_KEY_ID'),
+  // EnvKmsProvider requires EXACTLY 32 decoded bytes (`openssl rand -base64
+  // 32`) and throws otherwise — a throw the dual-write call sites swallow into
+  // a logger.warn, so a wrong-length key would leave the subsystem inert
+  // forever with no boot-time signal. Checked here so it fails at boot instead.
+  KMS_MASTER_KEY: Joi.string()
+    .allow('')
+    .custom(requireBase64Bytes(32, 32))
+    .optional()
+    .messages({
+      'any.invalid':
+        'KMS_MASTER_KEY must base64-decode to exactly 32 bytes (openssl rand -base64 32) — '
+        + 'EnvKmsProvider rejects any other length',
+    })
+    .label('KMS_MASTER_KEY'),
+  // HMAC key for users.phone_search_hash. Deliberately SEPARATE from
+  // KMS_MASTER_KEY so the deterministic hash cannot reveal the wrap key.
+  // phiColumnEncryption.getSearchHmacKey requires >=16 decoded bytes.
+  PHI_SEARCH_HASH_KEY: Joi.string()
+    .allow('')
+    .custom(requireBase64Bytes(16))
+    .optional()
+    .messages({
+      'any.invalid':
+        'PHI_SEARCH_HASH_KEY must base64-decode to at least 16 bytes (openssl rand -base64 32) — '
+        + 'phiColumnEncryption rejects anything shorter',
+    })
+    .label('PHI_SEARCH_HASH_KEY'),
 
   // Admin IP allowlist — optional, comma-separated IPs/CIDRs
   ADMIN_IP_ALLOWLIST: Joi.string().optional().label('ADMIN_IP_ALLOWLIST'),
@@ -919,6 +1026,39 @@ if (Number(envVars.MIN_PATIENT_VERSION_CODE ?? 0) > 0) {
   }
 }
 
+// ── PHI shadow-column subsystem: both halves, or neither ────────────────────
+// KMS_MASTER_KEY (kmsProviderService, wraps the per-value DEK) and
+// PHI_SEARCH_HASH_KEY (phiColumnEncryption.searchableHash, keys the
+// users.phone_search_hash HMAC) arm ONE subsystem. Both dual-write call sites
+// — userService.writePhiShadows and recordService.writeRecordPhiShadows —
+// catch their own throw and log a warning, so a half-armed deployment writes
+// users.phone_encrypted while leaving users.phone_search_hash NULL: partly
+// encrypted rows, and no reader that would ever notice.
+//
+// This is a hard failure rather than a warning because it cannot fire on an
+// existing deployment: neither key is set in any manifest today, so both are
+// absent and this branch is unreachable. It can only fire while an operator is
+// actively arming the subsystem and has provisioned exactly one of the two —
+// the one moment where stopping the boot is cheaper than the divergent data.
+const kmsMasterKeySet = String(envVars.KMS_MASTER_KEY || '').trim().length > 0;
+const phiSearchHashKeySet = String(envVars.PHI_SEARCH_HASH_KEY || '').trim().length > 0;
+if (kmsMasterKeySet !== phiSearchHashKeySet) {
+  const present = kmsMasterKeySet ? 'KMS_MASTER_KEY' : 'PHI_SEARCH_HASH_KEY';
+  const missing = kmsMasterKeySet ? 'PHI_SEARCH_HASH_KEY' : 'KMS_MASTER_KEY';
+  logger.error('❌ Environment validation failed:');
+  logger.error(
+    `   • ${present} is set but ${missing} is not — the PHI shadow-column subsystem (migration 132) is half-armed.`,
+  );
+  logger.error('');
+  logger.error(
+    'Both keys arm one subsystem: KMS_MASTER_KEY wraps each shadow column\'s data key, PHI_SEARCH_HASH_KEY keys the users.phone_search_hash HMAC. The dual-write call sites swallow a missing-key throw into a log warning, so running with one of the two writes some shadow columns and silently skips the rest.',
+  );
+  logger.error(
+    'Provision both (`openssl rand -base64 32` each) and follow docs/DARK_GATE_ENABLEMENT.md#5-phi-shadow-column-envelope-encryption, or unset both to leave the subsystem dormant.',
+  );
+  process.exit(1);
+}
+
 // Warn about missing optional service credentials
 const optionalWarnings = [];
 if (!envVars.CF_ACCOUNT_ID || !envVars.CF_R2_BUCKET || !envVars.CF_R2_URL || !envVars.CF_R2_ACCESS_KEY_ID || !envVars.CF_R2_SECRET_ACCESS_KEY) {
@@ -962,6 +1102,58 @@ if (envVars.FILE_SCAN_POLICY === FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK) {
 } else {
   logger.info(`🛡️  File malware scanning: ${describeFileScanPolicy(envVars)}`);
 }
+
+// ── Encryption + client-gate postures, printed every boot ───────────────────
+// Same reasoning as the file-scan line above: an operator reading pod logs must
+// be able to answer "is this armed?" without reading code. All three states
+// below were previously invisible — the variables were read at runtime and
+// declared in no manifest, so "off" and "forgotten" looked identical.
+
+// The master KEK is a WARNING, not a boot failure: see the schema comment on
+// FIELD_ENCRYPTION_MASTER_KEK for why four contained 500s beat refusing to
+// serve the whole API.
+if (String(envVars.FIELD_ENCRYPTION_MASTER_KEK || '').trim()) {
+  logger.info('🔐 Per-tenant field-encryption master KEK: configured');
+} else {
+  optionalWarnings.push(
+    'FIELD_ENCRYPTION_MASTER_KEK is not set — every per-tenant KEK operation fails closed: '
+    + 'payroll run generation, payslip-password reveal, HL7 I03 inbound recovery and the admin '
+    + 'PHI re-wrap all return 500, and scripts/onboard-tenant.mjs cannot provision a tenant KEK. '
+    + 'Seal it into the vhhealth-backend-env Secret (docs/DEPLOYMENT_GUIDE.md#5-create-secrets). '
+    + 'If any tenant KEK was ALREADY provisioned, this must be the same value it was wrapped '
+    + 'under — a different one leaves that tenant\'s ciphertext unreadable.',
+  );
+}
+
+// The PHI shadow-column subsystem is dormant on purpose (migration 132 step 1
+// of 4; no read path consumes the shadow columns). Say so out loud rather than
+// leaving "unset" to be read as an oversight.
+if (kmsMasterKeySet && phiSearchHashKeySet) {
+  logger.info(
+    '🔐 PHI shadow-column envelope encryption: ARMED — migration-132 shadow columns are '
+    + 'dual-written on user and medical-record writes. Plaintext columns remain authoritative '
+    + 'for every read until the step-3 read cutover ships.',
+  );
+} else {
+  logger.info(
+    '🔐 PHI shadow-column envelope encryption: DORMANT by configuration '
+    + '(KMS_MASTER_KEY + PHI_SEARCH_HASH_KEY both unset). Nothing is written to the '
+    + 'migration-132 shadow columns and no read path uses them. Arming procedure: '
+    + 'docs/DARK_GATE_ENABLEMENT.md#5-phi-shadow-column-envelope-encryption.',
+  );
+}
+
+// Force-upgrade gates. `0` disables the hard block, and both client apps ship
+// the comparison, so printing the resolved codes makes "disabled" a visible
+// choice rather than an absent variable nobody can distinguish from a typo.
+const describeVersionGate = code =>
+  (Number(code ?? 0) > 0 ? `min build ${Number(code)}` : 'DISABLED (0)');
+logger.info(
+  '📱 Client force-upgrade gates (GET /api/v1/config): '
+  + `patient=${describeVersionGate(envVars.MIN_PATIENT_VERSION_CODE)}, `
+  + `staff=${describeVersionGate(envVars.MIN_STAFF_VERSION_CODE)}`,
+);
+
 if (!envVars.DOWNTIME_MIRROR_DIR && envVars.CLINICAL_CONTINUITY_PACKS_ENABLED !== 'true') {
   optionalWarnings.push('DOWNTIME_MIRROR_DIR is not set — static downtime ward-pack mirror falls back to an OS-temp directory; packs will not survive a pod restart/outage or be LAN-synced (point it at a shared hostPath/Longhorn volume — see docs/DOWNTIME_PROCEDURE.md)');
 }

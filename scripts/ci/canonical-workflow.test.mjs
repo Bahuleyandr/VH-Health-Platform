@@ -107,6 +107,26 @@ test('backend quick gate saves a generated Prisma client before affected tests',
   assert.ok(saveIndex < testsIndex);
 });
 
+test('both backend tiers run the migration-number collision guard', () => {
+  // The guard shipped invocable only from apps/backend's local `npm run ci`
+  // chain, which no workflow calls, so a duplicate migration number could not
+  // fail a merge gate. Both tiers must carry it: the quick tier is what an
+  // ordinary feature push (where a migration actually lands) selects, and the
+  // full tier is the `[full-ci]` merge boundary.
+  for (const file of ['_reusable-backend-quick.yml', '_reusable-backend-lint-test.yml']) {
+    assert.match(read(`.github/workflows/${file}`), /run: npm run check:migration-numbers/);
+  }
+
+  // The npm script must exist, and stay the single definition the local `ci`
+  // chain uses too.
+  const pkg = JSON.parse(read('apps/backend/package.json'));
+  assert.equal(
+    pkg.scripts['check:migration-numbers'],
+    'node scripts/check-migration-number-collisions.mjs',
+  );
+  assert.match(pkg.scripts.ci, /npm run check:migration-numbers/);
+});
+
 test('long standalone stack workflows are manual and smoke is nightly', () => {
   for (const file of ['ci-admin.yml', 'ci-flutter.yml', 'ci-client-contract.yml', 'ci-kubernetes.yml']) {
     const workflow = read(`.github/workflows/${file}`);

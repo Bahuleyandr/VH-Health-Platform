@@ -653,6 +653,26 @@ Minimum required before backend will start:
   retire that pair until a new archive is produced, HMAC-verified, decrypted,
   and restore-tested.
 
+Required before per-tenant field encryption works (the backend boots without
+it and warns):
+
+- `FIELD_ENCRYPTION_MASTER_KEK` in `vhhealth-backend-env`. Every per-tenant KEK
+  row in `encryption_keys` is wrapped under a master KEK scrypt-derived from
+  this value (`apps/backend/src/services/security/tenantKekProvider.js`).
+  Without it these paths return 500 — payroll run generation,
+  payslip-password reveal, HL7 I03 inbound recovery, and the admin PHI
+  re-wrap — and `scripts/onboard-tenant.mjs` cannot complete its
+  provision-tenant-KEK step. The backend logs
+  `FIELD_ENCRYPTION_MASTER_KEK is not set …` at every start, naming each path.
+
+  Generate a first value with `openssl rand -base64 32` (validateEnv requires
+  at least 32 characters). **If any tenant KEK has already been provisioned,
+  seal the exact value it was provisioned under.** Migration 672 makes tenant
+  KEK material write-once — it may only be cleared, never replaced — so a
+  different master KEK leaves that tenant's ciphertext unrecoverable, and the
+  only way forward is a crypto-shred plus re-provision that destroys whatever
+  was wrapped under the old key. See `docs/TENANT_ONBOARDING_RUNBOOK.md`.
+
 Optional but recommended:
 
 - Provider credentials such as chatbot and clinical-AI keys stay in
@@ -660,6 +680,17 @@ Optional but recommended:
 - `vhhealth-admin-env`, produced from
   `infra/kubernetes/apps/admin/sealed-secret.yaml.example` (JWT, backend API,
   Sentry, and Firebase credentials).
+
+Deliberately **not** sealed:
+
+- `KMS_MASTER_KEY` and `PHI_SEARCH_HASH_KEY` — the migration-132 PHI
+  shadow-column subsystem is dormant by design (only its dual-write half is
+  wired; no read path consumes those columns). Both names are listed
+  commented-out in the backend sealed-secret example, and the backend prints
+  `PHI shadow-column envelope encryption: DORMANT by configuration` at every
+  start. Sealing exactly one of the two makes the backend refuse to boot.
+  Arming procedure: `docs/DARK_GATE_ENABLEMENT.md`
+  §5 *PHI shadow-column envelope encryption*.
 
 ### 5.5 Application-upload public URL gate
 

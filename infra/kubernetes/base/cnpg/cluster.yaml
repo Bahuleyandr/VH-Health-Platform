@@ -416,10 +416,25 @@ spec:
   # Replica bootstrap: not used. Set to null so the operator knows to
   # promote in-place from existing cluster members during upgrades.
 ---
-# Custom queries for the Prometheus exporter that ships inside each
-# CNPG pod. Adds replication lag per-client, connection-usage percent,
-# active-vs-max-connections, and long-running queries. Grafana dashboards
-# reference these.
+# Custom queries for the Prometheus exporter that ships inside each CNPG pod.
+# Adds per-standby replication lag observed from the primary, each instance's
+# own standby replay delay, and connection usage against max_connections.
+# Grafana dashboards and the `postgres` alert group reference these.
+#
+# ── NAMING CONTRACT ────────────────────────────────────────────────────────
+# CNPG exports a user-defined query's non-LABEL columns as
+# `cnpg_<query>_<column>`; `usage: LABEL` columns become labels on those series
+# rather than series of their own. That mapping is what
+# infra/kubernetes/base/monitoring/check-cnpg-metric-parity.mjs re-derives from
+# this ConfigMap: it fails CI when an alert in
+# infra/kubernetes/base/monitoring/*.yaml selects a `cnpg_vhhealth_*` series —
+# or a label on one — that no query below produces. Renaming a query or a
+# column here without updating the alerts is therefore a build failure, not a
+# silently disarmed alert.
+#
+# ── ROLE SAFETY ────────────────────────────────────────────────────────────
+# The exporter runs every query on EVERY instance of the cluster, primary and
+# standby alike, so each query below must be valid in both roles.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -433,31 +448,74 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 data:
   queries.yaml: |
-    vhhealth_replication_lag:
+    # ── PRIMARY-SIDE: how far behind is each connected standby? ─────────────
+    # pg_stat_replication holds one row per WAL sender, and WAL senders run on
+    # the server that is SENDING, so these rows appear on the primary (and on a
+    # standby that has cascaded replicas of its own). An instance with no
+    # connected standby sees an empty view and produces no rows at all — which
+    # is why PostgresReplicationMetricAbsent is gated on the cluster having more
+    # than one scraped instance instead of alerting on absence outright.
+    #
+    # write_lag / flush_lag / replay_lag are the per-standby `interval` columns
+    # PostgreSQL maintains for exactly this measurement: the time between the
+    # primary flushing recent WAL locally and this standby reporting that it has
+    # written / flushed / applied that WAL. PostgreSQL sets them to NULL once a
+    # standby has entirely caught up and WAL activity stops, so COALESCE(..., 0)
+    # here encodes "caught up", which is the truth rather than a mask.
+    #
+    # ── WHAT THIS REPLACED, AND WHY (re-audit round 2, blocking) ────────────
+    # The previous revision derived a single `lag_seconds` column from
+    #     EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))
+    # which cannot express per-standby lag on a primary, in three separate ways:
+    #   1. pg_last_xact_replay_timestamp() reports the LOCAL server's recovery
+    #      progress, not the remote standby the row describes, and it returns
+    #      NULL when the local server has replayed nothing in recovery — true of
+    #      any never-promoted primary. COALESCE(..., 0) then pinned lag_seconds
+    #      to exactly 0 on every scrape, so the > 60 / > 300 / > 30 thresholds
+    #      in the alerts could never be crossed.
+    #   2. It is a server-wide scalar, so it repeats one identical value across
+    #      every pg_stat_replication row. It cannot distinguish one standby from
+    #      another — precisely what the {{ $labels.client }} annotations and the
+    #      C6.2 `application_name` DR selector assume it does.
+    #   3. Once recovery completes the value stays static at the last
+    #      transaction applied during that recovery. On a CNPG-promoted primary
+    #      `now() - that` therefore grows without bound, so after a failover the
+    #      same three alerts would have fired permanently.
+    # The ::bigint cast is also gone from the seconds columns: it rounded every
+    # measurement to a whole second, which made sub-second lag unreadable.
+    vhhealth_replication:
       query: |
         SELECT
           client_addr::text AS client,
           application_name,
           state,
-          COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::bigint, 0) AS lag_seconds,
+          COALESCE(EXTRACT(EPOCH FROM write_lag), 0)::double precision AS write_lag_seconds,
+          COALESCE(EXTRACT(EPOCH FROM flush_lag), 0)::double precision AS flush_lag_seconds,
+          COALESCE(EXTRACT(EPOCH FROM replay_lag), 0)::double precision AS replay_lag_seconds,
           COALESCE(pg_wal_lsn_diff(sent_lsn, replay_lsn)::bigint, 0) AS lag_bytes
         FROM pg_stat_replication
       metrics:
         - client:
             usage: LABEL
-            description: "Replica client address"
+            description: "Standby client address (pg_stat_replication.client_addr)"
         - application_name:
             usage: LABEL
-            description: "Replica application_name"
+            description: "Standby application_name; the C6.2 warm standby is selected by this label"
         - state:
             usage: LABEL
-            description: "Replication state"
-        - lag_seconds:
+            description: "WAL sender state for this standby (streaming, catchup, backup, startup)"
+        - write_lag_seconds:
             usage: GAUGE
-            description: "Replication lag in seconds"
+            description: "Seconds between the primary flushing WAL and this standby reporting it written (pg_stat_replication.write_lag); 0 when caught up. Diagnostic only - no alert thresholds on it."
+        - flush_lag_seconds:
+            usage: GAUGE
+            description: "Seconds between the primary flushing WAL and this standby reporting it flushed to disk (pg_stat_replication.flush_lag); 0 when caught up. This is the durability/RPO-relevant measure. WAL is flushed before it is applied, so for the same WAL this is the smaller measurement: retargeting a replication alert from replay_lag onto it would LOOSEN that alert, which is an operator decision and is not made here."
+        - replay_lag_seconds:
+            usage: GAUGE
+            description: "Seconds between the primary flushing WAL and this standby reporting it applied (pg_stat_replication.replay_lag); 0 when caught up. This is the measure PostgresReplicationLagHigh, PostgresReplicationLagCritical and C6WarmStandbyReplicationLagHigh threshold on."
         - lag_bytes:
             usage: GAUGE
-            description: "Replication lag in bytes"
+            description: "WAL bytes sent to this standby but not yet replayed by it (sent_lsn - replay_lsn). A backlog size rather than a time, so no alert thresholds on it: it is exported for dashboards and incident triage alongside the lag intervals."
 
     vhhealth_connections:
       query: |

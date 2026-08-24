@@ -242,6 +242,67 @@ Deadlocks and lock waits
 Failed auth spikes
 ```
 
+## PgBouncer Pooler Adoption (operator-gated)
+
+`Pooler/vhhealth-pg-rw-pooler` (`infra/kubernetes/base/cnpg/poolers.yaml`) is
+deployed and PDB-protected. As of 2026-08-24 the repository also ships the
+network path to it, which was previously missing in both directions:
+
+- the backend NetworkPolicy's in-cluster 5432 egress rule selected only
+  `cnpg.io/cluster: vhhealth-pg`, and CNPG labels PgBouncer pods
+  `cnpg.io/poolerName` — so the pooler matched no egress peer;
+- no policy selected the pooler pods at all, and `vhhealth-platform` is
+  default-deny in both directions, so PgBouncer could neither be dialled from
+  the app namespace nor reach the database behind it.
+
+Nothing routes through the pooler yet. **Repointing the runtime DSN is an
+operator action this repository deliberately does not take.** The backend still
+dials the CNPG primary service, `vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432`,
+through the `DATABASE_URL` sealed into `vhhealth-backend-env`.
+
+That one key has a wider blast radius than the Deployment: the
+`ward-downtime-packs` CronJob takes `DATABASE_URL` from the same Secret via
+`envFrom`, so a single re-seal moves it onto the pooler too. The PreSync
+migration Job overrides `DATABASE_URL` with `DATABASE_SUPERUSER_URL` and stays
+on the direct primary either way.
+
+To adopt the pooler:
+
+1. **Prove the auth path first.** `spec.pgbouncer.authQuery` reads
+   `pg_catalog.pg_shadow`, which is superuser-restricted by default, while the
+   Cluster runs `enableSuperuserAccess: false`. Confirm on the live cluster that
+   the role CNPG issues that query as can execute it, or move to CNPG's managed
+   `user_search` auth path. A pooler that cannot authenticate fails every
+   connection, not some.
+2. **Re-check the connection budget** (below) before, and watch it during, the
+   change.
+3. **Re-seal `vhhealth-backend-env`** with `DATABASE_URL` host
+   `vhhealth-pg-rw-pooler.vhhealth-platform.svc.cluster.local` — already
+   published as `DB_POOLER_HOST` in the prod/staging `vhhealth-env` ConfigMap —
+   keeping the same `vhhealth_runtime` role and database. Sync through the
+   normal GitOps path, roll the backend Deployment, and keep the direct DSN as
+   the rollback value.
+
+### Connection budget
+
+The cluster's `max_connections` is 200. The pooler's server-side ceiling is
+`instances(2) x max_db_connections(80)` = 160 real Postgres connections, and
+those land on top of every session still opened *directly* to `vhhealth-pg-rw`
+after the re-seal: the PreSync migration Job and Harbor, plus PostgreSQL's own
+wal-sender and reserved-superuser slots for a three-instance cluster.
+160 plus those does not fit under 200 with margin — which is why
+`max_db_connections` was already cut from 150 to 80. Adoption therefore only
+works as a swap: the backend's direct sessions must disappear as its pooled ones
+appear. Watch `cnpg_vhhealth_connections_total` against
+`cnpg_vhhealth_connections_max_conn` across the roll, and lower
+`max_db_connections` further if any direct consumer remains. Those are the
+*exported* series names: the user-defined query is declared as
+`vhhealth_connections` with columns `total` and `max_conn` in
+`infra/kubernetes/base/cnpg/cluster.yaml`, and the CNPG exporter publishes each
+column as `cnpg_<query>_<column>`. A bare `vhhealth_connections` metric does not
+exist on any target — querying it returns empty, not zero (re-audit 2026-08-23,
+which found four alert rules disarmed by exactly this mistake).
+
 ## Ongoing Guardrails
 
 - Run `npm run ci:db-guardrails` from `apps/backend` before every
