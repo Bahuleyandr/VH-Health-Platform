@@ -46,7 +46,7 @@ const EXEMPT_MOUNTS = {
   // MEDICAL_SUPERINTENDENT, ANAESTHETIST, …) out of their own attendance,
   // leave and payslips (2026-08-22 audit; #905 shape). "A later mount inherits
   // the first gate" is exactly the misconception that shipped it.
-  '/api/v1/staff': 'phone gate is path-scoped inside phoneRoutes.js (/phone, /queries); every other staff sub-router carries its own wrapAutoRBAC key (staffRoutes barrel, staffAttendanceRoutes, staffHRRoutes, staffAdminRoutes, …) — pinned by staffPrefixGateScope.test.js',
+  '/api/v1/staff': 'phone gate is path-scoped inside phoneRoutes.js (/phone, /queries); staff sub-routers carry their own wrapAutoRBAC key (staffAttendanceRoutes, staffHRRoutes, staffAdminRoutes, …), and the routes registered directly on the barrel (/replacements/my, /replacements) carry an explicit requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES) — barrel + sub-router gating both pinned behaviorally by staffPrefixGateScope.test.js. NOTE: this static mount-level gate cannot see barrel routes, so a NEW ungated barrel route would slip past it (the AZ-1 regression class); staffPrefixGateScope.test.js is the catch — extend it when adding barrel routes.',
   '/api/v1/admin/ed': 'pure 308 redirect to the role-gated /api/v1/ed mount',
   '/api/v1/admin/surgical': 'pure 308 redirect to the role-gated /api/v1/surgical mount',
   '/api/v1/abdm/enrolment': 'staffRouter.use(requireRole(...PATIENT_REGISTRY_WRITE_ROLES)) at the top of abdmEnrolmentRoutes.js (front-desk assisted ABHA enrolment)',

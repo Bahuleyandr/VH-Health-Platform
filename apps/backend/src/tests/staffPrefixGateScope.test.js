@@ -36,6 +36,13 @@ const get = (path, token) => request(app)
   .set('x-forwarded-proto', 'https')
   .set('Authorization', `Bearer ${token}`);
 
+const post = (path, token, body = {}) => request(app)
+  .post(path)
+  .set('x-api-key', API_KEY)
+  .set('x-forwarded-proto', 'https')
+  .set('Authorization', `Bearer ${token}`)
+  .send(body);
+
 // The exact deny the prefix gate produced. Anything else — 200, 404, 500 from
 // a missing fixture row, or a richer structured 403 from a deeper guard — means
 // the request got PAST the mount-level rbac ceiling, which is what this pins.
@@ -77,6 +84,33 @@ describe('staff namespace prefix-gate scope', () => {
   it('the phone gate still guards its own routes: PATIENT is refused /staff/phone/home', async () => {
     const res = await get('/api/v1/staff/phone/home', tokenFor('PATIENT', 8300));
     expect(isBareRbacForbidden(res)).toBe(true);
+  });
+
+  // The bare barrel routes /replacements/my + /replacements have no sub-router
+  // wrapAutoRBAC key — #906 removed the prefix ceiling that had implicitly gated
+  // them, letting any authenticated principal incl. PATIENT write staff
+  // replacement rows (2026-08-25 reaudit AZ-1). They now carry an explicit
+  // requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES). The static
+  // route-role-coverage gate cannot see barrel routes, so these behavioral pins
+  // are the regression catch.
+  it('PATIENT is refused POST /staff/replacements (AZ-1 write regression)', async () => {
+    const res = await post('/api/v1/staff/replacements', tokenFor('PATIENT', 8400), {
+      replacement_staff_id: 1,
+      dates: ['2026-09-01'],
+    });
+    expect(isBareRbacForbidden(res)).toBe(true);
+  });
+
+  it('PATIENT is refused GET /staff/replacements/my', async () => {
+    const res = await get('/api/v1/staff/replacements/my', tokenFor('PATIENT', 8400));
+    expect(isBareRbacForbidden(res)).toBe(true);
+  });
+
+  it('a phone-self-service staff role passes the replacements gate', async () => {
+    // NURSING_STAFF is in STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES; without a DB row
+    // the handler may 404/500, but it must not be rbac-denied at the gate.
+    const res = await get('/api/v1/staff/replacements/my', tokenFor('NURSING_STAFF', 8500));
+    expect(isBareRbacForbidden(res)).toBe(false);
   });
 
   it('a phone-list role passes the scoped gate on /staff/phone/home', async () => {
