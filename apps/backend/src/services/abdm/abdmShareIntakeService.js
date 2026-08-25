@@ -26,7 +26,7 @@
 // requires an audited override reason, ABHA linkage rides the registerABHA
 // verified-gate pathway. Identity writes → audit rows; no clinical timeline row.
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { setTenantTx, setSystemJobTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -149,7 +149,11 @@ export async function handlePatientProfileShareCallback({
 
   const abhaNumber = normalizeAbhaNumber(patient.abhaNumber ?? patient.healthIdNumber);
   const abhaAddress = patient.abhaAddress ?? patient.healthId ?? null;
-  const inserted = await prisma.$queryRawUnsafe(
+  // Public callback mount — no request tenant context exists, so wrap the
+  // 726-tranche writes/reads on abdm_patient_share_intakes in setTenantTx for
+  // the resolved tenant. Plain prisma would 42501 on the INSERT WITH CHECK
+  // under the fail-closed restrictive policy on the prod runtime role.
+  const inserted = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
     `INSERT INTO abdm_patient_share_intakes
        (tenant_id, environment, request_id, token_number, counter_context,
         abha_number, abha_address, profile, status, received_at, expires_at)
@@ -165,28 +169,28 @@ export async function handlePatientProfileShareCallback({
     abhaAddress ? String(abhaAddress).trim().toLowerCase().slice(0, 120) : null,
     JSON.stringify(sanitizeSharedProfile(patient)),
     SHARE_INTAKE_TTL_MINUTES,
-  );
+  ));
 
   let intake = inserted[0] || null;
   let duplicate = false;
   if (!intake) {
     duplicate = true;
-    const existing = await prisma.$queryRawUnsafe(
+    const existing = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
       `SELECT ${INTAKE_RETURNING} FROM abdm_patient_share_intakes
         WHERE tenant_id = $1::uuid AND request_id = $2::text AND environment = $3::text
         LIMIT 1`,
       tid, requestId, environment,
-    );
+    ));
     intake = existing[0] || null;
   } else if (!intake.token_number) {
     // No CM-assigned token: mint a queue-display token from the row id.
-    const tokenRows = await prisma.$queryRawUnsafe(
+    const tokenRows = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
       `UPDATE abdm_patient_share_intakes
           SET token_number = 'T-' || id::text, updated_at = NOW()
         WHERE id = $1::integer AND tenant_id = $2::uuid AND token_number IS NULL
         RETURNING ${INTAKE_RETURNING}`,
       intake.id, tid,
-    );
+    ));
     intake = tokenRows[0] || intake;
   }
 
@@ -531,14 +535,20 @@ export async function dismissShareIntake({
   return publicIntake(updated);
 }
 
-/** Cron sweep: expire unactioned intakes (abdm-share-intake-expiry). */
+/**
+ * Cron sweep: expire unactioned intakes (abdm-share-intake-expiry). Cross-tenant;
+ * runs under the scheduler's job lock via setSystemJobTx so it satisfies
+ * migration 733's system-job predicate on abdm_patient_share_intakes (726's
+ * restrictive policy otherwise rejects the plain/'bypass' connection and stale
+ * intakes pile on the front-desk queue).
+ */
 export async function sweepExpiredShareIntakes() {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setSystemJobTx((tx) => tx.$queryRawUnsafe(
     `UPDATE abdm_patient_share_intakes
         SET status = 'expired', updated_at = NOW()
       WHERE status = 'received' AND expires_at IS NOT NULL AND expires_at < NOW()
       RETURNING id`,
-  );
+  ));
   if (rows.length > 0) {
     logger.info('ABDM share-intake expiry sweep complete', { expired: rows.length });
   }

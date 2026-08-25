@@ -470,6 +470,12 @@ const MODEL_DELEGATE_CACHE = new WeakMap(); // baseClient → Map<prop, proxy>
 // tenant-scoped atomic boundary they require.
 const TENANT_TRANSACTION_CLIENTS = new WeakSet();
 
+// Sentinel value for the app.rls_system_job GUC. Recognised ONLY by migration
+// 733's restrictive predicate on the three cross-tenant expiry-swept tables
+// (abha_enrolment_sessions, abdm_patient_share_intakes, payment_gateway_orders).
+// Kept in lockstep with the literal in 733; do not reuse it for anything else.
+export const SYSTEM_JOB_SWEEP_GUC_VALUE = 'cross_tenant_sweep';
+
 function isModelDelegate(value, prop) {
   return (
     value !== null &&
@@ -624,7 +630,13 @@ function pickTenantClient({ readOnly = false } = {}) {
  *     237/238/239/272/304) covers owned tables, and the runtime role is
  *     belt-and-braces for any future unforced table.
  */
-function runTenantScopedTransaction(client, gucValue, fn, transactionOptions = undefined) {
+function runTenantScopedTransaction(
+  client,
+  gucValue,
+  fn,
+  transactionOptions = undefined,
+  { systemJob = false } = {},
+) {
   const testRole = tenantRlsRuntimeRole();
   const transaction = async (tx) => {
     if (testRole) {
@@ -635,6 +647,16 @@ function runTenantScopedTransaction(client, gucValue, fn, transactionOptions = u
       "SELECT set_config('app.current_tenant_id', $1, true)",
       gucValue,
     );
+    if (systemJob) {
+      // Distinct system-job GUC recognised by migration 733's restrictive
+      // predicate on the three cross-tenant expiry-swept tables. Transaction-
+      // local (auto-cleared at COMMIT/ROLLBACK); NEVER re-opens the broad
+      // 'bypass' branch of migration 726. See setSystemJobTx below.
+      await tx.$queryRawUnsafe(
+        "SELECT set_config('app.rls_system_job', $1, true)",
+        SYSTEM_JOB_SWEEP_GUC_VALUE,
+      );
+    }
     TENANT_TRANSACTION_CLIENTS.add(tx);
     return fn(tx);
   };
@@ -760,6 +782,35 @@ export async function setTenant(tenantId, fn, { superAdmin = false, readOnly = f
     throw new Error('setTenant requires tenantId (or { superAdmin: true } to bypass)');
   }
   return setTenantTx(tenantId, fn, { superAdmin, readOnly });
+}
+
+/**
+ * Open a cross-tenant SYSTEM-JOB transaction for the legitimate expiry sweeps
+ * that span every tenant. The transaction sets app.current_tenant_id='bypass'
+ * (so the permissive tenant_isolation policy admits every row) AND the distinct
+ * app.rls_system_job='cross_tenant_sweep' GUC, which migration 733's restrictive
+ * policy on the three swept tables recognises — so the sweeps work under 726's
+ * fail-closed layer WITHOUT re-opening the broad 'bypass' branch of that
+ * restrictive policy.
+ *
+ * DELIBERATELY NARROW. This is the ONLY emitter of the system-job GUC, and it is
+ * called ONLY by the three cron sweeps (sweepExpiredEnrolmentSessions,
+ * sweepExpiredShareIntakes, expireStaleGatewayOrders), each of which runs ONLY
+ * under the scheduler's withJobLock advisory-lock wrapper. No request-path code
+ * calls it and no user input decides whether it runs. See migration 733's header
+ * for the full isolation argument.
+ *
+ * @param {(tx) => Promise<T>} fn Callback receiving the system-job-scoped client.
+ * @param {Object} [options]
+ * @param {boolean} [options.readOnly=false] route to the read replica when configured.
+ */
+export async function setSystemJobTx(fn, { readOnly = false } = {}) {
+  const client = pickTenantClient({ readOnly });
+  return runInTenantContext(
+    null,
+    () => runTenantScopedTransaction(client, 'bypass', fn, undefined, { systemJob: true }),
+    { superAdmin: true, inSetTenant: true },
+  );
 }
 
 /** Reset circuit-breaker state. Test-only. */

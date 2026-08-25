@@ -320,6 +320,7 @@ COMMIT;`;
     const stmtCalls = calls.filter(
       (s) => !s.includes('CREATE TABLE IF NOT EXISTS _migrations') &&
         !s.includes('INSERT INTO _migrations') &&
+        !s.includes('ALTER TABLE _migrations') &&
         !s.startsWith('SET ') &&
         s !== 'BEGIN' &&
         s !== 'COMMIT',
@@ -399,7 +400,8 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id);`,
     const trackerInsert = query.mock.calls.find(
       (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO _migrations'),
     );
-    expect(trackerInsert?.[1]).toEqual([file]);
+    // Tracker INSERT now also records the file's sha256 checksum (T-M2).
+    expect(trackerInsert?.[1]).toEqual([file, expect.any(String)]);
     expect(query.mock.calls.at(-1)).toEqual(trackerInsert);
     expect(end).toHaveBeenCalledTimes(1);
   });

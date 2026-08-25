@@ -199,19 +199,27 @@ spec:
         # not exist" from silence into a page, following the absent() posture
         # already used by CnpgWalArchivingStalled and CnpgBackupVerifyStale.
         #
-        # PostgresConnectionMetricsAbsent is the UNGATED arm and is the one that
-        # catches a wholesale naming miss: pg_stat_activity is never empty, so
-        # every scraped CNPG instance exports these two columns on every cluster
-        # size, dev included.
+        # PostgresConnectionMetricsAbsent catches a wholesale naming miss on a
+        # real CNPG cluster: pg_stat_activity is never empty, so every scraped
+        # CNPG instance exports these two columns on every cluster size, dev
+        # included. It is gated on CNPG actually running — `count(cnpg_collector_up)
+        # > 0`, the operator's built-in exporter health series, present on every
+        # CNPG instance regardless of the customQueriesConfigMap. Without that
+        # gate the rule pages forever on a plain-postgres StatefulSet (the test
+        # rig, and any non-CNPG overlay), where no cnpg_ series exists at all —
+        # which is silence-not-fault, not a naming miss. On a real CNPG cluster
+        # cnpg_collector_up is present, so a missing vhhealth_connections series
+        # still pages. (The gate cannot be the connections series itself — that is
+        # the series being tested for absence.)
         - alert: PostgresConnectionMetricsAbsent
-          expr: absent(cnpg_vhhealth_connections_total) or absent(cnpg_vhhealth_connections_max_conn)
+          expr: (absent(cnpg_vhhealth_connections_total) or absent(cnpg_vhhealth_connections_max_conn)) and (count(cnpg_collector_up) > 0)
           for: 15m
           labels:
             severity: warning
             team: database
           annotations:
             summary: "CNPG connection-usage metrics are not being exported — PostgresConnectionsHigh is blind"
-            description: "The vhhealth_connections user-defined query reads pg_stat_activity, so it yields a row on every instance whenever the exporter is scraped at all. Absence means the customQueriesConfigMap is not mounted, the query is erroring, or the exported names are not cnpg_vhhealth_connections_total / cnpg_vhhealth_connections_max_conn. Read the real names off a live instance before editing the rules: kubectl exec -n vhhealth-platform vhhealth-pg-1 -c postgres -- curl -s localhost:9187/metrics | grep vhhealth"
+            description: "The vhhealth_connections user-defined query reads pg_stat_activity, so it yields a row on every instance whenever the exporter is scraped at all. This alert is gated on CNPG running (count(cnpg_collector_up) > 0), so it stays silent on a non-CNPG rig instead of paging forever; on a CNPG cluster its firing means the customQueriesConfigMap is not mounted, the query is erroring, or the exported names are not cnpg_vhhealth_connections_total / cnpg_vhhealth_connections_max_conn. Read the real names off a live instance before editing the rules: kubectl exec -n vhhealth-platform vhhealth-pg-1 -c postgres -- curl -s localhost:9187/metrics | grep vhhealth"
 
         # Gated arm: pg_stat_replication is empty on a single-instance cluster,
         # and overlays/dev patches spec.instances to 1, so absence there is

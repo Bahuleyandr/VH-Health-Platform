@@ -93,6 +93,18 @@
 -- THE FIRST SWEEP AFTER THIS MIGRATION CANNOT STAMPEDE
 -- ---------------------------------------------------------------------------
 --
+-- CORRECTION (re-audit 2026-08-25): the escalation_rules ("escalation tiers")
+-- copy this section analyses was WITHDRAWN before this migration shipped — see
+-- the "WHAT THIS MIGRATION DELIBERATELY DOES NOT DO" note above and
+-- tenantProvisioningRegistry.js. This migration's only backfill is
+-- workflow_sla_rules; it grants NO escalation tiers. The tenant-set widening of
+-- runEscalationSweep lives in escalationEngineService.js (#922), not here. The
+-- tier-stampede reasoning below is retained as the (now historical) argument for
+-- why the withdrawn tier copy would have been safe, and because the
+-- workflow_sla_rules backfill is what unblocks startWorkflowSla — read every
+-- "grants every active tenant the escalation tiers" sentence as describing that
+-- withdrawn copy, not what the final file does.
+--
 -- This migration grants every active tenant the escalation tiers at once, and
 -- the same change makes runEscalationSweep visit every active tenant rather than
 -- only rule-owning ones. Fired markers live in tasks.metadata.escalations[] and
