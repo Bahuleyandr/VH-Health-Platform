@@ -50,9 +50,10 @@ void main() {
   // parked on an <activity> satisfies a file-wide `contains` while leaving
   // the application tag bare. No attribute value here contains '>', so the
   // opening tag runs from '<application' to the first '>'.
-  final applicationTags = RegExp(
-    r'<application\b[^>]*>',
-  ).allMatches(manifest).map((match) => match.group(0)!).toList();
+  final applicationTags = RegExp(r'<application\b[^>]*>')
+      .allMatches(manifest)
+      .map((match) => match.group(0)!)
+      .toList();
   final applicationTag = applicationTags.length == 1
       ? applicationTags.single
       : '';
@@ -78,17 +79,23 @@ void main() {
       );
     });
 
-    test('dataExtractionRules is usable at the application tools:targetApi', () {
-      // <data-extraction-rules> is API 31. The application tag must claim at
-      // least 31 or the manifest merger/lint flags the attribute — so read
-      // tools:targetApi off that tag, not off whichever element in the file
-      // happens to carry one.
-      final match = RegExp(
-        r'tools:targetApi="(\d+)"',
-      ).firstMatch(applicationTag);
-      expect(match, isNotNull, reason: 'application tag lost tools:targetApi');
-      expect(int.parse(match!.group(1)!), greaterThanOrEqualTo(31));
-    });
+    test(
+      'dataExtractionRules is usable at the application tools:targetApi',
+      () {
+        // <data-extraction-rules> is API 31. The application tag must claim at
+        // least 31 or the manifest merger/lint flags the attribute — so read
+        // tools:targetApi off that tag, not off whichever element in the file
+        // happens to carry one.
+        final match = RegExp(r'tools:targetApi="(\d+)"')
+            .firstMatch(applicationTag);
+        expect(
+          match,
+          isNotNull,
+          reason: 'application tag lost tools:targetApi',
+        );
+        expect(int.parse(match!.group(1)!), greaterThanOrEqualTo(31));
+      },
+    );
 
     test('both extraction channels are declared', () {
       // allowBackup covers <cloud-backup> already; <device-transfer> is the
@@ -118,9 +125,10 @@ void main() {
     test('no exclusion names a domain the platform does not know', () {
       // The platform drops an unrecognised domain with a verbose log and
       // carries on, so a typo reads as "excluded" and backs the data up.
-      final declared = RegExp(
-        r'domain="([^"]*)"',
-      ).allMatches(rules).map((match) => match.group(1)!).toSet();
+      final declared = RegExp(r'domain="([^"]*)"')
+          .allMatches(rules)
+          .map((match) => match.group(1)!)
+          .toSet();
       expect(declared, isNotEmpty);
       expect(
         declared.difference(_domains.toSet()).toList()..sort(),

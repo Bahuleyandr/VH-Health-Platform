@@ -177,16 +177,16 @@ pages instead of creating long-lived scratch roadmaps.
   There are **8 spec files** plus the one setup file (`ls e2e/*.spec.ts | wc -l`
   — re-derive, do not trust this list if it disagrees):
 
-  | Spec | Covers | `test()` blocks |
-  | --- | --- | --- |
-  | `smoke.spec.ts` | unauthenticated redirect + login surface | 5 |
-  | `authenticated.spec.ts` | logged-in dashboard journeys | 7 |
-  | `route-crawl.spec.ts` | every dashboard route, discovered from the app tree | 1 (loops over discovered routes) |
-  | `table-controls.spec.ts` | shared table search/filter/paginate controls | 2 (each loops over a route list) |
-  | `sprint-pages.spec.ts` | sprint 1–10 page reachability | 10 |
-  | `sprint-data.spec.ts` | sprint 1–10 data rendering | 10 |
-  | `discharge-compose.spec.ts` | discharge summary composer | 3 |
-  | `continuity-facility-context.spec.ts` | continuity console facility scoping | 2 |
+  | Spec                                  | Covers                                              | `test()` blocks                  |
+  | ------------------------------------- | --------------------------------------------------- | -------------------------------- |
+  | `smoke.spec.ts`                       | unauthenticated redirect + login surface            | 5                                |
+  | `authenticated.spec.ts`               | logged-in dashboard journeys                        | 7                                |
+  | `route-crawl.spec.ts`                 | every dashboard route, discovered from the app tree | 1 (loops over discovered routes) |
+  | `table-controls.spec.ts`              | shared table search/filter/paginate controls        | 2 (each loops over a route list) |
+  | `sprint-pages.spec.ts`                | sprint 1–10 page reachability                       | 10                               |
+  | `sprint-data.spec.ts`                 | sprint 1–10 data rendering                          | 10                               |
+  | `discharge-compose.spec.ts`           | discharge summary composer                          | 3                                |
+  | `continuity-facility-context.spec.ts` | continuity console facility scoping                 | 2                                |
 
   The `test()`-block column is a static count of literal blocks; the two
   data-driven specs expand to more cases at run time, so it is a floor, not a

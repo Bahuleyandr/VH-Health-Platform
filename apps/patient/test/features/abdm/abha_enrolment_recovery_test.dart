@@ -300,10 +300,7 @@ void main() {
       MockClient((request) async {
         if (request.url.path.endsWith('/enrolment/status')) {
           statusCalls += 1;
-          return _statusOf({
-            'id': _blockingSessionId,
-            'status': 'otp_sent',
-          });
+          return _statusOf({'id': _blockingSessionId, 'status': 'otp_sent'});
         }
         if (request.url.path.endsWith('/enrolment/cancel')) {
           return _json({'success': true}, 200);
