@@ -417,7 +417,11 @@ describe('no secret leakage', () => {
         ]).toContain(key);
       }
       if (typeof value === 'number') {
-        expect(['metabase_dashboards_configured']).toContain(key);
+        expect([
+          'metabase_dashboards_configured',
+          // Device-gateway LIS ingress (#891 deferral): listener count only.
+          'lis_listeners_configured',
+        ]).toContain(key);
       }
     }
   });
