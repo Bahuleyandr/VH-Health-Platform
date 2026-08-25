@@ -121,10 +121,7 @@ class ApiConfig {
   /// GET /rbac/policy fetch so an 'enforce' verdict survives restarts.
   /// Null until the first policy fetch of a session succeeds.
   static Future<void> saveSpecialtyGateModes(Map<String, String> modes) async {
-    await _storage.write(
-      key: 'specialty_gate_modes',
-      value: jsonEncode(modes),
-    );
+    await _storage.write(key: 'specialty_gate_modes', value: jsonEncode(modes));
   }
 
   static Future<Map<String, String>?> getSpecialtyGateModes() async {

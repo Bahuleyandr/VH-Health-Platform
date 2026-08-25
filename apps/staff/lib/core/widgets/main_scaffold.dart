@@ -65,9 +65,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     // Seed the specialty tile filter with the last persisted server gate
     // modes so an 'enforce' verdict survives an offline app start. A fresh
     // fetch below replaces it once the policy snapshot lands.
-    RoleFeatures.setSpecialtyGateModes(
-      await ApiConfig.getSpecialtyGateModes(),
-    );
+    RoleFeatures.setSpecialtyGateModes(await ApiConfig.getSpecialtyGateModes());
     final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
     setState(() {
