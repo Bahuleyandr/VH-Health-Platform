@@ -8,11 +8,11 @@ shared Dart package they all consume.
 
 | Path | Stack | Role |
 |---|---|---|
-| `apps/backend` | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
+| `apps/backend` | Node.js 26.5.0 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
 | `apps/admin` | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
 | `apps/patient` | Flutter 3.47.0 + Firebase OTP | Patient mobile app |
 | `apps/staff` | Flutter 3.47.0 + staff JWT | Staff/clinical mobile app |
-| `apps/device-gateway` | Node.js 26 + MLLP/HL7v2 | Held bedside-device ingress and durable recovery spool |
+| `apps/device-gateway` | Node.js 26.5.0 + MLLP/HL7v2 | Held bedside-device ingress and durable recovery spool |
 | `packages/vhhealth_core` | Dart shared package | API client, shared types, codegen target |
 
 ## History
@@ -86,6 +86,34 @@ After changing the pinned Flutter version, run `melos run clean` before the
 next test run. Flutter otherwise can reuse `build/unit_test_assets` generated
 by the previous SDK, including engine-versioned Material shaders.
 
+### Node runtime — pinned, and running the wrong one fabricates results
+
+The declared floor is **Node 26.5.0**, and the declaration lives in `engines`:
+`apps/backend/package.json` and `apps/device-gateway/package.json` both say
+`>=26.5.0 <27`. Those are the only `engines` declarations anywhere under
+`apps/` — admin and patient ship none — and nothing in the repo checks them
+against the copies below, so treat the copies as copies.
+
+The version is re-typed by hand wherever a Node actually gets provisioned: the
+`node-version:` inputs in the workflows that set Node up, and the `node:26.5.0-*`
+base images in `apps/backend`, `apps/admin`, `apps/device-gateway` and
+`infra/mcp/vh-mcp-postgres` (only the first two carry a `NODE_IMAGE` digest pin).
+When you move the version, grep for the old string across the repo rather than
+working from a list here. `infra/continuity-edge` is deliberately off this
+version — its runtime verifier pins `node:22.17.1`.
+
+**Run the backend jest corpus on an older Node and it fails tests that pass on
+26.5.0.** Those failures are artefacts of the runtime, not of the code — chasing
+them has cost this repo real time more than once. A red suite is only evidence
+after you have confirmed the interpreter:
+
+```bash
+node --version          # must print v26.5.0 before you believe any jest result
+```
+
+On the Windows dev box the pinned toolchain lives at `D:\Dev\Tools\node-26.5.0`;
+put it first on `PATH` for the session rather than relying on the default `node`.
+
 ### Daily commands
 
 **Flutter** (patient + staff + core — one workspace):
@@ -99,8 +127,8 @@ melos run codegen
 **Backend**:
 ```bash
 cd apps/backend
-npm run dev              # nodemon on :5000
-npm test                 # Jest; needs Postgres on :5433
+npm run dev              # nodemon on :5000 — dev Postgres on :5433
+npm test                 # Jest; jest.setup.cjs defaults DATABASE_URL to the QA cluster on :55432
 npm run lint             # eslint + lint:raw-params
 ```
 

@@ -5,6 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('polished patient screens keep visible copy in AppLocalizations', () {
     const files = [
+      // Lane L: the ABHA self-enrolment wizard was hardcoded English in a
+      // five-language app. Listed here so it cannot drift back.
+      // NOT listed: lib/features/abdm/screens/abdm_screen.dart — its link
+      // form and consent dialogs are still English, parked in
+      // docs/ROADMAP.md rather than machine-translated.
+      'lib/features/abdm/widgets/abha_enrolment_flow.dart',
       'lib/core/widgets/main_scaffold_go_router.dart',
       'lib/features/appointments/screens/appointments_screen.dart',
       'lib/features/pharmacy/screens/pharmacy_screen.dart',

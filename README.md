@@ -15,7 +15,7 @@ Do not add new work to the archived repos.
 
 | Path | Stack | Role |
 | --- | --- | --- |
-| `apps/backend` | Node 22, Express 5, PostgreSQL 17, Prisma plus SQL migrations | REST API, auth, database access, jobs, realtime, Clinical AI |
+| `apps/backend` | Node 26.5.0, Express 5, PostgreSQL 17, Prisma plus SQL migrations | REST API, auth, database access, jobs, realtime, Clinical AI |
 | `apps/admin` | Next.js 16, React 19, TypeScript | Admin and super-admin dashboard |
 | `apps/patient` | Flutter 3.41, Firebase OTP | Patient mobile app |
 | `apps/staff` | Flutter 3.41, staff JWT | Staff and clinical mobile/desktop app |

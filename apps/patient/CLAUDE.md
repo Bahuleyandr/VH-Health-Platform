@@ -190,14 +190,29 @@ Builders are param-free unless noted.
 | `/portal/discharge-summaries/:id` | DischargeSummaryDetailRouteScreen | No |
 | `/portal/lab-orders` | LabOrdersScreen | No |
 | `/portal/lab-results` | LabResultsScreen | No |
+| `/portal/lab-results/:id` | LabResultDetailScreen | No |
+| `/portal/diagnostic-results` | StructuredDiagnosticResultsScreen | No |
+| `/portal/diagnostic-results/:id` (UUID) | StructuredDiagnosticResultDetailScreen | No |
+| `/portal/referrals` | PatientReferralsScreen | No |
 | `/portal/maternity/timeline` | AncTimelineScreen | No |
 | `/portal/tpa/claims` | TpaClaimsScreen | No |
 | `/portal/tpa/claims/:id` | TpaClaimDetailScreen | No |
 | `/portal/messages` | MessagesScreen | No |
 | `/portal/messages/:id` | MessageThreadScreen | No |
+| `/health/explanations/:id` | PatientExplainerDetailScreen | No |
+| `/health/consultation-notes/:id` | ConsultationNoteDetailScreen | No |
+| `/settings/record-access` | RecordAccessScreen | No |
+| `/period-tracker` | PeriodTrackerScreen (needs `extra['eligible'] == true`) | No |
 | `/records` → `/health` | Redirect | — |
 | `/your-health` → `/health` | Redirect | — |
 | `/dashboard` → `/home` | Redirect | — |
+
+This table is the reference; `DeepLinkService`'s allowlist is the enforcement.
+That allowlist is a partition of the route table above — every `GoRoute` path is
+either a link destination or carries a reason in
+`DeepLinkService.unreachableByLinkRoutes` — and
+`test/core/services/deep_link_route_table_test.dart` parses `app_router.dart` to
+hold it that way, so a new route cannot be silently unreachable by deep link.
 
 ## API Endpoints Used
 | Feature | Endpoint | Method |

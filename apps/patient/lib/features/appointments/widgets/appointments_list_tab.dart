@@ -16,12 +16,16 @@ import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
-import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
+import 'package:vhhealth/features/appointments/services/appointment_feed_repository.dart';
 import 'package:vhhealth/features/appointments/widgets/appointment_card.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_models.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
 import 'package:vhhealth/features/teleconsult/services/teleconsult_repository.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
+import 'package:vhhealth_core/services/connectivity_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
@@ -31,10 +35,15 @@ class AppointmentsListTab extends StatefulWidget {
   final VoidCallback onBookOne;
   final TeleconsultRepository teleconsultRepository;
 
+  /// Cache-first source for `/appointments/patient/:id` — the same entry the
+  /// dashboard writes. Injectable for tests, exactly like the portal screens.
+  final AppointmentFeedRepository feedRepository;
+
   const AppointmentsListTab({
     super.key,
     required this.onBookOne,
     this.teleconsultRepository = const TeleconsultRepository(),
+    this.feedRepository = const ApiAppointmentFeedRepository(),
   });
 
   @override
@@ -49,6 +58,11 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   bool _loadingAppointments = true;
   String? _patientId;
   String? _error;
+  // As-of state for the OfflineBanner, exactly as DashboardProvider tracks it
+  // for the same feed: `_cachedAt` is the timestamp of the copy on screen and
+  // `_staleLabel` its age when the cache is being served past its TTL.
+  String? _staleLabel;
+  DateTime? _cachedAt;
   WebSocketProvider? _webSocketProvider;
   int _lastAppointmentEventRevision = 0;
   DependentsProvider? _dependentsProvider;
@@ -106,12 +120,16 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       return;
     }
     _lastAppointmentEventRevision = wsProv.appointmentEventRevision;
-    _fetchAppointments();
+    // A realtime event means the cached copy is known-superseded — drop it
+    // rather than rendering it and waiting for the background refresh (same
+    // rule DashboardProvider applies to the same feed).
+    _fetchAppointments(invalidateCache: true);
   }
 
   /// Re-fetch the appointment list. Called by the parent (via GlobalKey)
-  /// after a booking is created on the Book tab.
-  void refresh() => _fetchAppointments();
+  /// after a booking is created on the Book tab — i.e. always after a
+  /// mutation, so the cached copy is dropped first.
+  void refresh() => _fetchAppointments(invalidateCache: true);
 
   Future<void> _loadPatientId() async {
     _patientId = await _secureStorage.read(key: 'user_id');
@@ -122,7 +140,64 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     }
   }
 
-  Future<void> _fetchAppointments() async {
+  List<AppointmentInfo> _parseAppointments(dynamic responseData) {
+    final data = responseData ?? {};
+    final List<dynamic> raw = data is List
+        ? data
+        : (data['appointments'] ?? data ?? []);
+    return raw.map((a) {
+      return AppointmentInfo(
+        id: a['id'] ?? 0,
+        doctorName: a['doctor_name'] ?? a['doctor']?['name'] ?? 'Doctor',
+        department: a['department_name'] ?? a['department'] ?? '',
+        date: a['appointment_date']?.toString().split('T').first ?? '',
+        time: a['appointment_time']?.toString() ?? '',
+        status: a['status']?.toString().toLowerCase() ?? 'scheduled',
+        reason: a['reason']?.toString(),
+        tokenNumber: a['token_number'] != null
+            ? int.tryParse(a['token_number'].toString())
+            : null,
+        confirmationNotes: a['confirmation_notes']?.toString(),
+        hasDocuments: false, // updated when documents are fetched
+        visitType:
+            a['visit_type']?.toString() ?? a['visitType']?.toString() ?? '',
+      );
+    }).toList();
+  }
+
+  void _applyAppointments(List<AppointmentInfo> list) {
+    setState(() {
+      _appointments = list;
+      _loadingAppointments = false;
+      _teleconsultStates = Map.fromEntries(
+        _teleconsultStates.entries.where(
+          (entry) => list.any((appt) => appt.id == entry.key),
+        ),
+      );
+    });
+    unawaited(_refreshTeleconsultStates(list));
+  }
+
+  /// Fetch the list through the CACHING client.
+  ///
+  /// This reads `/appointments/patient/:id` — byte-for-byte the same path
+  /// DashboardProvider already reads through `ApiClient.cachedGet`, so the
+  /// encrypted cache entry keyed on it is on disk (same CacheProfileScope,
+  /// so a dependent profile keeps its own namespace). Reading it with the
+  /// plain client meant the dashboard showed the patient their appointments
+  /// offline while this screen — the one they open TO SEE them — showed a load
+  /// error over data already on the device.
+  ///
+  /// Staleness is surfaced the way the dashboard surfaces it: `_cachedAt` /
+  /// `_staleLabel` drive an [OfflineBanner] pinned above the list, so a cached
+  /// list always states its as-of time and never reads as live. Mutations from
+  /// this screen are not affected — `ApiClient.delete/patch` still refuse
+  /// during an outage, so a stale card cannot be acted on against the server.
+  ///
+  /// [invalidateCache] drops the entry first, for the two cases where the
+  /// cached copy is known-superseded: a realtime appointment event, and an
+  /// explicit pull-to-refresh.
+  Future<void> _fetchAppointments({bool invalidateCache = false}) async {
     // The active dependent's appointments when a dependent profile is
     // selected (the request also carries the acting-as header, so the
     // backend authorizes the guardian link); the guardian's own otherwise.
@@ -133,57 +208,72 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     final effectivePatientId = activeDep?.id.toString() ?? _patientId;
     if (effectivePatientId == null) return;
     final l = AppLocalizations.of(context)!;
+    final repository = widget.feedRepository;
     setState(() {
       _loadingAppointments = true;
       _error = null;
     });
     try {
-      final resp = await ApiClient.get(
-        '/appointments/patient/$effectivePatientId',
-      );
+      // NEVER invalidate while offline. cachedGet serves the cached copy when
+      // there is no network, so dropping the entry first leaves nothing to
+      // serve: the pull-to-refresh a patient reflexively performs on
+      // stale-looking data would delete the only copy, replace the list with an
+      // error pane, and — because DashboardProvider reads the SAME cache key —
+      // wipe the dashboard's offline appointment card too, until connectivity
+      // returns. Invalidation is only meaningful when a network fetch will
+      // actually replace what we dropped.
+      // Must mirror EVERY condition cachedGet uses to decide it will serve the
+      // cache instead of the network (api_client.dart): isOnline, isOutage AND
+      // isChecking. Omitting isChecking would let an invalidation through while
+      // cachedGet was still serving cache — deleting the only copy, which is the
+      // exact defect this guard exists to prevent.
+      final outage = PatientOutageController.instance;
+      final canReachNetwork =
+          ConnectivityService.isOnline &&
+          !outage.isOutage &&
+          !outage.isChecking;
+      if (invalidateCache && canReachNetwork) {
+        await repository.invalidate(effectivePatientId);
+      }
+      final cached = await repository.fetch(effectivePatientId);
+      if (!mounted) return;
+      final resp = cached.response;
       if (resp.isSuccess) {
-        final data = resp.data ?? {};
-        final List<dynamic> raw = data is List
-            ? data
-            : (data['appointments'] ?? data ?? []);
-        final list = raw.map((a) {
-          return AppointmentInfo(
-            id: a['id'] ?? 0,
-            doctorName: a['doctor_name'] ?? a['doctor']?['name'] ?? 'Doctor',
-            department: a['department_name'] ?? a['department'] ?? '',
-            date: a['appointment_date']?.toString().split('T').first ?? '',
-            time: a['appointment_time']?.toString() ?? '',
-            status: a['status']?.toString().toLowerCase() ?? 'scheduled',
-            reason: a['reason']?.toString(),
-            tokenNumber: a['token_number'] != null
-                ? int.tryParse(a['token_number'].toString())
-                : null,
-            confirmationNotes: a['confirmation_notes']?.toString(),
-            hasDocuments: false, // updated when documents are fetched
-            visitType:
-                a['visit_type']?.toString() ?? a['visitType']?.toString() ?? '',
+        setState(() {
+          _staleLabel = cached.staleLabel;
+          _cachedAt = cached.cachedAt;
+        });
+        _applyAppointments(_parseAppointments(resp.data));
+
+        // Served from a still-fresh cache: the live copy is already in flight.
+        // Apply it when it lands so the list converges without a second fetch.
+        final freshFuture = cached.onFresh;
+        if (freshFuture != null) {
+          unawaited(
+            freshFuture
+                .then((fresh) async {
+                  if (!fresh.isSuccess) return;
+                  final refreshedAt = await repository.cachedAt(
+                    effectivePatientId,
+                  );
+                  if (!mounted) return;
+                  setState(() {
+                    _staleLabel = null;
+                    _cachedAt = refreshedAt;
+                  });
+                  _applyAppointments(_parseAppointments(fresh.data));
+                })
+                .catchError((Object e) {
+                  debugPrint('Appointment background refresh failed: $e');
+                }),
           );
-        }).toList();
-        if (mounted) {
-          setState(() {
-            _appointments = list;
-            _loadingAppointments = false;
-            _teleconsultStates = Map.fromEntries(
-              _teleconsultStates.entries.where(
-                (entry) => list.any((appt) => appt.id == entry.key),
-              ),
-            );
-          });
-          unawaited(_refreshTeleconsultStates(list));
         }
         return;
       }
-      if (mounted) {
-        setState(() {
-          _error = resp.failureMessage(l.appointmentsLoadFailed);
-          _loadingAppointments = false;
-        });
-      }
+      setState(() {
+        _error = resp.failureMessage(l.appointmentsLoadFailed);
+        _loadingAppointments = false;
+      });
       return;
     } catch (e) {
       debugPrint('Fetch appointments failed: $e');
@@ -572,7 +662,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
             (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
           );
         return RefreshIndicator(
-          onRefresh: _fetchAppointments,
+          // An explicit pull-to-refresh asks for live data, not the cache.
+          onRefresh: () => _fetchAppointments(invalidateCache: true),
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -611,7 +702,19 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       },
     );
 
-    if (activeDep == null) return body;
+    // Pinned as-of banner. The list is served cache-first, so it must never
+    // read as live: OfflineBanner states the timestamp of the copy on screen,
+    // and turns into the error-container "showing cached data" treatment while
+    // the hospital is unreachable — the same widget, fed the same way, as the
+    // dashboard's appointment strip.
+    final bannered = Column(
+      children: [
+        OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
+        Expanded(child: body),
+      ],
+    );
+
+    if (activeDep == null) return bannered;
 
     // Clear labelling when viewing a dependent's appointments.
     final theme = Theme.of(context);
@@ -642,7 +745,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
             ],
           ),
         ),
-        Expanded(child: body),
+        Expanded(child: bannered),
       ],
     );
   }

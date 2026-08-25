@@ -10,7 +10,7 @@
 
 | Component | Technology | Cluster Location | Service Port |
 |-----------|-----------|------------------|--------------|
-| Backend API | Node.js 22 + Express | `Deployment/vhhealth-backend` in ns `vhhealth` | 5000 (ClusterIP) |
+| Backend API | Node.js 26.5.0 + Express | `Deployment/vhhealth-backend` in ns `vhhealth` | 5000 (ClusterIP) |
 | Admin Portal | Next.js (React) | `Deployment/vhhealth-admin` in ns `vhhealth` | 3001 (ClusterIP) |
 | Patient App | Flutter 3.41 | Client-side (Play Store / TestFlight) | — |
 | Staff App | Flutter 3.41 | Client-side (internal distribution) | — |

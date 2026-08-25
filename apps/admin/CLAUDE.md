@@ -148,8 +148,19 @@ pages instead of creating long-lived scratch roadmaps.
 
 ## Testing
 
-- **Unit/component**: Jest. `npm test` — currently 21 suites / 247
-  tests passing.
+- **Unit/component**: Jest. `npm test` — **140 suites / 1763 tests passing**
+  (measured 2026-08-25 on Node 26.5.0 — the pinned runtime for every JS stack
+  in this repo; confirm `node --version` before treating a red run as signal,
+  because the backend corpus is known to fabricate failures on older Node and
+  nothing pins this one to a different interpreter). `testMatch` is
+  `src/__tests__/**/*.test.ts{,x}`, so the suite count is exactly the file
+  count. Re-derive both before editing this line — do not adjust the prose:
+
+  ```bash
+  find src/__tests__ -name '*.test.ts' -o -name '*.test.tsx' | wc -l   # 140 suites
+  npx jest --silent --ci                                               # authoritative test total
+  ```
+
 - **E2E**: Playwright. `@playwright/test` is a pinned devDependency
   (added batch 41); `npx playwright install chromium` once per clone.
   `npm run test:e2e` runs against an existing `npm run dev` on :3001.
@@ -158,11 +169,29 @@ pages instead of creating long-lived scratch roadmaps.
     `playwright-admin` test user (ADMIN role, no MFA), writes
     `playwright/.auth/admin.json` storage state. DB seed SQL in the
     file header.
-  - `chromium` — depends on setup, reuses the storage state for
-    `e2e/authenticated.spec.ts` journeys. `e2e/smoke.spec.ts`
-    explicitly opts out via `test.use({ storageState: { cookies:
-[], origins: [] } })` so its redirect assertions fire.
-    Currently 5 smoke + 5 authenticated journey tests.
+  - `chromium` — depends on setup and reuses that storage state for every
+    spec except `e2e/smoke.spec.ts`, which opts out via
+    `test.use({ storageState: { cookies: [], origins: [] } })` so its
+    redirect assertions fire. `testIgnore` keeps `auth.setup.ts` out.
+
+  There are **8 spec files** plus the one setup file (`ls e2e/*.spec.ts | wc -l`
+  — re-derive, do not trust this list if it disagrees):
+
+  | Spec                                  | Covers                                              | `test()` blocks                  |
+  | ------------------------------------- | --------------------------------------------------- | -------------------------------- |
+  | `smoke.spec.ts`                       | unauthenticated redirect + login surface            | 5                                |
+  | `authenticated.spec.ts`               | logged-in dashboard journeys                        | 7                                |
+  | `route-crawl.spec.ts`                 | every dashboard route, discovered from the app tree | 1 (loops over discovered routes) |
+  | `table-controls.spec.ts`              | shared table search/filter/paginate controls        | 2 (each loops over a route list) |
+  | `sprint-pages.spec.ts`                | sprint 1–10 page reachability                       | 10                               |
+  | `sprint-data.spec.ts`                 | sprint 1–10 data rendering                          | 10                               |
+  | `discharge-compose.spec.ts`           | discharge summary composer                          | 3                                |
+  | `continuity-facility-context.spec.ts` | continuity console facility scoping                 | 2                                |
+
+  The `test()`-block column is a static count of literal blocks; the two
+  data-driven specs expand to more cases at run time, so it is a floor, not a
+  test total. `npm run smoke:routes` drives `route-crawl` + `authenticated`;
+  `npm run smoke:tables` drives `table-controls`.
 
 ## Generated API types
 

@@ -670,6 +670,16 @@ class AppLocalizationsMl extends AppLocalizations {
   String get biometricGateUnlockButton => 'അൺലോക്ക്';
 
   @override
+  String get biometricGateLockedEscapeHint =>
+      'നിങ്ങളുടെ വിരലടയാളമോ മുഖമോ പ്രവർത്തിക്കുന്നില്ലെങ്കിൽ, ഈ പൂട്ട് ക്രമീകരണങ്ങളിൽ ഓഫാക്കാം.';
+
+  @override
+  String get biometricGateOpenSettings => 'ക്രമീകരണങ്ങളിലേക്ക് പോകുക';
+
+  @override
+  String get biometricGateGoHome => 'ഹോമിലേക്ക് മടങ്ങുക';
+
+  @override
   String get settingsBiometricLogin => 'ബയോമെട്രിക് ലോഗിൻ ഉപയോഗിക്കുക';
 
   @override
@@ -4123,4 +4133,99 @@ class AppLocalizationsMl extends AppLocalizations {
   @override
   String get patientOutageContactUnavailable =>
       'ഈ ഉപകരണത്തിൽ ആശുപത്രിയുടെ ബന്ധപ്പെടാനുള്ള നമ്പർ ക്രമീകരിച്ചിട്ടില്ല.';
+
+  @override
+  String get settingsBiometricLockSubtitle =>
+      'നിങ്ങളുടെ വിരലടയാളം അല്ലെങ്കിൽ മുഖം ഉപയോഗിച്ച് സൈൻ ഇൻ ചെയ്യുന്നു, കൂടാതെ നിങ്ങളുടെ കുറിപ്പടികൾ, ഫലങ്ങൾ, കുറിപ്പുകൾ, സന്ദേശങ്ങൾ, ബില്ലുകൾ എന്നിവയും അതേ പരിശോധനയ്ക്ക് പിന്നിൽ പൂട്ടുന്നു. ഹോം, അപ്പോയിന്റ്‌മെന്റുകൾ, വീഡിയോ കൺസൾട്ടേഷനുകൾ എന്നിവ തുറന്നിരിക്കും, അതിനാൽ അടിയന്തര സഹായം ഒരിക്കലും തടസ്സപ്പെടില്ല.';
+
+  @override
+  String get abdmCreateAbhaCta => 'ABHA ഇല്ലേ? ഒന്ന് സൃഷ്ടിക്കുക';
+
+  @override
+  String get abhaEnrolTitle => 'പുതിയ ABHA സൃഷ്ടിക്കുക';
+
+  @override
+  String get abhaEnrolAadhaarIntro =>
+      'നിങ്ങളുടെ ABHA ആധാർ OTP സ്ഥിരീകരണത്തിലൂടെയാണ് സൃഷ്ടിക്കുന്നത്. OTP നിങ്ങളുടെ ആധാറുമായി ബന്ധിപ്പിച്ച മൊബൈൽ നമ്പറിലേക്ക് പോകും.';
+
+  @override
+  String get abhaEnrolOtpIntro =>
+      'നിങ്ങളുടെ ആധാറുമായി ബന്ധിപ്പിച്ച മൊബൈലിലേക്ക് അയച്ച OTP നൽകുക.';
+
+  @override
+  String abhaEnrolOtpIntroMasked(String last4) {
+    return 'നിങ്ങളുടെ ആധാറുമായി ബന്ധിപ്പിച്ച മൊബൈലിലേക്ക് (••$last4) അയച്ച OTP നൽകുക.';
+  }
+
+  @override
+  String get abhaEnrolDoneIntro =>
+      'നിങ്ങളുടെ ABHA തയ്യാറാണ്, നിങ്ങളുടെ ആശുപത്രി രേഖയുമായി ബന്ധിപ്പിച്ചിരിക്കുന്നു.';
+
+  @override
+  String get abhaEnrolStartFailed =>
+      'ABHA എൻറോൾമെന്റ് ആരംഭിക്കാനായില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String abhaEnrolServerUnreachable(String error) {
+    return 'സെർവറിലേക്ക് എത്താനായില്ല: $error';
+  }
+
+  @override
+  String get abhaEnrolOtpLengthError => '6 അക്ക OTP നൽകുക';
+
+  @override
+  String get abhaEnrolOtpFailed =>
+      'OTP സ്ഥിരീകരണം പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abhaEnrolOneMoreStep =>
+      'ഒരു ഘട്ടം കൂടി — പുതിയ OTP അയച്ചിട്ടുണ്ട്.';
+
+  @override
+  String abhaEnrolOneMoreStepMasked(String last4) {
+    return 'ഒരു ഘട്ടം കൂടി — ••$last4 എന്നതിലേക്ക് പുതിയ OTP അയച്ചിട്ടുണ്ട്.';
+  }
+
+  @override
+  String get abhaEnrolResendFailed => 'OTP വീണ്ടും അയയ്ക്കാനായില്ല.';
+
+  @override
+  String get abhaEnrolVerifyInProgress =>
+      'നിങ്ങളുടെ മുൻ OTP പരിശോധന ഇപ്പോഴും പ്രോസസ്സ് ചെയ്യുകയാണ്. ഒരു മിനിറ്റ് കാത്തിരുന്ന് വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abhaEnrolAadhaarLabel => 'ആധാർ നമ്പർ *';
+
+  @override
+  String get abhaEnrolAadhaarHint => '12 അക്ക ആധാർ';
+
+  @override
+  String get abhaEnrolAadhaarInvalid => 'ആധാർ നമ്പർ 12 അക്കങ്ങൾ ആയിരിക്കണം';
+
+  @override
+  String get abhaEnrolMobileLabel => 'ABHA-യ്ക്കുള്ള മൊബൈൽ (ഐച്ഛികം)';
+
+  @override
+  String get abhaEnrolMobileHint =>
+      'സ്ഥിരസ്ഥിതിയായി നിങ്ങളുടെ ആധാറുമായി ബന്ധിപ്പിച്ച മൊബൈൽ';
+
+  @override
+  String get abhaEnrolSendOtp => 'OTP അയയ്ക്കുക';
+
+  @override
+  String get abhaEnrolOtpLabel => 'OTP *';
+
+  @override
+  String get abhaEnrolResendOtp => 'OTP വീണ്ടും അയയ്ക്കുക';
+
+  @override
+  String abhaEnrolResendOtpIn(int seconds) {
+    return 'OTP വീണ്ടും അയയ്ക്കുക (${seconds}s)';
+  }
+
+  @override
+  String get abhaEnrolVerify => 'സ്ഥിരീകരിക്കുക';
+
+  @override
+  String get abhaEnrolViewMyAbha => 'എന്റെ ABHA കാണുക';
 }

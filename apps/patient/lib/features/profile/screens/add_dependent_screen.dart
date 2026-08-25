@@ -107,7 +107,16 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
       messenger.showSnackBar(
         LiveRegionSnackBar.build(message: l.addDependentLinkedToast(dep.name)),
       );
-      if (mounted) context.pop();
+      // A deep link (vhhealth://app/add-dependent) arrives via GoRouter.go,
+      // which REPLACES the stack — so canPop() is false and a bare pop() throws
+      // GoError after the patient has already saved and seen the success
+      // message. Fall back to the screen this one belongs to.
+      if (!mounted) return;
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/settings');
+      }
     } on DependentApiException catch (e) {
       setState(() {
         _serverError = e.message;

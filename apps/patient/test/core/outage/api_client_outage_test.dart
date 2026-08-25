@@ -60,6 +60,23 @@ void main() {
     expect(fileBuilderCalls, 0);
   });
 
+  test('a cache-first read with nothing on disk invents no wording', () async {
+    // The setUp controller is closed, so cachedGet takes its
+    // offline-and-no-cache branch. ApiResponse.failureMessage prefers
+    // `message` over the fallback it is handed, so any display string set
+    // there would out-rank the localized string every screen passes and put
+    // untranslated English in front of all five locales — which is exactly
+    // what `appointments_list_tab.dart` did before this was fixed.
+    const callerWording = 'the caller localized string';
+
+    final response = await ApiClient.cachedGet('/appointments/patient/1');
+
+    expect(response.isSuccess, isFalse);
+    expect(response.code, 'NO_CONNECTION_NO_CACHE');
+    expect(response.message, isNull);
+    expect(response.failureMessage(callerWording), callerWording);
+  });
+
   test('never loads a patient cache while signed out', () async {
     controller.dispose();
     controller = PatientOutageController.forTesting(

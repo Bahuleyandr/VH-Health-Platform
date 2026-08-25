@@ -206,13 +206,18 @@ class ApiClient {
           cachedAt: cached.cachedAt,
         );
       }
+      // Offline (or mid-outage) with nothing on disk. No display text on
+      // purpose: [ApiResponse.failureMessage] prefers `message` over the
+      // caller's fallback, so a string invented here would out-rank — and
+      // un-translate — the localized wording the screens already pass. This
+      // app ships in five languages; the `code` field below is what a caller
+      // keys an offline-specific message off, not a string from this layer.
       return CachedApiResponse(
-        response: ApiResponse(
+        response: const ApiResponse(
           statusCode: 0,
           isSuccess: false,
-          data: null,
-          raw: null,
-          message: 'No internet connection',
+          code: 'NO_CONNECTION_NO_CACHE',
+          raw: {'code': 'NO_CONNECTION_NO_CACHE'},
         ),
         fromCache: false,
         staleLabel: null,

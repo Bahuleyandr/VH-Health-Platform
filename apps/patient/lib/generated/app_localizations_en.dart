@@ -657,6 +657,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get biometricGateUnlockButton => 'Unlock';
 
   @override
+  String get biometricGateLockedEscapeHint =>
+      'If your fingerprint or face is not working, you can switch this lock off in Settings.';
+
+  @override
+  String get biometricGateOpenSettings => 'Go to Settings';
+
+  @override
+  String get biometricGateGoHome => 'Back to Home';
+
+  @override
   String get settingsBiometricLogin => 'Use biometric login';
 
   @override
@@ -4057,4 +4067,96 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get patientOutageContactUnavailable =>
       'The facility contact number is not configured on this device.';
+
+  @override
+  String get settingsBiometricLockSubtitle =>
+      'Signs you in with your fingerprint or face, and locks your prescriptions, results, notes, messages and bills behind the same check. Home, appointments and video consultations stay unlocked so emergency help is never blocked.';
+
+  @override
+  String get abdmCreateAbhaCta => 'Don’t have an ABHA? Create one';
+
+  @override
+  String get abhaEnrolTitle => 'Create a new ABHA';
+
+  @override
+  String get abhaEnrolAadhaarIntro =>
+      'Your ABHA is created with Aadhaar OTP verification. The OTP goes to the mobile number linked with your Aadhaar.';
+
+  @override
+  String get abhaEnrolOtpIntro =>
+      'Enter the OTP sent to your Aadhaar-linked mobile.';
+
+  @override
+  String abhaEnrolOtpIntroMasked(String last4) {
+    return 'Enter the OTP sent to your Aadhaar-linked mobile (••$last4).';
+  }
+
+  @override
+  String get abhaEnrolDoneIntro =>
+      'Your ABHA is ready and linked to your hospital record.';
+
+  @override
+  String get abhaEnrolStartFailed =>
+      'Could not start ABHA enrolment. Please retry.';
+
+  @override
+  String abhaEnrolServerUnreachable(String error) {
+    return 'Could not reach the server: $error';
+  }
+
+  @override
+  String get abhaEnrolOtpLengthError => 'Enter the 6-digit OTP';
+
+  @override
+  String get abhaEnrolOtpFailed => 'OTP verification failed. Please retry.';
+
+  @override
+  String get abhaEnrolOneMoreStep => 'One more step — a new OTP has been sent.';
+
+  @override
+  String abhaEnrolOneMoreStepMasked(String last4) {
+    return 'One more step — a new OTP has been sent to ••$last4.';
+  }
+
+  @override
+  String get abhaEnrolResendFailed => 'Could not resend the OTP.';
+
+  @override
+  String get abhaEnrolVerifyInProgress =>
+      'Your previous OTP verification is still being processed. Please wait a minute and try again.';
+
+  @override
+  String get abhaEnrolAadhaarLabel => 'Aadhaar number *';
+
+  @override
+  String get abhaEnrolAadhaarHint => '12-digit Aadhaar';
+
+  @override
+  String get abhaEnrolAadhaarInvalid => 'Aadhaar number must be 12 digits';
+
+  @override
+  String get abhaEnrolMobileLabel => 'Mobile for ABHA (optional)';
+
+  @override
+  String get abhaEnrolMobileHint => 'Defaults to your Aadhaar-linked mobile';
+
+  @override
+  String get abhaEnrolSendOtp => 'Send OTP';
+
+  @override
+  String get abhaEnrolOtpLabel => 'OTP *';
+
+  @override
+  String get abhaEnrolResendOtp => 'Resend OTP';
+
+  @override
+  String abhaEnrolResendOtpIn(int seconds) {
+    return 'Resend OTP (${seconds}s)';
+  }
+
+  @override
+  String get abhaEnrolVerify => 'Verify';
+
+  @override
+  String get abhaEnrolViewMyAbha => 'View my ABHA';
 }

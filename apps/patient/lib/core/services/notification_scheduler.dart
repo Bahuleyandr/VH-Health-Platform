@@ -175,6 +175,26 @@ class NotificationScheduler {
     );
   }
 
+  /// Payload for a locally-scheduled medication reminder.
+  ///
+  /// The `type` is what makes the notification TAPPABLE. The tap path is
+  /// `_handleLocalNotificationPayload` → PatientNotificationTapGate.open →
+  /// `DeepLinkService.parseNotificationRoute`, and that resolver needs either
+  /// an allowlisted `route` or a known `type` — a payload carrying only
+  /// `reminderId` resolves to null, so the gate returns false and the tap does
+  /// nothing at all. `MEDICATION_REMINDER` resolves to `/reminders`
+  /// (MedicationRemindersScreen), which lists every reminder — active and
+  /// toggled-off — with its medication name, dosage and times. That is the
+  /// "details" the body text promises, and the pinning test in
+  /// `notification_scheduler_test.dart` asserts both the resolution and that
+  /// `/reminders` is a real route in `app_router.dart`.
+  ///
+  /// `reminderId` is kept: it identifies the reminder for any future
+  /// per-reminder destination and is inert to the resolver today.
+  @visibleForTesting
+  static String medicationReminderPayload(int reminderId) =>
+      jsonEncode({'type': 'MEDICATION_REMINDER', 'reminderId': reminderId});
+
   static const NotificationDetails _medicationNotificationDetails =
       NotificationDetails(
         android: AndroidNotificationDetails(
@@ -230,7 +250,7 @@ class NotificationScheduler {
             scheduledDate: instance.scheduledDate,
             notificationDetails: _medicationNotificationDetails,
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            payload: jsonEncode({'reminderId': id}),
+            payload: medicationReminderPayload(id),
           );
         } catch (e) {
           if (kDebugMode) {
@@ -265,7 +285,7 @@ class NotificationScheduler {
           notificationDetails: _medicationNotificationDetails,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           matchDateTimeComponents: DateTimeComponents.time,
-          payload: jsonEncode({'reminderId': id}),
+          payload: medicationReminderPayload(id),
         );
       } catch (e) {
         if (kDebugMode) {

@@ -66,7 +66,7 @@ From root [`CLAUDE.md`](../CLAUDE.md):
 
 | Path | Stack | Role |
 |---|---|---|
-| [`apps/backend`](../apps/backend) | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
+| [`apps/backend`](../apps/backend) | Node.js 26.5.0 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
 | [`apps/admin`](../apps/admin) | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
 | [`apps/patient`](../apps/patient) | Flutter 3.47.0 + Firebase OTP | Patient mobile app |
 | [`apps/staff`](../apps/staff) | Flutter 3.47.0 + staff JWT | Staff/clinical mobile app |
@@ -479,7 +479,7 @@ was retired in batches 28–31:
   `DatabaseManager` shim + `dbHealthMonitor`.
 
 [`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma)
-is the **canonical** schema (863 models as of this writing — run `grep -c '^model ' prisma/schema.prisma` rather than trusting a documented count, which has gone stale twice). `prisma db pull` is the authoritative refresh path;
+is the **canonical** schema. Count its models with `grep -c '^model ' prisma/schema.prisma`; a number used to be quoted here and went stale three times, so it is deliberately not repeated. `prisma db pull` is the authoritative refresh path;
 `apps/backend/scripts/check-schema-drift.mjs` fails CI if the
 committed schema drifts from the DB.
 
@@ -502,7 +502,7 @@ Exports from `src/lib/prisma.js`:
 
 ### Schema + migrations
 
-Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/migrations/), numbered with a three-digit prefix — `000_baseline.sql`, then `001_` through `616_` as of this writing (600 files). This is the **authoritative** migrations tree. Derive the next number from the directory rather than from this sentence; it goes stale every week.
+Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/migrations/), numbered with a three-digit prefix — `000_baseline.sql`, then `001_` upward. This is the **authoritative** migrations tree. Derive the highest number and the file count from the directory rather than from this sentence: both used to be quoted here and both went stale, the number by over a hundred migrations.
 
 Older docs may mention a pre-merge `apps/backend/migrations/` directory. That
 directory is no longer part of the current checkout; use `src/migrations/`.
@@ -1069,7 +1069,7 @@ Cheatsheet for common changes. All paths relative to repo root.
 | Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). For a **new** table, declare its `tenant_id uuid NOT NULL` column, `ENABLE`+`FORCE ROW LEVEL SECURITY`, and both the permissive `tenant_isolation` and the restrictive explicit-context policy **in your own new migration** — `609_notification_delivery_recovery.sql:637-704` is the current template. Do **not** edit `075_tenant_rls_policies.sql`: it is already recorded in `_migrations` and will never re-run, so changes there are inert on every existing database. |
 | Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.example`](../apps/admin/.env.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml) and add its digest pin to the `images:` block in that same file (written by `scripts/update-prod-digests.mjs`; the prod overlay excludes the app tier). ArgoCD's `vhhealth-apps` Application will pick it up on the next manual sync. |
-| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number — **always re-derive it** with `ls apps/backend/src/migrations/ \| tail -1` rather than trusting a documented value (`616_` is the last as of this writing, so `617_` next). Raw SQL, no `prisma db push`. Write the `.sql`, bring up a fresh DB with `node apps/backend/scripts/qa-cluster-up.mjs`, run `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
+| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number — **always re-derive it** with `ls apps/backend/src/migrations/ \| tail -1` rather than trusting a documented value — one used to be quoted here and had gone 100-odd migrations stale. Raw SQL, no `prisma db push`. Write the `.sql`, then regenerate the Prisma schema against an **isolated throwaway database**, not the shared `vhhealth_test` one: `qa-cluster-up.mjs` is idempotent and a no-op against a healthy cluster, so it gives you the long-lived shared DB, and a `db pull` from it bakes that DB's accumulated state into the canonical schema. Build a scratch DB (`CREATE DATABASE` → `ensure-pgvector-extension.mjs` → `ci-setup-db.mjs`), point `DATABASE_URL` at it, run `npx prisma db pull --schema=prisma/schema.prisma`, confirm with `node scripts/check-schema-drift.mjs`, then drop it (`apps/backend/scripts/qa-scratch-db.mjs`). The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
 | Debug test-DB schema-sync failure | [`apps/backend/scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs), especially the "drop RLS policies" block starting around line 548. Prisma's `db push --accept-data-loss` conflicts with the live `tenant_isolation` policies; the script drops them, runs push, lets migration 075 recreate them. |
 | Rotate a JWT / API key / encryption key | [`apps/backend/docs/RUNBOOKS/cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) + [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md). The flow is: update the plain Secret → `kubeseal` → commit → ArgoCD reconciles → `rollout restart deployment/vhhealth-backend`. |
 | Add a clinical-AI module | Service in [`apps/backend/src/services/ai/`](../apps/backend/src/services/ai/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/clinicalAi/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |

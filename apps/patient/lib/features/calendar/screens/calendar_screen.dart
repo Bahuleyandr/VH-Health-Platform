@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -6,12 +8,22 @@ import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
+import 'package:vhhealth/features/appointments/services/appointment_feed_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 
 class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({super.key});
+  const CalendarScreen({
+    super.key,
+    this.feedRepository = const ApiAppointmentFeedRepository(),
+  });
+
+  /// Cache-first source for the appointment leg — the same
+  /// `/appointments/patient/:id` entry the dashboard and "My Appointments"
+  /// read. See [AppointmentFeedRepository].
+  final AppointmentFeedRepository feedRepository;
 
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
@@ -26,6 +38,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool permissionsGranted = false;
   bool _isLoadingEvents = false;
   String? _loadError;
+  // As-of state for the appointment leg, surfaced by the OfflineBanner
+  // exactly as the dashboard and "My Appointments" surface it for the
+  // same feed.
+  String? _staleLabel;
+  DateTime? _cachedAt;
+  // The last raw rows of each feed, kept so a background appointment
+  // refresh can rebuild the merged event map without re-fetching the
+  // other two.
+  List<dynamic>? _appointmentRows;
+  List<dynamic>? _investigationRows;
+  List<dynamic>? _pharmacyRows;
   // The DB-minted users.uid (integer id), stored at login. The self feeds
   // key off req.user, but /appointments/patient/:id needs the numeric id;
   // the phone used previously UUID-rejected on every feed.
@@ -87,50 +110,61 @@ class _CalendarScreenState extends State<CalendarScreen> {
       // investigations + pharmacy derive the patient from the JWT (req.user,
       // which the acting-as hop rewrites to the active dependent).
       // The old /uid/:phone routes UUID-rejected the phone and returned nothing.
-      final responses = await Future.wait([
-        ApiClient.get('/appointments/patient/$effectiveId'),
+      //
+      // The appointment leg goes through the CACHING client — the same cache
+      // entry the dashboard writes and "My Appointments" reads — so a calendar
+      // opened without a connection still shows the appointments already on
+      // the device instead of a blank month. Future.wait keeps the three legs
+      // parallel AND keeps the existing all-or-nothing error semantics: it
+      // attaches a handler to every future, so a rejection is still one caught
+      // error rather than an unhandled one.
+      final responses = await Future.wait<Object>([
+        widget.feedRepository.fetch(effectiveId),
         ApiClient.get('/investigations/bookings/my'),
         ApiClient.get('/pharmacy-orders/orders/my'),
       ]);
 
       if (!mounted) return;
 
-      final Map<DateTime, List<Map<String, dynamic>>> newEvents = {};
+      final appointmentFeed = responses[0] as CachedApiResponse;
+      _appointmentRows = _asList(
+        appointmentFeed.response,
+        listKey: 'appointments',
+      );
+      _investigationRows = _asList(responses[1] as ApiResponse);
+      _pharmacyRows = _asList(responses[2] as ApiResponse);
 
-      _parseAndAddEvents(
-        newEvents,
-        _asList(responses[0], listKey: 'appointments'),
-        'appointment',
-        (item) =>
-            item['department_name'] ??
-            item['department'] ??
-            loc.eventTypesAppointment,
-        (item) => item['appointment_date'] ?? item['created_at'],
-      );
-      _parseAndAddEvents(
-        newEvents,
-        _asList(responses[1]),
-        'investigation',
-        (item) =>
-            item['custom_test_names'] ??
-            item['test_name'] ??
-            loc.eventTypesInvestigation,
-        (item) => item['preferred_date'] ?? item['created_at'],
-      );
-      _parseAndAddEvents(
-        newEvents,
-        _asList(responses[2]),
-        'pharmacy',
-        (_) => loc.eventTypesPharmacyOrder,
-        (item) => item['created_at'],
-      );
-
-      if (!mounted) return;
       setState(() {
         _loadError = null;
-        allEvents.clear();
-        allEvents.addAll(newEvents);
+        _staleLabel = appointmentFeed.staleLabel;
+        _cachedAt = appointmentFeed.cachedAt;
+        _rebuildEvents(loc);
       });
+
+      // Served from a still-fresh cache: apply the live copy when it lands so
+      // the month converges without a second round of three fetches.
+      final freshFuture = appointmentFeed.onFresh;
+      if (freshFuture != null) {
+        unawaited(
+          freshFuture
+              .then((fresh) async {
+                if (!fresh.isSuccess) return;
+                final refreshedAt = await widget.feedRepository.cachedAt(
+                  effectiveId,
+                );
+                if (!mounted) return;
+                setState(() {
+                  _appointmentRows = _asList(fresh, listKey: 'appointments');
+                  _staleLabel = null;
+                  _cachedAt = refreshedAt;
+                  _rebuildEvents(loc);
+                });
+              })
+              .catchError((Object e) {
+                debugPrint('Calendar appointment refresh failed: $e');
+              }),
+        );
+      }
     } catch (e) {
       debugPrint('Error loading calendar data: $e');
       if (!mounted) return;
@@ -156,6 +190,44 @@ class _CalendarScreenState extends State<CalendarScreen> {
       return data[listKey] as List;
     }
     return null;
+  }
+
+  /// Recompose the merged day-to-events map from the last rows of each feed.
+  /// Called inside setState by both the initial load and the background
+  /// appointment refresh, so a refreshed appointment leg never drops the
+  /// investigation and pharmacy events fetched alongside it.
+  void _rebuildEvents(AppLocalizations loc) {
+    final Map<DateTime, List<Map<String, dynamic>>> newEvents = {};
+    _parseAndAddEvents(
+      newEvents,
+      _appointmentRows,
+      'appointment',
+      (item) =>
+          item['department_name'] ??
+          item['department'] ??
+          loc.eventTypesAppointment,
+      (item) => item['appointment_date'] ?? item['created_at'],
+    );
+    _parseAndAddEvents(
+      newEvents,
+      _investigationRows,
+      'investigation',
+      (item) =>
+          item['custom_test_names'] ??
+          item['test_name'] ??
+          loc.eventTypesInvestigation,
+      (item) => item['preferred_date'] ?? item['created_at'],
+    );
+    _parseAndAddEvents(
+      newEvents,
+      _pharmacyRows,
+      'pharmacy',
+      (_) => loc.eventTypesPharmacyOrder,
+      (item) => item['created_at'],
+    );
+    allEvents
+      ..clear()
+      ..addAll(newEvents);
   }
 
   void _parseAndAddEvents(
@@ -259,6 +331,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
           Column(
             children: [
+              // The appointment leg is served cache-first, so the month
+              // must never read as live when it is not: this states the
+              // as-of time of the copy on screen, and becomes the
+              // "showing cached data" treatment during an outage.
+              OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
               TableCalendar(
                 locale: Localizations.localeOf(context).toString(),
                 firstDay: DateTime.utc(2020, 1, 1),

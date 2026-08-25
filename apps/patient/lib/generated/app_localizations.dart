@@ -1322,6 +1322,24 @@ abstract class AppLocalizations {
   /// **'Unlock'**
   String get biometricGateUnlockButton;
 
+  /// Tells a patient whose sensor has broken where the lock can be turned off, so a fail-closed denial is recoverable in-app
+  ///
+  /// In en, this message translates to:
+  /// **'If your fingerprint or face is not working, you can switch this lock off in Settings.'**
+  String get biometricGateLockedEscapeHint;
+
+  /// Locked-pane button that leaves for Settings, the only screen where the biometric lock can be switched off
+  ///
+  /// In en, this message translates to:
+  /// **'Go to Settings'**
+  String get biometricGateOpenSettings;
+
+  /// Locked-pane button that leaves for the Home dashboard; the gated screens outside the bottom-nav shell have no other way back
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Home'**
+  String get biometricGateGoHome;
+
   /// Label for biometric toggle
   ///
   /// In en, this message translates to:
@@ -7573,6 +7591,162 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The facility contact number is not configured on this device.'**
   String get patientOutageContactUnavailable;
+
+  /// Explains exactly what the biometric toggle covers and what it leaves open
+  ///
+  /// In en, this message translates to:
+  /// **'Signs you in with your fingerprint or face, and locks your prescriptions, results, notes, messages and bills behind the same check. Home, appointments and video consultations stay unlocked so emergency help is never blocked.'**
+  String get settingsBiometricLockSubtitle;
+
+  /// Entry button that opens the ABHA self-enrolment wizard
+  ///
+  /// In en, this message translates to:
+  /// **'Don’t have an ABHA? Create one'**
+  String get abdmCreateAbhaCta;
+
+  /// Heading of the ABHA self-enrolment wizard
+  ///
+  /// In en, this message translates to:
+  /// **'Create a new ABHA'**
+  String get abhaEnrolTitle;
+
+  /// LEGAL/IDENTITY: states that Aadhaar OTP verification creates the ABHA. Translations need clinical/legal review before rollout.
+  ///
+  /// In en, this message translates to:
+  /// **'Your ABHA is created with Aadhaar OTP verification. The OTP goes to the mobile number linked with your Aadhaar.'**
+  String get abhaEnrolAadhaarIntro;
+
+  /// Instruction above the OTP field when the masked mobile is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the OTP sent to your Aadhaar-linked mobile.'**
+  String get abhaEnrolOtpIntro;
+
+  /// Instruction above the OTP field, naming the masked mobile
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the OTP sent to your Aadhaar-linked mobile (••{last4}).'**
+  String abhaEnrolOtpIntroMasked(String last4);
+
+  /// Confirmation line on the final step of ABHA enrolment
+  ///
+  /// In en, this message translates to:
+  /// **'Your ABHA is ready and linked to your hospital record.'**
+  String get abhaEnrolDoneIntro;
+
+  /// Error when the enrolment start call fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not start ABHA enrolment. Please retry.'**
+  String get abhaEnrolStartFailed;
+
+  /// Network error during ABHA enrolment
+  ///
+  /// In en, this message translates to:
+  /// **'Could not reach the server: {error}'**
+  String abhaEnrolServerUnreachable(String error);
+
+  /// Validation shown when the OTP is not six digits
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit OTP'**
+  String get abhaEnrolOtpLengthError;
+
+  /// Error when OTP verification is rejected
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verification failed. Please retry.'**
+  String get abhaEnrolOtpFailed;
+
+  /// Shown when a multi-leg enrolment sends a second OTP
+  ///
+  /// In en, this message translates to:
+  /// **'One more step — a new OTP has been sent.'**
+  String get abhaEnrolOneMoreStep;
+
+  /// Second-OTP notice naming the masked mobile
+  ///
+  /// In en, this message translates to:
+  /// **'One more step — a new OTP has been sent to ••{last4}.'**
+  String abhaEnrolOneMoreStepMasked(String last4);
+
+  /// Error when the resend-OTP call fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not resend the OTP.'**
+  String get abhaEnrolResendFailed;
+
+  /// Shown when a new enrolment cannot start because the earlier session is still being verified at the ABDM gateway
+  ///
+  /// In en, this message translates to:
+  /// **'Your previous OTP verification is still being processed. Please wait a minute and try again.'**
+  String get abhaEnrolVerifyInProgress;
+
+  /// LEGAL/IDENTITY: label of the Aadhaar number field
+  ///
+  /// In en, this message translates to:
+  /// **'Aadhaar number *'**
+  String get abhaEnrolAadhaarLabel;
+
+  /// Hint inside the Aadhaar number field
+  ///
+  /// In en, this message translates to:
+  /// **'12-digit Aadhaar'**
+  String get abhaEnrolAadhaarHint;
+
+  /// Validation when the Aadhaar number is not 12 digits
+  ///
+  /// In en, this message translates to:
+  /// **'Aadhaar number must be 12 digits'**
+  String get abhaEnrolAadhaarInvalid;
+
+  /// Label of the optional ABHA mobile field
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile for ABHA (optional)'**
+  String get abhaEnrolMobileLabel;
+
+  /// Hint inside the optional ABHA mobile field
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults to your Aadhaar-linked mobile'**
+  String get abhaEnrolMobileHint;
+
+  /// Button that requests the first enrolment OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Send OTP'**
+  String get abhaEnrolSendOtp;
+
+  /// Label of the OTP field
+  ///
+  /// In en, this message translates to:
+  /// **'OTP *'**
+  String get abhaEnrolOtpLabel;
+
+  /// Button that requests a fresh OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Resend OTP'**
+  String get abhaEnrolResendOtp;
+
+  /// Resend button while the cooldown is running
+  ///
+  /// In en, this message translates to:
+  /// **'Resend OTP ({seconds}s)'**
+  String abhaEnrolResendOtpIn(int seconds);
+
+  /// Button that submits the OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get abhaEnrolVerify;
+
+  /// Button on the success step that returns to the ABHA card
+  ///
+  /// In en, this message translates to:
+  /// **'View my ABHA'**
+  String get abhaEnrolViewMyAbha;
 }
 
 class _AppLocalizationsDelegate

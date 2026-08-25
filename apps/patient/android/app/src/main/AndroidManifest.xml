@@ -69,11 +69,50 @@
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
+    <!-- 🔐 Backup / device-transfer suppression (re-audit lane L).
+         minSdk here is 26 and targetSdk follows flutter.targetSdkVersion, so
+         these three attributes are read at different API levels. They are NOT
+         three equal legs: allowBackup="false" alone stops the app being
+         backed up at all, so the other two carry weight only for the channel
+         allowBackup cannot reach, and as a second line of defence if
+         allowBackup is ever flipped back.
+
+           android:allowBackup="false"
+             Read on every level this app runs on (API 26+). Suppresses Auto
+             Backup to Google Drive, key/value backup and `adb backup`. It
+             does NOT suppress Android 12+ device-to-device transfer, which
+             is why this app leaked PHI onto a patient's new handset before
+             this change.
+
+           android:fullBackupContent="false"
+             The pre-Android-12 way to say "no full-data backup set for this
+             app", and load-bearing only on API 26-30. On API 31+ the cloud
+             channel prefers dataExtractionRules whenever its <cloud-backup>
+             section is present, and the D2D channel ignores fullBackupContent
+             outright for any app targeting API 31+
+             (FullBackup.IGNORE_FULL_BACKUP_CONTENT_IN_D2D) — with no
+             dataExtractionRules that leaves D2D copying the whole sandbox.
+             Redundant on 26-30 too while allowBackup stays "false"; kept so
+             that flipping allowBackup cannot silently re-open those versions.
+
+           android:dataExtractionRules="@xml/data_extraction_rules"
+             API 31+ (Android 12 and newer) only, and the only attribute here
+             that can suppress device-to-device transfer. Declares BOTH
+             channels — <cloud-backup> and, critically, <device-transfer> —
+             as exclude-everything. Ignored on API 30 and below, which is
+             what fullBackupContent above is for.
+
+         None of the three covers: rooted/imaged devices, Health Connect
+         records (owned by the Health Connect app), or iOS. See the header
+         comment in res/xml/data_extraction_rules.xml, and docs/ROADMAP.md
+         ("iOS has no backup exclusion at all") for the iOS gap. -->
     <application
         android:name="${applicationName}"
         android:label="VH Health"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
