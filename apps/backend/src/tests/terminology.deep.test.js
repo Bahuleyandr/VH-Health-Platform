@@ -27,6 +27,9 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM investigation_test_catalog WHERE name LIKE 'B8TEST%'`,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM terminology_import_batches WHERE source_ref LIKE 'B8TEST%'`,
+  ).catch(() => {});
 }
 
 d('Terminology service — deep round-trip (roadmap B8)', () => {
@@ -59,6 +62,15 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
     );
     await prisma.$executeRawUnsafe(
       `UPDATE terminology_code_systems SET concept_count = 0 WHERE system_key = 'LOINC'`,
+    );
+    // An authoritative 'catalog' miss additionally requires a COMPLETED
+    // (non-dry-run) import batch for the system — concept rows + a count
+    // alone are treated as a partial catalogue and degrade to advisory
+    // (BC-M2). Mark the seeded ICD10 catalogue as completely imported.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO terminology_import_batches
+         (system_key, source_ref, status, rows_processed, rows_inserted, started_at, finished_at, metadata)
+       VALUES ('ICD10', 'B8TEST seed', 'completed', 3, 3, NOW(), NOW(), '{"dry_run": false}'::jsonb)`,
     );
 
     const rows = await prisma.$queryRawUnsafe(

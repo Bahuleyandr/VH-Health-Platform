@@ -15,10 +15,12 @@
 //           single-transaction invariant holds (no partial writes).
 //
 // Blocking only ever fires on an authoritative catalogue verdict
-// (validateCode mode 'catalog'). A system with no imported content
-// ('unimported' / structural fallback) can only warn — content presence is
-// part of the dark-ship gate, so an un-imported deployment cannot lock up
-// document flows even with both switches thrown.
+// (validateCode mode 'catalog' — which itself requires a COMPLETED import
+// batch for the system, see BC-M2). A system with no or only partial
+// imported content ('unimported' / 'partial' / structural fallback) can
+// only warn — content presence is part of the dark-ship gate, so an
+// un-imported or partially imported deployment cannot lock up document
+// flows even with both switches thrown.
 //
 // Absent codes are not blocked either: these document fields are optional
 // today, and this gate is a validity gate, not a completeness gate.
@@ -131,15 +133,33 @@ export async function validateDocumentCodes({
 
   const { validateCode } = await import('./terminologyService.js');
   const results = [];
-  for (const code of normalized) {
-    const verdict = await validateCode(systemKey, code);
-    results.push({
-      code,
-      valid: verdict.valid === true,
-      mode: verdict.mode,
-      reason: verdict.reason || null,
-      display: verdict.concept?.display || null,
-    });
+  try {
+    for (const code of normalized) {
+      const verdict = await validateCode(systemKey, code);
+      results.push({
+        code,
+        valid: verdict.valid === true,
+        mode: verdict.mode,
+        reason: verdict.reason || null,
+        display: verdict.concept?.display || null,
+      });
+    }
+  } catch (err) {
+    // 'warn' promises "attach warnings, never fail the write" — a
+    // terminology DB fault must degrade to unchecked, not 500 the death
+    // certificate (BC-L4-adjacent house rule / reaudit BC-L2). 'block' is
+    // a compliance gate and stays fail-closed: the error propagates.
+    if (level === 'block') throw err;
+    logger.warn(
+      `codingEnforcement validation unavailable for ${surface} (level ${level}); degrading to unchecked: ${err.message}`,
+    );
+    return {
+      level,
+      checked: false,
+      valid: true,
+      results,
+      warnings: [`${systemKey} code validation unavailable (terminology lookup failed)`],
+    };
   }
 
   const invalid = results.filter((r) => !r.valid);

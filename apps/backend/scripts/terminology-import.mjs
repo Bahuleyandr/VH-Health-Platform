@@ -782,12 +782,23 @@ async function main() {
   const stats = emptyStats();
   const startedAt = Date.now();
   let batchId = null;
+  let inTransaction = false;
   try {
+    // The batch row commits on its own so a 'failed' status survives a
+    // rolled-back import.
     batchId = await createImportBatch(client, systemKey, args);
     const batchContext = {
       releaseLabel: args.version || null,
       batchId,
     };
+
+    // One transaction per invocation: a crash/OOM/disconnect mid-import must
+    // leave NO partial catalogue behind. validateCode treats a system with
+    // concepts but no completed import as advisory-only, and an autocommitted
+    // partial import under 'block' enforcement would 400 legitimate codes on
+    // statutory documents (2026-08-25 reaudit, BC-M2).
+    await client.query('BEGIN');
+    inTransaction = true;
 
     if (systemKey === 'SNOMED_CT' && args.rf2) {
       await importSnomedRf2(client, args.rf2, stats, args.dryRun, batchContext);
@@ -817,6 +828,9 @@ async function main() {
     }
 
     const status = stats.failed > 0 ? 'partial' : 'completed';
+    // Batch completion + audit ride the SAME transaction as the content, so
+    // a 'completed' status can never exist without the rows it describes —
+    // this is the completeness marker validateCode trusts.
     await finishImportBatch(client, batchId, status, stats);
     await recordAuditEvent(client, {
       systemKey,
@@ -832,6 +846,8 @@ async function main() {
         retired: stats.retired,
       },
     });
+    await client.query('COMMIT');
+    inTransaction = false;
 
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
@@ -844,6 +860,15 @@ async function main() {
     );
   } catch (err) {
     stats.failed += 1;
+    if (inTransaction) {
+      // Roll the partial content back FIRST; the failed-status update below
+      // must run outside the aborted transaction to persist.
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error(`ROLLBACK failed: ${rollbackErr.message || rollbackErr}`);
+      }
+    }
     if (batchId) {
       await finishImportBatch(client, batchId, 'failed', stats, err.message || String(err));
     }

@@ -180,6 +180,19 @@ describe('validateDocumentCodes — warn', () => {
     expect(action).toBe('CODING_ENFORCEMENT_WARNING');
   });
 
+  test("a terminology lookup fault under 'warn' degrades to unchecked — it never fails the write (BC-L2)", async () => {
+    getSettingsMock.mockResolvedValue(tenantSettings({ death_certificate: 'warn' }));
+    validateCodeMock.mockRejectedValue(new Error('db down'));
+    const verdict = await validateDocumentCodes({
+      tenantId: TENANT, surface: 'death_certificate', codes: ['I21.9'],
+    });
+    expect(verdict.level).toBe('warn');
+    expect(verdict.checked).toBe(false);
+    expect(verdict.valid).toBe(true);
+    expect(verdict.warnings).toHaveLength(1);
+    expect(verdict.warnings[0]).toContain('validation unavailable');
+  });
+
   test('tenant block is capped at warn by the env level', async () => {
     getSettingsMock.mockResolvedValue(tenantSettings({ insurance_preauth: 'block' }));
     validateCodeMock.mockResolvedValue({
@@ -243,6 +256,29 @@ describe('validateDocumentCodes — block', () => {
     expect(verdict.valid).toBe(false);
     expect(verdict.warnings).toHaveLength(1);
     expect(executeRawMock.mock.calls[0][2]).toBe('CODING_ENFORCEMENT_WARNING');
+  });
+
+  test("a partial catalogue (mode 'partial') can never block: warns instead (BC-M2)", async () => {
+    getSettingsMock.mockResolvedValue(tenantSettings({ death_certificate: 'block' }));
+    validateCodeMock.mockResolvedValue({
+      valid: false, mode: 'partial', reason: 'catalog_import_incomplete', concept: null,
+    });
+    const verdict = await validateDocumentCodes({
+      tenantId: TENANT, surface: 'death_certificate', codes: ['I21.9'],
+    });
+    expect(verdict.valid).toBe(false);
+    expect(verdict.warnings).toHaveLength(1);
+    expect(executeRawMock.mock.calls[0][2]).toBe('CODING_ENFORCEMENT_WARNING');
+  });
+
+  test('a terminology lookup fault stays fail-closed under block', async () => {
+    getSettingsMock.mockResolvedValue(tenantSettings({ death_certificate: 'block' }));
+    validateCodeMock.mockRejectedValue(new Error('db down'));
+    await expect(
+      validateDocumentCodes({
+        tenantId: TENANT, surface: 'death_certificate', codes: ['I21.9'],
+      }),
+    ).rejects.toThrow('db down');
   });
 
   test('mixed hard + soft failures: only authoritative misses appear in the 400 details', async () => {

@@ -188,7 +188,25 @@ export async function getTenantTerminologySettings(tenantId) {
       coding_enforcement: { ...value.coding_enforcement },
     };
   } catch (err) {
-    logger.warn(`getTenantTerminologySettings failed for tenant ${tenantId}: ${err.message}`);
+    // Serve the last-known settings when the refresh fails: a tenant that
+    // chose 'block' must not silently degrade to all-off because of one
+    // read error (BC-L3). Only a tenant never successfully read in this
+    // process falls back to defaults — loudly, because that fallback DOES
+    // drop any configured enforcement for the request.
+    if (cached) {
+      logger.warn(
+        `getTenantTerminologySettings refresh failed for tenant ${tenantId}; serving stale cache: ${err.message}`,
+      );
+      return {
+        ...cached.value,
+        enabled_systems: [...cached.value.enabled_systems],
+        coding_enforcement: { ...cached.value.coding_enforcement },
+      };
+    }
+    logger.error(
+      `getTenantTerminologySettings failed for tenant ${tenantId} with no cached value; `
+        + `falling back to defaults (coding enforcement OFF for this request): ${err.message}`,
+    );
     return defaultSettings(tenantId);
   }
 }
