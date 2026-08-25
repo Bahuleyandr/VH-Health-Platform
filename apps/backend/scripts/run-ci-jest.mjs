@@ -23,10 +23,18 @@ const mandatoryIsolatedTestPatterns = [
   'fhir-server.deep.test.js',
   'pathway-event-delivery.deep.test.js',
   'pathway-projector-replay.deep.test.js',
+  // T-M1 runtime-role RLS regression: creates a real NOBYPASSRLS login role and
+  // SET LOCAL ROLEs to it, and asserts against a clean ambient session/GUC state
+  // (no leaked app.current_tenant_id). It PASSES alone — in the dedicated shard-1
+  // "Runtime-role webhook/ABDM RLS regression (T-M1)" step and here in its own
+  // process — but is fragile when it shares a jest process with the rest of a
+  // shard's chunk. Force it into its own process so shard discovery still runs it
+  // exactly once, isolated, never inside the shared shard batch.
+  'runtimeRoleWebhookRls.deep.test.js',
 ];
 const configuredIsolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,hl7-outbound.deep.test.js,lab-walk-in.journey.test.js,user-profile-authz.deep.test.js,canonical-timeline-atomicity.deep.test.js,clinical-inbox-ack-atomicity.deep.test.js,billing-add-void-atomicity.deep.test.js,billing-masters-contract.deep.test.js,billing-money-path-concurrency-deep.test.js,billing-v2-cashdrawer-paymentlinks-contract.deep.test.js,billing-v2-invoice-contract.deep.test.js,billing-v2-money-movement-contract.deep.test.js,billing-ward-indent-itemize-d58.test.js,billing.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,document-integrity.deep.test.js,pharmacy-ward-indent.test.js,pharmacy-controlled-movement.deep.test.js,ward-indent-controlled-block.deep.test.js,interop-secret-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,future-proof-clinical-ai.test.js,admin-dashboard-stats-tenant.deep.test.js,hl7-outbound.deep.test.js,lab-walk-in.journey.test.js,user-profile-authz.deep.test.js,canonical-timeline-atomicity.deep.test.js,clinical-inbox-ack-atomicity.deep.test.js,billing-add-void-atomicity.deep.test.js,billing-masters-contract.deep.test.js,billing-money-path-concurrency-deep.test.js,billing-v2-cashdrawer-paymentlinks-contract.deep.test.js,billing-v2-invoice-contract.deep.test.js,billing-v2-money-movement-contract.deep.test.js,billing-ward-indent-itemize-d58.test.js,billing.test.js,pathway-event-delivery.deep.test.js,pathway-projector-replay.deep.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())
