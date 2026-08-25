@@ -3,6 +3,7 @@ import express from 'express';
 import { wrapAsync, wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import * as rbacController from '../../controllers/infrastructure/rbacController.js';
 import authenticatedTenantContext from '../../middleware/authenticatedTenantContext.js';
+import { requireProductionInfrastructureAdmin } from '../../middleware/infrastructureAccessMiddleware.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { ADMIN } from '../../utils/roles.js';
 import { 
@@ -70,12 +71,21 @@ wrapAutoRBAC(
       ['/analytics', rbacAnalyticsQueryValidator, rbacController.getRBACAnalytics]
     ],
     
+    // The management (write) tier keeps the production infra-admin ceiling.
+    // #906 dropped the /rbac mount-level requireProductionInfrastructureAdmin so
+    // the self-service reads (/policy, /my-role, /my-permissions) would open to
+    // every authenticated role — but that same mount gate was the only thing
+    // blocking HR_STAFF (not in INFRASTRUCTURE_ADMIN_ROLES) from role assignment
+    // in production. Re-apply it per-route so assign/bulk-assign stay
+    // ADMIN-only in prod while the read tiers stay open (2026-08-25 reaudit
+    // AZ-2). The gate no-ops outside production, preserving the [ADMIN, HR_STAFF]
+    // key posture in dev/test/staging.
     post: [
       // 👤 Assign Role to User
-      ['/assign-role', roleAssignmentValidator, rbacController.assignRole],
-      
+      ['/assign-role', requireProductionInfrastructureAdmin, roleAssignmentValidator, rbacController.assignRole],
+
       // 🔄 Bulk Role Assignment
-      ['/bulk-assign', bulkAssignmentValidator, rbacController.bulkAssignRoles]
+      ['/bulk-assign', requireProductionInfrastructureAdmin, bulkAssignmentValidator, rbacController.bulkAssignRoles]
     ]
   },
   {
