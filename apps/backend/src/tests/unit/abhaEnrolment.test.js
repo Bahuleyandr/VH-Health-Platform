@@ -43,6 +43,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaMock,
   setTenant: jest.fn(),
   setTenantTx: async (_tenantId, fn) => fn(__prismaMock),
+  setSystemJobTx: async (fn) => fn(__prismaMock),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({

@@ -27,6 +27,9 @@ const txExecute = jest.fn(async (sql, ...args) => dispatch(sql, args));
 const setTenantTxMock = jest.fn(async (_tenant, fn) => fn({
   $queryRawUnsafe: txQuery, $executeRawUnsafe: txExecute,
 }));
+const setSystemJobTxMock = jest.fn(async (fn) => fn({
+  $queryRawUnsafe: txQuery, $executeRawUnsafe: txExecute,
+}));
 const recordWebhookEvent = jest.fn();
 const markWebhookProcessed = jest.fn();
 const findRegistrationDuplicateCandidates = jest.fn();
@@ -38,6 +41,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: prismaQuery, $executeRawUnsafe: prismaExecute },
   setTenant: jest.fn(),
   setTenantTx: setTenantTxMock,
+  setSystemJobTx: setSystemJobTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/abdmFull/abdmHipHiuService.js', () => ({

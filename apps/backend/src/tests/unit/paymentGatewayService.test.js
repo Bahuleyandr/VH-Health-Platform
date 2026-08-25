@@ -21,6 +21,7 @@ const txQueryRawUnsafe = jest.fn();
 const txExecuteRawUnsafe = jest.fn(async () => 1);
 const tx = { $queryRawUnsafe: txQueryRawUnsafe, $executeRawUnsafe: txExecuteRawUnsafe };
 const setTenantTx = jest.fn(async (_tenant, fn) => fn(tx));
+const setSystemJobTx = jest.fn(async (fn) => fn(tx));
 
 const collectPayment = jest.fn(async () => ({ id: 77, amount: 500, mode: 'UPI' }));
 const markGatewayRefundPaid = jest.fn(async () => ({ id: 9 }));
@@ -34,6 +35,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   prismaReadOnly: { $queryRawUnsafe: queryRawUnsafe },
   setTenant: jest.fn(),
   setTenantTx,
+  setSystemJobTx,
 }));
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectPayment,
