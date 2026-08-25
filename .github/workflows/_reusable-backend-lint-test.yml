@@ -221,6 +221,21 @@ jobs:
       - name: OpenAPI core-spec sync check (vhhealth_core copy matches canonical)
         run: node scripts/check-core-spec-sync.mjs
 
+      # Silence the Postgres service container's per-statement/error logging
+      # before any DB traffic, so the "Stop containers" post-job teardown does
+      # not flood the job log. GitHub `services:` cannot override the container
+      # command, so settings are pushed via ALTER SYSTEM + reload (see the test
+      # job for the full rationale). psql runs from the service image for parity.
+      - name: Quiet Postgres logging (reduce teardown log flood)
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET log_statement='none';" \
+              -c "ALTER SYSTEM SET log_min_messages='fatal';" \
+              -c "ALTER SYSTEM SET log_min_error_statement='fatal';" \
+              -c "ALTER SYSTEM SET log_min_duration_statement=-1;" \
+              -c "SELECT pg_reload_conf();"
+
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
 
@@ -340,6 +355,26 @@ jobs:
       - name: Generate Prisma client
         if: steps.prisma-client.outputs.cache-hit != 'true'
         run: npx prisma generate
+
+      # Silence the Postgres service container's per-statement/error logging
+      # BEFORE any migration/seed/test traffic. The GitHub `services:` syntax
+      # cannot override the container command (no `-c` server flags), so instead
+      # push the settings via ALTER SYSTEM + a config reload the moment the DB is
+      # healthy. Without this, the "Stop containers" post-job step dumps
+      # thousands of statement/error log lines into the job log AFTER the jest
+      # output, and the job-log API only serves the last ~5000 lines — burying a
+      # failing shard's FAIL/assertion lines beyond recovery. psql is run from
+      # the service image for client/server parity (same pattern as pg_dump/
+      # pg_restore below).
+      - name: Quiet Postgres logging (reduce teardown log flood)
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET log_statement='none';" \
+              -c "ALTER SYSTEM SET log_min_messages='fatal';" \
+              -c "ALTER SYSTEM SET log_min_error_statement='fatal';" \
+              -c "ALTER SYSTEM SET log_min_duration_statement=-1;" \
+              -c "SELECT pg_reload_conf();"
 
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
@@ -482,6 +517,78 @@ jobs:
         run: |
           echo "===== tail of /tmp/jest-shard-output.log (shard ${{ matrix.shard }}/${{ strategy.job-total }}) ====="
           tail -n 400 /tmp/jest-shard-output.log || echo "(no jest log captured — failure was before/at DB setup)"
+
+      # Belt-and-suspenders recoverability: the job-log tail above can still be
+      # buried, and the artifact/presigned URL sit on an egress-blocked blob
+      # host — but GitHub check-run ANNOTATIONS are retrievable as JSON via the
+      # API even under that egress policy. Re-emit the failing-test blocks as
+      # `::error::` workflow commands (which become annotations) so the exact
+      # failing test name + assertion is always readable. Parses the tee'd log
+      # for file-level `FAIL` lines, per-test `●` headers + their assertion
+      # context, and the `Tests:`/`Test Suites:` summary. Multi-line messages
+      # are joined with `%0A`; `%` is pre-escaped to `%25` per the workflow
+      # command spec. Emits a single explanatory `::error::` if the log is
+      # missing/empty. Runs before the Postgres service teardown at job end.
+      - name: "Annotate failing jest tests (workflow ::error:: commands)"
+        if: failure()
+        shell: bash
+        run: |
+          log=/tmp/jest-shard-output.log
+          shard="${{ matrix.shard }}/${{ strategy.job-total }}"
+          if [ ! -s "$log" ]; then
+            echo "::error title=Jest shard ${shard}::No jest output captured at ${log} (the failing shard produced no test output — failure occurred before/at DB setup, or the log is empty)."
+            exit 0
+          fi
+          # File-level FAIL lines (one annotation each).
+          grep -E '^FAIL ' "$log" | while IFS= read -r line; do
+            clean=${line//$'\r'/}
+            clean=${clean//%/%25}
+            echo "::error title=Jest FAIL suite (shard ${shard})::${clean}"
+          done
+          # Per-test failure blocks: each begins with a '●' header; capture the
+          # header plus up to 8 following non-blank lines as the assertion.
+          awk -v shard="$shard" '
+            function emit() {
+              if (hdr != "") {
+                msg = hdr
+                for (i = 0; i < n; i++) msg = msg "%0A" buf[i]
+                print "::error title=Jest failing test (shard " shard ")::" msg
+              }
+              hdr = ""; n = 0; capture = 0
+            }
+            /^[[:space:]]*●[[:space:]]/ {
+              emit()
+              line = $0
+              sub(/^[[:space:]]*●[[:space:]]*/, "", line)
+              gsub(/\r/, "", line)
+              gsub(/%/, "%25", line)
+              hdr = line
+              capture = 1
+              next
+            }
+            {
+              if (capture && n < 8) {
+                l = $0
+                gsub(/\r/, "", l)
+                if (l ~ /^[[:space:]]*$/) {
+                  # Jest prints a blank line right after the '●' header; skip
+                  # leading blanks, but treat a blank AFTER captured content as
+                  # the end of this test's assertion block.
+                  if (n > 0) capture = 0
+                } else {
+                  gsub(/%/, "%25", l)
+                  buf[n++] = l
+                }
+              }
+            }
+            END { emit() }
+          ' "$log"
+          # Jest summary line(s).
+          grep -E '^(Tests|Test Suites):' "$log" | while IFS= read -r line; do
+            clean=${line//$'\r'/}
+            clean=${clean//%/%25}
+            echo "::error title=Jest summary (shard ${shard})::${clean}"
+          done
 
       - name: Upload jest output
         if: always()
