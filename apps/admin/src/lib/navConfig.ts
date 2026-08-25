@@ -344,7 +344,8 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/dashboard/leave-approvals",
         minRole: "HR",
       },
-      { name: "Shift Management", href: "/dashboard/shifts", minRole: "STAFF" },
+      // API is wrapAutoRBAC('staffAdminRoutes') — HR tier; STAFF only 403'd.
+      { name: "Shift Management", href: "/dashboard/shifts", minRole: "HR" },
       { name: "Grievances (HR)", href: "/dashboard/grievances", minRole: "HR" },
       { name: "Incident Reports", href: "/dashboard/incidents", minRole: "HR" },
       {

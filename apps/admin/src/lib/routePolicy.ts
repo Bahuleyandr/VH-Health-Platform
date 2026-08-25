@@ -88,7 +88,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "my-payslips": { minRank: STAFF },
   "my-replacements": { minRank: STAFF },
   "upload-prescription": { minRank: STAFF },
-  shifts: { minRank: STAFF },
+  // Shift Management is an HR console: its API (/api/v1/staff/admin/shifts*)
+  // is wrapAutoRBAC('staffAdminRoutes') — HR_STAFF/leadership/ADMIN — so a
+  // STAFF-rank nav entry only produced 403s (ADM-1 residual, closed with the
+  // #918/#922 siblings).
+  shifts: { minRank: HR_PLUS },
 
   // ── Clinical services (nurses + clinical staff + up) ─────────────────────
   radiology: { minRank: STAFF },
