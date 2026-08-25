@@ -341,7 +341,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             key: const ValueKey('abha_enrol_entry'),
             onPressed: () => setState(() => _showEnrolment = true),
             icon: const Icon(Icons.fingerprint),
-            label: const Text("Don't have an ABHA? Create one"),
+            label: Text(l.abdmCreateAbhaCta),
           ),
         ],
       ),

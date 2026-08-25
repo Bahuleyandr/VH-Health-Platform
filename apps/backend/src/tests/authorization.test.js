@@ -1,9 +1,18 @@
 // src/tests/authorization.test.js
 // Integration tests for authorization (IDOR protection), JWT validation, and rate limiting.
 //
-// These tests run WITHOUT a database. Tests that require DB data are marked .skip.
-// The goal is to verify middleware-level security: auth, RBAC, rate limiting, and
-// that IDOR-protected endpoints never return 200 for cross-user access.
+// This file covers the DENIAL half of the contract: no IDOR-protected endpoint
+// returns 200 for a cross-user request, plus the JWT / API-key / rate-limit
+// gates. It seeds nothing, so each IDOR case here targets either an id that does
+// not exist (asserting the exact 404) or an RBAC gate that fires before any
+// lookup at all.
+//
+// The ALLOW half — a legitimate owner still gets through — needs seeded
+// ownership and lives in src/tests/appointment-record-owner-access.deep.test.js.
+// It used to sit here as three empty `it.skip` stubs labelled "requires test
+// DB"; the DB was never the blocker (the exact-404 assertions below already
+// query a real Postgres), the missing fixture ownership was. Do not re-add
+// bodiless placeholders here: a skipped empty test reads as coverage and is not.
 
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
@@ -81,9 +90,7 @@ describe('Appointment IDOR Protection', () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it.skip('should allow a patient to update their own appointment (requires test DB)', async () => {
-      // Seed an appointment for patient A, then PUT with patientAToken -> expect 200.
-    });
+    // Owner-allowed counterpart: appointment-record-owner-access.deep.test.js
   });
 
   describe('DELETE /api/v1/appointments/:id — cancel appointment', () => {
@@ -93,9 +100,7 @@ describe('Appointment IDOR Protection', () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it.skip('should allow a patient to cancel their own appointment (requires test DB)', async () => {
-      // Seed an appointment for patient A, then DELETE with patientAToken -> expect 200.
-    });
+    // Owner-allowed counterpart: appointment-record-owner-access.deep.test.js
   });
 });
 
@@ -111,9 +116,7 @@ describe('Patient Record IDOR Protection', () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it.skip('should allow a patient to delete their own record (requires test DB)', async () => {
-      // Seed a record for patient A, then DELETE with patientAToken -> expect 200.
-    });
+    // Owner-allowed counterpart: appointment-record-owner-access.deep.test.js
   });
 });
 

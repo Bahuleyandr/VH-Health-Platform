@@ -888,20 +888,79 @@ export async function resendEnrolmentOtp({
   return publicSession(rows[0]);
 }
 
-/** Cancel a live enrolment session. */
+/**
+ * Cancel an enrolment session so the patient can start a new one.
+ *
+ * WHAT COUNTS AS CANCELLABLE. Every status the one-live-session partial
+ * unique index counts as live — and since migration 707 that index is
+ * `status IN ('initiated','otp_sent','otp_verifying','otp_verified')`, the
+ * same list as LIVE_STATUSES. 'otp_verifying' used to be missing here, so a
+ * row in that state held the slot and cancel answered 404
+ * ABHA_ENROLMENT_SESSION_NOT_FOUND: the patient could not start again until
+ * the every-5-minute expiry sweep passed the row's expires_at, which
+ * startEnrolment sets to OTP_TTL_MINUTES after the OTP was sent.
+ *
+ * THE RACE, AND HOW IT IS HANDLED. 'otp_verifying' is the one live status a
+ * request may still be standing inside: verifyEnrolmentOtp claims the row,
+ * calls the gateway, and finalizes with a compare-and-set on
+ * `status = 'otp_verifying' AND verification_claim_id = <its own token>`.
+ *
+ *   • FRESH claim (younger than OTP_VERIFY_CLAIM_TTL_MINUTES) — a verifier
+ *     may be inside enrolByAadhaar right now. Cancelling under it could
+ *     leave the gateway having minted an ABHA that neither this row nor
+ *     users.abha_number ever records. Cancel therefore refuses and answers
+ *     409 ABHA_ENROLMENT_VERIFY_IN_PROGRESS, the same code verifyEnrolmentOtp
+ *     already returns for this state.
+ *   • STALE claim (older than that TTL) — by this service's own rule the
+ *     verifier is gone: claimOtpVerification re-claims exactly these rows for
+ *     a NEW verify attempt. Cancelling one retires a row the service was
+ *     already willing to hand to another request, so it opens no new hole.
+ *   • And if a stale verifier does come back, every terminal write it can
+ *     make still requires `status = 'otp_verifying'`. Against a cancelled row
+ *     they match nothing and it raises ABHA_ENROLMENT_VERIFY_SUPERSEDED, so a
+ *     cancelled session can never be silently promoted to linked.
+ *
+ * This is deliberately stricter than sweepExpiredEnrolmentSessions, which
+ * expires an otp_verifying row regardless of claim age: the sweep only fires
+ * once expires_at has passed, whereas cancel fires the moment a patient asks.
+ */
 export async function cancelEnrolment({ tenantId = null, sessionId, patientUid } = {}) {
   const tid = requireTenantId(tenantId);
   const expectedPatientUid = requirePatientUid(patientUid);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE abha_enrolment_sessions
-        SET status = 'cancelled', updated_at = NOW()
+        SET status = 'cancelled',
+            verification_claim_id = NULL, verification_claimed_at = NULL,
+            updated_at = NOW()
       WHERE id = $1::integer AND tenant_id = $2::uuid
         AND patient_uid = $3::uuid
-        AND status IN ('initiated', 'otp_sent', 'otp_verified')
+        AND (
+          status IN ('initiated', 'otp_sent', 'otp_verified')
+          OR (
+            status = 'otp_verifying'
+            AND (
+              verification_claimed_at IS NULL
+              OR verification_claimed_at <= NOW() - ($4::int * INTERVAL '1 minute')
+            )
+          )
+        )
       RETURNING ${SESSION_RETURNING}`,
-    Number(sessionId), tid, expectedPatientUid,
+    Number(sessionId), tid, expectedPatientUid, OTP_VERIFY_CLAIM_TTL_MINUTES,
   );
   if (!rows[0]) {
+    const verifying = await prisma.$queryRawUnsafe(
+      `SELECT id FROM abha_enrolment_sessions
+        WHERE id = $1::integer AND tenant_id = $2::uuid
+          AND patient_uid = $3::uuid AND status = 'otp_verifying'
+        LIMIT 1`,
+      Number(sessionId), tid, expectedPatientUid,
+    );
+    if (verifying[0]) {
+      throw AppError.conflict(
+        'OTP verification is already in progress for this session',
+        'ABHA_ENROLMENT_VERIFY_IN_PROGRESS',
+      );
+    }
     throw AppError.notFound(
       'No live enrolment session to cancel',
       'ABHA_ENROLMENT_SESSION_NOT_FOUND',

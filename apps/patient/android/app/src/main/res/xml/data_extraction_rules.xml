@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Patient app backup / device-transfer rules (re-audit lane L, finding
+  "PHI survives a phone-to-phone transfer").
+
+  WHY THIS FILE EXISTS
+  The manifest previously declared only android:allowBackup="false". On
+  Android 12 (API 31) Google split the single "backup" concept into two
+  independent channels, and allowBackup only governs one of them:
+
+    <cloud-backup>    Auto Backup to the user's Google Drive, and `adb backup`.
+                      Suppressed by android:allowBackup="false" on every API
+                      level, so this block is belt-and-braces.
+    <device-transfer> The phone-to-phone (D2D) migration path used by the
+                      Android setup wizard and by OEM tools built on it
+                      (Samsung Smart Switch, Pixel's "Copy apps & data").
+                      android:allowBackup="false" does NOT suppress it — a
+                      new handset restored from the patient's old one would
+                      arrive with the whole app data dir, including the
+                      offline PHI cache and the EncryptedSharedPreferences
+                      blob behind flutter_secure_storage.
+
+  This app is a consumer-device patient app holding clinical records, so both
+  channels exclude EVERYTHING. `exclude` with no matching `include` is a
+  full-sandbox exclusion; there is deliberately no <include> anywhere below.
+
+  DOMAIN COVERAGE
+  The nine values below are the complete set the platform accepts for a
+  `domain` attribute: AOSP maps exactly these nine strings to a backup tree
+  token (FullBackup.BackupScheme.getTokenForXmlDomain), and Android Lint's
+  FullBackupContentDetector validates against the same nine. Anything else is
+  skipped at run time with only a verbose log, so a misspelled domain reads
+  as "excluded" while the data it names is still copied — which is what the
+  "known domains" assertion in the guard test exists to catch.
+
+  Every domain needs its own line, and none of them is covered by "root". A
+  backup walks each domain from that domain's own directory and prunes an
+  entry only on an EXACT canonical-path match (BackupAgent.fullBackupFileTree
+  via manifestExcludesContainFilePath), while path="." canonicalises to the
+  domain directory itself — so one exclusion prunes exactly one walk, at its
+  root. The files/, databases/ and shared_prefs/ walks each start below the
+  data dir and are untouched by the "root" line above them. "Exclude all
+  nine" is what makes this "exclude the app sandbox".
+
+    root              /data/user/0/<pkg>/ itself, minus the files/,
+                      databases/ and shared_prefs/ subtrees the framework
+                      holds out of this walk for their own domains. This is
+                      where app_flutter/ lives — path_provider's application
+                      documents dir (offline API cache, downloaded reports),
+                      because Flutter's PathUtils resolves it to
+                      getDir("flutter") on the data dir.
+    file              .../files/
+    database          .../databases/
+    sharedpref        .../shared_prefs/ — shared_preferences, and
+                      flutter_secure_storage's EncryptedSharedPreferences.
+    external          Android/data/<pkg>/ on shared storage — the FileProvider
+                      external-files Download dir.
+    device_root       The device-protected ("Direct Boot") twins of the four
+    device_file       app-internal domains above, under /data/user_de/. Do
+    device_database   not assume these are empty: Firebase's init provider and
+    device_sharedpref messaging service merge into this app as
+                      directBootAware components. Excluding them keeps
+                      "everything is excluded" a property of this file rather
+                      than of which storage context each dependency picks.
+
+  Not listed because they need no line: cache/, code_cache/ and no_backup/
+  (and their device-protected twins) are never part of a backup set and have
+  no domain token to name them by.
+
+  WHAT THIS DOES **NOT** COVER — do not read this file as "PHI cannot leave
+  the device":
+    • Rooted / bootloader-unlocked handsets, or a full filesystem image. The
+      backup manifest is an instruction to the OS, not encryption at rest.
+    • Data outside our sandbox: Health Connect records (owned by
+      com.google.android.apps.healthdata), system notification history,
+      screenshots, and anything the patient shares out via the OS share sheet.
+    • iOS. There is no equivalent iOS backup exclusion in this repo yet — see
+      docs/ROADMAP.md ("iOS has no backup exclusion at all").
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

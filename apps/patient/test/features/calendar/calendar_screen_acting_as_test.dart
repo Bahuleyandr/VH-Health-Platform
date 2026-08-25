@@ -1,4 +1,5 @@
-// Calendar appointment feed under acting-as (P4, 2026-08-18).
+// Calendar appointment feed under acting-as (P4, 2026-08-18), and the
+// cache-first read that keeps the month populated without a connection.
 //
 // The calendar used to key /appointments/patient/:id off the GUARDIAN's
 // stored user_id even while a dependent profile was active — the backend
@@ -11,21 +12,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth/core/providers/dependents_provider.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
+import 'package:vhhealth/features/appointments/services/appointment_feed_repository.dart';
 import 'package:vhhealth/features/calendar/screens/calendar_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
+import '../../support/appointment_feed_test_repositories.dart';
+import '../../support/patient_session_test_authority.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  late PatientOutageController outage;
 
   setUp(() {
     _installSecureStorageFake();
     _installPermissionGrantedFake();
+    installCurrentPatientSessionAuthority();
+    outage = PatientOutageController.forTesting(
+      request: () => throw StateError('readiness network must not be needed'),
+      authentication: () async => 'patient-session',
+      tenantId: () async => 'tenant-a',
+      maxClockSkew: const Duration(seconds: 5),
+    )..markAvailableForTesting();
+    PatientOutageController.setForTesting(outage);
   });
 
   tearDown(() {
     VHHttpClient.resetClientForTesting();
+    PatientOutageController.resetAfterTesting();
+    PatientSessionAuthority.resetAfterTesting();
+    outage.dispose();
   });
 
   testWidgets('keys the appointment feed off the active dependent', (
@@ -39,6 +59,7 @@ void main() {
       }),
     );
 
+    final feed = CachedAppointmentFeedRepository();
     await tester.pumpWidget(
       _Harness(
         dependents: _FakeDependentsProvider(
@@ -49,14 +70,20 @@ void main() {
             isMinor: true,
           ),
         ),
-        child: const CalendarScreen(),
+        child: CalendarScreen(feedRepository: feed),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(requestedPaths.where((p) => p.contains('/appointments/patient/')), [
-      '/api/v1/appointments/patient/55',
-    ]);
+    // The appointment leg now goes through the cache-first repository, so the
+    // id it is keyed on is asserted there rather than on the wire; the other
+    // two legs still derive the patient from the JWT.
+    expect(feed.fetchedFor, ['55']);
+    expect(appointmentFeedPath('55'), '/appointments/patient/55');
+    expect(
+      requestedPaths.where((p) => p.contains('/appointments/patient/')),
+      isEmpty,
+    );
   });
 
   testWidgets(
@@ -70,20 +97,71 @@ void main() {
         }),
       );
 
+      final feed = CachedAppointmentFeedRepository();
       await tester.pumpWidget(
         _Harness(
           dependents: _FakeDependentsProvider(null),
-          child: const CalendarScreen(),
+          child: CalendarScreen(feedRepository: feed),
         ),
       );
       await tester.pumpAndSettle();
 
+      expect(feed.fetchedFor, ['guardian-7']);
       expect(
         requestedPaths.where((p) => p.contains('/appointments/patient/')),
-        ['/api/v1/appointments/patient/guardian-7'],
+        isEmpty,
       );
     },
   );
+
+  testWidgets('a cached appointment feed still populates the month', (
+    tester,
+  ) async {
+    // The two live legs return nothing; the appointment leg comes back from
+    // the cache with an as-of time. Before this lane all three legs used the
+    // plain client, so a calendar opened without a connection rendered an
+    // empty month over appointments already on disk.
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async => http.Response('{"data":[]}', 200)),
+    );
+    final today = DateTime.now();
+    final date =
+        '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+
+    await tester.pumpWidget(
+      _Harness(
+        dependents: _FakeDependentsProvider(null),
+        child: CalendarScreen(
+          feedRepository: CachedAppointmentFeedRepository(
+            cachedAtValue: DateTime.now().subtract(const Duration(hours: 3)),
+            staleLabel: '3 hours ago',
+            rows: [
+              {
+                'id': 9001,
+                'department_name': 'Cardiology',
+                'appointment_date': date,
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The cached appointment is on the calendar...
+    expect(find.text('Cardiology'), findsWidgets);
+    // ...and the month says how old the copy is rather than reading as live.
+    expect(find.textContaining('Saved on this device'), findsOneWidget);
+  });
+
+  test('the default repository is the caching one', () {
+    expect(
+      const CalendarScreen().feedRepository,
+      isA<ApiAppointmentFeedRepository>(),
+    );
+  });
 }
 
 /// Roster provider with a pinned active profile — the real provider only

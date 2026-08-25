@@ -8,7 +8,7 @@ Clinical AI routes, and operational health endpoints.
 
 | Area | Current choice |
 | --- | --- |
-| Runtime | Node 22 |
+| Runtime | Node 26.5.0 (hard pin: `engines` `>=26.5.0 <27`; older Node produces false jest failures) |
 | HTTP | Express 5 |
 | Database | PostgreSQL 17 in production, pgvector required for local full CI |
 | ORM/querying | Prisma for modeled tables plus raw SQL for extended hospital tables |

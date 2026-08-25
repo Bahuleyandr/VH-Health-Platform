@@ -1270,3 +1270,369 @@ itself an operator action with a documented failure mode — see "Outbound HL7
 transfer feed — the DEFAULT is fixed, existing subscriptions must opt in" above:
 one rejected message pauses that subscriber's cursor and stops its admissions,
 discharges and lab results until an owner reconciles by hand.
+
+## Explicitly parked (re-audit lane L, 2026-08-25 — documentation drift)
+
+### Notification `/my` owner-path coverage — two bodiless test stubs, kept skipped and relabelled `[CODE]`
+
+*What is wrong.* `apps/backend/src/tests/notification-my.test.js` carries two
+`it.skip` cases — "should return notifications for the authenticated user" and
+"should mark all notifications as read for the authenticated user" — whose
+callbacks contain a single comment and nothing else. They are placeholders, not
+disabled coverage. Un-skipping them would produce two vacuous green tests
+asserting nothing, which is worse than the skip: the run would report the owner
+path as covered.
+
+*User-visible symptom if the gap bites.* Nothing in CI proves that a patient
+with real notification rows can read them or mark them read. A regression that
+made `GET /api/v1/notifications/my` return an empty list, or made
+`PATCH /api/v1/notifications/my/mark-all-read` a no-op, would pass the whole
+merge gate — the file's remaining cases only assert 401s and route shape, and
+the two cases in `authorization.test.js` assert the *missing-user* 404 contract.
+A patient would see an inbox that never fills, or unread badges that never
+clear, with a green pipeline.
+
+*Why it was not fixed in this lane.* The same defect in
+`authorization.test.js` was fixed here, by writing the owner path properly in
+`src/tests/appointment-record-owner-access.deep.test.js` (own tenant, own
+fixtures, both halves asserted against the same rows). The notification pair
+needs the same treatment — seeded notification rows keyed to the JWT-derived
+phone, in a self-isolating tenant — which is a test to write, not a doc to
+correct, and it is outside a documentation-drift lane's remit. The stubs stay
+skipped; what changed is that `apps/backend/scripts/jest-skip-floor.json` now
+says **BODILESS PLACEHOLDER** in both reasons, so the next reader is not misled
+into un-skipping them.
+
+*Shape to copy when it is built.* `appointment-record-owner-access.deep.test.js`
+— including its teardown, which deletes the tenant-scoped PHI-access evidence
+rows (`hipaa_access_log`, `patient_access_audit_log`) before the tenant row.
+Deleting the tenant first fails `23503`, and the corpus's usual
+`.catch(() => {})` would swallow that and leak the whole fixture silently.
+
+---
+
+## Explicitly parked (re-audit lane L, 2026-08-25 — the two cross-module pick-lists the linen/CSSD consoles depend on)
+
+Lane L wired the linen-laundry and CSSD admin consoles to the endpoints that
+populate them: every write on `/api/v1/linen-laundry` and `/api/v1/cssd` now has
+a caller, and each one is reachable by exactly the roles that could already load
+the board it belongs to, because `app.js` gates each router with a single
+`requireRole` at the mount and neither service re-checks a role inside.
+
+Two controls, however, need a value from a DIFFERENT module to name a foreign
+key, and those two modules are gated differently. Both are wired and work for
+the roles that hold both gates; for the rest the dialog renders the backend's
+own refusal rather than an empty picker that would read as "nothing exists".
+Closing the remaining gap is an authorization decision, so it was not taken
+here.
+
+### Linen cycle + par level need a ward list — `STORES_PURCHASE_INCHARGE` cannot read one `[CODE]`
+
+*What is wrong.* `linen_ward_par_levels.ward_id` and
+`linen_laundry_cycles.ward_id` are FKs to `wards`, and
+`linenLaundryService.loadWard()` 404s an id it cannot find, so the ward must be
+chosen from a list. The only list endpoint is `GET /api/v1/wards`, gated by
+`BED_PARENT_ROUTE_ROLES` (and, for ADMIN accounts, by the `departmentManagement`
+per-admin proxy flag). Comparing the two gates: of the 21 roles in
+`LINEN_LAUNDRY_ROUTE_ROLES`, exactly one — `STORES_PURCHASE_INCHARGE` — is not
+in `BED_PARENT_ROUTE_ROLES`.
+
+*User-visible symptom.* A stores/purchase incharge can open Linen & Laundry, see
+the board and configure item types, but "New cycle" and "Set par level" show
+`Ward list unavailable — <the backend's 403>` and cannot be submitted. The same
+applies to an ADMIN whose permissions were scoped down without
+`departmentManagement`.
+
+*The decision needed.* Either (a) add `STORES_PURCHASE_INCHARGE` to
+`BED_PARENT_ROUTE_ROLES` — which widens a mount that also carries
+`patientAccessGuard('WARD_BOARD')` and `phiAccessLogger`, so it is a PHI-scope
+decision, not a convenience one; or (b) add a minimal, non-PHI
+`GET /api/v1/linen-laundry/wards` (id + name for wards that have linen activity)
+behind the linen gate the console already holds. (b) is the smaller blast
+radius; both are owner calls.
+
+### CSSD "Issue set" needs an OT case — seven CSSD roles cannot read the theatre schedule `[CODE]`
+
+*What is wrong.* `set_issue_log.ot_schedule_id` is an FK to `ot_schedules` and
+`cssdService.assertOtSchedule()` 404s an unknown id, so the case must be chosen.
+The list is `GET /api/v1/theatre/today`, gated by `THEATRE_ROUTE_ROLES` plus
+`patientAccessGuard('OPERATING_THEATRE')` and `phiAccessLogger`.
+`THEATRE_ROUTE_ROLES` is a strict subset of `CSSD_ROUTE_ROLES`; the seven roles
+in the CSSD gate and not the theatre gate are `COMPLIANCE_OFFICER`,
+`DATA_PROTECTION_OFFICER`, `HR_STAFF`, `INFECTION_CONTROL_OFFICER`,
+`PHARMACY_INCHARGE`, `QUALITY_OFFICER`, `STORES_PURCHASE_INCHARGE`.
+
+*User-visible symptom.* Those roles can run the whole sterile-processing loop —
+create sets, print labels, record loads, release or fail them, and move existing
+issues through theatre-use / return / decontaminate — but the OT-case picker in
+"Issue set" shows `OT schedule list unavailable — <the backend's 403>`, so they
+cannot start a new issue. The roles who actually issue instruments at the
+theatre door (`OT_INCHARGE`, `OT_NURSE`, `OT_STAFF`, anaesthetists, the doctor
+tiers, `NURSING_STAFF`, `ADMIN`) hold both gates and are unaffected.
+
+*The decision needed.* Whether infection-control and quality roles should see
+the OT schedule at all. If yes, the honest fix is a non-PHI case list
+(`id`, `procedure_name`, `ot_room`, `scheduled_date`, `scheduled_time` — no
+`patient_uid`) exposed under the CSSD gate, not widening `THEATRE_ROUTE_ROLES`,
+because `/theatre/today` returns `patient_uid` and `encounter_id` and is
+PHI-logged for that reason.
+
+*Deliberately NOT done here.* The console does not hide the "Issue set" control
+for those roles. Duplicating the backend's access rules in the browser would
+produce a second, drifting answer — the same reasoning recorded in
+`apps/admin/src/lib/bcmaWristband.ts` for the wristband link. The backend stays
+the single authority and the dialog shows what it said.
+
+### `GET /api/v1/cssd/theatre/{otScheduleId}/warnings` stays caller-less — on purpose, not by omission `[CODE]`
+
+*Why an audit will flag it again.* It is the one route on `cssdRoutes.js` with
+no client after lane L, so a caller census will report it exactly the way the
+other thirteen were reported.
+
+*Why that is correct here.* It is a duplicate read, not a missing workflow.
+`theatreService.getTodaySchedule()` calls the same
+`cssdService.getOtSterilityWarnings()` in-process and returns the identical
+payload inline as `cssd_warnings` on `GET /api/v1/theatre/today`, which is what
+`dashboard/theatre` already renders. Adding a second round-trip for the same
+data would give the theatre page two sources for one fact.
+
+*How the exemption is kept honest.*
+`apps/admin/src/__tests__/dashboard/cssd/router-coverage.test.ts` requires an
+admin caller for every mounted CSSD route and exempts this one BY NAME with that
+reason; a second case fails if the exemption ever stops matching a real route.
+The linen twin has an empty exemption map. A future endpoint added to either
+router without a caller fails the gate — that is the class-level guard, since
+the client-path contract gate only checks the opposite direction (that a client
+path is served).
+
+
+## Explicitly parked (re-audit lane L, 2026-08-25 — patient-app privacy + localisation)
+
+Three items surfaced while closing the patient app's backup/transfer leak, its
+bypassable biometric lock, and the English-only ABHA enrolment wizard. Each is
+recorded with the user-visible symptom, because each is a hole a reader could
+otherwise mistake for "covered".
+
+### iOS has no backup exclusion at all `[CODE]`
+
+*What shipped in lane L.* Android now suppresses both extraction channels:
+`android:allowBackup="false"` (API 26+, cloud Auto Backup and `adb backup`),
+`android:fullBackupContent="false"` (API 26–30), and
+`android:dataExtractionRules="@xml/data_extraction_rules"` (API 31+), whose
+`<cloud-backup>` and `<device-transfer>` blocks both exclude all nine backup
+domains the platform recognises — the four app-internal ones, `external`, and
+the four device-protected (Direct Boot) twins.
+`apps/patient/test/core/config/android_backup_rules_test.dart` fails if any of
+the three attributes or any domain exclusion goes missing, and also if an
+exclusion names a domain outside those nine (the platform ignores an
+unrecognised domain silently).
+
+*The gap.* `apps/patient/ios/` contains no equivalent. There is no
+`NSURLIsExcludedFromBackupKey` applied to the offline PHI cache under the
+application documents directory, and no explicit `kSecAttrAccessible…
+ThisDeviceOnly` policy asserted for the Keychain items behind
+`flutter_secure_storage`.
+
+*User-visible symptom if the gap bites.* An iPhone restored from an iCloud or
+encrypted-iTunes backup of the patient's old handset arrives with the cached
+clinical records, and — depending on the Keychain accessibility class in force
+— potentially the session credential too. This is the same defect that was just
+fixed on Android, on the other platform.
+
+*Why it was not fixed in this lane.* Verifying it requires a real iOS build and
+a restore test; asserting it from a Dart guard is not possible the way the
+manifest guard is. Writing an untested Swift/plist change and calling it fixed
+would be worse than recording it.
+
+### The Home dashboard is outside the biometric lock, by design `[CODE]`
+
+*What shipped in lane L.* Five ungated sibling screens that rendered the exact
+data classes the lock protects — `/refill` (the same
+`/prescriptions/patient/my` payload as the gated Prescriptions tab),
+`/pharmacy`, `/investigations`, `/vitals`, `/reminders` — are now wrapped in
+`AppRouter._biometricGated`. Every router route is now classified in
+`apps/patient/lib/core/navigation/biometric_gate_policy.dart` and
+`apps/patient/test/core/navigation/biometric_gate_coverage_test.dart` fails if
+the router and the policy disagree in either direction.
+
+The denied pane also stopped being a dead end. It replaces the gated screen, so
+that screen's AppBar and back button are never built — and all five of those
+routes, like the whole `/portal/*` family, sit OUTSIDE the ShellRoute that draws
+the bottom nav, so a patient who followed a deep link into one and was denied
+had no control of any kind on screen. `BiometricGate`'s locked pane now carries
+a back button when there is something to pop, plus **Go to Settings** (where the
+lock is switched off, which is what ends a fail-closed denial rather than
+deferring it) and **Back to Home**, both of which work from an empty back stack.
+
+*The gap.* `/home` is deliberately **not** gated. `DashboardScreen` hosts the
+SOS button and `BiometricGateService` fails closed, so a gate there would put
+an emergency control behind a sensor that can deny. `/appointments`,
+`/appointments/:id`, the two teleconsult routes and `/settings` are excluded for
+the same family of reasons (time-critical care, and Settings being the only
+in-app way to switch the lock back off).
+
+*User-visible symptom if the gap bites.* With the lock on, someone holding the
+unlocked handset still sees, on Home: a Today card that can name a lab test and
+quote its abnormal flag (`labResultCard` in
+`apps/backend/src/services/portal/patientPortalService.js` puts the test name in
+the subtitle and `Flag: <abnormal_flag>` in the status), the header's snapshot
+line reading `Dr. <name> - <date> at <time>`, and a stats strip with the
+wellness score and cycle estimate. Following one of those cards does not
+reliably re-close the record either: the lab-result card routes to the gated
+`/portal/lab-results`, but the appointment card routes to ungated
+`/appointments`, and the stats strip does not navigate at all — it expands
+wellness detail in place, on Home.
+
+*Why it was not "fixed" by partial redaction.* Redacting only the Today-card
+subtitles would leave the header snapshot line's doctor name and the stats
+strip in place while making the screen look protected — a partial fix that reads as a complete
+one, which is the failure this lane exists to stop. Instead the boundary is
+stated in the patient's own copy: the Settings toggle now carries
+`settingsBiometricLockSubtitle`, which says in all five languages that Home,
+appointments and video consultations stay unlocked.
+
+*If it is picked up later,* the coherent version redacts every PHI-bearing
+element on Home together — `command_center_today.dart`, `hero_snapshot_row.dart`
+(fed by `DashboardScreen._appointmentSummary`, which is where the doctor's name
+is composed), `stats_strip.dart`, and `health_insight_card.dart`, whose
+`HealthInsightsStrip` renders inside the expanded wellness panel — behind one
+resolved lock-armed flag, leaves SOS untouched, and updates
+`settingsBiometricLockSubtitle` to match. (`next_visit_progress_widget.dart`
+was named here in the first pass and does not belong: its only call site is
+`features/gamification/widgets/overview_tab.dart`, i.e. `/health-points`, not
+Home.)
+
+### `abdm_screen.dart` is still hardcoded English outside the enrolment wizard `[CODE]`
+
+*What shipped in lane L.*
+`apps/patient/lib/features/abdm/widgets/abha_enrolment_flow.dart`, which
+shipped as hardcoded English, now resolves every
+user-visible string through `AppLocalizations` (`abhaEnrol*` keys, filled in
+en/hi/ta/te/ml), as does the enrolment entry button
+(`abdmCreateAbhaCta`). The file is now listed in
+`apps/patient/test/i18n_guard_test.dart` so it cannot drift back, and
+`apps/patient/test/features/abdm/abha_enrolment_l10n_test.dart` asserts the
+localised copy renders and the old English literals are gone in all four
+non-English locales.
+
+The same widget also stopped dead-ending on `ABHA_ENROLMENT_IN_PROGRESS`. A
+blocked start now asks `/portal/abdm/enrolment/status` which session holds the
+one-live-session slot, cancels it, and starts again from the Aadhaar in the
+form — rather than adopting the blocking session, which was started from a
+number the app cannot see and cannot compare. `cancelEnrolment` was widened to
+retire `otp_verifying` (a live status by the service's own `LIVE_STATUSES` and
+by migration 707's partial unique index) whenever its verification claim is
+older than the reclaim TTL, and to answer 409
+`ABHA_ENROLMENT_VERIFY_IN_PROGRESS` rather than cancel under a verifier that
+may still be inside the gateway call.
+
+*The gap.* The rest of `apps/patient/lib/features/abdm/screens/abdm_screen.dart`
+is still English-only: the two tab labels ("My ABHA", "Consent Requests"), the
+existing-ABHA link form ("ABHA Number *", "ABHA Address (optional)", "Link
+ABHA"), and the consent dialogs ("Grant", "Deny", "Revoke", `'$action
+Consent?'`, `'Consent ${action.toLowerCase()}ed successfully'`).
+
+*User-visible symptom if the gap bites.* A patient who has set the app to
+Tamil, Telugu, Hindi or Malayalam can now create an ABHA in their own language,
+but is still asked to **grant, deny or revoke consent** for sharing their
+health records in English. Consent that the person cannot read is not
+meaningful consent.
+
+*Why it was not fixed in this lane.* Two reasons, both deliberate. The consent
+strings are built by interpolating an English verb into an English sentence
+frame (`'$action Consent?'`), so localising them is a restructure into
+per-action keys, not a lookup swap. And ABDM consent wording is on the
+`docs/TRANSLATION_REVIEW_TRACKER.md` high-risk list ("consent, ABDM/ABHA,
+identity, and security copy") where a loose translation changes legal meaning —
+the brief for this lane said to flag such strings rather than guess, so they are
+flagged here instead of machine-translated into a consent dialog.
+
+*Note on what did ship.* The `abhaEnrol*` translations in hi/ta/te/ml are an AI
+first pass, consistent with every other non-English string in this app. Their
+ARB metadata marks the Aadhaar/OTP identity strings `LEGAL/IDENTITY`, and
+`docs/TRANSLATION_REVIEW_TRACKER.md` already carries patient hi/ta/te/ml as
+"human clinical review: pending". "ABHA", "OTP" and the Aadhaar term are kept
+in their standard forms in every locale rather than translated as common nouns.
+
+## Explicitly parked (re-audit lane L, 2026-08-25 — patient routes a link cannot reach)
+
+`DeepLinkService`'s allowlist is now a **partition** of `app_router.dart`'s
+route table: `deep_link_route_table_test.dart` parses the router source and
+fails unless every `GoRoute` path is either a link destination or carries a
+reason in `DeepLinkService.unreachableByLinkRoutes`. That closed the class the
+lane was pointed at — `/portal/discharge-summaries` (list and detail) and
+`/portal/diagnostic-results/:id` were real screens that a `vhhealth://app/…`
+link or a `route`-carrying push payload dead-ended on, purely because nobody
+remembered to add them.
+
+Four routes are dispositioned `needs-extra` rather than allowlisted, and that
+disposition is a **product limitation, not a bug fixed**:
+
+- `/appointments/:id`
+- `/teleconsult/appointments/:appointmentId/lobby`
+- `/teleconsult/appointments/:appointmentId/consult`
+- `/period-tracker`
+
+Each one's own `redirect` bounces it to a fallback (`/appointments`, `/home`)
+unless `state.extra` carries typed args — `TeleconsultRouteArgs`,
+`TeleconsultConsultArgs`, or `{eligible: true}`. A URL cannot carry `extra`, so
+allowlisting them would ship a destination that can never show what the link
+promises: the patient taps a notification about **one** appointment and silently
+lands on the list of **all** of them, with no indication that the app went
+somewhere else.
+
+*Patient-visible symptom, stated plainly.* There is no way to deep-link a
+patient to a specific appointment, to a teleconsult lobby, or into the period
+tracker. Everything about a single appointment — including a "your teleconsult
+starts in 10 minutes" push — can only reach `/appointments`.
+
+*Shape of the fix.* Make the three appointment routes self-sufficient: fetch
+the appointment (and its teleconsult lobby state) from the `:id` in the path
+when `state.extra` is absent, instead of redirecting. That is a real change to
+three route builders plus a loading/failure state each, and for the teleconsult
+lobby it also needs a decision about what a patient should see when the link is
+followed outside the join window. `/period-tracker` is different again: its
+`eligible` flag is an eligibility judgement made by the caller, so making the
+route self-sufficient means deciding where that judgement lives. Parked because
+each is a design decision, not an omission — and because the honest partial
+step, allowlisting the routes so the link "works", is precisely the silent
+wrong-destination outcome above.
+
+## Explicitly parked (re-audit lane L, 2026-08-25 — the offline notification badge reads zero)
+
+Found while closing the offline-read class in the patient app, adjacent to the
+lane's brief rather than in it, so it is recorded rather than guessed at.
+
+`NotificationsScreen` reads `/notifications/my` through `ApiClient.cachedGet`,
+so an offline patient opening the inbox sees their notifications from the
+encrypted on-disk cache, labelled with an `OfflineBanner` as-of time.
+`NotificationProvider.fetchUnreadCount` — which drives the bottom-nav badge —
+reads the SAME path with the plain `ApiClient.get`, and its `catch` sets
+`_unreadCount = 0`
+(`lib/core/providers/notification_provider.dart`, `fetchUnreadCount`).
+
+*Patient-visible symptom.* Offline, or during a hospital outage, the badge
+disappears and reads "nothing new" while the very rows it counts are sitting in
+the cache one tap away. Zero is not "unknown" — it is a specific claim the app
+cannot support, and it is the claim most likely to stop a patient from opening
+the screen that does have their unread results in it.
+
+*Why it is parked rather than fixed here.* Two reasons, both about not making a
+worse fix. First, the right offline value is a product decision, not a code
+one: a stale count is truthful only if the surface says what it is as-of, and
+the badge is a bare number with nowhere to say that — the alternatives are a
+stale number, a dimmed/indeterminate badge, or hiding it, and picking one is a
+design call. Second, `fetchUnreadCount` is the only remaining plain-client read
+of a path another screen caches (checked exhaustively: every other
+`ApiClient.cachedGet` path in `lib/` has no plain-`get` sibling), and it sits on
+the app's realtime badge path, which
+`test/core/providers/notification_badge_realtime_test.dart` pins — switching it
+to the caching client also pulls the encrypted cache into that widget's test
+async, which is exactly the change that must be made deliberately rather than
+in passing.
+
+*Shape of the fix.* Route `fetchUnreadCount` through the same cache entry
+(`ApiClient.cachedGet('/notifications/my')`), keep the count derived from the
+cached rows on failure instead of forcing zero, and decide how the badge
+signals "as of your last sync". The `_feedFetcher` seam already on the provider
+is where a test would inject it.

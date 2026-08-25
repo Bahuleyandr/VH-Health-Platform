@@ -8,12 +8,23 @@
 //
 // Fail-closed semantics are inherited from BiometricGateService.requireAuth:
 // gate disabled -> allow; sensor unavailable / error / cancelled -> DENY,
-// showing a locked pane with a retry button instead of the PHI.
+// showing a locked pane instead of the PHI.
+//
+// A fail-closed denial must not also be a dead end. The locked pane carries
+// its own navigation — a back button when there is a stack to pop, and Go to
+// Settings / Back to Home, which work when there is not. It needs them
+// because the pane replaces the gated screen, taking that screen's AppBar
+// with it, and because every gated route except /notifications renders
+// outside the bottom-nav ShellRoute (pinned by
+// test/core/navigation/biometric_gate_coverage_test.dart), so there is no
+// chrome around it either. Settings is where the lock is switched off, so
+// that is the exit that ends the denial rather than deferring it.
 
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/biometric_gate_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -294,6 +305,16 @@ class _BiometricGateState extends State<BiometricGate>
     }
   }
 
+  /// Leaves the locked screen for [route].
+  ///
+  /// `go` and not `push`/`pop`: a deep link can land straight on a gated
+  /// route with nothing on the stack, and `go` replaces the stack rather than
+  /// growing it, so this is an exit in both cases. `/settings` is the route
+  /// `biometric_gate_policy.dart` keeps ungated for exactly this reason — it
+  /// is where the lock is switched off — and `/home` is ungated because it
+  /// hosts SOS, so neither destination can deny the patient a second time.
+  void _leaveFor(String route) => GoRouter.of(context).go(route);
+
   @override
   Widget build(BuildContext context) {
     switch (_state) {
@@ -304,8 +325,16 @@ class _BiometricGateState extends State<BiometricGate>
       case _GateState.denied:
         final l10n = AppLocalizations.of(context)!;
         return Scaffold(
+          // The denied pane REPLACES the gated screen, so the screen's own
+          // AppBar — and its back button — is never built; and every gated
+          // route but /notifications sits outside the bottom-nav ShellRoute,
+          // so there was no navigation around it either. A patient who
+          // arrived by deep link had an empty back stack and no way anywhere.
+          // This AppBar restores the back button wherever there is something
+          // to pop; the two buttons below are what work when there is not.
+          appBar: AppBar(title: Text(l10n.biometricGateLockedTitle)),
           body: Center(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -313,20 +342,34 @@ class _BiometricGateState extends State<BiometricGate>
                   const Icon(Icons.lock_outline, size: 56),
                   const SizedBox(height: 16),
                   Text(
-                    l10n.biometricGateLockedTitle,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    l10n.biometricGateLockedMessage,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    l10n.biometricGateLockedMessage,
+                    l10n.biometricGateLockedEscapeHint,
                     textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
                     onPressed: _runCheck,
                     icon: const Icon(Icons.fingerprint),
                     label: Text(l10n.biometricGateUnlockButton),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    key: const ValueKey('biometric_gate_settings'),
+                    onPressed: () => _leaveFor('/settings'),
+                    icon: const Icon(Icons.settings_outlined),
+                    label: Text(l10n.biometricGateOpenSettings),
+                  ),
+                  TextButton(
+                    key: const ValueKey('biometric_gate_home'),
+                    onPressed: () => _leaveFor('/home'),
+                    child: Text(l10n.biometricGateGoHome),
                   ),
                 ],
               ),

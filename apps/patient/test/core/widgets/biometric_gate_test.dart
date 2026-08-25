@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -537,5 +538,101 @@ void main() {
 
     expect(checks, 2);
     expect(find.text('phi-content'), findsOneWidget);
+  });
+
+  // ── The denied pane must not be a dead end ────────────────────────────
+  //
+  // The pane REPLACES the gated screen, so that screen's AppBar and back
+  // button are never built — and every gated route except /notifications
+  // sits OUTSIDE app_router.dart's ShellRoute, so it has no bottom nav
+  // either (biometric_gate_coverage_test.dart pins that split). A patient
+  // who followed a deep link into one and was denied had an empty back stack
+  // and no control of any kind. These tests drive a real GoRouter so the
+  // escapes are exercised, not just rendered.
+
+  GoRouter deniedGateRouter({String initialLocation = '/refill'}) => GoRouter(
+    initialLocation: initialLocation,
+    routes: [
+      GoRoute(
+        path: '/refill',
+        builder: (_, _) => BiometricGate(
+          authCheck: (_) async => false,
+          builder: (_) => const Text('phi-content'),
+        ),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (_, _) => const Text('settings-screen'),
+      ),
+      GoRoute(path: '/home', builder: (_, _) => const Text('home-screen')),
+    ],
+  );
+
+  Widget wrapRouter(GoRouter router) => MaterialApp.router(
+    routerConfig: router,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+  );
+
+  testWidgets('a deep-linked denial has no back stack, so it carries its own '
+      'way out', (tester) async {
+    await tester.pumpWidget(wrapRouter(deniedGateRouter()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('phi-content'), findsNothing);
+    // Nothing to pop: this is exactly the case that used to strand the user.
+    expect(find.byType(BackButton), findsNothing);
+    expect(
+      find.byKey(const ValueKey('biometric_gate_settings')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('biometric_gate_home')), findsOneWidget);
+  });
+
+  testWidgets('Go to Settings leaves a gated route with an empty back stack', (
+    tester,
+  ) async {
+    final router = deniedGateRouter();
+    await tester.pumpWidget(wrapRouter(router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('biometric_gate_settings')));
+    await tester.pumpAndSettle();
+
+    // Settings is where the lock is switched off, so this is the exit that
+    // ENDS a fail-closed denial rather than deferring it.
+    expect(find.text('settings-screen'), findsOneWidget);
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/settings');
+  });
+
+  testWidgets('Back to Home leaves a gated route with an empty back stack', (
+    tester,
+  ) async {
+    final router = deniedGateRouter();
+    await tester.pumpWidget(wrapRouter(router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('biometric_gate_home')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('home-screen'), findsOneWidget);
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/home');
+  });
+
+  testWidgets('a denial reached by a push keeps a working back button', (
+    tester,
+  ) async {
+    final router = deniedGateRouter(initialLocation: '/home');
+    await tester.pumpWidget(wrapRouter(router));
+    await tester.pumpAndSettle();
+    unawaited(router.push('/refill'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('phi-content'), findsNothing);
+    expect(find.byType(BackButton), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('home-screen'), findsOneWidget);
   });
 }

@@ -615,6 +615,47 @@ describe('resend / cancel / status / sweep', () => {
     expect(release[0]).not.toContain('resend_count = resend_count -');
   });
 
+  // ---------------------------------------------------------------------
+  // 'otp_verifying' is a LIVE status (LIVE_STATUSES, and the migration-707
+  // one-live-session unique index), so a row sitting in it holds the
+  // patient's only enrolment slot. Cancel used to omit it from its WHERE and
+  // answer 404, which left the patient unable to start again until the
+  // 5-minute expiry sweep passed the row's expires_at.
+  // ---------------------------------------------------------------------
+
+  it('cancelEnrolment retires an otp_verifying session whose claim went stale', async () => {
+    route("status = 'cancelled'", () => [{ ...BASE_SESSION, status: 'cancelled' }]);
+
+    const session = await enrolmentService.cancelEnrolment({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID,
+    });
+    expect(session.status).toBe('cancelled');
+
+    // The predicate, not just the outcome: the mock would answer any WHERE.
+    const [sql, ...args] = prismaQuery.mock.calls.at(-1);
+    expect(sql).toContain("status = 'otp_verifying'");
+    // ...but only once the claim is older than the verifier reclaim TTL, so a
+    // verifier that is still inside the gateway call is not cancelled under.
+    expect(sql).toContain('verification_claimed_at <=');
+    expect(args).toContain(5); // OTP_VERIFY_CLAIM_TTL_MINUTES
+    // The claim token is cleared with the row, mirroring the expiry sweep.
+    expect(sql).toContain('verification_claim_id = NULL');
+  });
+
+  it('cancelEnrolment refuses while an OTP verification claim is still fresh', async () => {
+    // The UPDATE matches nothing (fresh claim fails the age guard)...
+    route("status = 'cancelled'", () => []);
+    // ...and the row is still there, in otp_verifying.
+    route('SELECT id FROM abha_enrolment_sessions', () => [{ id: 11 }]);
+
+    await expect(enrolmentService.cancelEnrolment({
+      tenantId: TENANT_ID, sessionId: 11, patientUid: PATIENT_UID,
+    })).rejects.toMatchObject({
+      code: 'ABHA_ENROLMENT_VERIFY_IN_PROGRESS',
+      statusCode: 409,
+    });
+  });
+
   it('cancelEnrolment cancels only live sessions', async () => {
     route("status = 'cancelled'", () => [{ ...BASE_SESSION, status: 'cancelled' }]);
     const session = await enrolmentService.cancelEnrolment({

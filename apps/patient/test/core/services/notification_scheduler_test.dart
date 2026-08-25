@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 
 void main() {
@@ -167,6 +171,60 @@ void main() {
         ),
         isEmpty,
       );
+    });
+  });
+
+  group('a medication reminder tap resolves to a screen that shows it', () {
+    // The scheduled body says "Time for your medication. Open the app for
+    // details." The payload used to be `{'reminderId': id}` alone, which
+    // `DeepLinkService.parseNotificationRoute` resolves to null (no `route`,
+    // no `type`), so `PatientNotificationTapGate.open` returned false and the
+    // tap did nothing — the notification told the patient to open the app and
+    // then refused to.
+    test('the payload resolves through the real tap-path resolver', () {
+      final payload = jsonDecode(
+        NotificationScheduler.medicationReminderPayload(42),
+      ) as Map<String, dynamic>;
+
+      expect(payload['reminderId'], 42);
+      expect(DeepLinkService.parseNotificationRoute(payload), '/reminders');
+    });
+
+    test('both schedule call sites use that payload', () {
+      // Bounded (one-shot) and open-ended (daily repeat) reminders are
+      // scheduled by two separate zonedSchedule calls. A fix applied to one
+      // leaves the other inert, and neither can be observed without the
+      // platform channel — so pin the source.
+      final source = File('lib/core/services/notification_scheduler.dart')
+          .readAsStringSync();
+
+      expect(
+        'payload: medicationReminderPayload(id),'.allMatches(source).length,
+        2,
+        reason: 'both zonedSchedule calls must carry the routable payload',
+      );
+      expect(
+        source.contains("jsonEncode({'reminderId': id})"),
+        isFalse,
+        reason: 'the unroutable payload must not survive anywhere',
+      );
+    });
+
+    test('/reminders is a real route whose screen lists the reminders', () {
+      final router = File('lib/core/navigation/app_router.dart')
+          .readAsStringSync();
+
+      expect(
+        RegExp(
+          r"path: '/reminders',[\s\S]{0,200}?MedicationRemindersScreen\(\)",
+        ).hasMatch(router),
+        isTrue,
+        reason:
+            '/reminders must still resolve to MedicationRemindersScreen — the '
+            'screen that actually renders the medication, dosage and times the '
+            'notification body promises',
+      );
+      expect(DeepLinkService.debugAllowedRoutes, contains('/reminders'));
     });
   });
 }

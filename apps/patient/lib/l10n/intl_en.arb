@@ -803,6 +803,18 @@
   "@biometricGateUnlockButton": {
     "description": "Retry button on the locked pane"
   },
+  "biometricGateLockedEscapeHint": "If your fingerprint or face is not working, you can switch this lock off in Settings.",
+  "@biometricGateLockedEscapeHint": {
+    "description": "Tells a patient whose sensor has broken where the lock can be turned off, so a fail-closed denial is recoverable in-app"
+  },
+  "biometricGateOpenSettings": "Go to Settings",
+  "@biometricGateOpenSettings": {
+    "description": "Locked-pane button that leaves for Settings, the only screen where the biometric lock can be switched off"
+  },
+  "biometricGateGoHome": "Back to Home",
+  "@biometricGateGoHome": {
+    "description": "Locked-pane button that leaves for the Home dashboard; the gated screens outside the bottom-nav shell have no other way back"
+  },
   "settingsBiometricLogin": "Use biometric login",
   "@settingsBiometricLogin": {
     "description": "Label for biometric toggle"
@@ -4525,5 +4537,57 @@
   },
   "patientOutageCacheUnavailable": "This information is not available on this device.",
   "patientOutageDialogTitle": "Service unavailable",
-  "patientOutageContactUnavailable": "The facility contact number is not configured on this device."
+  "patientOutageContactUnavailable": "The facility contact number is not configured on this device.",
+  "settingsBiometricLockSubtitle": "Signs you in with your fingerprint or face, and locks your prescriptions, results, notes, messages and bills behind the same check. Home, appointments and video consultations stay unlocked so emergency help is never blocked.",
+  "@settingsBiometricLockSubtitle": {"description": "Explains exactly what the biometric toggle covers and what it leaves open"},
+  "abdmCreateAbhaCta": "Don’t have an ABHA? Create one",
+  "@abdmCreateAbhaCta": {"description": "Entry button that opens the ABHA self-enrolment wizard"},
+  "abhaEnrolTitle": "Create a new ABHA",
+  "@abhaEnrolTitle": {"description": "Heading of the ABHA self-enrolment wizard"},
+  "abhaEnrolAadhaarIntro": "Your ABHA is created with Aadhaar OTP verification. The OTP goes to the mobile number linked with your Aadhaar.",
+  "@abhaEnrolAadhaarIntro": {"description": "LEGAL/IDENTITY: states that Aadhaar OTP verification creates the ABHA. Translations need clinical/legal review before rollout."},
+  "abhaEnrolOtpIntro": "Enter the OTP sent to your Aadhaar-linked mobile.",
+  "@abhaEnrolOtpIntro": {"description": "Instruction above the OTP field when the masked mobile is unknown"},
+  "abhaEnrolOtpIntroMasked": "Enter the OTP sent to your Aadhaar-linked mobile (••{last4}).",
+  "@abhaEnrolOtpIntroMasked": {"description": "Instruction above the OTP field, naming the masked mobile", "placeholders": {"last4": {"type": "String"}}},
+  "abhaEnrolDoneIntro": "Your ABHA is ready and linked to your hospital record.",
+  "@abhaEnrolDoneIntro": {"description": "Confirmation line on the final step of ABHA enrolment"},
+  "abhaEnrolStartFailed": "Could not start ABHA enrolment. Please retry.",
+  "@abhaEnrolStartFailed": {"description": "Error when the enrolment start call fails"},
+  "abhaEnrolServerUnreachable": "Could not reach the server: {error}",
+  "@abhaEnrolServerUnreachable": {"description": "Network error during ABHA enrolment", "placeholders": {"error": {"type": "String"}}},
+  "abhaEnrolOtpLengthError": "Enter the 6-digit OTP",
+  "@abhaEnrolOtpLengthError": {"description": "Validation shown when the OTP is not six digits"},
+  "abhaEnrolOtpFailed": "OTP verification failed. Please retry.",
+  "@abhaEnrolOtpFailed": {"description": "Error when OTP verification is rejected"},
+  "abhaEnrolOneMoreStep": "One more step — a new OTP has been sent.",
+  "@abhaEnrolOneMoreStep": {"description": "Shown when a multi-leg enrolment sends a second OTP"},
+  "abhaEnrolOneMoreStepMasked": "One more step — a new OTP has been sent to ••{last4}.",
+  "@abhaEnrolOneMoreStepMasked": {"description": "Second-OTP notice naming the masked mobile", "placeholders": {"last4": {"type": "String"}}},
+  "abhaEnrolResendFailed": "Could not resend the OTP.",
+  "@abhaEnrolResendFailed": {"description": "Error when the resend-OTP call fails"},
+  "abhaEnrolVerifyInProgress": "Your previous OTP verification is still being processed. Please wait a minute and try again.",
+  "@abhaEnrolVerifyInProgress": {"description": "Shown when a new enrolment cannot start because the earlier session is still being verified at the ABDM gateway"},
+  "abhaEnrolAadhaarLabel": "Aadhaar number *",
+  "@abhaEnrolAadhaarLabel": {"description": "LEGAL/IDENTITY: label of the Aadhaar number field"},
+  "abhaEnrolAadhaarHint": "12-digit Aadhaar",
+  "@abhaEnrolAadhaarHint": {"description": "Hint inside the Aadhaar number field"},
+  "abhaEnrolAadhaarInvalid": "Aadhaar number must be 12 digits",
+  "@abhaEnrolAadhaarInvalid": {"description": "Validation when the Aadhaar number is not 12 digits"},
+  "abhaEnrolMobileLabel": "Mobile for ABHA (optional)",
+  "@abhaEnrolMobileLabel": {"description": "Label of the optional ABHA mobile field"},
+  "abhaEnrolMobileHint": "Defaults to your Aadhaar-linked mobile",
+  "@abhaEnrolMobileHint": {"description": "Hint inside the optional ABHA mobile field"},
+  "abhaEnrolSendOtp": "Send OTP",
+  "@abhaEnrolSendOtp": {"description": "Button that requests the first enrolment OTP"},
+  "abhaEnrolOtpLabel": "OTP *",
+  "@abhaEnrolOtpLabel": {"description": "Label of the OTP field"},
+  "abhaEnrolResendOtp": "Resend OTP",
+  "@abhaEnrolResendOtp": {"description": "Button that requests a fresh OTP"},
+  "abhaEnrolResendOtpIn": "Resend OTP ({seconds}s)",
+  "@abhaEnrolResendOtpIn": {"description": "Resend button while the cooldown is running", "placeholders": {"seconds": {"type": "int"}}},
+  "abhaEnrolVerify": "Verify",
+  "@abhaEnrolVerify": {"description": "Button that submits the OTP"},
+  "abhaEnrolViewMyAbha": "View my ABHA",
+  "@abhaEnrolViewMyAbha": {"description": "Button on the success step that returns to the ABHA card"}
 }

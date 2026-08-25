@@ -257,7 +257,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
 
     if (success) {
-      context.pop(true);
+      // Deep-link arrivals come through GoRouter.go, so there may be nothing
+      // to pop; a bare pop() would throw GoError right after a successful save.
+      if (context.canPop()) {
+        context.pop(true);
+      } else {
+        context.go('/settings');
+      }
       return;
     }
     setState(() => _isSubmitting = false);

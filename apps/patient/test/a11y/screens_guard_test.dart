@@ -19,6 +19,8 @@ import 'package:vhhealth/features/appointments/widgets/appointments_list_tab.dar
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/your_health/widgets/prescriptions_tab.dart';
 
+import '../support/appointment_feed_test_repositories.dart';
+
 import 'a11y_guards.dart';
 
 /// One realistic upcoming appointment (kept in the future so status logic
@@ -85,7 +87,15 @@ void main() {
           mockApi({'/appointments/patient/patient-1': _appointmentsBody()});
           await pumpGuarded(
             tester,
-            withProviders(AppointmentsListTab(onBookOne: () {})),
+            withProviders(
+              AppointmentsListTab(
+                onBookOne: () {},
+                // The list is cache-first in production; the on-disk
+                // cache cannot be driven from fake async, so this
+                // double keeps the a11y pass on the rendered list.
+                feedRepository: const LiveOnlyAppointmentFeedRepository(),
+              ),
+            ),
             theme: themeCase.theme,
             surfaceSize: const Size(1080, 2400),
           );
@@ -105,7 +115,15 @@ void main() {
           });
           await pumpGuarded(
             tester,
-            withProviders(AppointmentsListTab(onBookOne: () {})),
+            withProviders(
+              AppointmentsListTab(
+                onBookOne: () {},
+                // The list is cache-first in production; the on-disk
+                // cache cannot be driven from fake async, so this
+                // double keeps the a11y pass on the rendered list.
+                feedRepository: const LiveOnlyAppointmentFeedRepository(),
+              ),
+            ),
             theme: themeCase.theme,
           );
           await tester.pumpAndSettle();

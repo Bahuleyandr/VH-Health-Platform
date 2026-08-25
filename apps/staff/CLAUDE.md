@@ -1,7 +1,18 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 324 Dart source files across 54 feature modules.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). The app has **328 Dart source files under `lib/`** across **56 feature modules**.
+
+Both numbers are counted, not estimated — re-derive them from `apps/staff/`
+before editing this file, and update the module list below in the same pass:
+
+```bash
+find lib -name '*.dart' | wc -l                       # 328 source files
+find lib/features -mindepth 1 -maxdepth 1 -type d | wc -l   # 56 feature modules
+find lib/features -mindepth 1 -maxdepth 1 -type d | sed 's|lib/features/||' | sort
+```
+
+(Counted 2026-08-25. One of the 328 is generated; the rest are hand-written.)
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
@@ -27,7 +38,7 @@ lib/
     theme/app_theme.dart             # Material 3 blue/teal theme
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
-  features/                          # 54 feature modules (324 Dart files total)
+  features/                          # 56 feature modules (201 of the 328 lib/ Dart files)
     auth/                            # Employee ID + password/PIN login plus tenant-enabled OIDC SSO
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
@@ -76,8 +87,10 @@ lib/
     med_rec/                         # Three-point medication reconciliation
     oncology/                        # Oncology workbench (department-gated)
     ophthalmology/                   # Ophthalmology workbench (department-gated)
+    perfusion/                       # CTVS perfusion charting (append-only; sign-off then finalize)
     physio/                          # Physiotherapy workbench
     radiation_oncology/              # Radiation oncology (department-gated)
+    scheduling/                      # Scheduling workbench: slot grid, waitlist, templates, resources
     stroke_pathway/                  # Stroke pathway workbench
     teleconsult/                     # Staff-side teleconsult (NL-3 P3)
     transplant/                      # Transplant programme (department-gated)

@@ -18,7 +18,7 @@ See the full runbook in [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT
 and hardware spec in [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
 
 ## Tech Stack
-- **Runtime**: Node.js 22, Express 5
+- **Runtime**: Node.js 26.5.0, Express 5. The version is a hard pin, not a floor: `engines` is `>=26.5.0 <27`, every workflow sets `node-version: 26.5.0`, and the `Dockerfile` `NODE_IMAGE` is a digest-pinned `node:26.5.0-alpine`. **Running this corpus on an older Node produces FALSE test failures** — results that do not reproduce on 26.5.0 and are not defects in the code. Confirm `node --version` prints `v26.5.0` before you treat any red jest run as signal; on the Windows dev box the pinned toolchain is `D:\Dev\Tools\node-26.5.0`.
 - **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
 - **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. Raw `$queryRaw*` / `$executeRaw*` call sites (~5.7k across ~565 non-test files) + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
 - **Auth**: JWT (jsonwebtoken) + Firebase Admin SDK + bcrypt
@@ -48,7 +48,7 @@ prisma/schema.prisma  # canonical schema source, 863 models (regenerated after e
 - **Prisma client is the canonical DB path, but raw SQL is still the dominant idiom — not a residue.** `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js` appear at roughly **5,700 call sites across ~565 non-test files**; the batches 26–38 typed-ORM migration covered specific domains, not the whole tree. Read the raw-SQL rules under "Phase 0.5 conventions" before touching any of them. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
 - **DatabaseManager shim is gone.** `src/config/database.js` was deleted in batch 31 after every consumer (app.js root probe, bin/www.js shutdown, prometheusMiddleware, jest.teardown, tenant-rls deep test, uptimeRoutes) was ported to `prisma` directly. Do not try to re-add a shim; use `prisma.$queryRaw` / `prisma.$executeRaw` + the helpers on `src/lib/prisma.js` (setTenant, prismaReadOnly, circuitBreakerStatus).
 - **Schema drift check in CI.** `apps/backend/scripts/check-schema-drift.mjs` diffs `prisma/schema.prisma` against a fresh `prisma db pull` of the test DB after migrations. Surfaces batch-18/22-class bugs (`ordered_date` vs `requested_at`) at review time. Local check: `npm --prefix apps/backend run check:schema-drift`.
-- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, bring up a fresh DB with `node scripts/qa-cluster-up.mjs` (there is no `qa-reset.mjs` — see the Database Access section), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
+- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, then regenerate against an **isolated throwaway database**, not the shared `vhhealth_test` one — `qa-cluster-up.mjs` is idempotent and a no-op against a healthy cluster, so it hands you the long-lived shared DB rather than a fresh one, and a `db pull` from it bakes whatever that DB has accumulated into the canonical schema. Build the scratch DB with the documented recipe (`CREATE DATABASE` → `ensure-pgvector-extension.mjs` → `ci-setup-db.mjs`; see the Database Access section), point `DATABASE_URL` at it, run `npx prisma db pull --schema=prisma/schema.prisma`, confirm with `node scripts/check-schema-drift.mjs`, and drop the scratch DB when done (`scripts/qa-scratch-db.mjs`). Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
 - **Migrations are tracker-driven.** Both the boot-time runner (`src/utils/migrations/runMigrations.js`) and `scripts/ci-setup-db.mjs` consult the `_migrations` table and skip any file already recorded there. Add new migrations as bare DDL files in `src/migrations/NNN_*.sql` — each applies exactly once per DB. `ci-setup-db.mjs` also auto-detects a pre-existing baseline schema (probes for `users` + `appointments` + `admissions`) and records `000_baseline.sql` without re-running its non-idempotent `CREATE FUNCTION` DDL. Production execution requires both `--skip-seeds` and `CI_DB_SKIP_SEEDS=1`; synthetic seed entrypoints refuse `NODE_ENV=production`. Re-running the seed-free command against a populated production DB is safe and fast. `scripts/smoke-migration-runner.mjs` exercises fresh-apply / re-run / truncate-tracker paths against a throwaway DB.
 - **Phase 0 / 1 / 1.5 / 2 transaction boundary rule (2026-05-12).** Pre-flight lookups (admission state, readiness probes, FK existence checks) belong **outside** `prisma.$transaction`. A try/catch swallowing a Prisma error inside a `$transaction` callback aborts the underlying Postgres tx silently; the next `tx.*` call then fails with `current transaction is aborted, commands ignored until end of transaction block` and surfaces as a generic 500. The pattern that works in this codebase: **Phase 0** = pre-flight on plain `prisma` (P2025 → `AppError.notFound`, never a 500); **Phase 1** = atomic state mutations + audit log inside `prisma.$transaction`, with NO best-effort calls inside (every `tx.*` must succeed); **Phase 1.5** = post-commit best-effort on plain `prisma`, each in its own try/catch — TPA placeholder, housekeeping ticket, downstream alerts (failure is logged, never blocks Phase 1); **Phase 2** = slow/external (LLM, PDF, external API) — failure is recoverable via a separate endpoint. Applied across `markForDischarge` (`f9bbecba`), `markDischargeDrugsDispensed` (`d032f6d0`), `dischargePatient` (`1c2dfe8a` + `80e0ec5f`), `collectAdvanceDeposit` (`bfbb3d76`). When writing any new service method that mutates more than one row + has a best-effort downstream, default to this shape.
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
@@ -563,6 +563,10 @@ Public URL: `https://api.vhhealth.app` — traffic path is Cloudflare Tunnel →
 ingress-nginx → `Service/vhhealth-backend` in cluster.
 
 ## Testing
+
+Run jest on **Node 26.5.0** — see the Runtime bullet above. An older interpreter
+fabricates failures in this corpus.
+
 ```bash
 # All tests
 node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit
@@ -574,13 +578,36 @@ node --experimental-vm-modules node_modules/jest/bin/jest.js authorization --for
 node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --forceExit
 ```
 
-### Authorization Test Coverage (`src/tests/authorization.test.js`)
-- Appointment IDOR (PUT/DELETE ownership checks)
-- Patient record IDOR (DELETE scoped by patient_id)
+### Authorization Test Coverage
+
+The IDOR contract is split across two files, and the split is the point: one
+proves nobody else gets in, the other proves the owner still does. Reading only
+the first and concluding "IDOR is covered" is how a broken allow-path ships.
+
+**`src/tests/authorization.test.js` — the DENIAL half.** Seeds nothing; each
+IDOR case targets an id that does not exist (asserting the exact 404) or an RBAC
+gate that fires before any lookup.
+- Appointment IDOR (PUT/DELETE — cross-user request never returns 200)
+- Patient record IDOR (DELETE scoped by `patient_id`)
 - Pharmacy order authorization (RBAC gating)
 - Notification authorization (role-based access)
 - JWT validation (expired → `TOKEN_EXPIRED`, tampered → `TOKEN_INVALID`, missing → 401)
 - Rate limiting (OTP: 3/phone/10min, SOS: 3/user/hour)
+
+**`src/tests/appointment-record-owner-access.deep.test.js` — the ALLOW half.**
+Seeds its own tenant, an owning patient, a stranger patient and a doctor, then
+asserts both halves against the *same* rows: the owner gets 200 on
+`PUT /appointments/:id`, `DELETE /appointments/:id` and
+`DELETE /appointments/patient/records/:id`, and the stranger does not — so a
+denial there is provably "not yours" rather than "does not exist". Needs
+Postgres; self-skips when `DATABASE_URL`/`TEST_DATABASE_URL` are unset.
+
+These three owner cases previously sat in `authorization.test.js` as bodiless
+`it.skip` stubs labelled "requires test DB". The database was never the blocker
+— the exact-404 assertions in that file already query a real Postgres — the
+missing fixture ownership was. Do not re-introduce bodiless placeholders: a
+skipped empty test reads as coverage and is not. `scripts/jest-skip-floor.json`
+is the audited register of every remaining skip.
 
 ## Database Access
 

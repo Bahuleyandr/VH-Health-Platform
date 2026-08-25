@@ -294,7 +294,20 @@ List<Widget> buildSettingsSections(SettingsController c) {
         children: [
           SwitchListTile(
             value: c.biometricEnabled,
-            onChanged: c.biometricSupported ? c.toggleBiometric : null,
+            // Turning the lock OFF must stay possible even when the sensor is
+            // unavailable. biometric_gate_policy.dart leaves /settings ungated
+            // precisely because it is the escape hatch for a patient whose
+            // sensor breaks — but this tile used the SAME predicate the gate
+            // fail-closes on, so in exactly that state the hatch was greyed out
+            // and the patient was locked out of their own records with no
+            // in-app recovery. Enabling still requires a working sensor;
+            // disabling never does.
+            onChanged: (c.biometricSupported || c.biometricEnabled)
+                ? (value) {
+                    if (value && !c.biometricSupported) return;
+                    c.toggleBiometric(value);
+                  }
+                : null,
             title: Text(
               c.loc.settingsBiometricLogin,
               style: txt.titleMedium?.copyWith(
@@ -303,12 +316,22 @@ List<Widget> buildSettingsSections(SettingsController c) {
                     : cs.onSurface.withAlpha(128),
               ),
             ),
+            // Re-audit lane L: the toggle used to say only "Use biometric
+            // login" while ALSO arming a per-screen record lock — and that
+            // lock deliberately does not cover Home, appointments or
+            // teleconsult (see lib/core/navigation/biometric_gate_policy.dart,
+            // where /home is excluded because it hosts SOS). The subtitle
+            // states both halves so the patient is not told the lock is
+            // complete when it is not.
             subtitle: !c.biometricSupported
                 ? Text(
                     c.loc.settingsBiometricNotSupported,
                     style: txt.bodySmall?.copyWith(color: cs.error),
                   )
-                : null,
+                : Text(
+                    c.loc.settingsBiometricLockSubtitle,
+                    style: txt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  ),
             secondary: Icon(
               Icons.fingerprint_outlined,
               color: c.biometricSupported

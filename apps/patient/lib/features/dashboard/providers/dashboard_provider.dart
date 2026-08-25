@@ -384,6 +384,12 @@ class DashboardProvider extends ChangeNotifier {
 
   static String _appointmentPath(String id) => '/appointments/patient/$id';
 
+  /// The cache key this provider writes for a patient's appointment feed.
+  /// AppointmentsListTab reads the same entry, and its test compares the two
+  /// builders directly — if they drift, that screen loses its offline copy.
+  @visibleForTesting
+  static String debugAppointmentPath(String id) => _appointmentPath(id);
+
   static Future<CachedApiResponse> _defaultCachedGet(
     String path, {
     Duration? timeout,

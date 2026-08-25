@@ -57,7 +57,7 @@ node scripts/qa-orchestrator.mjs
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ scripts/qa-orchestrator.mjs   (Node 22)                          │
+│ scripts/qa-orchestrator.mjs   (Node 26.5.0)                       │
 │   ├─ probe :5206 backend / :3201 admin                            │
 │   ├─ stage: reset      → scripts/qa-reset.mjs                    │
 │   │                        ├─ guardrail validation (× 6)          │

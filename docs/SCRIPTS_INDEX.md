@@ -4,6 +4,23 @@ This is the operator-facing catalog for scripts that can change tenant state,
 security posture, ledger posture, QA database state, or clinical-AI readiness.
 Run them from the repository root unless the script notes otherwise.
 
+The repository has **two** script trees and this file covers both:
+
+- `apps/backend/scripts/` — the go-live, PHI, ledger, and seed entrypoints.
+  Catalogued in the three sections immediately below, with prerequisites and
+  failure modes per script.
+- `scripts/` at the repository root — infrastructure, supply-chain, secret-scan,
+  QA-harness, and smoke entrypoints. Catalogued in
+  [Repository-Root `scripts/`](#repository-root-scripts) below.
+
+Until 2026-08-25 this file indexed only the first tree, so root-level scripts
+that plainly sit inside the declared scope — `qa-reset.mjs` (drops and rebuilds
+the QA database), `seed-qa-tenant.mjs`, `update-prod-digests.mjs`,
+`bootstrap-sealed-secrets.sh` — were invisible to anyone reading it as the
+catalog. See [How this index is derived](#how-this-index-is-derived) for the
+commands that regenerate the root list, and run them rather than editing the
+prose when a script is added or removed.
+
 ## Production And Go-Live Scripts
 
 | Script | Purpose | Run Context | Prerequisites | Failure Modes |
@@ -52,6 +69,100 @@ marks an intentional disposable database.
 | `apps/backend/scripts/demo-tenant-scenario-pack.mjs` | Generates the NL11-S6 deterministic sales-demo scenario pack ledger, persona journeys, safe-reset plan, and tour-anchor artifact. It does not apply database writes in P1. | Local demo/test rehearsal only. Run from the repository root or via `npm --prefix apps/backend run demo:tenant-pack`. | `DATABASE_URL` or `TEST_DATABASE_URL` must target a loopback VH Health dev/test/demo database; optional `--tenant-slug`, `--tenant-id`, `--seed`, `--scenario-date`, `--out-dir`, `--reset`, and `--json`. | Refuses non-local or unexpected database URLs, fails if the generated-login smoke fails, or if the deterministic no-PHI scan detects non-demo contact, hospital-id, or patient-name content. |
 | `apps/backend/scripts/seed-clinical-ai-preflight-reviewers.mjs` | Derives enabled clinical-AI modules' `reviewRoles` and seeds missing active reviewer users for a tenant. | Clinical-AI rollout preflight on smoke/test DBs. | Local `vhhealth_test` or non-production `VH_ALLOW_NON_TEST_DATA_SEED=true`; optional `--tenant <uuid>`. | Refuses production unconditionally and fails on clinical-AI schema drift. |
 | `apps/backend/scripts/reconcile-clinical-ai-catalog.mjs` | Dry-runs or applies cleanup for duplicate `clinical_ai_modules.module_key` rows, keeping the newest-updated row per key and restoring the catalog primary key when applying. | Operator repair after partial seed/migration reruns or CrashLoop duplicate catalog incidents. Default is `--dry-run`; use `--apply` only during a change window. | `DATABASE_URL`; run the dry-run first and capture the duplicate report. Migration 353 should be deployed so the primary-key invariant remains enforced. | Missing DB URL exits; apply runs in one transaction and rolls back on delete/constraint failures. If duplicates remain or the pkey cannot be restored, do not continue clinical-AI rollout. |
+
+## Repository-Root `scripts/`
+
+Every executable at the top level of `scripts/` is listed here — all 45 of them,
+derived from the filesystem, not curated. The **Scope** column marks the ones
+inside this file's declared scope (tenant state, security posture, ledger
+posture, QA database state, clinical-AI readiness); `—` means build, formatting,
+codegen, or launcher tooling that changes none of those. The completeness of the
+list is the guarantee; the scope marking is a reading of each script and may be
+argued with — what must never happen again is a root script being absent
+entirely.
+
+Unless a row says otherwise, run these from the repository root.
+
+| Script | Scope | Purpose | Run context / sharp edges |
+| --- | --- | --- | --- |
+| `bootstrap-sealed-secrets.sh` | ✅ | Renders or applies the Sealed Secrets controller bootstrap under `infra/kubernetes/base/sealed-secrets`. | `--check` renders and validates; `--apply` mutates the cluster. Take `--check` first. |
+| `build-staff-windows-update.ps1` | — | Builds a Windows MSIX / App Installer update for the Staff app. | Release packaging on the Windows box. |
+| `build-tenant-client.sh` | ✅ | Builds patient + staff Flutter artifacts for ONE tenant, stamping subdomain and tenant identity via `--dart-define`. | Per-tenant client builds (multi-tenancy W6/W7). Flavors, signing, and per-tenant Firebase config are operator-wired — see `docs/TENANT_ONBOARDING_RUNBOOK.md` Part B4. A mis-stamped build points real users at another tenant's host. |
+| `check-c1-1-manifest-contract.mjs` | ✅ | Pins the CNPG/backup manifest contract for the production cluster (operator, plugin, and Postgres image expectations). | `EXPECTED_ACTIVE_PG_IMAGE` (the PG 17 image the live cluster runs) is a deliberate **all-zero fail-closed placeholder** — the operator captures the real digest off the running cluster (`docs/CNPG_POSTGRES_18_QUALIFICATION.md` §1). It is meant to fail until then; do not "fix" it by pinning the PG 18 digest. |
+| `check-clinical-ai-tenant-preflight.ps1` | ✅ | Read-only Clinical AI tenant rollout preflight. | Run before enabling a clinical-AI module for a tenant. Read-only. |
+| `check-docs-plugin-versions.mjs` | — | Docs-vs-pubspec drift guard for Flutter plugin versions. | Runs in the Flutter workspace CI job. |
+| `check-forgejo-supply-chain-pins.mjs` | ✅ | Fails when a Forgejo workflow references an action by anything but a 40-hex commit, or an image by anything but a `sha256:` digest. | Supply-chain immutability gate. A green run prints "Forgejo supply-chain pins are immutable." |
+| `check-kyverno-enforce-readiness.mjs` | ✅ | Static and (with `--live`) operator-live readiness checks for the Kyverno image-signature admission policy. | `--live` talks to the cluster. Flipping Kyverno to enforce without this is how unsigned images reach a node. |
+| `check-lockfile-libc.mjs` | — | Fails when an app's `package-lock.json` loses the `libc` constraints on its linux glibc/musl variants. | `node scripts/check-lockfile-libc.mjs <backend\|admin\|device-gateway>`. Exists because npm 11 strips `libc`, which lands glibc binaries in an Alpine image. |
+| `check-prod-digests-pinned.mjs` | ✅ | Renders every Kustomize-controlled production root and fails on any image that is not digest-pinned. | The gate behind "a merge is inert until an operator syncs". |
+| `check-prod-helm-image-inventory.mjs` | ✅ | Fails closed when the separately rendered Helm image surface changes. | Pairs with the Kustomize check above; Helm-sourced images are not covered by it. |
+| `check-zero-trust-network-pack.mjs` | ✅ | Validates the zero-trust access policy and NetworkPolicy pack. | Static validation of the committed pack. |
+| `codegen.mjs` | — | Dart OpenAPI codegen driver for `packages/vhhealth_core`, with an explicit dropped-operation report. | Targets `vhhealth_core` only — the sole workspace member with real codegen. |
+| `dart-format-check.mjs` | — | Formats or checks every tracked `.dart` file. | `--write` to fix. |
+| `generate-staff-role-contract.mjs` | — | Generates the dependency-free staff role/presentation contract consumed by the Staff shell. | Runs in the Flutter CI job, where backend `node_modules` are absent. **Authorization never uses this map** — generated raw-role route sets remain authoritative. |
+| `generate-vital-bounds.mjs` | — | Generates `vital_plausibility_bounds.g.dart` from the backend clinical bounds modules. | `--check` is wired into `npm --prefix apps/backend run lint`. Clinical constants: regenerate, never hand-edit the `.g.dart`. |
+| `ggshield-scan.mjs` | ✅ | Runs GitGuardian over the worktree or a commit range. | `--optional` (or `GGSHIELD_OPTIONAL=1`) downgrades a missing binary to a skip. GitGuardian pins findings to COMMITS, so a rewritten history can change the verdict. |
+| `gitleaks-scan.mjs` | ✅ | Runs gitleaks over the worktree or a commit range. | Honours `GITLEAKS_BIN`; falls back to `D:\Dev\Tools\gitleaks` on Windows. |
+| `local-ci.mjs` | — | Local CI spine — delegates to `scripts/ci/run.mjs` with Python UTF-8 mode forced for child tools. | The local equivalent of the canonical gate. Forces `PYTHONUTF8=1` so semgrep survives Windows cp1252. |
+| `mock-ollama-readiness-server.mjs` | ✅ | Persistent mock Ollama daemon for the clinical-AI rollout-preflight smoke. | A green preflight against this mock proves wiring, **not** model readiness. |
+| `operator-lifecycle-preflight.mjs` | ✅ | Static contract plus live-state preflight for the ArgoCD application lifecycle (Applications, CRDs, Deployments). | Reuses the digest verifier from `check-prod-digests-pinned.mjs`. Run before an operator sync. |
+| `qa-maestro.mjs` | ✅ | Runs the Maestro flows under `apps/{patient,staff}/.maestro/` as one orchestrator stage. | Needs the Maestro CLI plus a booted emulator or attached device. iOS is out of scope. |
+| `qa-orchestrator.mjs` | ✅ | Drives a full QA pass: probes backend `:5206` / admin `:3201`, runs `qa-reset.mjs`, then the PowerShell smokes, writing `qa-runs/<run_id>/summary.json`. | **Calls `qa-reset.mjs`, so it destroys the local QA database.** Stage selection via `--stages`. |
+| `qa-playwright.mjs` | ✅ | Runs the admin Playwright suite as one orchestrator stage into `qa-runs/<run_id>/ui-admin/`. | Defaults to `http://127.0.0.1:3201`; override with `PLAYWRIGHT_BASE_URL`, `QA_PW_PROJECT`, `QA_PW_GREP`. |
+| `qa-reset.mjs` | ✅ | **Destructive.** Tears the local QA database down to a known-good baseline, then reseeds (comprehensive data, staff accounts `EMP-1001..`, QA edge-case fixtures). | Six guardrails (host, db name, `NODE_ENV`, role, env confirm, advisory lock) and **no flag bypasses any of them** — fix the environment, do not fork the script. |
+| `scan-secrets.mjs` | ✅ | Fails the working tree on service-account private-key material. | Wired into `npm --prefix apps/backend run lint` as `secrets:scan`. Inside any `.claude` directory only the `skills` subtree is scanned. |
+| `sealed-secrets-bootstrap-smoke.mjs` | ✅ | Smoke for the Sealed Secrets bootstrap render, reusing `validate-sealed-secrets-bootstrap.mjs`. | `--auto` or `--require-cluster`. |
+| `seed-dev-env.mjs` | ✅ | Writes `apps/backend/.env` and `apps/admin/.env.local` with freshly generated secrets **only when they are missing**. Idempotent. | Local dev only. Production secrets must come from SealedSecrets / External Secrets — see `docs/DEPLOYMENT_GUIDE.md#secrets`. |
+| `seed-local-hands-on-hospital-data.mjs` | ✅ | Additive, idempotent clinical fixtures for the Staff app (bed board, doctor-scoped appointments, case sheet, notes, vitals, discharge hub). | Local `vhhealth_test` only, after migrations and baseline seeds. Guarded by `assertSyntheticSeedTarget`. |
+| `seed-qa-tenant.mjs` | ✅ | QA-only edge-case fixtures layered on top of the comprehensive seed: timezone-boundary appointment, Unicode patient name, multi-year history, long strings, NULL-friendly columns. | Runs AFTER `apps/backend/scripts/seed-comprehensive-test-data.mjs`. All inserts idempotent. |
+| `smoke-admin-crud.ps1` | ✅ | Local admin dashboard CRUD smoke matrix through the admin proxy. | **Writes** through the admin proxy — point it at a disposable database. |
+| `smoke-clinical-ai-local-ollama.ps1` | ✅ | Clinical-AI local-Ollama deep-tier smoke against the backend. | Confirms a module actually used a model rather than a deterministic template. |
+| `smoke-clinical-ai-pilot-evidence.ps1` | ✅ | Clinical-AI pilot evidence-pack smoke against the backend. | Produces the evidence an enablement decision is meant to rest on. |
+| `smoke-patient-routing.ps1` | ✅ | Local patient-portal API wiring smoke matrix. | Against a local backend with synthetic data only. |
+| `smoke-staff-clinical-safety.ps1` | ✅ | Local staff clinical-safety API smoke matrix. | Against a local backend with synthetic data only. |
+| `smoke-staff-desktop.ps1` | ✅ | Staff Flutter desktop smoke against a live backend. | Needs the built Windows Staff app. |
+| `smoke-staff-role-workflows.ps1` | ✅ | Live staff-role workflow smoke matrix against a reachable backend. | Uses the seeded `EMP-NNNN` role matrix; **never** point at production. |
+| `smoke-staff-routing.ps1` | ✅ | Local staff-portal API wiring smoke matrix. | Against a local backend with synthetic data only. |
+| `start-local-staff-stack.ps1` | — | Starts the local hands-on Staff stack. | Launcher; the stack it starts is what touches the QA database. |
+| `update-local-staff-windows-app.ps1` | — | Rebuilds and updates the local Windows Staff app without a reinstall. | Dev-box convenience. |
+| `update-prod-digests.mjs` | ✅ | Rewrites `infra/kubernetes/apps/kustomization.yaml` with verified image digests and writes a verification evidence file. | Supports a dry run that reports without writing evidence. The written digests are what ArgoCD will roll out on the next operator sync. |
+| `validate-cert-pin-set.mjs` | ✅ | Validates the release certificate pin set (including an owner-approved 300s clock skew). | Release security configuration gate; fails with `release security configuration invalid: …`. |
+| `validate-kubernetes-manifests.mjs` | ✅ | kubeconform validation with a **full-GVK allowlist** for repository-owned and operator-installed CRDs. | Deliberately not `-ignore-missing-schemas`: a misspelled custom resource must fail rather than be hidden. |
+| `validate-patient-minimum-version-trust.mjs` | ✅ | Validates the patient minimum-version policy signing-key trust (current/next key ids and public keys). | Refuses equal current/next key ids and half-supplied key pairs. |
+| `validate-sealed-secrets-bootstrap.mjs` | ✅ | Validates a rendered Sealed Secrets bootstrap YAML. | `node scripts/validate-sealed-secrets-bootstrap.mjs <rendered.yaml>`; also imported by the smoke above. |
+
+### Deliberately not indexed
+
+- `scripts/ci/` (19 modules, 12 `*.test.mjs`, a README and an allowlist JSON) — the CI harness the workflows
+  call (`canonical-plan.mjs`, `stage-selection.mjs`, `check-client-paths.mjs`,
+  `run-affected-backend-tests.mjs`, …). These are invoked by `ci.yml` and
+  `local-ci.mjs`, not by an operator. `scripts/ci/README.md` documents them.
+- `scripts/lib/resolve-dev-tool.ps1` and `scripts/security/check-infra-security-controls.mjs`
+  — helper modules called by the entrypoints above.
+- Every `scripts/*.test.mjs` — `node --test` unit tests for the scripts beside
+  them. Individual workflows run named ones; none is an operator entrypoint.
+
+### How this index is derived
+
+The root list above is the output of this, one row per file:
+
+```bash
+# the 45 indexed entrypoints
+find scripts -maxdepth 1 -type f ! -name '*.test.mjs' | sort
+# what was excluded, and why it is excluded
+find scripts/ci scripts/lib scripts/security -type f | sort
+find scripts -maxdepth 1 -name '*.test.mjs' | sort
+```
+
+When a root script is added or removed, re-run the first command and reconcile
+the table against it. Do not adjust the prose count by hand — the count is
+`find scripts -maxdepth 1 -type f ! -name '*.test.mjs' | wc -l`.
+
+There is **no CI gate** enforcing this reconciliation. One was considered and
+not built: the root `*.test.mjs` files are invoked individually by name from
+specific workflows, so a new guard would have had to be wired into a workflow to
+run at all, and an unwired guard is worse than none. Treat the commands above as
+the manual step in any PR that adds or deletes a root script.
 
 ## Operator Rules
 

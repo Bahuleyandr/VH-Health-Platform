@@ -66,9 +66,10 @@ kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
 ```
 
 If `is_minor=true` and `guardian_user_id IS NOT NULL`, this is a
-delegated-profile case — the guardian app should send
-`X-Acting-As-Uid: <minor_uid>` (when delegation lands; see the
-follow-up chip from `runs/manual-fix-log-2026-05-13-dependent-profile.md`).
+delegated-profile case — the guardian app must send
+`X-Acting-As-Uid: <minor_uid>`. Delegation has landed:
+`src/middleware/jwtMiddleware.js` reads that header and verifies the JWT actor
+is the minor's guardian before rewriting the effective uid.
 If the header isn't being sent, the guardian's JWT resolves to the
 guardian's records, not the minor's — that's the visual-only switcher
 bug. Out-of-scope for portal triage; see the delegation runbook.

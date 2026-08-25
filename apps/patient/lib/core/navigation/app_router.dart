@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/navigation/biometric_gate_policy.dart';
 import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
@@ -93,7 +94,25 @@ class AppRouter {
   /// PHI subtree is not built (and its fetches never run) until the OS
   /// biometric prompt grants access. BiometricGate's grace window keeps
   /// hub → detail navigation to a single prompt.
-  static Widget _biometricGated(Widget Function(BuildContext) builder) {
+  ///
+  /// WHICH routes get this wrapper is not a judgement call made here — see
+  /// `lib/core/navigation/biometric_gate_policy.dart`. Every declared route
+  /// must be classified there, and
+  /// `test/core/navigation/biometric_gate_coverage_test.dart` fails if the
+  /// router and the policy disagree in either direction.
+  static Widget _biometricGated(
+    String route,
+    Widget Function(BuildContext) builder,
+  ) {
+    // Debug-only cross-check against the declared policy. `assert` is stripped
+    // from profile AND release builds, so this costs a patient handset nothing,
+    // but it fires in debug and in every widget test that builds a gated
+    // route — which is where a mis-wired route would actually be introduced.
+    assert(
+      patientBiometricGatedRoutes.contains(route),
+      'Route $route is wrapped in the biometric lock but is not declared in '
+      'patientBiometricGatedRoutes (core/navigation/biometric_gate_policy.dart).',
+    );
     return BiometricGate(builder: builder);
   }
 
@@ -384,7 +403,10 @@ class AppRouter {
           GoRoute(
             path: '/notifications',
             pageBuilder: (context, state) => NoTransitionPage(
-              child: _biometricGated((_) => const NotificationsScreen()),
+              child: _biometricGated(
+                '/notifications',
+                (_) => const NotificationsScreen(),
+              ),
             ),
           ),
           GoRoute(
@@ -457,16 +479,20 @@ class AppRouter {
           );
         },
       ),
+      // Lane L: pharmacy orders list the medicines dispensed against a
+      // prescription — the same medication data class as the gated
+      // Prescriptions tab, so the order history is gated too.
       GoRoute(
         path: '/pharmacy',
-        builder: (context, state) => const PharmacyScreen(),
+        builder: (context, state) =>
+            _biometricGated('/pharmacy', (_) => const PharmacyScreen()),
       ),
 
       // Patient self-service portal (Sprint 10)
       GoRoute(
         path: '/portal/bills',
         builder: (context, state) =>
-            _biometricGated((_) => const BillsScreen()),
+            _biometricGated('/portal/bills', (_) => const BillsScreen()),
       ),
       GoRoute(
         path: '/portal/bills/:id',
@@ -475,6 +501,7 @@ class AppRouter {
           return id == null ? '/portal/bills' : null;
         },
         builder: (context, state) => _biometricGated(
+          '/portal/bills/:id',
           (_) => BillDetailScreen(
             invoiceId: int.tryParse(state.pathParameters['id']!)!,
           ),
@@ -482,8 +509,10 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/lab-results',
-        builder: (context, state) =>
-            _biometricGated((_) => const LabResultsScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/lab-results',
+          (_) => const LabResultsScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/lab-results/:id',
@@ -498,6 +527,7 @@ class AppRouter {
           final repository = args?.repository;
           if (repository != null) {
             return _biometricGated(
+              '/portal/lab-results/:id',
               (_) => LabResultDetailScreen(
                 resultId: id,
                 initialResult: args?.initialResult,
@@ -506,6 +536,7 @@ class AppRouter {
             );
           }
           return _biometricGated(
+            '/portal/lab-results/:id',
             (_) => LabResultDetailScreen(
               resultId: id,
               initialResult: args?.initialResult,
@@ -515,8 +546,10 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/diagnostic-results',
-        builder: (context, state) =>
-            _biometricGated((_) => const StructuredDiagnosticResultsScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/diagnostic-results',
+          (_) => const StructuredDiagnosticResultsScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/diagnostic-results/:id',
@@ -537,6 +570,7 @@ class AppRouter {
           final repository = args?.repository;
           if (repository != null) {
             return _biometricGated(
+              '/portal/diagnostic-results/:id',
               (_) => StructuredDiagnosticResultDetailScreen(
                 resultId: id,
                 initialResult: args?.initialResult,
@@ -545,6 +579,7 @@ class AppRouter {
             );
           }
           return _biometricGated(
+            '/portal/diagnostic-results/:id',
             (_) => StructuredDiagnosticResultDetailScreen(
               resultId: id,
               initialResult: args?.initialResult,
@@ -554,18 +589,24 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/referrals',
-        builder: (context, state) =>
-            _biometricGated((_) => const PatientReferralsScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/referrals',
+          (_) => const PatientReferralsScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/lab-orders',
-        builder: (context, state) =>
-            _biometricGated((_) => const LabOrdersScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/lab-orders',
+          (_) => const LabOrdersScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/discharge-summaries',
-        builder: (context, state) =>
-            _biometricGated((_) => const DischargeSummariesScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/discharge-summaries',
+          (_) => const DischargeSummariesScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/discharge-summaries/:id',
@@ -577,6 +618,7 @@ class AppRouter {
           final extra = state.extra;
           final args = extra is DischargeSummaryDetailRouteArgs ? extra : null;
           return _biometricGated(
+            '/portal/discharge-summaries/:id',
             (_) => DischargeSummaryDetailRouteScreen(
               summaryId: int.tryParse(state.pathParameters['id']!)!,
               initialSummary: args?.initialSummary,
@@ -589,13 +631,17 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/maternity/timeline',
-        builder: (context, state) =>
-            _biometricGated((_) => const AncTimelineScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/maternity/timeline',
+          (_) => const AncTimelineScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/tpa/claims',
-        builder: (context, state) =>
-            _biometricGated((_) => const TpaClaimsScreen()),
+        builder: (context, state) => _biometricGated(
+          '/portal/tpa/claims',
+          (_) => const TpaClaimsScreen(),
+        ),
       ),
       GoRoute(
         path: '/portal/tpa/claims/:id',
@@ -604,6 +650,7 @@ class AppRouter {
           return id == null ? '/portal/tpa/claims' : null;
         },
         builder: (context, state) => _biometricGated(
+          '/portal/tpa/claims/:id',
           (_) => TpaClaimDetailScreen(
             claimId: int.tryParse(state.pathParameters['id']!)!,
           ),
@@ -612,7 +659,7 @@ class AppRouter {
       GoRoute(
         path: '/portal/messages',
         builder: (context, state) =>
-            _biometricGated((_) => const MessagesScreen()),
+            _biometricGated('/portal/messages', (_) => const MessagesScreen()),
       ),
       GoRoute(
         path: '/portal/messages/:id',
@@ -621,6 +668,7 @@ class AppRouter {
           return id == null ? '/portal/messages' : null;
         },
         builder: (context, state) => _biometricGated(
+          '/portal/messages/:id',
           (_) => MessageThreadScreen(
             threadId: int.tryParse(state.pathParameters['id']!)!,
           ),
@@ -639,6 +687,7 @@ class AppRouter {
           final repository = args?.repository;
           if (repository != null) {
             return _biometricGated(
+              '/health/explanations/:id',
               (_) => PatientExplainerDetailScreen(
                 reviewId: id,
                 initialExplainer: args?.initialExplainer,
@@ -647,6 +696,7 @@ class AppRouter {
             );
           }
           return _biometricGated(
+            '/health/explanations/:id',
             (_) => PatientExplainerDetailScreen(
               reviewId: id,
               initialExplainer: args?.initialExplainer,
@@ -667,6 +717,7 @@ class AppRouter {
           final repository = args?.repository;
           if (repository != null) {
             return _biometricGated(
+              '/health/consultation-notes/:id',
               (_) => ConsultationNoteDetailScreen(
                 noteId: id,
                 initialNote: args?.initialNote,
@@ -675,6 +726,7 @@ class AppRouter {
             );
           }
           return _biometricGated(
+            '/health/consultation-notes/:id',
             (_) => ConsultationNoteDetailScreen(
               noteId: id,
               initialNote: args?.initialNote,
@@ -682,9 +734,15 @@ class AppRouter {
           );
         },
       ),
+      // Lane L: the Results tab renders investigation reports and downloads
+      // their files — the same class as the gated /portal/lab-results and
+      // /portal/diagnostic-results screens.
       GoRoute(
         path: '/investigations',
-        builder: (context, state) => const InvestigationsScreen(),
+        builder: (context, state) => _biometricGated(
+          '/investigations',
+          (_) => const InvestigationsScreen(),
+        ),
       ),
       GoRoute(
         path: '/book-investigation',
@@ -722,13 +780,20 @@ class AppRouter {
         path: '/steps',
         builder: (context, state) => const StepChallengeScreen(),
       ),
+      // Lane L: the History tab reads /health/patient/:id/vitals — clinical
+      // measurements from the same record the gated Health Summary shows.
       GoRoute(
         path: '/vitals',
-        builder: (context, state) => const VitalsScreen(),
+        builder: (context, state) =>
+            _biometricGated('/vitals', (_) => const VitalsScreen()),
       ),
+      // Lane L: RefillScreen calls the IDENTICAL endpoint as the gated
+      // Prescriptions tab (/prescriptions/patient/my) and renders the full
+      // prescription list. This was the plainest hole in the lock.
       GoRoute(
         path: '/refill',
-        builder: (context, state) => const RefillScreen(),
+        builder: (context, state) =>
+            _biometricGated('/refill', (_) => const RefillScreen()),
       ),
       GoRoute(
         path: '/family',
@@ -738,9 +803,16 @@ class AppRouter {
         path: '/add-dependent',
         builder: (context, state) => const AddDependentScreen(),
       ),
+      // Lane L: reminders carry medication name + dosage. Safe to gate: the
+      // local notification reschedule that makes reminders actually fire runs
+      // at cold start in main.dart, not from this screen, so an un-unlocked
+      // gate cannot silence a medication reminder.
       GoRoute(
         path: '/reminders',
-        builder: (context, state) => const MedicationRemindersScreen(),
+        builder: (context, state) => _biometricGated(
+          '/reminders',
+          (_) => const MedicationRemindersScreen(),
+        ),
       ),
       GoRoute(path: '/abdm', builder: (context, state) => const AbdmScreen()),
       GoRoute(
