@@ -148,6 +148,20 @@ describeIfDb('runtime-role NOBYPASSRLS webhook/ABDM/sweep RLS regression (T-M1)'
       // ON DELETE CASCADE from tenants clears the seeded child rows.
       await ownerQuery('DELETE FROM tenants WHERE id = $1::uuid', [tenantId]).catch(() => {});
     }
+    // Drop the runtime role so this suite leaves no ambient DB artifact behind:
+    // a leaked NOBYPASSRLS login role would otherwise persist for the rest of the
+    // session. DROP OWNED first revokes the grants this suite made to it, so
+    // DROP ROLE cannot fail on dependent privileges. Best-effort — never let
+    // teardown throw.
+    await ownerQuery(
+      `DO $$
+       BEGIN
+         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${RUNTIME_ROLE}') THEN
+           EXECUTE 'DROP OWNED BY ${RUNTIME_ROLE}';
+           EXECUTE 'DROP ROLE IF EXISTS ${RUNTIME_ROLE}';
+         END IF;
+       END $$;`,
+    ).catch(() => {});
     await owner.end().catch(() => {});
   });
 
