@@ -570,6 +570,18 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
               ? [{ encounter_id: { in: encounterIds } }, { status: 'active' }]
               : [{ status: 'active' }],
           },
+          // O5: the mapper (displayDiagnosis + grouping/dedupe) reads only
+          // these — `notes` and the audit columns never leave the DB.
+          select: {
+            id: true,
+            patient_uid: true,
+            encounter_id: true,
+            status: true,
+            description: true,
+            icd10_code: true,
+            icd10_description: true,
+            diagnosis_type: true,
+          },
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: 300,
         })
@@ -582,6 +594,21 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
             status: { notIn: CLOSED_ORDER_STATUSES },
             ...(encounterIds.length ? { OR: [{ encounter_id: { in: encounterIds } }, { encounter_id: null }] } : {}),
           },
+          // O5: buildTaskOverlay/orderTaskTitle consume exactly these.
+          // `details` IS read (medication/test names for the task label) so
+          // the wide JSON column stays; `notes` is its final fallback.
+          select: {
+            id: true,
+            patient_uid: true,
+            encounter_id: true,
+            status: true,
+            order_type: true,
+            priority: true,
+            created_at: true,
+            ordered_by: true,
+            details: true,
+            notes: true,
+          },
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: 500,
         })
@@ -592,6 +619,17 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
             patient_uid: { in: patientUids },
             ...(tenantId ? { tenant_id: tenantId } : {}),
             OR: [{ acknowledged: false }, { acknowledged: null }],
+          },
+          // O5: `source_data` (the widest column) is never read by the
+          // alert item mapper — do not fetch it for every board refresh.
+          select: {
+            id: true,
+            patient_uid: true,
+            alert_type: true,
+            severity: true,
+            title: true,
+            description: true,
+            created_at: true,
           },
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: 300,
