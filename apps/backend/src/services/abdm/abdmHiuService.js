@@ -1011,26 +1011,32 @@ export async function handleHiuHealthInfoOnRequest({
   if (eventIntake.duplicate) return { duplicate: true };
 
   try {
+  // Public CM callback mount — no request tenant context, so the ack/failure
+  // UPDATEs on abdm_hiu_fetch_sessions (726 tranche) must run under setTenantTx
+  // for the resolved tenant. Plain prisma silently matches 0 rows under the
+  // fail-closed restrictive policy on the prod runtime role, leaving the session
+  // stuck at 'requested' and never stamping transaction_id — which the
+  // (correctly setTenantTx-wrapped) data-push leg correlates on.
   if (body?.error) {
-    await prisma.$executeRawUnsafe(
+    await setTenantTx(tid, (tx) => tx.$executeRawUnsafe(
       `UPDATE abdm_hiu_fetch_sessions
           SET status = 'failed', failure_reason = $3::text,
               key_material_private_ciphertext = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND request_id = $2::text
           AND status IN ('requested', 'acknowledged')`,
       tid, originalRequestId, String(body.error?.message || 'hi-request rejected').slice(0, 500),
-    );
+    ));
   } else {
     const cmTransactionId = String(body?.hiRequest?.transactionId || '').trim();
     if (cmTransactionId) {
-      await prisma.$executeRawUnsafe(
+      await setTenantTx(tid, (tx) => tx.$executeRawUnsafe(
         `UPDATE abdm_hiu_fetch_sessions
             SET transaction_id = $3::text, status = 'acknowledged',
                 acknowledged_at = NOW(), updated_at = NOW()
           WHERE tenant_id = $1::uuid AND request_id = $2::text
             AND status = 'requested'`,
         tid, originalRequestId, cmTransactionId,
-      );
+      ));
     }
   }
   await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' });

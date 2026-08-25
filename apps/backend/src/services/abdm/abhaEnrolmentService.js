@@ -30,7 +30,7 @@
 import crypto from 'crypto';
 
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { setTenantTx, setSystemJobTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
@@ -986,17 +986,21 @@ export async function getEnrolmentStatus({ tenantId = null, patientUid } = {}) {
 
 /**
  * Cron sweep: expire live sessions past expires_at (abha-enrolment-expiry).
- * Cross-tenant with explicit predicates; runs under the scheduler's job lock.
+ * Cross-tenant with explicit predicates; runs under the scheduler's job lock
+ * via setSystemJobTx so it satisfies migration 733's system-job predicate on
+ * abha_enrolment_sessions (726's restrictive policy otherwise rejects the
+ * plain/'bypass' connection and the sweep silently no-ops, wedging a patient
+ * behind an abandoned OTP txn on the one-live-session partial unique).
  */
 export async function sweepExpiredEnrolmentSessions() {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setSystemJobTx((tx) => tx.$queryRawUnsafe(
     `UPDATE abha_enrolment_sessions
         SET status = 'expired', verification_claim_id = NULL,
             verification_claimed_at = NULL, updated_at = NOW()
       WHERE status IN ('${LIVE_STATUSES.join("', '")}')
         AND expires_at IS NOT NULL AND expires_at < NOW()
       RETURNING id`,
-  );
+  ));
   if (rows.length > 0) {
     logger.info('ABHA enrolment expiry sweep complete', { expired: rows.length });
   }

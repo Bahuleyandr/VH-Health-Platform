@@ -11,6 +11,17 @@
 -- hold either PHI bundles or financial state — exactly where defense in depth
 -- must not depend on every future call site remembering the wrapper.
 --
+-- CORRECTION (re-audit 2026-08-25): the claim just below — that every writer of
+-- these tables "runs under setTenant transactions" — was FALSE when this file
+-- shipped. The PUBLIC pre-tenant mounts (payment webhook intake, ABDM Scan&Share
+-- intake, HIU on-request ack) and the three cross-tenant expiry sweeps ran on
+-- plain prisma with no tenant GUC, so under the prod NOBYPASSRLS runtime role
+-- this fail-closed tranche 404'd/42501'd/silently no-op'd those paths. Migrations
+-- 732 (owner-owned SECURITY DEFINER token resolver) and 733 (system-job sweep
+-- predicate), plus setTenantTx/setSystemJobTx wrapping of those call sites, close
+-- the gap WITHOUT weakening isolation. The description below is retained as the
+-- original intent; treat "all setTenantTx" as the goal 732/733 actually deliver.
+--
 -- This tranche deliberately covers ONLY the webhook/callback-fed PHI and
 -- financial tables whose writers are verified to run under explicit tenant
 -- transactions (abdmHiuService, abhaEnrolmentService, abdmShareIntakeService,
