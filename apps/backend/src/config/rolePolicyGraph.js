@@ -1045,12 +1045,18 @@ const HR_PROCESS_OVERRIDES = {
   },
 };
 
-const UI_FEATURES_BY_ROLE = {
-  ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals', 'oncology'],
-  SUPER_ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals', 'oncology'],
+// Per-role staff UI feature grants, in the SAME feature-id vocabulary as the
+// generated staff contract (scripts/generate-staff-role-contract.mjs ->
+// canonicalStaffFeatureRouteRoleCodes). The Staff client treats this map as a
+// NARROWING filter over its own role map, so an id missing from a role's entry
+// reads as a denial and removes the destination from the desktop rail.
+// `payroll` is appended to every entry below rather than repeated here.
+const UI_ROLE_FEATURE_GRANTS = {
+  ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'staff_roster', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals', 'oncology'],
+  SUPER_ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'dental_charting', 'transplant_program', 'admissions', 'billing_desk', 'staff_management', 'staff_roster', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals', 'oncology'],
   CMO: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'bed_board', 'referrals'],
-  MEDICAL_SUPERINTENDENT: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'bed_board', 'referrals'],
-  HR_STAFF: ['staff_management', 'organization_hierarchy', 'hr_dashboard', 'leave_approvals', 'staff_directory', 'reports_grievances', 'audit_logs'],
+  MEDICAL_SUPERINTENDENT: ['front_office_workbench', 'appointments', 'dental_charting', 'transplant_program', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'bed_board', 'referrals', 'staff_roster'],
+  HR_STAFF: ['staff_management', 'staff_roster', 'organization_hierarchy', 'hr_dashboard', 'leave_approvals', 'staff_directory', 'reports_grievances', 'audit_logs'],
   CNO: ['organization_hierarchy', 'nursing_roster', 'op_nursing_roster', 'op_nursing_dashboard', 'staff_roster', 'patient_command_board', 'bed_board', 'referrals', 'safety_center'],
   RECEPTIONIST: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions'],
   RECEPTION_INCHARGE: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions', 'reception_roster'],
@@ -1075,6 +1081,20 @@ const UI_FEATURES_BY_ROLE = {
   HOUSEKEEPING_STAFF: ['housekeeping_tasks'],
   HOUSEKEEPING_INCHARGE: ['housekeeping_hub', 'housekeeping_command', 'housekeeping_roster'],
 };
+
+// Payroll self-service is allowSelf for EVERY staff role on the backend
+// (services/security/staffAccessPolicyRegistry.js), which is why the generated
+// staff contract grants `payroll` to the whole staff roster and the Staff
+// desktop rail renders a Payroll destination for every role that holds it.
+// Because this map only ever narrows the client's rail, omitting `payroll`
+// from a role entry hid Payroll from that role. Append it once here so it can
+// never be forgotten when a role entry is added or edited.
+const UI_FEATURES_BY_ROLE = Object.fromEntries(
+  Object.entries(UI_ROLE_FEATURE_GRANTS).map(([roleCode, featureIds]) => [
+    roleCode,
+    featureIds.includes('payroll') ? featureIds : [...featureIds, 'payroll'],
+  ]),
+);
 
 const STAFF_FEATURE_CATALOG = [
   { id: 'home', title: 'Home', sidebar_label: 'Home', sidebar_order: 10, capability_group: 'op_flow' },
@@ -1102,11 +1122,21 @@ const STAFF_FEATURE_CATALOG = [
   { id: 'safety_center', title: 'Safety Center', sidebar_label: 'Safety', sidebar_order: 110, capability_group: 'notifications_audit' },
   { id: 'audit_logs', title: 'Audit Logs', sidebar_label: 'Audit', sidebar_order: 115, capability_group: 'notifications_audit' },
   { id: 'organization_hierarchy', title: 'Hospital Hierarchy', sidebar_label: 'Hierarchy', sidebar_order: 120, capability_group: 'staff_governance' },
-  { id: 'staff_roster_hub', title: 'Staff Roster Hub', sidebar_label: 'Staff Roster', sidebar_order: 122, capability_group: 'staff_governance' },
+  // Roster ids use the generated staff contract's vocabulary (`staff_roster`,
+  // not `staff_roster_hub`). Clients join this catalog to
+  // staff_features_by_role by id, so an id declared here that no role entry
+  // uses advertises a destination nobody reaches, while the roster ids the
+  // role entries DO use stay undeclared and resolve to nothing.
+  { id: 'staff_roster', title: 'Staff Roster Hub', sidebar_label: 'Staff Roster', sidebar_order: 122, capability_group: 'staff_governance' },
+  { id: 'nursing_roster', title: 'Nursing Roster', sidebar_label: 'Nursing Roster', sidebar_order: 123, capability_group: 'nursing_governance' },
+  { id: 'op_nursing_roster', title: 'OP Nursing Roster', sidebar_label: 'OP Roster', sidebar_order: 124, capability_group: 'nursing_governance' },
   { id: 'staff_management', title: 'Staff Management', sidebar_label: 'Staff', sidebar_order: 125, capability_group: 'people_operations' },
+  { id: 'reception_roster', title: 'Reception Roster', sidebar_label: 'Reception Roster', sidebar_order: 126, capability_group: 'op_flow' },
+  { id: 'pharmacy_roster', title: 'Pharmacy Roster', sidebar_label: 'Pharmacy Roster', sidebar_order: 127, capability_group: 'pharmacy' },
   { id: 'staff_directory', title: 'Staff Directory', sidebar_label: 'Directory', sidebar_order: 130, capability_group: 'people_operations' },
   { id: 'hr_dashboard', title: 'HR Dashboard', sidebar_label: 'HR', sidebar_order: 135, capability_group: 'people_operations' },
   { id: 'leave_approvals', title: 'Leave Approvals', sidebar_label: 'Leave', sidebar_order: 140, capability_group: 'people_operations' },
+  { id: 'payroll', title: 'Payroll Self Service', sidebar_label: 'Payroll', sidebar_order: 143, capability_group: 'people_operations' },
   { id: 'reports_grievances', title: 'Reports and Grievances', sidebar_label: 'Reports', sidebar_order: 145, capability_group: 'people_operations' },
   { id: 'theatre', title: 'Operating Theatre', sidebar_label: 'Theatre', sidebar_order: 150, capability_group: 'theatre' },
   { id: 'cath_lab', title: 'Cath Lab', sidebar_label: 'Cath Lab', sidebar_order: 155, capability_group: 'cath_lab' },

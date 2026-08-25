@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../../services/maternity/maternityService.js';
 import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { queueAppointmentConfirmationSms } from '../../utils/notifications/smsOutbox.js';
+import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -334,7 +335,7 @@ export const confirmAppointment = async (req, res) => {
     });
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction).
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid', a.patient_id, tenantId);
+    const patient = await prisma.$queryRawUnsafe('SELECT uid::text AS uid, device_token, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid', a.patient_id, tenantId);
     const patientRow = patient[0];
     const doctorRow = await prisma.$queryRawUnsafe(
       'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1 AND u.tenant_id=$2::uuid',
@@ -344,13 +345,34 @@ export const confirmAppointment = async (req, res) => {
     const doctorName = doctorRow[0]?.name || 'Doctor';
     const department = doctorRow[0]?.department || a.department || null;
 
+    const confirmTitle = 'Appointment Confirmed ✓';
+    const confirmBody = `Your appointment on ${new Date(newDate).toLocaleDateString('en-IN')} at ${newTime} is confirmed. Token #${tokenNumber}`;
+
     setImmediate(async () => {
+      // In-app feed row first, and unconditionally. The push below is
+      // privacy-stripped to a generic "open the app" that routes to
+      // /notifications, so without this row the buzz opens an empty inbox.
+      await recordPatientFeedNotification({
+        tenantId,
+        userId: a.patient_id,
+        uid: patientRow?.uid || result.patient_uid || null,
+        phone: patientRow?.phone || a.phone || null,
+        title: confirmTitle,
+        body: confirmBody,
+        type: 'appointment_confirmed',
+        data: {
+          type: 'appointment_confirmed',
+          appointment_id: String(id),
+          token: String(tokenNumber),
+        },
+        context: 'appointment-confirmed',
+      });
       try {
         if (patientRow?.device_token) {
           await sendPushNotification({
             tokens: patientRow.device_token,
-            title: 'Appointment Confirmed ✓',
-            body: `Your appointment on ${new Date(newDate).toLocaleDateString('en-IN')} at ${newTime} is confirmed. Token #${tokenNumber}`,
+            title: confirmTitle,
+            body: confirmBody,
             data: { type: 'appointment_confirmed', appointment_id: String(id), token: String(tokenNumber) },
             userId: String(a.patient_id),
           });
@@ -822,20 +844,35 @@ export const cancelAppointment = async (req, res) => {
     });
 
     // Notify patient (fire-and-forget, outside transaction)
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid', patientId, tenantId);
-    if (patient[0]?.device_token) {
-      setImmediate(async () => {
-        try {
-          await sendPushNotification({
-            tokens: patient[0].device_token,
-            title: 'Appointment Cancelled',
-            body: `Your appointment has been cancelled. ${cancellation_reason || 'Please rebook.'}`,
-            data: { type: 'appointment_cancelled', appointment_id: String(id) },
-            userId: String(patientId),
-          });
-        } catch (e) { logger.warn('Cancel notification failed:', e.message); }
+    const patient = await prisma.$queryRawUnsafe('SELECT uid::text AS uid, phone, device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid', patientId, tenantId);
+    const cancelTitle = 'Appointment Cancelled';
+    const cancelBody = `Your appointment has been cancelled. ${cancellation_reason || 'Please rebook.'}`;
+    setImmediate(async () => {
+      // In-app feed row first, and unconditionally — the push is
+      // privacy-stripped to the /notifications inbox, so this row IS the
+      // message, and it is the only surface for a patient with no device.
+      await recordPatientFeedNotification({
+        tenantId,
+        userId: patientId,
+        uid: patient[0]?.uid || result.patient_uid || null,
+        phone: patient[0]?.phone || null,
+        title: cancelTitle,
+        body: cancelBody,
+        type: 'appointment_cancelled',
+        data: { type: 'appointment_cancelled', appointment_id: String(id) },
+        context: 'appointment-cancelled',
       });
-    }
+      if (!patient[0]?.device_token) return;
+      try {
+        await sendPushNotification({
+          tokens: patient[0].device_token,
+          title: cancelTitle,
+          body: cancelBody,
+          data: { type: 'appointment_cancelled', appointment_id: String(id) },
+          userId: String(patientId),
+        });
+      } catch (e) { logger.warn('Cancel notification failed:', e.message); }
+    });
 
     emitAppointmentEvent('cancel', {
       tenantId,

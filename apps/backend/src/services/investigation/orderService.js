@@ -358,14 +358,24 @@ export const createInvestigationOrder = async (orderData) => {
   // DEFAULT — that DEFAULT reads app.current_tenant_id and falls back to the
   // literal default tenant whenever the GUC is unset, which would hide the
   // notice from the patient's tenant-filtered notification list.
+  //
+  // `type` is what the patient app's inbox tap handler switches on
+  // (apps/patient/lib/features/notifications/screens/notifications_screen.dart
+  // `_handleNotificationTap`), and that switch falls through to "mark read, do
+  // not navigate" for anything it has no `case` for. This row was typed
+  // 'investigation_ordered', which has no case: it rendered in the inbox and
+  // tapping it went nowhere. 'investigation_booking' is the routed type whose
+  // destination — /investigations, the bookings + results tabs — is where the
+  // patient sees the order this notice is about. The body names that
+  // destination rather than "appointments", which is not where the tap lands.
   await prisma.notifications.create({
     data: {
       tenant_id: effectiveTenantId,
       uid: randomUUID(),
       phone: patient.phone || 'unknown',
       title: 'New Investigation Ordered',
-      body: `Your doctor has ordered: ${test_name}. Please check your appointments.`,
-      type: 'investigation_ordered',
+      body: `Your doctor has ordered: ${test_name}. Open Investigations to see the details.`,
+      type: 'investigation_booking',
       is_read: false,
       updated_at: now,
     },
@@ -505,7 +515,12 @@ export const createLegacyInvestigation = async ({
     return created;
   });
 
-  // Same reason as the order-placed notice above: bind the tenant explicitly.
+  // Same reason as the order-placed notice above: bind the tenant explicitly,
+  // and type the row with something the patient app's inbox routes. This one
+  // was 'investigation_ready', which has no case in `_handleNotificationTap`.
+  // 'investigation_result' is the type the report-ready row written by
+  // utils/notifications/InvestigationNotificationJob.js already carries for
+  // exactly this event, and it routes to /investigations.
   await prisma.notifications.create({
     data: {
       tenant_id: effectiveTenantId,
@@ -513,7 +528,7 @@ export const createLegacyInvestigation = async ({
       phone,
       title: 'Investigation Report Ready',
       body: `Your investigation report for "${test_name}" is now available.`,
-      type: 'investigation_ready',
+      type: 'investigation_result',
       is_read: false,
       updated_at: now,
     },

@@ -1,0 +1,111 @@
+-- 731_hl7_feed_subscription_default_includes_transfers.sql
+--
+-- ADT^A02 could not reach a default-configured feed.
+--
+-- Re-audit lane J added the outbound transfer event: `transferPatient`
+-- (src/services/emr/admissionService.js) calls `emitTransferAdt`
+-- (src/services/hl7/hl7OutboundService.js) after the bed move commits, and
+-- 'ADT^A02' joined SUPPORTED_TYPES so `queueFeedMessage` accepts it. But
+-- `queueFeedMessage` fans a message out with
+--
+--     WHERE tenant_id = $1::uuid AND is_active AND $2::text = ANY(message_types)
+--
+-- so a subscription receives only the types it lists, and the platform default
+-- installed by migration 283 was ARRAY['ADT^A01', 'ADT^A03', 'ORU^R01'] — no
+-- A02. Every feed that took the platform default had the new emitter fan out
+-- to zero subscriptions: wired end to end, unable to fire.
+--
+-- WHAT THIS CHANGES: the column DEFAULT, to the four message types the
+-- platform now emits automatically (admit / transfer / discharge / signed
+-- results). Nothing else.
+--
+-- THE HONEST SCOPE OF THIS DEFAULT. The application never omits this column —
+-- `createSubscription` always passes an explicit array — so this DEFAULT
+-- governs rows inserted by direct SQL: deep tests, seed scripts, rows an
+-- operator creates by hand. The default the HTTP API actually applies is
+-- DEFAULT_FEED_MESSAGE_TYPES in src/services/hl7/hl7OutboundService.js,
+-- changed to the same four types in the same commit.
+-- src/tests/unit/hl7OutboundTransferAdt.test.js compares that constant against
+-- this column default as projected into prisma/schema.prisma, so the two
+-- cannot drift apart silently.
+--
+-- WHAT THIS DELIBERATELY DOES NOT DO: it does not backfill existing
+-- subscriptions. Both reasons are load-bearing.
+--
+--   1. The row does not record the intent a backfill would have to assume.
+--      `message_types` is the only stored expression of what a downstream
+--      system agreed to receive, and nothing distinguishes "the operator
+--      accepted the platform default" from "the operator chose exactly these
+--      three" — `createSubscription` writes the same explicit array either
+--      way. The `metadata` jsonb column that could have recorded the
+--      difference is never written by any code path and is always '{}'.
+--
+--   2. The blast radius of guessing wrong is the WHOLE feed, not one message.
+--      An HL7 receiver that does not know a message type answers with an
+--      application reject. `recordTransportOutcome`
+--      (src/services/hl7/hl7OutboundDeliveryLedgerService.js) maps MSA AE/AR
+--      to status 'reconciliation_required' and
+--      send_authority 'held_owner_reconciliation', and
+--      `applyAcknowledgementToCursorTx` moves that subscription's row in
+--      `hl7_outbound_delivery_cursors` to state 'paused_rejected'.
+--      `claimPendingFeedMessages` then refuses to claim ANY message for a
+--      subscription whose cursor state is not 'ready', and separately refuses
+--      any message with an earlier ledger_version = 1 message that is not
+--      acknowledged 'aa'. So one rejected A02 stops that subscriber's
+--      admissions, discharges and lab results as well, until an owner
+--      reconciles it by hand. Silently enrolling live third-party interfaces
+--      into a message type they never agreed to can therefore take a hospital's
+--      outbound feed down — a decision that belongs to whoever owns the
+--      interface contract, not to a migration.
+--
+-- HOW AN EXISTING SUBSCRIPTION OPTS IN. First confirm with the receiving
+-- system's owner that it accepts ADT^A02 (see reason 2 — a receiver that
+-- rejects it pauses the entire feed). Then either:
+--
+--   (a) Re-run the create/upsert API, POST /api/v1/hl7-feeds/subscriptions,
+--       with the same `name` and the full desired `message_types`. Note the
+--       sharp edge: that upsert overwrites `endpoint_url` AND `auth_header`
+--       with whatever the request carries, and `auth_header` is encrypted at
+--       rest and never returned by GET /subscriptions — so omitting it clears
+--       the stored credential and it cannot be read back. Only use this path
+--       if you still hold the endpoint's auth header.
+--
+--   (b) Otherwise add the type in place, which leaves the credential alone:
+--
+--         UPDATE hl7_feed_subscriptions
+--            SET message_types = array_append(message_types, 'ADT^A02'),
+--                updated_at = NOW()
+--          WHERE tenant_id = '<tenant-uuid>'::uuid
+--            AND name = '<subscription name>'
+--            AND NOT ('ADT^A02' = ANY(message_types));
+--
+-- A subscriber that must NOT receive transfers is still expressible: pass an
+-- explicit `message_types` at create time. The default is a default, not a
+-- policy.
+--
+-- VERIFIED, not assumed, that this leaves existing subscriptions alone. On a
+-- throwaway PostgreSQL 17.9 database holding five subscriptions - one created
+-- by omitting the column (so it took migration 283's three-type default), one
+-- with an explicit array identical to that default, one narrowed to ORU^R01,
+-- one already listing ADT^A02, and one inactive - applying this file left
+-- every existing row byte-identical, `xmin` included, and did not change the
+-- table's relfilenode. SET DEFAULT is a catalog edit, not a rewrite: it
+-- touches no rows. Afterwards `queueFeedMessage`'s fan-out predicate,
+-- `'ADT^A02' = ANY(message_types)`, still selected only the subscription that
+-- already listed the type, plus a new one inserted without the column.
+-- Re-running the file is a no-op.
+--
+-- It is still DDL, so it takes ACCESS EXCLUSIVE for the instant it runs and
+-- queues behind any open transaction that has merely READ
+-- hl7_feed_subscriptions. Under the runner's `SET LOCAL lock_timeout = '15s'`
+-- (runMigrations.js:184; ciMigrationExecutor.mjs:88) that wait ends in
+-- SQLSTATE 55P03 rather than a long hold on a table the outbound worker polls
+-- - measured at 15.0s against a single idle-in-transaction reader. That
+-- failure is safe and self-correcting: the file is not recorded in
+-- `_migrations`, so the next run applies it. There is no lock-free way to move
+-- a column DEFAULT, so the answer to a 55P03 here is to re-run, not to
+-- redesign the statement.
+
+ALTER TABLE hl7_feed_subscriptions
+  ALTER COLUMN message_types
+  SET DEFAULT ARRAY['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORU^R01'];

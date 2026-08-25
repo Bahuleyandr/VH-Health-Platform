@@ -8,6 +8,7 @@ import appointmentValidationService from '../../services/appointment/appointment
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -459,6 +460,125 @@ function conflictDetailsFromError(err) {
   return null;
 }
 
+/**
+ * Tell the patient, durably, that staff moved their appointment.
+ *
+ * Before this, `rescheduleAppointment` emitted only
+ * `emitAppointmentEvent('reschedule')` — a websocket fan-out that reaches the
+ * patient ONLY if their app happens to be open at that instant. Confirm and
+ * cancel both send push + SMS + an in-app row; reschedule sent nothing
+ * durable, so a patient could arrive at the old time.
+ *
+ * Every effect here is post-commit and fire-and-forget. It runs inside
+ * `setImmediate` with its own try/catch and never touches `res`: the
+ * reschedule is already committed and its response must not be able to fail
+ * on the notification tail. The patient lookup is deliberately INSIDE the
+ * callback for the same reason — an awaited lookup in the request path would
+ * turn a transient DB blip into a 500 on a write that succeeded.
+ *
+ * `appointment_rescheduled` is the type string, chosen because the patient
+ * app's inbox tap handler already routes it to /appointments
+ * (apps/patient/lib/features/notifications/screens/notifications_screen.dart).
+ * The push itself is privacy-stripped to the /notifications inbox, so the
+ * in-app row below is the readable copy — the push data type never routes.
+ */
+function notifyPatientOfReschedule({
+  tenantId, appointmentId, patientId, patientUid, patientName, fallbackPhone,
+  doctorName, department, newDate, newTime, previousDate, previousTime,
+}) {
+  if (!patientId && !patientUid) return;
+  setImmediate(async () => {
+    try {
+      const formatDate = (value) => {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime())
+          ? String(value ?? '')
+          : parsed.toLocaleDateString('en-IN');
+      };
+      const title = 'Appointment Rescheduled';
+      const body =
+        `Your appointment has been moved to ${formatDate(newDate)} at ${newTime}`
+        + `${doctorName ? ` with Dr. ${doctorName}` : ''}.`
+        + `${previousDate || previousTime
+          ? ` It was previously ${formatDate(previousDate)}${previousTime ? ` at ${previousTime}` : ''}.`
+          : ''}`
+        + ' Please do not attend at the earlier time.';
+      // Every value a string, and absent rather than null: this object is
+      // also the FCM `data` map, where non-string values are rejected.
+      const data = {
+        type: 'appointment_rescheduled',
+        appointment_id: String(appointmentId),
+        ...(newDate ? { appointment_date: String(newDate) } : {}),
+        ...(newTime ? { appointment_time: String(newTime) } : {}),
+      };
+
+      const identifier = patientId ?? patientUid;
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id, uid::text AS uid, phone, device_token
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND (id::text = $2 OR uid::text = $2)
+          LIMIT 1`,
+        tenantId,
+        String(identifier),
+      );
+      const patient = rows[0] || null;
+      const phone = patient?.phone || fallbackPhone || null;
+
+      // 1. In-app row — the durable, readable copy. First, and unconditional:
+      //    it is the only surface a patient with no registered device sees.
+      await recordPatientFeedNotification({
+        tenantId,
+        userId: patient?.id ?? patientId ?? null,
+        uid: patient?.uid || patientUid || null,
+        phone,
+        title,
+        body,
+        type: 'appointment_rescheduled',
+        data,
+        context: 'appointment-rescheduled',
+      });
+
+      // 2. Push (best-effort transport for the row above). Imported lazily:
+      //    sendPushNotification pulls the whole websocket-server graph
+      //    (wsServer → subscriptionAuth → accessDecisionService), which has no
+      //    business in this controller's static module graph for a tail that
+      //    only runs after the response.
+      if (patient?.device_token) {
+        const { sendPushNotification } = await import('../../utils/notifications/sendPushNotification.js');
+        await sendPushNotification({
+          tokens: patient.device_token,
+          title,
+          body,
+          data,
+          userId: String(patient.id),
+        }).catch(e => logger.warn('Reschedule push failed:', e.message));
+      }
+
+      // 3. SMS intent — the channel that reaches a patient who never opens
+      //    the app. queuePatientSms never throws and never claims delivery.
+      if (phone) {
+        const { queueAppointmentRescheduleSms } = await import('../../utils/notifications/smsOutbox.js');
+        await queueAppointmentRescheduleSms({
+          tenantId,
+          recipientId: patient?.id ?? patientId ?? null,
+          phone,
+          patientName: patientName || 'Patient',
+          doctorName,
+          date: newDate,
+          time: newTime,
+          previousDate,
+          previousTime,
+          department,
+          appointmentId,
+        });
+      }
+    } catch (e) {
+      logger.warn('Reschedule notification failed:', e.message);
+    }
+  });
+}
+
 export const rescheduleAppointment = async (req, res) => {
   try {
     const tenantId = tenantOf(req);
@@ -522,6 +642,22 @@ export const rescheduleAppointment = async (req, res) => {
       appointmentId: result.appointment?.id ?? appointment.id ?? id,
       status: result.appointment?.status ?? null,
     });
+
+    notifyPatientOfReschedule({
+      tenantId,
+      appointmentId: result.appointment?.id ?? appointment.id ?? id,
+      patientId: result.appointment?.patient_id ?? appointment.patient_id ?? null,
+      patientUid: result.appointment?.patient_uid ?? appointment.patient_uid ?? null,
+      patientName: result.appointment?.patient_name ?? appointment.patient_name ?? null,
+      fallbackPhone: result.appointment?.phone ?? appointment.phone ?? null,
+      doctorName: result.appointment?.doctor_name ?? appointment.doctor_name ?? null,
+      department: result.appointment?.department ?? appointment.department ?? null,
+      newDate: result.appointment?.appointment_date ?? null,
+      newTime: result.appointment?.appointment_time ?? null,
+      previousDate: result.previous?.appointment_date ?? appointment.appointment_date ?? null,
+      previousTime: result.previous?.appointment_time ?? appointment.appointment_time ?? null,
+    });
+
     success(res, {
       appointment: result.appointment,
       previous: {

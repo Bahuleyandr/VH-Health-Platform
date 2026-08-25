@@ -15,12 +15,23 @@
 //
 // In a real deployment a USB barcode scanner enters the value into
 // the focused input. Here we fall back to manual entry.
+//
+// "Print band" — on each dose row and beside the wristband field in the
+// 5-rights modal — opens the backend's printable wristband for that patient.
+// That band is the producer of the Code 39 barcode step 2 above asks the
+// nurse to scan. See src/lib/bcmaWristband.ts for why it goes through the
+// portal proxy rather than straight to the backend, and for who the backend
+// lets print: the bedside nursing and treating-clinician roles this page is
+// for. An ADMIN or SUPER_ADMIN session opening the same link gets a 403 from
+// the backend's patient-access guard, which is that guard's designed answer —
+// an administrator has no care relationship to the patient.
 
 "use client";
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { printableWristbandUrl } from "@/lib/bcmaWristband";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -70,6 +81,43 @@ function minsLate(scheduled: string | null): number | null {
   if (!scheduled) return null;
   const diff = Date.now() - new Date(scheduled).getTime();
   return Math.round(diff / 60000);
+}
+
+/**
+ * Opens the printable wristband for this patient in a new tab — the band whose
+ * Code 39 barcode is the value the patient-scan field asks for.
+ *
+ * A plain link rather than a scripted `window.open`, so nothing in the
+ * medication round depends on a popup succeeding or on any JS running here.
+ *
+ * Rendered for every viewer, because the backend is the only authority on
+ * patient access and re-deciding it here would give a second, drifting answer.
+ * It answers in the new tab: a bedside nursing or treating-clinician session
+ * gets the band; an ADMIN/SUPER_ADMIN session also gets it, without
+ * break-glass, and the print is recorded as administrative access (owner
+ * decision 2026-08-25); any other staff role with no care relationship to the
+ * patient gets a 403. Nothing on this page changes in any of those cases.
+ */
+function PrintBandLink({
+  patientUid,
+  className,
+}: {
+  patientUid: string;
+  className: string;
+}) {
+  const href = printableWristbandUrl(patientUid);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Open the printable wristband (Code 39 patient barcode) in a new tab"
+      className={className}
+    >
+      Print band
+    </a>
+  );
 }
 
 export default function MarPage() {
@@ -263,12 +311,18 @@ function DoseList({
                 </td>
                 <td className="px-3 py-2 text-xs">{d.route ?? "—"}</td>
                 <td className="px-3 py-2">
-                  <button
-                    onClick={() => onScan(d)}
-                    className="px-2 py-1 rounded bg-blue-600 text-white text-xs"
-                  >
-                    Administer →
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <PrintBandLink
+                      patientUid={d.patient_uid}
+                      className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
+                    />
+                    <button
+                      onClick={() => onScan(d)}
+                      className="px-2 py-1 rounded bg-blue-600 text-white text-xs"
+                    >
+                      Administer →
+                    </button>
+                  </div>
                 </td>
               </tr>
             );
@@ -343,9 +397,15 @@ function ScanModal({
         </div>
         <div className="p-4 space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">
-              1️⃣ Scan patient wristband (UID)
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="text-xs text-muted-foreground">
+                1️⃣ Scan patient wristband (UID)
+              </label>
+              <PrintBandLink
+                patientUid={dose.patient_uid}
+                className="text-xs underline text-muted-foreground hover:text-foreground"
+              />
+            </div>
             <input
               autoFocus
               value={patientBarcode}

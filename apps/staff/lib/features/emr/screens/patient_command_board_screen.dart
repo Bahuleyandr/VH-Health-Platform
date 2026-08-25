@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/navigation/ip_command_board_routes.dart';
@@ -10,6 +13,43 @@ import '../../../l10n/app_strings.dart';
 import '../widgets/icu_chart_depth_panel.dart';
 import '../widgets/nicu_picu_chart_panel.dart';
 import '../widgets/patient_summary_sheet.dart';
+
+/// Channel this board watches. The backend broadcasts `staff:icu-board` on
+/// every ICU admission, discharge, code-status change, flowsheet row,
+/// assessment, ventilation/weaning/line/scoring entry and NICU-PICU entry
+/// (`realtimeEmitter.emitIcuBoardEvent`). The command-board response enriches
+/// each ICU row with `icu_chart` from exactly those tables — the data
+/// [IcuChartDepthPanel] and [NicuPicuChartPanel] render below — so an event on
+/// this channel means a visible cell on this board has changed.
+const String patientCommandBoardRealtimeChannel = 'staff:icu-board';
+
+typedef RealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
+
+typedef PatientCommandBoardLoader = Future<Map<String, dynamic>> Function({
+  String? ward,
+  String? patientUid,
+  int? admissionId,
+  required int limit,
+  required int offset,
+});
+
+Future<Map<String, dynamic>> _defaultPatientCommandBoardLoader({
+  String? ward,
+  String? patientUid,
+  int? admissionId,
+  required int limit,
+  required int offset,
+}) {
+  return MedicalApiService.getPatientCommandBoard(
+    ward: ward,
+    patientUid: patientUid,
+    admissionId: admissionId,
+    limit: limit,
+    offset: offset,
+  );
+}
 
 @visibleForTesting
 String patientCommandBoardTaskOwnerLabel(CarePathwayTaskItem task) {
@@ -219,12 +259,18 @@ class PatientCommandBoardScreen extends StatefulWidget {
   final String? initialAction;
   final String? initialPatientName;
 
+  /// Test seams. Both default to the production paths.
+  final PatientCommandBoardLoader? loadBoard;
+  final RealtimeEventStreamFactory? realtimeEvents;
+
   const PatientCommandBoardScreen({
     super.key,
     this.initialPatientUid,
     this.initialAdmissionId,
     this.initialAction,
     this.initialPatientName,
+    this.loadBoard,
+    this.realtimeEvents,
   });
 
   @override
@@ -235,6 +281,22 @@ class PatientCommandBoardScreen extends StatefulWidget {
 class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   static const int _pageSize = 50;
 
+  /// The backend caps `limit` at 200 (`patientCommandBoardService`), so
+  /// re-reading a board the clinician has paged past 200 rows takes more than
+  /// one request.
+  static const int _maxRowsPerRequest = 200;
+
+  /// How many requests one background refresh may spend re-reading the pages
+  /// the clinician already holds. Bounds the work a single nudge can trigger
+  /// on a channel that fires on every flowsheet row.
+  static const int _maxBackgroundRefreshRequests = 4;
+
+  /// Ceiling on how deep one background refresh re-reads. Rows held beyond it
+  /// are kept (merged back in below), they are simply not re-read until the
+  /// next explicit refresh or "load more".
+  static const int _maxBackgroundRefreshRows =
+      _maxRowsPerRequest * _maxBackgroundRefreshRequests;
+
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
@@ -244,6 +306,11 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _initialActionConsumed = false;
   DateTime? _lastRefreshedAt;
+  StreamSubscription<RealtimeEvent>? _icuBoardSub;
+  Timer? _refreshDebounce;
+
+  PatientCommandBoardLoader get _loader =>
+      widget.loadBoard ?? _defaultPatientCommandBoardLoader;
 
   bool get _hasFocusedPatient =>
       _text(widget.initialPatientUid).isNotEmpty ||
@@ -363,6 +430,129 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   void initState() {
     super.initState();
     _load();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final injectedEvents = widget.realtimeEvents;
+    if (injectedEvents != null) {
+      _icuBoardSub = injectedEvents(patientCommandBoardRealtimeChannel)
+          .listen(_handleRealtimeNudge);
+      return;
+    }
+
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    if (!mounted) return;
+    _icuBoardSub = rt
+        .events(patientCommandBoardRealtimeChannel)
+        .listen(_handleRealtimeNudge);
+  }
+
+  void _handleRealtimeNudge(RealtimeEvent _) => _debouncedRefresh();
+
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      unawaited(_backgroundRefresh());
+    });
+  }
+
+  /// Realtime-driven refresh. Unlike [_load] it never raises [_loading] (the
+  /// board must not blank while a clinician is reading it) and it re-reads
+  /// every page already paged in rather than only the first
+  /// [_maxRowsPerRequest] rows, so a nudge can neither collapse a "load more"
+  /// back to the first page nor drop the rows below it.
+  ///
+  /// Re-reading the held pages was chosen over a single capped read plus a
+  /// merge because a capped read leaves every row past the cap silently stale
+  /// under a "last refreshed" banner, and over re-reading the whole scope
+  /// because the request count then follows the scope size rather than what
+  /// the clinician actually loaded. As written, a board inside one page — the
+  /// ordinary case — still costs exactly one request, and no single refresh
+  /// ever costs more than [_maxBackgroundRefreshRequests]. Anything paged in
+  /// beyond [_maxBackgroundRefreshRows] is merged back in unchanged: it is
+  /// then as old as the last full [_load] or "load more" until one of those
+  /// runs again, which is still strictly better than discarding it.
+  ///
+  /// A failure is swallowed — the last-known board stays on screen rather than
+  /// being replaced by an error the user did not ask for — while a success
+  /// clears a stale error banner, matching the recovery behaviour of the other
+  /// realtime-backed boards.
+  Future<void> _backgroundRefresh() async {
+    if (_loadingMore) return;
+    final held = _rows.length < _pageSize ? _pageSize : _rows.length;
+    final depth = held > _maxBackgroundRefreshRows
+        ? _maxBackgroundRefreshRows
+        : held;
+    // Pinned for the whole sweep so a ward switch mid-refresh cannot splice
+    // two different scopes into one list.
+    final ward = _ward;
+    final refreshed = <Map<String, dynamic>>[];
+    var board = <String, dynamic>{};
+    var reachedEndOfBoard = false;
+    try {
+      while (refreshed.length < depth) {
+        final remaining = depth - refreshed.length;
+        final limit = remaining > _maxRowsPerRequest
+            ? _maxRowsPerRequest
+            : remaining;
+        final data = await _loader(
+          ward: ward,
+          patientUid: widget.initialPatientUid,
+          admissionId: widget.initialAdmissionId,
+          limit: limit,
+          offset: refreshed.length,
+        );
+        if (!mounted) return;
+        final page = _asListOfMaps(data['rows']);
+        board = _asMap(data['board']);
+        refreshed.addAll(page);
+        if (page.length < limit) {
+          // The board ended inside this window, so there is nothing below it
+          // left to preserve.
+          reachedEndOfBoard = true;
+          break;
+        }
+      }
+      final tail = reachedEndOfBoard || _rows.length <= refreshed.length
+          ? const <Map<String, dynamic>>[]
+          : _rows.sublist(refreshed.length);
+      final rows = tail.isEmpty ? refreshed : _mergeRows(refreshed, tail);
+      if (!mounted) return;
+      setState(() {
+        _rows = rows;
+        _board = _boardWithLoadedRows(board, rows.length);
+        _error = null;
+        _lastRefreshedAt = DateTime.now();
+      });
+    } catch (error) {
+      debugPrint('ICU board background refresh failed: $error');
+    }
+  }
+
+  /// Keeps `counts.loaded` in step with the rows actually held when a refresh
+  /// merged in rows it did not re-read, so the "showing N of M" summary and
+  /// the next "load more" offset describe the list on screen rather than the
+  /// window that was just re-read. Returns [board] untouched otherwise.
+  Map<String, dynamic> _boardWithLoadedRows(
+    Map<String, dynamic> board,
+    int loadedRows,
+  ) {
+    final counts = _asMap(board['counts']);
+    if (counts.isEmpty || _int(counts['loaded']) >= loadedRows) return board;
+    return <String, dynamic>{
+      ...board,
+      'counts': <String, dynamic>{...counts, 'loaded': loadedRows},
+    };
+  }
+
+  @override
+  void dispose() {
+    _icuBoardSub?.cancel();
+    _refreshDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -371,11 +561,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getPatientCommandBoard(
+      final data = await _loader(
         ward: _ward,
         patientUid: widget.initialPatientUid,
         admissionId: widget.initialAdmissionId,
         limit: _pageSize,
+        offset: 0,
       );
       final rows = _asListOfMaps(data['rows']);
       final board = _asMap(data['board']);
@@ -401,7 +592,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getPatientCommandBoard(
+      final data = await _loader(
         ward: _ward,
         patientUid: widget.initialPatientUid,
         admissionId: widget.initialAdmissionId,
@@ -838,6 +1029,14 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       ),
       body: Column(
         children: [
+          // This board deliberately carries no live-realtime status strip
+          // (locked by the `patient command board reports HTTP snapshot
+          // freshness, not socket health` guard in test/i18n_guard_test.dart).
+          // The ICU subscription above only covers the `icu_chart` cells, so a
+          // green "live" state would overclaim freshness for the alerts,
+          // tasks, beds and discharge columns this board also renders. The
+          // snapshot timestamp below is the honest freshness signal, and the
+          // background refresh keeps it accurate.
           if (_lastRefreshedAt case final refreshedAt?)
             _buildFreshnessIndicator(refreshedAt),
           Expanded(child: _buildBody(theme)),
@@ -1108,6 +1307,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         : s.lookup('s4.lib.patient_command_board.load_more_patients');
     return Center(
       child: FilledButton.tonalIcon(
+        key: const ValueKey('patient-command-board-load-more'),
         onPressed: _loadingMore ? null : _loadMore,
         icon: _loadingMore
             ? SizedBox(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/features/emergency/screens/ambulance_tracking_screen.dart';
 
 void main() {
@@ -10,6 +11,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: AmbulanceTrackingScreen(
+            realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
             loadActive: () async => const {
               'enabled': false,
               'requests': [],
@@ -31,6 +33,40 @@ void main() {
     },
   );
 
+  testWidgets(
+    'backstop poll defaults to 15s so a crew with no GPS never degrades',
+    (tester) async {
+      var loads = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AmbulanceTrackingScreen(
+            // A crew that never shares its location: the channel is silent,
+            // so only the backstop poll keeps this list current.
+            realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+            loadActive: () async {
+              loads += 1;
+              return const {'enabled': true, 'count': 0, 'requests': []};
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(loads, 1);
+
+      await tester.pump(const Duration(seconds: 14));
+      await tester.pumpAndSettle();
+      expect(loads, 1);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pumpAndSettle();
+      expect(loads, 3);
+    },
+  );
+
   testWidgets('shows an active unit with position, distance and ETA', (
     tester,
   ) async {
@@ -38,6 +74,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: AmbulanceTrackingScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadActive: () async => {
             'enabled': true,
             'count': 1,
@@ -84,6 +121,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: AmbulanceTrackingScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadActive: () async => {
             'enabled': true,
             'count': 1,

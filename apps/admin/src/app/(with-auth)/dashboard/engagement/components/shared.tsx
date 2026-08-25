@@ -25,6 +25,11 @@ const STATUS_STYLES: Record<string, string> = {
   completed: "border-emerald-200 bg-emerald-50 text-emerald-800",
   archived: "border-slate-200 bg-slate-50 text-slate-500",
   cancelled: "border-red-200 bg-red-50 text-red-700",
+  // Template approval — a campaign cannot be created against a template the
+  // backend has not approved (ENGAGEMENT_TEMPLATE_NOT_APPROVED), so these are
+  // not campaign statuses and must not borrow campaign wording.
+  approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  not_approved: "border-amber-200 bg-amber-50 text-amber-800",
   eligible: "border-emerald-200 bg-emerald-50 text-emerald-800",
   suppressed: "border-amber-200 bg-amber-50 text-amber-800",
   queued: "border-sky-200 bg-sky-50 text-sky-800",

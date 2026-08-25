@@ -81,6 +81,54 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/anesthesia",
   "api/v1/clinical",
   "api/v1/clinical-alerts",
+  // Re-audit lane J: the BCMA wristband PRODUCER. GET
+  // /api/v1/bcma/wristband/:patientUid returns the band payload and, with
+  // ?format=html, the printable band whose Code 39 barcode is the exact value
+  // the five staff scan screens expect. The backend mount reads its
+  // credentials from HEADERS only, so a browser cannot navigate to it
+  // directly — this same-origin proxy (auth_token cookie in, bearer +
+  // x-api-key attached server-side) is the only surface that can print it.
+  // bcmaRoutes.js exposes exactly that one GET, so the prefix widens the
+  // portal by one read; the backend's requireRole(CLINICAL_STAFF_ROLES) + the
+  // route's own patientAccessGuard on patient.wristband.print +
+  // phiAccessLogger remain the authority on who may see which patient. This
+  // proxy forwards the caller's own bearer, so the role that arrives at that
+  // guard is the role of whoever is signed in.
+  //
+  // No PERMISSION_GATES entry, unlike the api/v1/beds and api/v1/wards PHI
+  // prefixes, and that asymmetry is deliberate — but the reasoning changed on
+  // 2026-08-25 and the round-4 revisit trigger recorded here has now fired.
+  //
+  // It used to read: ADMIN and SUPER_ADMIN cannot pass the backend guard on
+  // this route at all, so a flag gate could never change an outcome; if the
+  // backend guard is ever widened to admit administrators, this entry needs a
+  // real gate. The platform owner then decided that an administrator MAY print
+  // a wristband without break-glass, provided the print is recorded for audit,
+  // and the backend now grants exactly that through a wristband-only policy
+  // code. So the trigger fired, and the answer is still no gate — for a
+  // different reason.
+  //
+  // PERMISSION_GATES scope ADMIN accounts by per-admin permission flag (see
+  // src/lib/proxyPermissions.ts); every other portal tier passes them
+  // untouched. The owner granted band printing to administrators as a class,
+  // not to a flagged subset, so a flag gate would silently re-impose the
+  // restriction the decision removed, and none of the seven grantable flags
+  // describes wristband printing. The control the owner asked for is the audit
+  // trail — patient_access_audit_log carries administrative_access on the
+  // metadata and audit_logs carries a wristband-print-administrative-access
+  // row — and it is unconditional. Revisit only if an owner asks for
+  // per-admin scoping of band printing specifically.
+  //
+  // The caller is the MAR round's Print-band control
+  // (src/lib/bcmaWristband.ts, used by dashboard/mar/page.tsx). src/middleware
+  // .ts leaves the CSP of the ?format=html response alone so the band's own
+  // policy — and the hashed autoprint script it admits — reaches the browser.
+  // NB: keep double quotes out of the comments in this array literal — the
+  // canonical-entry guard in
+  // src/__tests__/security/proxy-gate-bypass-regressions.test.ts parses every
+  // double-quoted string inside the block as an allowlist entry, comments
+  // included.
+  "api/v1/bcma",
   "api/v1/dialysis",
   "api/v1/icu",
   "api/v1/infection-control",

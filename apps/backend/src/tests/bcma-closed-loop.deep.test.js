@@ -7,6 +7,7 @@
 // printing.
 
 import request from 'supertest';
+import { createHash } from 'node:crypto';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { authClient, API_KEY, generateTestToken } from './testClient.js';
@@ -373,6 +374,25 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     // verify-manually warning.
     expect(html.text).toContain('No known allergies recorded');
     expect(html.text).not.toContain('verify manually');
+
+    // Re-audit lane J: the band's `?autoprint=1` trigger is an inline
+    // <script>, and the app-wide helmet policy is `script-src 'self'` with no
+    // 'unsafe-inline' — so the browser silently refused to run it and
+    // autoprint never fired on ANY path. The response now carries its own
+    // policy admitting exactly that one script by hash. The digest is taken
+    // from the HTML actually received, so any drift between the hashed
+    // constant and the rendered script fails right here.
+    const inlineScript = html.text.match(/<script>([\s\S]*?)<\/script>/);
+    expect(inlineScript).not.toBeNull();
+    const scriptDigest = createHash('sha256').update(inlineScript[1], 'utf8').digest('base64');
+    const csp = html.headers['content-security-policy'];
+    expect(csp).toContain(`script-src 'sha256-${scriptDigest}'`);
+    expect(csp).toContain("default-src 'none'");
+    // Hash, never a blanket inline allowance.
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+
+    // The JSON variant is not a document and keeps the app-wide policy.
+    expect(json.headers['content-security-policy']).not.toContain("default-src 'none'");
   });
 
   test('C-M8: wristband renders known allergens when a source has them', async () => {

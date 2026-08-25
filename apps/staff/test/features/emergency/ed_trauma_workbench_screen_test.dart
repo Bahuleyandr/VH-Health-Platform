@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/emergency/screens/ed_trauma_workbench_screen.dart';
 
@@ -11,6 +12,21 @@ void main() {
       .descendant(of: workbenchList, matching: find.byType(Scrollable))
       .first;
 
+  // The realtime status strip above the list shrinks the viewport, so fields
+  // further down the workbench are not built until they are scrolled into
+  // range. Scroll first, then type.
+  Future<void> fillField(
+    WidgetTester tester,
+    String fieldKey,
+    String value,
+  ) async {
+    final field = find.byKey(ValueKey(fieldKey));
+    await tester.scrollUntilVisible(field, 250, scrollable: workbenchScroll);
+    await tester.ensureVisible(field);
+    await tester.pumpAndSettle();
+    await tester.enterText(field, value);
+  }
+
   testWidgets('ED owner requests a receiving-role destination handoff', (
     tester,
   ) async {
@@ -21,6 +37,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -79,6 +96,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -136,6 +154,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -201,6 +220,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -215,12 +235,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('stemi-ed-visit-id')),
-      '314',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('stemi-patient-uid')),
+    await fillField(tester, 'stemi-ed-visit-id', '314');
+    await fillField(
+      tester,
+      'stemi-patient-uid',
       '11111111-1111-4111-8111-111111111111',
     );
     final activate = find.byKey(const ValueKey('code-stemi-activate'));
@@ -246,6 +264,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -279,6 +298,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: EdTraumaWorkbenchScreen(
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
           loadPolicy: () async => {
             'active': true,
             'canonical_triage_scale': 'esi',
@@ -292,12 +312,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('stemi-ed-visit-id')),
-      '314',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('stemi-patient-uid')),
+    await fillField(tester, 'stemi-ed-visit-id', '314');
+    await fillField(
+      tester,
+      'stemi-patient-uid',
       '11111111-1111-4111-8111-111111111111',
     );
     final activate = find.byKey(const ValueKey('code-stemi-activate'));

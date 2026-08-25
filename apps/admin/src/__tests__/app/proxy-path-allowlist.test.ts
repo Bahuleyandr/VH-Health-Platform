@@ -103,6 +103,29 @@ describe("proxy path allowlist", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("forwards the BCMA wristband producer, the only browser route to it", async () => {
+    // The backend mount takes its credentials from headers only, so the
+    // printable wristband is unreachable by browser navigation except
+    // through this proxy. Before the allowlist entry every call 403d here.
+    // The caller is the MAR round's "Print band" control, which builds this
+    // exact URL — see src/lib/bcmaWristband.ts.
+    const uid = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    for (const path of [
+      `bcma/wristband/${uid}`,
+      `bcma/wristband/${uid}?format=html&autoprint=1`,
+    ]) {
+      fetchMock.mockClear();
+      const response = await GET(request(path));
+      expect(response.status).toBe(200);
+      expect(String(fetchMock.mock.calls[0][0])).toContain(`/api/v1/${path}`);
+    }
+
+    fetchMock.mockClear();
+    const lookalike = await GET(request(`bcma-internal/wristband/${uid}`));
+    expect(lookalike.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards only the exact reconciliation family and its signed facility context", async () => {
     const response = await GET(
       request("downtime/reconciliation/workbench", {

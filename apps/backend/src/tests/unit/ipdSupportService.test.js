@@ -279,4 +279,73 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     });
     expect(sendStaffNotificationsMock).not.toHaveBeenCalled();
   });
+
+  // The ward-indent lifecycle (approve/reject/issue/receive) has no caller in
+  // any client — staff Flutter, patient Flutter and the admin console all lack
+  // one, and the only Dart bindings are dead generated chopper stubs. Until a
+  // working surface ships, the alert must not page: HIGH puts the row on the
+  // staff Safety Center's 15-minute escalation ladder that nobody can clear.
+  describe('pharmacy dispatch alert gate (no ward-indent surface yet)', () => {
+    const ORIGINAL_FLAG = process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
+
+    afterEach(() => {
+      if (ORIGINAL_FLAG === undefined) {
+        delete process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
+      } else {
+        process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = ORIGINAL_FLAG;
+      }
+    });
+
+    it('informs pharmacy at LOW priority with the manual-fallback body by default', async () => {
+      delete process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
+      mockIndentCreation({ id: 404, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' });
+
+      await ipdSupportService.createWardIndentForClinicalMedicationOrder({
+        ...ORDER_BASE,
+        id: 504,
+        order_number: 'ORD-IPD-504',
+        details: { medication_name: 'Paracetamol', route: 'oral', dose: '500mg' },
+      });
+
+      expect(sendStaffNotificationsMock).toHaveBeenCalledTimes(1);
+      const payload = sendStaffNotificationsMock.mock.calls[0][0];
+      // Still delivered — the alert names the drug and the ward and is the only
+      // system-generated pharmacy signal for an inpatient order.
+      expect(payload.type).toBe('WARD_PHARMACY_INDENT');
+      expect(payload.recipientRoles).toEqual(['PHARMACY_STAFF', 'PHARMACY_INCHARGE']);
+      // ...but not as a page, and not instructing a screen that does not exist.
+      expect(payload.priority).toBe('LOW');
+      expect(payload.title).toBe('Ward drug indent recorded');
+      expect(payload.body).toContain('no dispensing screen for ward indents yet');
+      expect(payload.body).not.toContain('Please review the pharmacy ward indent for dispensing');
+      expect(payload.data.dispatch_surface_available).toBe(false);
+    });
+
+    it('restores the HIGH dispatch alert when the operator flips the flag on', async () => {
+      process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = 'true';
+      mockIndentCreation({ id: 405, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' });
+
+      await ipdSupportService.createWardIndentForClinicalMedicationOrder({
+        ...ORDER_BASE,
+        id: 505,
+        order_number: 'ORD-IPD-505',
+        details: { medication_name: 'Paracetamol', route: 'oral', dose: '500mg' },
+      });
+
+      const payload = sendStaffNotificationsMock.mock.calls[0][0];
+      expect(payload.priority).toBe('HIGH');
+      expect(payload.title).toBe('Ward drug indent requested');
+      expect(payload.body).toContain('Please review the pharmacy ward indent for dispensing');
+      expect(payload.data.dispatch_surface_available).toBe(true);
+    });
+
+    it('reads the gate at call time and only accepts an explicit true', () => {
+      delete process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
+      expect(ipdSupportService.wardIndentDispatchSurfaceEnabled()).toBe(false);
+      process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = '1';
+      expect(ipdSupportService.wardIndentDispatchSurfaceEnabled()).toBe(false);
+      process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = 'TRUE';
+      expect(ipdSupportService.wardIndentDispatchSurfaceEnabled()).toBe(true);
+    });
+  });
 });

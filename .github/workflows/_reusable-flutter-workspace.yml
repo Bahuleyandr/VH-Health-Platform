@@ -53,6 +53,19 @@ jobs:
       - name: Staff role generated-contract drift
         run: node scripts/generate-staff-role-contract.mjs --check
 
+      # Same class and placement as the two gates above: pure-Node, no
+      # toolchain, and it fails on an objective fact rather than a judgement.
+      # Structural key parity only — hi/ta/te must carry every key `en`
+      # declares (ml is a declared-partial locale and is exempt; a short,
+      # reasoned exemption list inside the script covers strings deliberately
+      # left to the English fallback). It says nothing about translation
+      # QUALITY, which is why it can block: the staff locale maps silently
+      # drifted 461-463 keys behind `en` between the 2026-06-10 verification
+      # and 2026-08-25 while `melos run i18n-health` stayed informational, so
+      # nothing ever failed and mixed English/Tamil screens shipped.
+      - name: Staff i18n structural parity (hi/ta/te vs en)
+        run: node apps/staff/scripts/i18n-verify.mjs --check
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           # Pin the exact Flutter (Dart) version so `dart format` is

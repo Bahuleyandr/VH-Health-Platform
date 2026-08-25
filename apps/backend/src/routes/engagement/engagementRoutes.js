@@ -13,6 +13,11 @@ import {
 } from '../../services/engagement/engagementCampaignService.js';
 import { success } from '../../utils/responseHelper.js';
 import { paramId } from '../../validators/sharedValidators.js';
+import {
+  getEngagementCampaign,
+  listEngagementCampaigns,
+  listEngagementTemplates,
+} from './engagementListQueries.js';
 
 const router = Router();
 
@@ -47,6 +52,49 @@ router.put('/settings', async (req, res, next) => {
   try {
     const settings = await upsertEngagementSettings(tenantIdFor(req), req.body || {}, actorUidFor(req));
     return success(res, settings, 'Engagement settings updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ─── Reads ───────────────────────────────────────────────────────────────────
+// Added because this router could not list what it created: with only POST
+// verbs, a campaign left in `pending_approval` was reachable only from the
+// browser session that submitted it, so nobody else could open it to approve
+// it. These are pure tenant-scoped reads (see ./engagementListQueries.js) —
+// the approval and queue-due paths are untouched.
+//
+// They do not add a requester/approver separation and must not be described as
+// one: `approveCampaign` gates on the caller's role only and never compares the
+// approver with `submitted_by`, so the submitter may approve their own campaign
+// (see ./engagementListQueries.js, "WHAT THIS FILE DOES NOT CLAIM").
+//
+// Envelope + pagination follow the neighbouring admin list convention
+// (controllers/gamification/gamificationController.js#getHistory):
+//   success(res, { <collection>, pagination: buildPagination(total, page, limit) })
+
+router.get('/templates', async (req, res, next) => {
+  try {
+    const result = await listEngagementTemplates(tenantIdFor(req), req.query || {});
+    return success(res, result, 'Engagement templates retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/campaigns', async (req, res, next) => {
+  try {
+    const result = await listEngagementCampaigns(tenantIdFor(req), req.query || {});
+    return success(res, result, 'Engagement campaigns retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/campaigns/:campaignId', paramId('campaignId'), validate, async (req, res, next) => {
+  try {
+    const campaign = await getEngagementCampaign(tenantIdFor(req), req.params.campaignId);
+    return success(res, campaign, 'Engagement campaign retrieved');
   } catch (err) {
     return next(err);
   }

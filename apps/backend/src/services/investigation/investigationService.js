@@ -1168,6 +1168,52 @@ export const addResults = async (
       } catch {
         // Notification dispatch is best-effort.
       }
+
+      // …and the readable copy the push points at. `lab_result_ready` has no
+      // tenant preference key set by default, so the drain resolves the legacy
+      // channel set `['push']` and writes no in-app row itself. The push is
+      // privacy-stripped by sendPushNotification to a generic "You have a new
+      // update" landing on /notifications, so without this row the patient is
+      // buzzed into an empty inbox.
+      //
+      // The type is `lab_result_ready` (routed to /portal/lab-results) rather
+      // than an investigation type, because notificationPayload is only built
+      // when getResultEpisodeReleaseDecision reports `visible` — a decision
+      // that reads `lab_results` rows joined to this investigation. Every push
+      // on this path therefore has released lab_results behind it, and that
+      // screen is where they are.
+      //
+      // recordPatientFeedNotification never throws and the drain guard defaults
+      // to false on error; the try/catch here covers only the dynamic import
+      // itself, so nothing in this post-commit tail can turn a durable result
+      // write into a failing one.
+      try {
+        const {
+          outboxDrainWillWriteFeedRow,
+          recordPatientFeedNotification,
+        } = await import('../../utils/notifications/patientNotificationFeed.js');
+        const drainWritesRow = await outboxDrainWillWriteFeedRow({
+          tenant_id: tid,
+          type: committed.notificationPayload.type,
+          recipient_id: committed.notificationPayload.recipientId,
+          recipient_phone: committed.notificationPayload.recipientPhone,
+          payload: committed.notificationPayload.data,
+        });
+        if (!drainWritesRow) {
+          await recordPatientFeedNotification({
+            tenantId: tid,
+            userId: committed.notificationPayload.recipientId,
+            phone: committed.notificationPayload.recipientPhone,
+            title: committed.notificationPayload.title,
+            body: committed.notificationPayload.body,
+            type: 'lab_result_ready',
+            data: committed.notificationPayload.data,
+            context: `investigation-result-ready:${investId}`,
+          });
+        }
+      } catch {
+        // The in-app row is best-effort, exactly like the outbox intent above.
+      }
     }
     return committed.updatedInvestigation;
   } catch (err) {

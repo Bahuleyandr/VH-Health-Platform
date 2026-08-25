@@ -163,6 +163,43 @@ describe('in-app channel binds tenant_id explicitly', () => {
     // Nothing was written into either tenant.
     expect(inAppInsertCall()).toBeUndefined();
   });
+
+  // The outbox drain re-enters dispatch() with the OUTBOX ROW's type. For an
+  // appointment reminder that type is the transport/template identity
+  // `appointment_reminder_24h`, which is NOT a case in the patient app's inbox
+  // tap handler — so a tenant that configured `inapp` for reminders got a row
+  // that rendered and went nowhere when tapped. The row must carry the type
+  // the handler routes.
+  it('writes the routed inbox type for a suffixed reminder transport type', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(TENANT)]);
+
+    await runInTenantContext(TENANT, () => dispatch({
+      userId: '41',
+      title: 'Appointment Tomorrow',
+      body: 'Your appointment is tomorrow at 10:30',
+      channels: ['inapp'],
+      type: 'appointment_reminder_24h',
+    }));
+
+    const call = inAppInsertCall();
+    expect(call).toBeDefined();
+    // Params are (user.id, user.uid, user.phone, title, body, type, tenantId).
+    expect(call[6]).toBe('appointment_reminder');
+  });
+
+  it('leaves a type the inbox already routes untouched', async () => {
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(TENANT)]);
+
+    await runInTenantContext(TENANT, () => dispatch({
+      userId: '41',
+      title: 'Lab results ready',
+      body: 'Your lab results are ready to view.',
+      channels: ['inapp'],
+      type: 'lab_result_ready',
+    }));
+
+    expect(inAppInsertCall()[6]).toBe('lab_result_ready');
+  });
 });
 
 describe('dispatcher provider receipt mode', () => {

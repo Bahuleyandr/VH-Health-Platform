@@ -8,7 +8,6 @@ import {
   Search,
   RefreshCw,
   Eye,
-  TrendingUp,
   BarChart3,
   AlertTriangle,
   Gauge,
@@ -31,18 +30,28 @@ interface FeedbackItem {
   comment?: string;
   category?: string;
   status?: string;
-  response?: string;
-  responded_by?: string;
-  responded_at?: string;
   created_at?: string;
 }
+// NOTE: there is deliberately no `response` / `responded_by` / `responded_at`
+// here. The `feedback` table has no reply column — `respondToFeedback` wrote to
+// a `feedback_responses` table that exists in no migration, so it raised 42P01
+// on every call and was removed in re-audit lane I (see the removal note in
+// services/feedback/feedbackService.js). Nothing has ever written
+// `feedback.response_status = 'responded'` either, which is why the
+// `responded_count` this page used to render as a "Response Rate" percentage
+// is structurally zero rather than a real service-recovery score. Staff
+// follow-up that IS wired end to end lives on the NPS tab below
+// (`npsService.submitNpsResponse`), and its response rate is a real one.
 
 interface FeedbackStats {
   total_feedback?: number;
   average_rating?: number;
-  response_rate?: number;
   by_rating?: Record<string, number>;
-  by_department?: Array<{ department: string; avg_rating: number; count: number }>;
+  by_department?: Array<{
+    department: string;
+    avg_rating: number;
+    count: number;
+  }>;
   by_doctor?: Array<{ doctor_name: string; avg_rating: number; count: number }>;
   trends?: Array<{ month: string; avg_rating: number; count: number }>;
 }
@@ -50,7 +59,6 @@ interface FeedbackStats {
 interface FeedbackDashboardOverall {
   total_feedback?: number;
   average_rating?: number;
-  responded_count?: number;
 }
 
 interface FeedbackDashboardPayload extends FeedbackDashboardOverall {
@@ -123,7 +131,13 @@ function fmtDate(d?: string | null) {
   }
 }
 
-function StarRating({ rating, size = "sm" }: { rating: number; size?: "sm" | "lg" }) {
+function StarRating({
+  rating,
+  size = "sm",
+}: {
+  rating: number;
+  size?: "sm" | "lg";
+}) {
   const cls = size === "lg" ? "h-5 w-5" : "h-4 w-4";
   return (
     <div className="flex items-center gap-0.5">
@@ -144,7 +158,9 @@ export default function FeedbackPage() {
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackItem | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackItem | null>(
+    null,
+  );
 
   // Fetch feedback list
   const {
@@ -158,7 +174,7 @@ export default function FeedbackPage() {
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback/recent?limit=100");
       const data = unwrap<{ feedback?: FeedbackItem[] } | FeedbackItem[]>(res);
-      const rows = Array.isArray(data) ? data : data.feedback ?? [];
+      const rows = Array.isArray(data) ? data : (data.feedback ?? []);
       return rows.map((r) => ({
         ...r,
         patient_name: r.patient_name ?? r.user_name,
@@ -168,19 +184,21 @@ export default function FeedbackPage() {
   });
 
   // Fetch feedback stats
-  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<FeedbackStats>({
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    refetch: refetchStats,
+  } = useQuery<FeedbackStats>({
     queryKey: ["feedback-stats"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/feedback/dashboard?timeframe=30d");
+      const res = await fetchAdminAPI<unknown>(
+        "/feedback/dashboard?timeframe=30d",
+      );
       const data = unwrap<FeedbackDashboardPayload>(res);
       const overall: FeedbackDashboardOverall = data.overallStats ?? data;
       return {
         total_feedback: Number(overall.total_feedback ?? 0),
         average_rating: Number(overall.average_rating ?? 0),
-        response_rate:
-          Number(overall.total_feedback ?? 0) > 0
-            ? Math.round((Number(overall.responded_count ?? 0) / Number(overall.total_feedback ?? 1)) * 100)
-            : 0,
       };
     },
   });
@@ -192,14 +210,18 @@ export default function FeedbackPage() {
   } = useQuery<NpsDashboardPayload>({
     queryKey: ["nps-dashboard"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/quality/nps/dashboard?days=30&minimum_sample_size=5");
+      const res = await fetchAdminAPI<unknown>(
+        "/quality/nps/dashboard?days=30&minimum_sample_size=5",
+      );
       return unwrap<NpsDashboardPayload>(res);
     },
   });
 
   const departments = [
     "all",
-    ...new Set((feedbackList ?? []).map((f) => f.department).filter(Boolean) as string[]),
+    ...new Set(
+      (feedbackList ?? []).map((f) => f.department).filter(Boolean) as string[],
+    ),
   ];
 
   const filtered = (feedbackList ?? []).filter((f) => {
@@ -218,10 +240,13 @@ export default function FeedbackPage() {
 
   const overviewStats = {
     total: feedbackList?.length ?? stats?.total_feedback ?? 0,
-    avgRating: stats?.average_rating ?? (feedbackList && feedbackList.length > 0
-      ? (feedbackList.reduce((s, f) => s + f.rating, 0) / feedbackList.length).toFixed(1)
-      : "0"),
-    responseRate: stats?.response_rate ?? 0,
+    avgRating:
+      stats?.average_rating ??
+      (feedbackList && feedbackList.length > 0
+        ? (
+            feedbackList.reduce((s, f) => s + f.rating, 0) / feedbackList.length
+          ).toFixed(1)
+        : "0"),
     npsScore: npsDashboard?.overall?.nps_score,
     recoveryCount: npsDashboard?.urgent_queue?.length ?? 0,
   };
@@ -257,8 +282,13 @@ export default function FeedbackPage() {
         </button>
       </div>
 
-      {/* Overview Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Overview Stats.
+          There is no "Response Rate" card here on purpose — see the note on
+          FeedbackItem above. Nothing writes feedback.response_status, so the
+          card this replaced could only ever read 0%, which an operator would
+          reasonably take as a service-recovery failure rather than a missing
+          feature. The NPS tab carries the response rate that is real. */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="border border-border rounded-lg bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <MessageSquare className="h-4 w-4" /> Total Feedback
@@ -270,15 +300,14 @@ export default function FeedbackPage() {
             <Star className="h-4 w-4" /> Average Rating
           </div>
           <div className="flex items-center gap-2 mt-1">
-            <p className="text-2xl font-bold text-yellow-700">{overviewStats.avgRating}</p>
-            <StarRating rating={Math.round(Number(overviewStats.avgRating))} size="lg" />
+            <p className="text-2xl font-bold text-yellow-700">
+              {overviewStats.avgRating}
+            </p>
+            <StarRating
+              rating={Math.round(Number(overviewStats.avgRating))}
+              size="lg"
+            />
           </div>
-        </div>
-        <div className="border border-blue-200 rounded-lg bg-blue-50 p-4">
-          <div className="flex items-center gap-2 text-sm text-blue-600">
-            <TrendingUp className="h-4 w-4" /> Response Rate
-          </div>
-          <p className="text-2xl font-bold mt-1 text-blue-700">{overviewStats.responseRate}%</p>
         </div>
         <div className="border border-rose-200 rounded-lg bg-rose-50 p-4">
           <div className="flex items-center gap-2 text-sm text-rose-600">
@@ -286,9 +315,14 @@ export default function FeedbackPage() {
           </div>
           <div className="flex items-end justify-between gap-3">
             <p className="text-2xl font-bold mt-1 text-rose-700">
-              {overviewStats.npsScore === null || overviewStats.npsScore === undefined ? "Hidden" : overviewStats.npsScore}
+              {overviewStats.npsScore === null ||
+              overviewStats.npsScore === undefined
+                ? "Hidden"
+                : overviewStats.npsScore}
             </p>
-            <span className="text-xs text-rose-700">{overviewStats.recoveryCount} recovery</span>
+            <span className="text-xs text-rose-700">
+              {overviewStats.recoveryCount} recovery
+            </span>
           </div>
         </div>
       </div>
@@ -333,7 +367,9 @@ export default function FeedbackPage() {
             >
               <option value="all">All Ratings</option>
               {[5, 4, 3, 2, 1].map((r) => (
-                <option key={r} value={r}>{r} Star{r !== 1 ? "s" : ""}</option>
+                <option key={r} value={r}>
+                  {r} Star{r !== 1 ? "s" : ""}
+                </option>
               ))}
             </select>
             <select
@@ -342,7 +378,9 @@ export default function FeedbackPage() {
               className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {departments.map((d) => (
-                <option key={d} value={d}>{d === "all" ? "All Departments" : d}</option>
+                <option key={d} value={d}>
+                  {d === "all" ? "All Departments" : d}
+                </option>
               ))}
             </select>
           </div>
@@ -357,7 +395,9 @@ export default function FeedbackPage() {
 
           {isError && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-              {error instanceof Error ? error.message : "Failed to load feedback"}
+              {error instanceof Error
+                ? error.message
+                : "Failed to load feedback"}
             </div>
           )}
 
@@ -374,22 +414,31 @@ export default function FeedbackPage() {
             <div className="border border-border rounded-lg bg-card p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">Feedback Details</h3>
-                <button onClick={() => setSelectedFeedback(null)} className="text-muted-foreground hover:text-foreground text-sm">
+                <button
+                  onClick={() => setSelectedFeedback(null)}
+                  className="text-muted-foreground hover:text-foreground text-sm"
+                >
                   Close
                 </button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Patient:</span>
-                  <p className="font-medium">{selectedFeedback.patient_name ?? "\u2014"}</p>
+                  <p className="font-medium">
+                    {selectedFeedback.patient_name ?? "\u2014"}
+                  </p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Doctor:</span>
-                  <p className="font-medium">{selectedFeedback.doctor_name ?? "\u2014"}</p>
+                  <p className="font-medium">
+                    {selectedFeedback.doctor_name ?? "\u2014"}
+                  </p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Department:</span>
-                  <p className="font-medium">{selectedFeedback.department ?? "\u2014"}</p>
+                  <p className="font-medium">
+                    {selectedFeedback.department ?? "\u2014"}
+                  </p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Rating:</span>
@@ -401,26 +450,22 @@ export default function FeedbackPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Category:</span>
-                  <p className="font-medium">{selectedFeedback.category ?? "\u2014"}</p>
+                  <p className="font-medium">
+                    {selectedFeedback.category ?? "\u2014"}
+                  </p>
                 </div>
               </div>
               {selectedFeedback.comment && (
                 <div className="text-sm">
                   <span className="text-muted-foreground">Comment:</span>
-                  <p className="mt-1 bg-muted/50 rounded-md p-3">{selectedFeedback.comment}</p>
+                  <p className="mt-1 bg-muted/50 rounded-md p-3">
+                    {selectedFeedback.comment}
+                  </p>
                 </div>
               )}
-              {selectedFeedback.response && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Response:</span>
-                  <p className="mt-1 bg-blue-50 rounded-md p-3 text-blue-800">{selectedFeedback.response}</p>
-                  {selectedFeedback.responded_by && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      By {selectedFeedback.responded_by} on {fmtDate(selectedFeedback.responded_at)}
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* No "Response" block: the API returns no reply text for a
+                  feedback row and no endpoint can create one. Rendering an
+                  empty section implied a reply thread that does not exist. */}
             </div>
           )}
 
@@ -430,21 +475,44 @@ export default function FeedbackPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Patient</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Doctor</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Department</th>
-                    <th className="text-center px-4 py-3 font-medium text-muted-foreground">Rating</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Comment</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                      Patient
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                      Doctor
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                      Department
+                    </th>
+                    <th className="text-center px-4 py-3 font-medium text-muted-foreground">
+                      Rating
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                      Comment
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                      Date
+                    </th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.map((item, idx) => (
-                    <tr key={item.id ?? idx} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3 font-medium">{item.patient_name ?? "\u2014"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{item.doctor_name ?? "\u2014"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{item.department ?? "\u2014"}</td>
+                    <tr
+                      key={item.id ?? idx}
+                      className="hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        {item.patient_name ?? "\u2014"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {item.doctor_name ?? "\u2014"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {item.department ?? "\u2014"}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-center">
                           <StarRating rating={item.rating} />
@@ -453,7 +521,9 @@ export default function FeedbackPage() {
                       <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">
                         {item.comment ?? "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs">{fmtDate(item.created_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {fmtDate(item.created_at)}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => setSelectedFeedback(item)}
@@ -487,16 +557,22 @@ export default function FeedbackPage() {
               {/* Rating Distribution */}
               {stats.by_rating && (
                 <div className="border border-border rounded-lg bg-card p-6">
-                  <h3 className="text-lg font-semibold mb-4">Rating Distribution</h3>
+                  <h3 className="text-lg font-semibold mb-4">
+                    Rating Distribution
+                  </h3>
                   <div className="space-y-3">
                     {[5, 4, 3, 2, 1].map((r) => {
                       const count = stats.by_rating?.[String(r)] ?? 0;
-                      const total = Object.values(stats.by_rating ?? {}).reduce((s, v) => s + v, 0);
+                      const total = Object.values(stats.by_rating ?? {}).reduce(
+                        (s, v) => s + v,
+                        0,
+                      );
                       const pct = total > 0 ? (count / total) * 100 : 0;
                       return (
                         <div key={r} className="flex items-center gap-3">
                           <span className="text-sm w-16 flex items-center gap-1">
-                            {r} <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                            {r}{" "}
+                            <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
                           </span>
                           <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
                             <div
@@ -504,7 +580,9 @@ export default function FeedbackPage() {
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          <span className="text-sm text-muted-foreground w-12 text-right">{count}</span>
+                          <span className="text-sm text-muted-foreground w-12 text-right">
+                            {count}
+                          </span>
                         </div>
                       );
                     })}
@@ -520,9 +598,15 @@ export default function FeedbackPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border">
-                          <th className="text-left py-2 font-medium text-muted-foreground">Department</th>
-                          <th className="text-center py-2 font-medium text-muted-foreground">Avg Rating</th>
-                          <th className="text-right py-2 font-medium text-muted-foreground">Count</th>
+                          <th className="text-left py-2 font-medium text-muted-foreground">
+                            Department
+                          </th>
+                          <th className="text-center py-2 font-medium text-muted-foreground">
+                            Avg Rating
+                          </th>
+                          <th className="text-right py-2 font-medium text-muted-foreground">
+                            Count
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -535,7 +619,9 @@ export default function FeedbackPage() {
                                 <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
                               </div>
                             </td>
-                            <td className="py-2 text-right text-muted-foreground">{d.count}</td>
+                            <td className="py-2 text-right text-muted-foreground">
+                              {d.count}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -552,22 +638,32 @@ export default function FeedbackPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border">
-                          <th className="text-left py-2 font-medium text-muted-foreground">Doctor</th>
-                          <th className="text-center py-2 font-medium text-muted-foreground">Avg Rating</th>
-                          <th className="text-right py-2 font-medium text-muted-foreground">Count</th>
+                          <th className="text-left py-2 font-medium text-muted-foreground">
+                            Doctor
+                          </th>
+                          <th className="text-center py-2 font-medium text-muted-foreground">
+                            Avg Rating
+                          </th>
+                          <th className="text-right py-2 font-medium text-muted-foreground">
+                            Count
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {stats.by_doctor.map((d) => (
                           <tr key={d.doctor_name}>
-                            <td className="py-2 font-medium">{d.doctor_name}</td>
+                            <td className="py-2 font-medium">
+                              {d.doctor_name}
+                            </td>
                             <td className="py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 {d.avg_rating.toFixed(1)}
                                 <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
                               </div>
                             </td>
-                            <td className="py-2 text-right text-muted-foreground">{d.count}</td>
+                            <td className="py-2 text-right text-muted-foreground">
+                              {d.count}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -595,20 +691,30 @@ export default function FeedbackPage() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="border border-border rounded-lg bg-card p-4">
                   <div className="text-sm text-muted-foreground">Responses</div>
-                  <p className="text-2xl font-bold mt-1">{npsDashboard.overall.response_count}</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {npsDashboard.overall.response_count}
+                  </p>
                 </div>
                 <div className="border border-emerald-200 rounded-lg bg-emerald-50 p-4">
                   <div className="text-sm text-emerald-700">Promoters</div>
-                  <p className="text-2xl font-bold mt-1 text-emerald-800">{npsDashboard.overall.promoter_count}</p>
+                  <p className="text-2xl font-bold mt-1 text-emerald-800">
+                    {npsDashboard.overall.promoter_count}
+                  </p>
                 </div>
                 <div className="border border-red-200 rounded-lg bg-red-50 p-4">
                   <div className="text-sm text-red-700">Detractors</div>
-                  <p className="text-2xl font-bold mt-1 text-red-800">{npsDashboard.overall.detractor_count}</p>
+                  <p className="text-2xl font-bold mt-1 text-red-800">
+                    {npsDashboard.overall.detractor_count}
+                  </p>
                 </div>
                 <div className="border border-border rounded-lg bg-card p-4">
-                  <div className="text-sm text-muted-foreground">Response Rate</div>
+                  <div className="text-sm text-muted-foreground">
+                    Response Rate
+                  </div>
                   <p className="text-2xl font-bold mt-1">
-                    {npsDashboard.overall.response_rate === null ? "\u2014" : `${npsDashboard.overall.response_rate}%`}
+                    {npsDashboard.overall.response_rate === null
+                      ? "\u2014"
+                      : `${npsDashboard.overall.response_rate}%`}
                   </p>
                 </div>
               </div>
@@ -618,14 +724,23 @@ export default function FeedbackPage() {
                   <h3 className="text-lg font-semibold mb-4">NPS Trend</h3>
                   <div className="space-y-3">
                     {npsDashboard.trend.length === 0 && (
-                      <p className="text-sm text-muted-foreground">No NPS responses in this window</p>
+                      <p className="text-sm text-muted-foreground">
+                        No NPS responses in this window
+                      </p>
                     )}
                     {npsDashboard.trend.slice(-14).map((point) => {
                       const value = point.nps_score ?? 0;
-                      const width = point.sample_visible ? Math.max(8, Math.min(100, value + 100) / 2) : 8;
+                      const width = point.sample_visible
+                        ? Math.max(8, Math.min(100, value + 100) / 2)
+                        : 8;
                       return (
-                        <div key={point.day} className="grid grid-cols-[6rem_1fr_4rem] items-center gap-3 text-sm">
-                          <span className="text-muted-foreground">{fmtDate(point.day)}</span>
+                        <div
+                          key={point.day}
+                          className="grid grid-cols-[6rem_1fr_4rem] items-center gap-3 text-sm"
+                        >
+                          <span className="text-muted-foreground">
+                            {fmtDate(point.day)}
+                          </span>
                           <div className="h-3 rounded-full bg-muted overflow-hidden">
                             <div
                               className={`h-full rounded-full ${point.sample_visible ? "bg-rose-500" : "bg-muted-foreground/30"}`}
@@ -642,27 +757,43 @@ export default function FeedbackPage() {
                 </div>
 
                 <div className="border border-border rounded-lg bg-card p-6">
-                  <h3 className="text-lg font-semibold mb-4">Service Recovery Queue</h3>
+                  <h3 className="text-lg font-semibold mb-4">
+                    Service Recovery Queue
+                  </h3>
                   <div className="space-y-3">
                     {npsDashboard.urgent_queue.length === 0 && (
-                      <p className="text-sm text-muted-foreground">No open recovery tasks</p>
+                      <p className="text-sm text-muted-foreground">
+                        No open recovery tasks
+                      </p>
                     )}
                     {npsDashboard.urgent_queue.map((task) => (
-                      <div key={task.task_id} className="rounded-md border border-border p-3 text-sm">
+                      <div
+                        key={task.task_id}
+                        className="rounded-md border border-border p-3 text-sm"
+                      >
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium">Score {task.score} / {task.nps_bucket}</span>
-                          <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
-                            task.priority === "critical" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                          }`}>
+                          <span className="font-medium">
+                            Score {task.score} / {task.nps_bucket}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                              task.priority === "critical"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
                             <AlertTriangle className="h-3 w-3" />
                             {task.priority}
                           </span>
                         </div>
                         <p className="mt-1 text-muted-foreground">
-                          {task.department_display_name ?? "Unknown department"} · {task.doctor_display_name ?? "Unknown doctor"}
+                          {task.department_display_name ?? "Unknown department"}{" "}
+                          · {task.doctor_display_name ?? "Unknown doctor"}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {task.status} · {task.assigned_to_role ?? "QUALITY_OFFICER"} · {fmtDate(task.submitted_at)}
+                          {task.status} ·{" "}
+                          {task.assigned_to_role ?? "QUALITY_OFFICER"} ·{" "}
+                          {fmtDate(task.submitted_at)}
                         </p>
                       </div>
                     ))}
@@ -676,23 +807,47 @@ export default function FeedbackPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 font-medium text-muted-foreground">Slice</th>
-                        <th className="text-left py-2 font-medium text-muted-foreground">Label</th>
-                        <th className="text-right py-2 font-medium text-muted-foreground">Responses</th>
-                        <th className="text-right py-2 font-medium text-muted-foreground">Promoters</th>
-                        <th className="text-right py-2 font-medium text-muted-foreground">Detractors</th>
-                        <th className="text-right py-2 font-medium text-muted-foreground">NPS</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">
+                          Slice
+                        </th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">
+                          Label
+                        </th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">
+                          Responses
+                        </th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">
+                          Promoters
+                        </th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">
+                          Detractors
+                        </th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">
+                          NPS
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {npsDashboard.breakdowns.map((row) => (
                         <tr key={`${row.dimension_type}:${row.dimension_key}`}>
-                          <td className="py-2 text-muted-foreground">{row.dimension_type.replace("_", " ")}</td>
-                          <td className="py-2 font-medium">{row.dimension_label}</td>
-                          <td className="py-2 text-right">{row.response_count}</td>
-                          <td className="py-2 text-right">{row.promoter_count}</td>
-                          <td className="py-2 text-right">{row.detractor_count}</td>
-                          <td className="py-2 text-right">{row.sample_visible ? row.nps_score : "Hidden"}</td>
+                          <td className="py-2 text-muted-foreground">
+                            {row.dimension_type.replace("_", " ")}
+                          </td>
+                          <td className="py-2 font-medium">
+                            {row.dimension_label}
+                          </td>
+                          <td className="py-2 text-right">
+                            {row.response_count}
+                          </td>
+                          <td className="py-2 text-right">
+                            {row.promoter_count}
+                          </td>
+                          <td className="py-2 text-right">
+                            {row.detractor_count}
+                          </td>
+                          <td className="py-2 text-right">
+                            {row.sample_visible ? row.nps_score : "Hidden"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

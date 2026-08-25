@@ -4,10 +4,14 @@ import {
   approveCampaign,
   createEngagementCampaign,
   dryRunCampaign,
+  getEngagementCampaign,
   getEngagementSettings,
+  listEngagementCampaigns,
+  listEngagementTemplates,
   queueDueCampaignRecipients,
   submitCampaignForApproval,
   type EngagementCampaign,
+  type EngagementPagination,
   type EngagementSettings,
 } from "@/lib/api/engagement";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -55,7 +59,19 @@ jest.mock("@/lib/api/engagement", () => ({
   submitCampaignForApproval: jest.fn(),
   approveCampaign: jest.fn(),
   queueDueCampaignRecipients: jest.fn(),
+  listEngagementCampaigns: jest.fn(),
+  listEngagementTemplates: jest.fn(),
+  getEngagementCampaign: jest.fn(),
 }));
+
+const PAGINATION: EngagementPagination = {
+  page: 1,
+  limit: 50,
+  total: 0,
+  totalPages: 1,
+  hasNext: false,
+  hasPrev: false,
+};
 
 const SETTINGS: EngagementSettings = {
   tenant_id: "00000000-0000-4000-8000-000000000001",
@@ -156,6 +172,14 @@ describe("<EngagementPage /> authoring safety order", () => {
     (getEngagementSettings as jest.Mock).mockResolvedValue(SETTINGS);
     (createEngagementCampaign as jest.Mock).mockResolvedValue(CAMPAIGN);
     (dryRunCampaign as jest.Mock).mockResolvedValue(DRY_RUN_RESULT);
+    (listEngagementCampaigns as jest.Mock).mockResolvedValue({
+      campaigns: [],
+      pagination: PAGINATION,
+    });
+    (listEngagementTemplates as jest.Mock).mockResolvedValue({
+      templates: [],
+      pagination: PAGINATION,
+    });
   });
 
   it("walks dry-run → approval → queue in order and never enables a later step early", async () => {
@@ -300,5 +324,230 @@ describe("<EngagementPage /> authoring safety order", () => {
     expect(
       screen.getByRole("button", { name: "Queue due recipients" }),
     ).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The listing wiring: without it a campaign parked in `pending_approval` was
+// reachable only from the browser session that submitted it, so the approver —
+// who is not the author — could not find the thing they had to approve.
+// ---------------------------------------------------------------------------
+describe("<EngagementPage /> campaign listing", () => {
+  const SUBMITTED_ELSEWHERE: EngagementCampaign = {
+    ...CAMPAIGN,
+    id: 77,
+    objective: "Submitted from another admin's session",
+    status: "pending_approval",
+    submitted_at: "2026-08-21T09:00:00.000Z",
+    updated_at: "2026-08-21T09:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getEngagementSettings as jest.Mock).mockResolvedValue(SETTINGS);
+    (listEngagementTemplates as jest.Mock).mockResolvedValue({
+      templates: [],
+      pagination: PAGINATION,
+    });
+    (listEngagementCampaigns as jest.Mock).mockResolvedValue({
+      campaigns: [SUBMITTED_ELSEWHERE],
+      pagination: { ...PAGINATION, total: 1 },
+    });
+    (approveCampaign as jest.Mock).mockResolvedValue({
+      ...SUBMITTED_ELSEWHERE,
+      status: "scheduled",
+    });
+  });
+
+  it("lists the tenant's campaigns and reads templates back on load", async () => {
+    renderPage();
+
+    expect(await screen.findByText("#77")).toBeInTheDocument();
+    expect(
+      screen.getByText("Submitted from another admin's session"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listEngagementCampaigns).toHaveBeenCalledWith({ limit: 50 }),
+    );
+    expect(listEngagementTemplates).toHaveBeenCalledWith({ limit: 100 });
+  });
+
+  it("opens a campaign this session never created and lets an approver act on it", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review #77" }));
+
+    // The workflow panel is now driving a campaign that came from the server.
+    await screen.findByText(/Campaign #77 — appointment recall/);
+    const approveButton = screen.getByRole("button", {
+      name: "Approve campaign",
+    });
+    await waitFor(() => expect(approveButton).toBeEnabled());
+
+    fireEvent.click(approveButton);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(approveCampaign).toHaveBeenCalledWith(77, undefined),
+    );
+    // The transition re-reads the list rather than trusting local state alone.
+    await waitFor(() =>
+      expect(
+        (listEngagementCampaigns as jest.Mock).mock.calls.length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("opens a campaign by number even when the current filter excludes it", async () => {
+    // The approver was handed a campaign number; the list is showing drafts.
+    const OFF_PAGE: EngagementCampaign = {
+      ...SUBMITTED_ELSEWHERE,
+      id: 4021,
+      objective: "Not on the page the list is showing",
+    };
+    (getEngagementCampaign as jest.Mock).mockResolvedValue(OFF_PAGE);
+    renderPage();
+    await screen.findByText("#77");
+
+    fireEvent.change(screen.getByLabelText("Open campaign by number"), {
+      target: { value: "4021" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    await waitFor(() =>
+      expect(getEngagementCampaign).toHaveBeenCalledWith(4021),
+    );
+    await screen.findByText(/Campaign #4021 — appointment recall/);
+  });
+
+  it("surfaces a by-id lookup refusal verbatim", async () => {
+    (getEngagementCampaign as jest.Mock).mockRejectedValue(
+      new APIError("Engagement campaign not found", 404, {
+        code: "ENGAGEMENT_CAMPAIGN_NOT_FOUND",
+      }),
+    );
+    renderPage();
+    await screen.findByText("#77");
+
+    fireEvent.change(screen.getByLabelText("Open campaign by number"), {
+      target: { value: "999" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    expect(
+      await screen.findByText("Engagement campaign not found"),
+    ).toBeInTheDocument();
+  });
+
+  it("passes the chosen status filter to the backend", async () => {
+    renderPage();
+    await screen.findByText("#77");
+
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "pending_approval" },
+    });
+
+    await waitFor(() =>
+      expect(listEngagementCampaigns).toHaveBeenCalledWith({
+        status: "pending_approval",
+        limit: 50,
+      }),
+    );
+  });
+
+  it("surfaces a listing failure instead of pretending the tenant has no campaigns", async () => {
+    (listEngagementCampaigns as jest.Mock).mockRejectedValue(
+      new APIError("Tenant context is required", 400, {
+        code: "ENGAGEMENT_TENANT_REQUIRED",
+      }),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        /Could not load campaigns: Tenant context is required/,
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Templates now come from the server too, so a template authored in an earlier
+// session is selectable. The backend refuses a campaign built on an unapproved
+// template (ENGAGEMENT_TEMPLATE_NOT_APPROVED), so approval state has to be
+// visible before the operator submits.
+// ---------------------------------------------------------------------------
+describe("<EngagementPage /> template listing", () => {
+  const APPROVED = {
+    id: 4,
+    tenant_id: SETTINGS.tenant_id,
+    notification_template_id: 12,
+    template_kind: "appointment_recall" as const,
+    channel: "push" as const,
+    variables_schema: {},
+    allowed_variables: ["first_name"],
+    phi_classification: "non_phi",
+    locale: "en-IN",
+    approved_by: "someone",
+    approved_at: "2026-08-19T10:00:00.000Z",
+    retired_at: null,
+    created_by: null,
+    created_at: "2026-08-19T09:00:00.000Z",
+    updated_at: "2026-08-19T10:00:00.000Z",
+  };
+  const UNAPPROVED = {
+    ...APPROVED,
+    id: 5,
+    approved_by: null,
+    approved_at: null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getEngagementSettings as jest.Mock).mockResolvedValue(SETTINGS);
+    (listEngagementCampaigns as jest.Mock).mockResolvedValue({
+      campaigns: [],
+      pagination: PAGINATION,
+    });
+    (listEngagementTemplates as jest.Mock).mockResolvedValue({
+      templates: [APPROVED, UNAPPROVED],
+      pagination: { ...PAGINATION, total: 2 },
+    });
+  });
+
+  it("marks which templates the backend will accept for a campaign", async () => {
+    renderPage();
+
+    // Wait for the template list itself: until it loads the composer shows
+    // the free-text id fallback rather than a picker.
+    await screen.findByText(/#4 · appointment recall/);
+    const picker = document.getElementById(
+      "campaign-template-id",
+    ) as HTMLSelectElement;
+    expect(picker.tagName).toBe("SELECT");
+    const labels = Array.from(picker.querySelectorAll("option")).map(
+      (option) => option.textContent,
+    );
+
+    expect(
+      labels.some((l) => l?.includes("#4") && !l.includes("not approved")),
+    ).toBe(true);
+    expect(
+      labels.some((l) => l?.includes("#5") && l.includes("not approved")),
+    ).toBe(true);
+  });
+
+  it("labels an unapproved template as such rather than borrowing campaign wording", async () => {
+    renderPage();
+
+    await screen.findByText(/#5 · appointment recall/);
+    expect(screen.getByText("approved")).toBeInTheDocument();
+    expect(screen.getByText("not approved")).toBeInTheDocument();
+    // "scheduled" is a CAMPAIGN status. It may appear in the campaign status
+    // filter's options, but never as a pill on a template row.
+    expect(
+      screen
+        .queryAllByText("scheduled")
+        .every((element) => element.tagName === "OPTION"),
+    ).toBe(true);
   });
 });

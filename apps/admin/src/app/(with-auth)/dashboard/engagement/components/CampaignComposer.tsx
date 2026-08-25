@@ -20,6 +20,10 @@ import { FieldLabel, SectionCard, inputClass } from "./shared";
  * Campaign creation. Campaigns are born as drafts; the workflow panel walks
  * them through dry-run -> approval -> queueing. A broad audience escalates
  * the approval requirement to admin/quality roles server-side.
+ *
+ * `templates` is the tenant's list from `GET /engagement/templates`, so a
+ * template created in an earlier session is selectable here. The free-text id
+ * field is the fallback for when that list is empty or could not be loaded.
  */
 export function CampaignComposer({
   templates,
@@ -90,11 +94,14 @@ export function CampaignComposer({
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
             >
-              <option value="">Select a session template…</option>
+              <option value="">Select a template…</option>
               {templates.map((template) => (
                 <option key={template.id} value={String(template.id)}>
                   #{template.id} — {template.template_kind.replace(/_/g, " ")} (
                   {template.channel})
+                  {/* The backend refuses a campaign built on an unapproved
+                      template, so say so before the operator submits. */}
+                  {template.approved_at ? "" : " · not approved"}
                 </option>
               ))}
             </select>

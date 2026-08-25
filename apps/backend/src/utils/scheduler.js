@@ -1116,8 +1116,14 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
-  // inspections that have outlived their expires_at as 'expired' so
-  // the receptionist UI doesn't keep showing stale shortlists.
+  // inspections that have outlived their expires_at as 'expired'.
+  //
+  // This comment used to say the sweep exists "so the receptionist UI
+  // doesn't keep showing stale shortlists". There is no receptionist UI:
+  // /api/v1/bed-inspections has zero callers in any client, and this cron
+  // only ever expires rows it cannot create, so the table can only be empty.
+  // The sweeper is kept because it is correct and costs nothing once the
+  // flow is wired; see the bed-inspections entry in docs/ROADMAP.md.
   registerCron('0 * * * *', withJobLock('expire-bed-inspections', async () => {
     await expireStaleInspections();
   }));

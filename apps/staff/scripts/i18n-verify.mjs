@@ -17,8 +17,21 @@
 //      matching getter on the class (would 500 at runtime)
 //   8. Hardcoded English left in screen files (Text('...') heuristic)
 //
-// Exit code: 0 always (informational). Wire into CI as a non-blocking
-// "language health" job once the gaps are triaged.
+// Exit code in the default (report) mode: 0 always. The report mixes
+// objective facts with heuristics (copy-paste guesses, hardcoded-English
+// guesses, orphan-getter guesses), so it stays informational.
+//
+//     node scripts/i18n-verify.mjs --check
+//
+// runs the BLOCKING half instead: structural key parity for hi/ta/te
+// against en, and nothing else. Key parity is objectively checkable and
+// says nothing about translation quality, so it can fail CI without ever
+// arguing about wording. `--check` deliberately does not walk lib/ and
+// does not run any heuristic — the only ways it can fail are a real
+// parity gap, a stale exemption, or a parse that produced nonsense.
+// Wired into both halves of the Flutter gate:
+//   .github/workflows/_reusable-flutter-workspace.yml  (GitHub)
+//   scripts/ci/flutter.mjs                             (Forgejo/local)
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -29,6 +42,37 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(__dirname, '..');
 const STRINGS_FILE = join(APP_ROOT, 'lib', 'l10n', 'app_strings.dart');
 const LIB_ROOT = join(APP_ROOT, 'lib');
+
+// Locales held to full structural parity with `en`.
+const FULL_LOCALES = ['hi', 'ta', 'te'];
+
+// Locales that are partial ON PURPOSE. `ml` shipped 2026-06-10 as a
+// declared nurse-facing first pass (see the class doc in app_strings.dart);
+// everything outside that core falls back to English by design. Reported,
+// never a finding, never gated.
+const PARTIAL_LOCALES = ['ml'];
+
+// Keys deliberately left to the English fallback in hi/ta/te, with the
+// reason. The parity gate skips exactly these and prints them on every
+// run, so an exemption cannot quietly accumulate.
+//
+// The bar for adding one is high: the string is a declaration the user
+// SIGNS, where the wording is the legal content of the signature and must
+// be the deploying hospital's approved text rather than a machine first
+// pass. "This clinical string is important" is not sufficient — the
+// repo's practice for important-but-descriptive clinical copy is to
+// translate it and mark it `// REVIEW:` for the translator queue.
+//
+// A key listed here that no longer exists in `en` fails the gate, so the
+// list cannot outlive the strings it excuses.
+const DELIBERATE_ENGLISH_FALLBACK = {
+  'clinical_inbox.action.attestation':
+    'First-person attestation the clinician signs against a diagnostic result.',
+  'ed_trauma.continuity.external_attestation':
+    'States what an inter-facility handoff record asserts was confirmed.',
+  's4.lib.referrals.continue_ownership':
+    'First-person declaration of continuing clinical ownership of a patient.',
+};
 
 // ── Dart map parsing ───────────────────────────────────────────────────
 //
@@ -302,16 +346,24 @@ function main() {
   // pass; everything else falls back to English by design) — its
   // coverage is reported but missing keys are not listed and partial
   // coverage is not a finding.
-  const FULL_LOCALES = ['hi', 'ta', 'te'];
-  const PARTIAL_LOCALES = ['ml'];
+  const exempt = new Set(Object.keys(DELIBERATE_ENGLISH_FALLBACK));
   for (const loc of [...FULL_LOCALES, ...PARTIAL_LOCALES]) {
     const partial = PARTIAL_LOCALES.includes(loc);
     const got = new Set(Object.keys(parsed[loc]?.entries ?? {}));
     const missing = [];
-    for (const k of enKeys) if (!got.has(k)) missing.push(k);
-    const cov = (((enKeys.size - missing.length) / enKeys.size) * 100).toFixed(1);
+    for (const k of enKeys) {
+      if (got.has(k)) continue;
+      if (!partial && exempt.has(k)) continue; // declared English fallback
+      missing.push(k);
+    }
+    // Denominator excludes the declared English-fallback keys for the
+    // full locales, so "100%" means "everything this locale is meant to
+    // translate is translated" rather than silently counting exemptions
+    // as coverage.
+    const denom = partial ? enKeys.size : enKeys.size - exempt.size;
+    const cov = (((denom - missing.length) / denom) * 100).toFixed(1);
     const reviewN = parsed[loc]?.reviewKeys.size ?? 0;
-    console.log(`[${loc}] coverage ${cov}%  (${enKeys.size - missing.length}/${enKeys.size}),  // REVIEW: flags ${reviewN},  missing ${missing.length}${partial ? '  [partial by design — nurse-facing first pass]' : ''}`);
+    console.log(`[${loc}] coverage ${cov}%  (${denom - missing.length}/${denom}),  // REVIEW: flags ${reviewN},  missing ${missing.length}${partial ? '  [partial by design — nurse-facing first pass]' : `  [+${exempt.size} declared English fallback]`}`);
     if (partial) {
       console.log('');
       continue;
@@ -487,4 +539,104 @@ function main() {
   console.log('Done. Treat as informational; gaps queue for translator review.');
 }
 
-main();
+// ── Blocking parity gate (`--check`) ───────────────────────────────────
+//
+// Structural only. Every `en` key must exist in hi/ta/te, except the keys
+// declared in DELIBERATE_ENGLISH_FALLBACK. `ml` is exempt outright.
+// Nothing here inspects the VALUE of a translation, so this gate never
+// has an opinion about wording — it only stops the locale maps drifting
+// apart again, which is what happened between 2026-06-10 (last 100%
+// verification) and 2026-08-25 (461-463 keys behind).
+function runParityCheck() {
+  console.log('Staff i18n structural parity check (hi/ta/te vs en)');
+  console.log('---------------------------------------------------');
+
+  const chunks = readStrings();
+  const parsed = {};
+  for (const [loc, chunk] of Object.entries(chunks)) parsed[loc] = parseMap(chunk);
+
+  const failures = [];
+  const enEntries = parsed.en?.entries ?? {};
+  const enKeys = new Set(Object.keys(enEntries));
+
+  // Fail closed on a nonsense parse. If app_strings.dart is ever
+  // restructured so the map scanner stops finding entries, this gate must
+  // say so loudly rather than report a cheerful 0 missing keys.
+  const SANITY_FLOOR = 1000;
+  if (enKeys.size < SANITY_FLOOR) {
+    console.error(
+      `FAIL: parsed only ${enKeys.size} 'en' keys from lib/l10n/app_strings.dart ` +
+      `(expected at least ${SANITY_FLOOR}). The map scanner in this script no ` +
+      `longer understands the file — fix the scanner before trusting any i18n number.`,
+    );
+    process.exit(1);
+  }
+
+  for (const [key, reason] of Object.entries(DELIBERATE_ENGLISH_FALLBACK)) {
+    if (!enKeys.has(key)) {
+      failures.push(
+        `stale exemption: '${key}' is listed in DELIBERATE_ENGLISH_FALLBACK but no ` +
+        `longer exists in the 'en' map. Remove it from the list.`,
+      );
+    } else {
+      console.log(`   exempt (English fallback by decision): ${key}`);
+      console.log(`      reason: ${reason}`);
+    }
+  }
+  console.log('');
+
+  for (const loc of FULL_LOCALES) {
+    if (!parsed[loc]) {
+      failures.push(`locale '${loc}' has no map in app_strings.dart`);
+      continue;
+    }
+    const got = new Set(Object.keys(parsed[loc].entries));
+    const missing = [...enKeys]
+      .filter((k) => !got.has(k) && !(k in DELIBERATE_ENGLISH_FALLBACK))
+      .sort();
+    // Keys present in a translation map but absent from `en` are dead
+    // weight, not a user-visible defect (nothing ever reads them), and a
+    // legitimate flow — delete the English key first, sweep translations
+    // after — would trip a gate here for no benefit. Reported, not fatal.
+    const extra = [...got].filter((k) => !enKeys.has(k)).sort();
+    console.log(
+      `[${loc}] ${got.size}/${enKeys.size - Object.keys(DELIBERATE_ENGLISH_FALLBACK).length} ` +
+      `translatable keys, missing ${missing.length}, orphaned ${extra.length}`,
+    );
+    if (extra.length > 0) {
+      console.log(`   warning: ${extra.length} key(s) not present in 'en': ${extra.slice(0, 5).join(', ')}${extra.length > 5 ? ', …' : ''}`);
+    }
+    if (missing.length > 0) {
+      for (const k of missing.slice(0, 30)) console.log(`   missing: ${k}`);
+      if (missing.length > 30) console.log(`   …and ${missing.length - 30} more`);
+      failures.push(`locale '${loc}' is missing ${missing.length} key(s) present in 'en'`);
+    }
+  }
+
+  const partialSummary = PARTIAL_LOCALES.map((loc) => {
+    const n = Object.keys(parsed[loc]?.entries ?? {}).length;
+    return `${loc} ${n} keys`;
+  }).join(', ');
+  console.log(`\n[${PARTIAL_LOCALES.join(', ')}] exempt — declared-partial locale(s): ${partialSummary}`);
+
+  if (failures.length > 0) {
+    console.error('\nFAIL: staff i18n structural parity');
+    for (const f of failures) console.error(`  - ${f}`);
+    console.error(
+      '\nAdd the missing key(s) to the hi/ta/te maps in ' +
+      'apps/staff/lib/l10n/app_strings.dart. New clinical copy may be filled as an ' +
+      'AI first pass marked `// REVIEW:` (the established practice — see ' +
+      'apps/staff/docs/LANGUAGE_HEALTH.md). If a string genuinely must stay English, ' +
+      'add it to DELIBERATE_ENGLISH_FALLBACK in this script with a reason.',
+    );
+    process.exit(1);
+  }
+
+  console.log('\nOK: hi/ta/te are at structural parity with en.');
+}
+
+if (process.argv.includes('--check')) {
+  runParityCheck();
+} else {
+  main();
+}

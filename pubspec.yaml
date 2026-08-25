@@ -68,11 +68,15 @@ melos:
       run: melos exec --depends-on="flutter_localizations" -- "flutter gen-l10n"
 
     i18n-health:
-      description: "Static health check for both Flutter apps' i18n. Non-blocking; informational. Reports missing keys, copy-paste, length outliers, orphan calls, and hardcoded English remaining for staff (manual map) and patient (ARB)."
+      description: "Static health check for both Flutter apps' i18n. Non-blocking; informational — its findings mix facts with heuristics (copy-paste guesses, hardcoded-English guesses). Structural key parity is the one part that IS enforced: see i18n-parity-check. Reports missing keys, copy-paste, length outliers, orphan calls, and hardcoded English remaining for staff (manual map) and patient (ARB)."
       run: |
         echo '── STAFF APP ──' && node apps/staff/scripts/i18n-verify.mjs
         echo
         echo '── PATIENT APP ──' && node apps/patient/scripts/i18n-verify.mjs
+
+    i18n-parity-check:
+      description: "BLOCKING gate: staff app structural key parity — hi/ta/te must carry every key 'en' declares (ml is exempt as a declared-partial locale, and a short reasoned list inside the script covers strings deliberately left to the English fallback). Structural only; says nothing about translation quality. Wired into both CI halves: .github/workflows/_reusable-flutter-workspace.yml and scripts/ci/flutter.mjs."
+      run: node apps/staff/scripts/i18n-verify.mjs --check
 
     i18n-health-staff:
       description: "Staff app i18n health only."

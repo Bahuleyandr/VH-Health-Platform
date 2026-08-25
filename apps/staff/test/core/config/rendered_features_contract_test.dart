@@ -12,6 +12,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
+import 'package:vhhealth_staff/core/navigation/staff_route_policy.dart';
 
 Set<String> renderedIds(String rawRole, {String? department}) =>
     RoleFeatures.getFeaturesForRawRole(
@@ -149,6 +150,181 @@ void main() {
             'featureRoleSources in scripts/generate-staff-role-contract.mjs '
             'and regenerate.',
       );
+    });
+  });
+
+  // ─── one staff feature vocabulary ─────────────────────────────────────────
+  //
+  // The desktop rail is filtered by GET /api/v1/rbac/policy's
+  // staff_features_by_role, which names features in the SAME vocabulary as the
+  // generated contract. It drifted: this rail's Staff Roster item declared
+  // `staff_roster_hub` (the screen's name) where every policy source says
+  // `staff_roster`, and `payroll` was in the contract but in neither the
+  // backend's feature catalog nor any role entry. Once a policy loaded, both
+  // destinations disappeared for roles that hold them. The backend half of this
+  // invariant is enforced by assertOneStaffFeatureVocabulary in
+  // scripts/generate-staff-role-contract.mjs, which the generated-contract CI
+  // gate already runs; these are the client half.
+  group('workbench rail feature vocabulary', () {
+    test('every rail feature id has a contract entry — an id no policy source '
+        'knows is read as a denial and hides the destination', () {
+      final railIds = <String>{
+        for (final role in StaffRole.values)
+          ...RoleFeatures.getWorkbenchNavForRole(role)
+              .map((item) => item.featureId)
+              .whereType<String>(),
+      };
+      final contractIds = canonicalStaffFeatureRouteRoleCodes.keys.toSet();
+      final unknown = railIds.difference(contractIds);
+      expect(
+        unknown,
+        isEmpty,
+        reason:
+            'WorkbenchNavItem.featureId values with no generated-contract '
+            'entry: $unknown — the role policy cannot grant an id it does not '
+            'know, so the rail hides these once a policy loads. Use the '
+            'contract id, or add the feature to featureRoleSources in '
+            'scripts/generate-staff-role-contract.mjs and regenerate.',
+      );
+    });
+
+    test('a role policy narrows the rail only inside the vocabulary it '
+        'publishes', () {
+      const role = StaffRole.admin;
+      const rawRole = 'ADMIN';
+      final railIds = RoleFeatures.getWorkbenchNavForRole(
+        role,
+        rawRole: rawRole,
+      ).map((item) => item.featureId).whereType<String>().toSet();
+
+      // Both destinations the live backend map omitted entirely.
+      expect(railIds, containsAll(['payroll', 'staff_roster']));
+
+      // A snapshot that declares neither `payroll` nor `staff_roster`, and
+      // that withholds `audit_logs` from a vocabulary it does declare.
+      final published = railIds.difference({'payroll', 'staff_roster'});
+      final grantedToRole = published.difference({'audit_logs'});
+      final filtered = RoleFeatures.getWorkbenchNavForRole(
+        role,
+        rawRole: rawRole,
+        policyFeatureIds: grantedToRole,
+        policyKnownFeatureIds: published,
+      ).map((item) => item.featureId).whereType<String>().toSet();
+
+      expect(
+        filtered,
+        containsAll(['payroll', 'staff_roster']),
+        reason:
+            'A feature id the policy snapshot never publishes carries no '
+            'verdict — treating its absence as a denial is what hid Payroll '
+            'and Staff Roster from roles that hold them.',
+      );
+      expect(
+        filtered,
+        isNot(contains('audit_logs')),
+        reason:
+            'The policy must still narrow inside its own vocabulary, or it '
+            'stops being a filter at all.',
+      );
+
+      // A snapshot with no feature catalog cannot say what it knows, so the
+      // static role map plus the generated contract stay the only authority.
+      final withoutCatalog = RoleFeatures.getWorkbenchNavForRole(
+        role,
+        rawRole: rawRole,
+        policyFeatureIds: grantedToRole,
+      ).map((item) => item.featureId).whereType<String>().toSet();
+      expect(withoutCatalog, containsAll(railIds));
+    });
+  });
+
+  // ─── primary navigation must be reachable ─────────────────────────────────
+  group('bottom-nav Work tab', () {
+    test('opens a destination its own role can actually reach, and is never a '
+        'second copy of Home', () {
+      for (final role in StaffRole.values) {
+        final items = RoleFeatures.getBottomNavForRole(role);
+        final homeRoutes = items
+            .where((item) => item.labelKey == 'role.nav.home')
+            .map((item) => item.route)
+            .toSet();
+        final workTabs = items
+            .where((item) => item.labelKey == 'role.nav.work')
+            .toList();
+        for (final tab in workTabs) {
+          expect(
+            homeRoutes,
+            isNot(contains(tab.route)),
+            reason:
+                '${role.value} Work tab repeats the Home destination '
+                '${tab.route} — tapping it never leaves the dashboard and the '
+                'selected indicator stays on Home.',
+          );
+        }
+        // An arm may offer SEVERAL Work candidates when one StaffRole is the
+        // presentation archetype for backend roles with disjoint grants
+        // (ER_STAFF holds ed_trauma_workbench and not sos_response;
+        // EMERGENCY_RESPONDER is the exact inverse). The shell filters by
+        // reachability, so the invariant is that AT LEAST ONE candidate is
+        // reachable — requiring every candidate to be reachable would forbid
+        // serving both roles at all, which is what emptied the tab before.
+        if (workTabs.isNotEmpty) {
+          expect(
+            workTabs.any(
+              (tab) => StaffRoutePolicy.authorize(
+                Uri.parse(tab.route),
+                rawRole: role.value,
+              ).allowed,
+            ),
+            isTrue,
+            reason:
+                '${role.value} has a Work tab but the route policy denies '
+                'every candidate (${workTabs.map((t) => t.route).join(", ")}) '
+                '— the shell drops them all and a primary navigation slot '
+                'silently disappears.',
+          );
+        }
+      }
+    });
+  });
+
+  // ─── ED / trauma roster ───────────────────────────────────────────────────
+  group('ED trauma workbench roster', () {
+    test('is granted only to roles the canonical contract admits', () {
+      final edRoster =
+          canonicalStaffFeatureRouteRoleCodes['ed_trauma_workbench']!;
+      final overGranted = <String>[];
+      for (final role in StaffRole.values) {
+        final granted = RoleFeatures.getFeaturesForRole(role)
+            .any((feature) => feature.id == 'ed_trauma_workbench');
+        if (granted && !edRoster.contains(role.value)) {
+          overGranted.add(role.value);
+        }
+      }
+      expect(
+        overGranted,
+        isEmpty,
+        reason:
+            'role_config grants the ED/trauma workbench to $overGranted, which '
+            'ED_ROUTE_ROLES denies. The workbench writes STEMI/trauma '
+            'activations, ABCDE surveys and MLC records, so the roster is the '
+            'backend gate — an inert grant here just opens a screen that 403s.',
+      );
+      // The roles the ED workbench is actually for keep it.
+      for (final role in [
+        StaffRole.doctor,
+        StaffRole.dutyDoctor,
+        StaffRole.nurse,
+        StaffRole.ipStaffNurse,
+        StaffRole.nursingIncharge,
+        StaffRole.ipIncharge,
+      ]) {
+        expect(
+          RoleFeatures.getFeaturesForRole(role).map((feature) => feature.id),
+          contains('ed_trauma_workbench'),
+          reason: '${role.value} lost the ED/trauma workbench',
+        );
+      }
     });
   });
 }

@@ -181,7 +181,12 @@ describe('canonical clinical platform foundation coverage guard', () => {
       'billing_desk',
       'admissions',
       'bed_board',
-      'staff_roster_hub',
+      // `staff_roster`, not `staff_roster_hub` (the screen's name): the
+      // generated staff contract, the /staff-rosters route gate and
+      // UI_FEATURES_BY_ROLE all use this id, and the rail is filtered by ids
+      // the policy publishes. This pairing previously pinned the mismatch on
+      // BOTH sides, so the rail hid Staff Roster from every role that has it.
+      'staff_roster',
       'staff_management',
       'audit_logs',
     ]) {
