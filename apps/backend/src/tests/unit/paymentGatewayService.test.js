@@ -74,6 +74,15 @@ const ISSUED_INVOICE = { id: 12, patient_uid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeee
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks() clears call records but does NOT drain queued
+  // mockResolvedValueOnce values; without an explicit reset an unconsumed
+  // once-value from one test leaks into the shared raw-query queue and is
+  // returned to the next test. Reset the raw-query mocks and re-apply the
+  // executeRawUnsafe defaults so every test starts from a clean queue.
+  queryRawUnsafe.mockReset();
+  txQueryRawUnsafe.mockReset();
+  executeRawUnsafe.mockReset().mockImplementation(async () => 1);
+  txExecuteRawUnsafe.mockReset().mockImplementation(async () => 1);
   process.env.PAYMENT_GATEWAY_ENABLED = 'true';
   getPaymentGatewaySettings.mockResolvedValue({ enabled: true });
   resolveLedgerWiring.mockResolvedValue({ mode: 'shadow', sameTx: false, postCommit: true, skip: false });
@@ -173,7 +182,7 @@ describe('webhook credential rotation', () => {
 
 describe('late webhook intent binding', () => {
   it('binds a refund callback to the exact config, payment, billing refund, and nonterminal state', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
+    txQueryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
     const allowed = await gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: false },
       payload: { payload: { refund: { entity: {
@@ -183,7 +192,7 @@ describe('late webhook intent binding', () => {
       } } } },
     });
     expect(allowed).toBe(true);
-    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    const [sql, ...params] = txQueryRawUnsafe.mock.calls[0];
     expect(sql).toContain('o.provider_config_id = $4::int');
     expect(sql).toContain("r.status IN ('initiated', 'pending', 'requires_reconciliation')");
     expect(params).toEqual([
@@ -192,7 +201,7 @@ describe('late webhook intent binding', () => {
   });
 
   it('binds a retired secret only to the exact pre-rotation credential version', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
+    txQueryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
     const retiredAt = new Date('2026-08-17T07:00:00.000Z');
     const allowed = await gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: true, webhook_credential_version: 4 },
@@ -200,7 +209,7 @@ describe('late webhook intent binding', () => {
       payload: { payload: { payment: { entity: { order_id: 'order_bound' } } } },
     });
     expect(allowed).toBe(true);
-    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    const [sql, ...params] = txQueryRawUnsafe.mock.calls[0];
     expect(sql).toContain('webhook_credential_version = $6::int');
     expect(sql).toContain('created_at <= $7::timestamptz');
     expect(params).toEqual([
@@ -209,7 +218,7 @@ describe('late webhook intent binding', () => {
   });
 
   it('rejects an uncorrelated payment callback', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([]);
+    txQueryRawUnsafe.mockResolvedValueOnce([]);
     await expect(gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: false },
       payload: { payload: { payment: { entity: { order_id: 'order_unknown' } } } },
