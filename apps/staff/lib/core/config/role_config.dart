@@ -1485,11 +1485,31 @@ class RoleFeatures {
         .trim();
   }
 
+  /// Server-reported per-module specialty gate modes (feature id ->
+  /// 'off' | 'report' | 'enforce'), from GET /rbac/policy
+  /// `specialty_gate_modes`. Null while no policy fetch has landed yet
+  /// (fresh install, offline start, pre-update server).
+  static Map<String, String>? _specialtyGateModes;
+
+  static void setSpecialtyGateModes(Map<String, String>? modes) {
+    _specialtyGateModes = modes == null ? null : Map.unmodifiable(modes);
+  }
+
+  @visibleForTesting
+  static Map<String, String>? get specialtyGateModes => _specialtyGateModes;
+
   /// True when the caller may see [featureId] given their department.
   /// Non-specialty features always pass. Specialty features (the generated
   /// canonicalSpecialtyFeatureDepartments map) require a department match,
-  /// with the same leadership bypass the server gate honors. A missing
-  /// department fails closed — mirroring enforce-mode server semantics.
+  /// with the same leadership bypass the server gate honors — but ONLY for
+  /// modules the server itself reports as 'enforce'. In 'report' (the
+  /// production default) and 'off' modes — and when no mode signal has been
+  /// received — the tile stays visible: the server would serve the route,
+  /// and hiding it both revokes access the server grants and keeps the
+  /// request from ever reaching the server's report-mode mismatch ledger,
+  /// which is what the enforce rollout's data cleanup is driven by.
+  /// Under 'enforce' a missing department fails closed, mirroring the
+  /// server's enforce-mode semantics.
   static bool specialtyFeatureVisible(
     String featureId,
     String normalizedRole,
@@ -1500,6 +1520,7 @@ class RoleFeatures {
     if (canonicalSpecialtyGateBypassRoleCodes.contains(normalizedRole)) {
       return true;
     }
+    if (_specialtyGateModes?[featureId] != 'enforce') return true;
     return aliasSet.contains(normalizeStaffDepartment(department));
   }
 

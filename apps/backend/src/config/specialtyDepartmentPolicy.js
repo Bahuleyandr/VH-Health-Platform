@@ -101,3 +101,19 @@ export function departmentsMatchSpecialty(departments, specialtyKey) {
   const normalizedAliases = new Set(aliases.map(normalizeDepartment));
   return [...departments].some((dept) => normalizedAliases.has(dept));
 }
+
+// Effective gate mode per staff-app FEATURE id (the vocabulary the client
+// filters by), resolved from the same env knobs the server gate reads. The
+// staff app consumes this through GET /rbac/policy so its tile filter can
+// mirror the server's ACTUAL posture instead of assuming enforce: hiding
+// tiles while the server is in report mode both revokes access the server
+// would grant and starves the mismatch ledger the enforce rollout depends
+// on (2026-08-25 reaudit, FE-M1).
+export function specialtyGateModesByFeature(env = process.env) {
+  return Object.fromEntries(
+    Object.entries(SPECIALTY_DEPARTMENT_MODULES).map(([key, mod]) => [
+      mod.featureId,
+      specialtyGateMode(env, key),
+    ]),
+  );
+}

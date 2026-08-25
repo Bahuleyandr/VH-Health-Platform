@@ -437,6 +437,7 @@ class RolePolicySnapshot {
     required this.features,
     required this.featuresByRole,
     required this.roles,
+    this.specialtyGateModes,
     this.generatedAt,
   });
 
@@ -445,6 +446,11 @@ class RolePolicySnapshot {
   final List<RolePolicyFeature> features;
   final Map<String, List<String>> featuresByRole;
   final List<Map<String, dynamic>> roles;
+
+  /// Per specialty feature id: the server's effective gate mode
+  /// ('off' | 'report' | 'enforce'). Null when the server predates the
+  /// field — the client then treats every module as not enforced.
+  final Map<String, String>? specialtyGateModes;
   final DateTime? generatedAt;
 
   factory RolePolicySnapshot.fromJson(Map<String, dynamic> json) {
@@ -464,6 +470,8 @@ class RolePolicySnapshot {
               .map((role) => Map<String, dynamic>.from(role))
               .toList()
         : <Map<String, dynamic>>[];
+    final rawGateModes =
+        json['specialty_gate_modes'] ?? json['specialtyGateModes'];
     return RolePolicySnapshot(
       policyVersion: _string(json['policy_version'] ?? json['policyVersion']),
       policyHash: _string(json['policy_hash'] ?? json['policyHash']),
@@ -472,6 +480,11 @@ class RolePolicySnapshot {
         json['staff_features_by_role'] ?? json['staffFeaturesByRole'],
       ),
       roles: roles,
+      specialtyGateModes: rawGateModes is Map
+          ? rawGateModes.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            )
+          : null,
       generatedAt: _date(json['generated_at'] ?? json['generatedAt']),
     );
   }

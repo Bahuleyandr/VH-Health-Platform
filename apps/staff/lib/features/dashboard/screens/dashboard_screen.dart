@@ -126,6 +126,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final roleStr = await AuthService.getRole();
       _rawRole = roleStr;
       _department = await ApiConfig.getDepartment();
+      // Seed the specialty tile filter with the last persisted server gate
+      // modes; MainScaffold's policy fetch refreshes them when it lands.
+      RoleFeatures.setSpecialtyGateModes(
+        await ApiConfig.getSpecialtyGateModes(),
+      );
       _role = StaffRole.fromString(roleStr);
       _opAiAssistModules = const [];
 

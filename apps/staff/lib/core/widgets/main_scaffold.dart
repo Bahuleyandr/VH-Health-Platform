@@ -62,6 +62,12 @@ class _MainScaffoldState extends State<MainScaffold> {
   Future<void> _loadRole() async {
     final roleStr = await ApiConfig.getRole();
     final department = await ApiConfig.getDepartment();
+    // Seed the specialty tile filter with the last persisted server gate
+    // modes so an 'enforce' verdict survives an offline app start. A fresh
+    // fetch below replaces it once the policy snapshot lands.
+    RoleFeatures.setSpecialtyGateModes(
+      await ApiConfig.getSpecialtyGateModes(),
+    );
     final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
     setState(() {
@@ -78,6 +84,16 @@ class _MainScaffoldState extends State<MainScaffold> {
   Future<void> _loadRolePolicyFeatures(String rawRole, StaffRole role) async {
     try {
       final policy = await ClinicalPlatformApiService.getRolePolicySnapshot();
+      // The server's effective specialty gate modes ride the same snapshot.
+      // Apply + persist them before the feature narrowing so the tile/rail
+      // filter reflects the server's actual posture (enforce vs report)
+      // even when this role has no policy feature list.
+      final gateModes = policy.specialtyGateModes;
+      if (gateModes != null) {
+        RoleFeatures.setSpecialtyGateModes(gateModes);
+        unawaited(ApiConfig.saveSpecialtyGateModes(gateModes));
+        if (mounted) setState(() {});
+      }
       final normalized = rawRole.trim().toUpperCase();
       final featureIds =
           policy.featuresByRole[normalized] ??

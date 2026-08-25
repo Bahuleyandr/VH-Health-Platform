@@ -14,6 +14,7 @@ import {
 } from '../../utils/infrastructure/rbacUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { getRolePolicy, getRolePolicyRoleCodes } from '../../config/rolePolicyGraph.js';
+import { specialtyGateModesByFeature } from '../../config/specialtyDepartmentPolicy.js';
 import {
   ADMIN,
   PATIENT,
@@ -32,7 +33,14 @@ import {
 
 export class RBACService {
   static getPolicy() {
-    return getRolePolicy();
+    return {
+      ...getRolePolicy(),
+      // Runtime posture, deliberately OUTSIDE the hashed policy graph: the
+      // per-module specialty gate mode is an env knob the operator can flip
+      // without a policy version bump. The staff app enforces its department
+      // tile filter only for modules the server reports as 'enforce'.
+      specialty_gate_modes: specialtyGateModesByFeature(process.env),
+    };
   }
 
   // Resolve the acting admin's tenant_id so cross-tenant user mutations
