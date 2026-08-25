@@ -1476,14 +1476,29 @@ export const createPrescription = async (req, res) => {
       // Non-blocking — prescription still created
     }
 
-    // Fire-and-forget notification to patient
+    // Fire-and-forget notification to patient.
+    //
+    // The push half is privacy-stripped by sendPushNotification to a generic
+    // "You have a new update" that lands on /notifications, so the `inapp` row
+    // this dispatch writes IS the message. Its `type` is the string the patient
+    // app's inbox tap handler switches on
+    // (apps/patient/lib/features/notifications/screens/notifications_screen.dart
+    // `_handleNotificationTap`). That handler has no `prescription` case: the
+    // row rendered in the inbox and tapping it only marked it read.
+    // `pharmacy_order` is the routed type whose destination — /pharmacy, the
+    // order form plus order list — is where the patient acts on a ready
+    // prescription, which is what the body asks them to do.
     dispatch({
       userId: patient.phone || String(patient_id),
       title: '📋 Prescription Ready',
       body: `Your prescription ${prescription.prescription_number} is ready. Open the app to view and order medicines.`,
       channels: ['push', 'inapp'],
-      data: { type: 'prescription', prescriptionId: String(prescription.id) },
-      type: 'prescription'
+      data: {
+        type: 'pharmacy_order',
+        prescriptionId: String(prescription.id),
+        prescription_number: prescription.prescription_number,
+      },
+      type: 'pharmacy_order'
     }).catch(err => logger.error('Prescription notification failed:', err));
 
     // Phase 1.5 — best-effort ANC supplement propagation. Iron / folic

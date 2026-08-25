@@ -3,7 +3,7 @@
 // Roadmap C2 — live outbound HL7v2 feeds. The transformer generates the
 // messages; this service owns subscriptions, the durable per-subscription
 // queue, the retry/delivery worker and the emission hooks fired after
-// admission / discharge / lab sign-off commit.
+// admission / transfer / discharge / lab sign-off commit.
 //
 // Transport is the HTTP bridge (Content-Type x-application/hl7-v2+er7);
 // MLLP listeners owner-side terminate into the same bridge — mirroring the
@@ -15,7 +15,9 @@ import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
+import {
+  admissionToADT, dischargeToADT, resultToORU, transferToADT,
+} from './hl7Transformer.js';
 import {
   beginTransportAttempt,
   claimPendingFeedMessages,
@@ -27,7 +29,33 @@ import {
 export const MAX_DELIVERY_ATTEMPTS = 7;
 const REQUEST_TIMEOUT_MS = 10000;
 const MAX_ACK_BODY_BYTES = 64 * 1024;
-const SUPPORTED_TYPES = ['ADT^A01', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
+const SUPPORTED_TYPES = ['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
+
+/**
+ * The message types a subscription receives when the caller does not name any.
+ *
+ * These are exactly the types the platform emits AUTOMATICALLY after a
+ * clinical write commits — emitAdmissionAdt (A01), emitTransferAdt (A02),
+ * emitDischargeAdt (A03) and emitSignedResultsOru (ORU^R01). ORM^O01 is
+ * absent because nothing emits it automatically: it is only produced on
+ * demand by POST /api/v1/hl7/outbound, so a subscription would never see one.
+ *
+ * ADT^A02 was missing here (and from the column default) until migration 731.
+ * Because `queueFeedMessage` fans out on `$type = ANY(message_types)`, every
+ * feed created with the platform default made `emitTransferAdt` fan out to
+ * zero subscriptions — the transfer event was wired end to end and could not
+ * fire. Migration 731 carries the same list as the column DEFAULT, the whole
+ * argument for the change, and the reason existing rows are NOT backfilled;
+ * tests/unit/hl7OutboundTransferAdt.test.js pins this constant against the
+ * column default as projected into prisma/schema.prisma so the two cannot
+ * drift apart.
+ *
+ * A subscriber that must not receive one of these still passes an explicit
+ * `messageTypes` at create time.
+ */
+export const DEFAULT_FEED_MESSAGE_TYPES = Object.freeze([
+  'ADT^A01', 'ADT^A02', 'ADT^A03', 'ORU^R01',
+]);
 
 function encryptOptionalSecret(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -64,7 +92,7 @@ export async function listSubscriptions({ tenantId = null } = {}) {
 }
 
 export async function createSubscription({
-  name, endpointUrl, authHeader = null, messageTypes = ['ADT^A01', 'ADT^A03', 'ORU^R01'],
+  name, endpointUrl, authHeader = null, messageTypes = DEFAULT_FEED_MESSAGE_TYPES,
 } = {}, context = {}) {
   const tenantId = requireTenantId(context.tenantId);
   const cleanedName = (name || '').trim();
@@ -217,6 +245,63 @@ export async function emitAdmissionAdt(admission) {
     return queued;
   } catch (err) {
     logger.warn('ADT^A01 feed emission failed (admission unaffected)', { error: err?.message });
+    return 0;
+  }
+}
+
+/**
+ * ADT^A02 at an intra-hospital transfer (ward/bed move).
+ *
+ * Same shape as emitAdmissionAdt: post-commit, best-effort, swallows every
+ * error and returns the number of queue rows created. It NEVER throws into
+ * the transfer that already committed.
+ *
+ * `transferId` is the `bed_transfers` row id and it is load-bearing, not
+ * decoration. queueFeedMessage's dedupe identity is
+ * (tenant, subscription, source_event_key, message_type), and
+ * source_event_key is `${sourceTable}:${sourceId}`. Keying an A02 on the
+ * ADMISSION would make every later move of the same admission collide with
+ * the first one — same identity, different bytes — which queueFeedMessage
+ * correctly refuses as HL7_OUTBOUND_SOURCE_IDENTITY_CONFLICT, so the second
+ * and every subsequent transfer would emit nothing. One bed move is one
+ * bed_transfers row, so that id is the natural per-move identity. Without
+ * one we deliberately fall back to queueFeedMessage's `message-control:`
+ * key (unique per generated MSH-10) rather than reuse an admission key.
+ *
+ * The four I04 state planes are untouched here: this only queues the intent
+ * with transport_state='not_attempted' / acknowledgement_state='pending' /
+ * send_authority='authorized'. Transport evidence, the parsed ACK and the
+ * delivery cursor stay the delivery worker's and the ledger's business — a
+ * queued A02 is not a sent one, and a sent one is not a delivered one.
+ */
+export async function emitTransferAdt(admission, {
+  transferId = null, priorWard = null, priorBedNumber = null,
+} = {}) {
+  try {
+    if (!admission?.patient_uid) return 0;
+    const patient = await loadPatient(admission.patient_uid);
+    if (!patient) return 0;
+    const hasTransferId = transferId !== null
+      && transferId !== undefined
+      && String(transferId).trim() !== '';
+    const queued = await queueFeedMessage({
+      messageType: 'ADT^A02',
+      hl7Payload: transferToADT(admission, patient, { priorWard, priorBedNumber }),
+      sourceTable: hasTransferId ? 'bed_transfers' : null,
+      sourceId: hasTransferId ? String(transferId) : null,
+      patientUid: admission.patient_uid,
+      tenantId: patient.tenant_id,
+    });
+    if (queued > 0) {
+      logger.info('ADT^A02 queued for outbound feeds', {
+        admission_id: admission.id,
+        transfer_id: hasTransferId ? String(transferId) : null,
+        queued,
+      });
+    }
+    return queued;
+  } catch (err) {
+    logger.warn('ADT^A02 feed emission failed (transfer unaffected)', { error: err?.message });
     return 0;
   }
 }
@@ -477,12 +562,14 @@ export async function listFeedMessages({ status = null, limit = 50, tenantId = n
 
 export default {
   MAX_DELIVERY_ATTEMPTS,
+  DEFAULT_FEED_MESSAGE_TYPES,
   nextAttemptDelayMinutes,
   listSubscriptions,
   createSubscription,
   deactivateSubscription,
   queueFeedMessage,
   emitAdmissionAdt,
+  emitTransferAdt,
   emitDischargeAdt,
   emitSignedResultsOru,
   deliverPendingFeedMessages,

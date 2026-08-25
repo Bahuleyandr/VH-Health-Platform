@@ -6019,7 +6019,7 @@ model hl7_feed_subscriptions {
   name                          String                         @db.VarChar(120)
   endpoint_url                  String
   auth_header                   String?
-  message_types                 String[]                       @default(["ADT^A01", "ADT^A03", "ORU^R01"])
+  message_types                 String[]                       @default(["ADT^A01", "ADT^A02", "ADT^A03", "ORU^R01"])
   is_active                     Boolean                        @default(true)
   last_delivery_at              DateTime?                      @db.Timestamptz(6)
   created_by                    String?                        @db.Uuid

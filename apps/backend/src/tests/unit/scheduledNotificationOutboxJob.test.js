@@ -1,12 +1,17 @@
 import { jest } from '@jest/globals';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '33333333-3333-4333-8333-333333333333';
 const queryRawUnsafeMock = jest.fn();
+const executeRawUnsafeMock = jest.fn();
 const notificationOutboxQueueMock = jest.fn();
 const loggerMock = {
   info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
 };
-const prismaDouble = { $queryRawUnsafe: queryRawUnsafeMock };
+const prismaDouble = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $executeRawUnsafe: executeRawUnsafeMock,
+};
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaDouble,
@@ -44,6 +49,8 @@ const dueNotification = {
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockResolvedValue(1);
   notificationOutboxQueueMock.mockReset();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
@@ -60,6 +67,9 @@ describe('scheduled notification durable outbox handoff', () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([dueNotification])
+      // recordPatientFeedNotification resolves the recipient's identity
+      // columns before writing the in-app row.
+      .mockResolvedValueOnce([{ id: 77, uid: PATIENT_UID, phone: '+919876500077' }])
       .mockResolvedValueOnce([{ id: 41n, status: 'queued', sent_at: null }]);
 
     const result = await processPendingScheduledNotifications({ tenantId: TENANT_ID });
@@ -79,6 +89,61 @@ describe('scheduled notification durable outbox handoff', () => {
     }), { strict: true });
     const writes = queryRawUnsafeMock.mock.calls.map(([sql]) => String(sql));
     expect(writes.some(sql => sql.includes("SET status='sent'"))).toBe(false);
+  });
+
+  // The push this intent becomes is privacy-stripped to a generic "open the
+  // app" that lands on /notifications, and `feedback_request` has no tenant
+  // preference key so the drain's channels always resolve legacy ['push'] —
+  // nothing else writes the readable copy. Without this row the patient is
+  // buzzed into an empty inbox two hours after their visit.
+  it('writes the in-app feed row the privacy-stripped push points at', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([dueNotification])
+      .mockResolvedValueOnce([{ id: 77, uid: PATIENT_UID, phone: '+919876500077' }])
+      .mockResolvedValueOnce([]);
+
+    await processPendingScheduledNotifications({ tenantId: TENANT_ID });
+
+    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
+    const [sql, ...params] = executeRawUnsafeMock.mock.calls[0];
+    expect(String(sql)).toContain('INSERT INTO notifications');
+    // tenant_id bound explicitly ($8), never left to the column DEFAULT — a
+    // defaulted row lands on the literal default tenant and is invisible to
+    // the recipient, whose inbox reader filters on tenant_id.
+    expect(String(sql)).toContain('$8::uuid');
+    expect(params[0]).toBe(PATIENT_UID);
+    expect(params[1]).toBe(77);
+    // A type the patient app's inbox tap handler actually routes.
+    expect(params[5]).toBe('feedback_request');
+    expect(params[7]).toBe(TENANT_ID);
+  });
+
+  it('does not write a feed row when the durable enqueue never happened', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([dueNotification])
+      .mockResolvedValueOnce([{ id: 41n, status: 'retrying' }])
+      .mockResolvedValueOnce([]);
+    notificationOutboxQueueMock.mockRejectedValue(new Error('database unavailable'));
+
+    await processPendingScheduledNotifications({ tenantId: TENANT_ID });
+
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('does not write a second feed row when the outbox reports a duplicate intent', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([dueNotification])
+      .mockResolvedValueOnce([]);
+    notificationOutboxQueueMock.mockResolvedValue({
+      id: 901, status: 'PENDING', duplicate: true,
+    });
+
+    await processPendingScheduledNotifications({ tenantId: TENANT_ID });
+
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('leaves an explicit retry state when the durable enqueue fails', async () => {

@@ -1,13 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/services/ed_trauma_api_service.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/ed_continuity_panel.dart';
+
+/// Channel the workbench watches. `staff:ed-board` carries exactly three
+/// events, all emitted by `realtimeEmitter.emitEdBoardEvent` from
+/// `routes/admin/edRoutes.js`: `arrival` (`POST /visits`), `transition`
+/// (`PATCH /visits/:id/transition`) and `priority`
+/// (`PATCH /visits/:id/triage-priority`). A transition is what consumes an
+/// accepted destination handoff, so a peer closing a handoff out that way does
+/// move the worklist below, and this subscription picks it up.
+///
+/// KNOWN GAP — nothing else does. The handoff request, decision and reroute
+/// routes (`POST /visits/:id/destination-handoffs`, `.../decisions`,
+/// `.../reroute`) emit no realtime event at all, on this channel or any other.
+/// The clinician who performs one of those actions sees the result because the
+/// action reloads the worklist inline; a peer watching this screen does not,
+/// until the next arrival/transition/priority event, a manual refresh or
+/// pull-to-refresh, or the degraded-mode fallback poll the status banner runs
+/// while realtime is unavailable. Peer-driven handoff traffic is therefore not
+/// live here; closing that gap needs an emit on those three routes.
+const String edBoardRealtimeChannel = 'staff:ed-board';
+
+typedef RealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
 
 typedef EdPolicyLoader = Future<Map<String, dynamic>> Function();
 typedef StemiActivationCreator = Future<Map<String, dynamic>> Function(
@@ -45,6 +72,7 @@ class EdTraumaWorkbenchScreen extends StatefulWidget {
     this.requestDestinationHandoff,
     this.decideDestinationHandoff,
     this.rerouteDestinationHandoff,
+    this.realtimeEvents,
   });
 
   final EdPolicyLoader? loadPolicy;
@@ -53,6 +81,9 @@ class EdTraumaWorkbenchScreen extends StatefulWidget {
   final EdDestinationHandoffRequester? requestDestinationHandoff;
   final EdDestinationHandoffDecider? decideDestinationHandoff;
   final EdDestinationHandoffRerouter? rerouteDestinationHandoff;
+
+  /// Test seam. When null the screen listens on the shared [RealtimeClient].
+  final RealtimeEventStreamFactory? realtimeEvents;
 
   @override
   State<EdTraumaWorkbenchScreen> createState() =>
@@ -104,15 +135,59 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
   String? _message;
   Map<String, dynamic>? _policy;
   List<Map<String, dynamic>> _destinationHandoffs = const [];
+  StreamSubscription<RealtimeEvent>? _edBoardSub;
+  Timer? _refreshDebounce;
 
   @override
   void initState() {
     super.initState();
     _loadPolicy();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final injectedEvents = widget.realtimeEvents;
+    if (injectedEvents != null) {
+      _edBoardSub = injectedEvents(edBoardRealtimeChannel)
+          .listen(_handleRealtimeNudge);
+      return;
+    }
+
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    if (!mounted) return;
+    _edBoardSub = rt
+        .events(edBoardRealtimeChannel)
+        .listen(_handleRealtimeNudge);
+  }
+
+  void _handleRealtimeNudge(RealtimeEvent _) => _debouncedRefresh();
+
+  /// Background refresh only. It deliberately never touches [_loading] or the
+  /// text controllers: an ED arrival must not blank a half-typed trauma
+  /// activation out from under the clinician filling it in.
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      unawaited(_backgroundReloadDestinationHandoffs());
+    });
+  }
+
+  Future<void> _backgroundReloadDestinationHandoffs() async {
+    try {
+      await _reloadDestinationHandoffs();
+    } catch (error) {
+      // A failed background refresh keeps the last-known worklist on screen;
+      // the manual refresh action and pull-to-refresh still surface errors.
+      debugPrint('ED board background refresh failed: $error');
+    }
   }
 
   @override
   void dispose() {
+    _edBoardSub?.cancel();
+    _refreshDebounce?.cancel();
     for (final controller in [
       _stemiVisitId,
       _stemiPatientUid,
@@ -591,319 +666,348 @@ class _EdTraumaWorkbenchScreenState extends State<EdTraumaWorkbenchScreen> {
         ],
       ),
       body: ConstrainedContent(
-        child: _loading && _policy == null
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _loadPolicy,
-                child: ListView(
-                  key: const ValueKey('ed-trauma-workbench-scroll'),
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                  children: [
-                    _PolicyBanner(active: active, scale: policyScale),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      _MessageBanner(message: _error!, isError: true),
-                    ],
-                    if (_message != null) ...[
-                      const SizedBox(height: 12),
-                      _MessageBanner(message: _message!, isError: false),
-                    ],
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.handoff.title'),
-                      icon: Icons.move_down_outlined,
-                      children: [
-                        _TextField(
-                          fieldKey: const ValueKey('ed-handoff-visit-id'),
-                          controller: _handoffVisitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _SelectField(
-                          label: s.lookup('ed_trauma.handoff.destination'),
-                          value: _handoffDestination,
-                          values: const [
-                            'ward',
-                            'icu',
-                            'hdu',
-                            'surgery',
-                            'external_transfer',
+        child: Column(
+          children: [
+            RealtimeStatusBanner(
+              watchChannels: const {edBoardRealtimeChannel},
+              deniedMessageKey: 's4.lib.realtime_status.stale',
+              fallbackPoll: _backgroundReloadDestinationHandoffs,
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            ),
+            Expanded(
+              child: _loading && _policy == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _loadPolicy,
+                      child: ListView(
+                        key: const ValueKey('ed-trauma-workbench-scroll'),
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                        children: [
+                          _PolicyBanner(active: active, scale: policyScale),
+                          if (_error != null) ...[
+                            const SizedBox(height: 12),
+                            _MessageBanner(message: _error!, isError: true),
                           ],
-                          onChanged: (value) =>
-                              setState(() => _handoffDestination = value),
-                        ),
-                        _TextField(
-                          fieldKey: const ValueKey('ed-handoff-role'),
-                          controller: _handoffRole,
-                          label: s.lookup('ed_trauma.handoff.receiving_role'),
-                        ),
-                        _TextField(
-                          fieldKey: const ValueKey('ed-handoff-reason'),
-                          controller: _handoffReason,
-                          label: s.lookup('ed_trauma.handoff.reason'),
-                          maxLines: 2,
-                        ),
-                        _SubmitButton(
-                          key: const ValueKey('ed-handoff-request'),
-                          label: s.lookup('ed_trauma.handoff.request'),
-                          icon: Icons.outbox_outlined,
-                          busy: _loading,
-                          onPressed: _requestDestinationHandoff,
-                        ),
-                        if (_destinationHandoffs.isEmpty)
-                          Text(s.lookup('ed_trauma.handoff.empty'))
-                        else
-                          ..._destinationHandoffs.map(
-                            (handoff) => _DestinationHandoffCard(
-                              handoff: handoff,
-                              busy: _loading,
-                              onAccept: () =>
-                                  _decideDestinationHandoff(handoff, 'accept'),
-                              onDecline: () =>
-                                  _decideDestinationHandoff(handoff, 'decline'),
-                              onReroute: () => _rerouteHandoff(handoff),
-                            ),
+                          if (_message != null) ...[
+                            const SizedBox(height: 12),
+                            _MessageBanner(message: _message!, isError: false),
+                          ],
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.handoff.title'),
+                            icon: Icons.move_down_outlined,
+                            children: [
+                              _TextField(
+                                fieldKey: const ValueKey('ed-handoff-visit-id'),
+                                controller: _handoffVisitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _SelectField(
+                                label: s.lookup(
+                                  'ed_trauma.handoff.destination',
+                                ),
+                                value: _handoffDestination,
+                                values: const [
+                                  'ward',
+                                  'icu',
+                                  'hdu',
+                                  'surgery',
+                                  'external_transfer',
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _handoffDestination = value),
+                              ),
+                              _TextField(
+                                fieldKey: const ValueKey('ed-handoff-role'),
+                                controller: _handoffRole,
+                                label: s.lookup(
+                                  'ed_trauma.handoff.receiving_role',
+                                ),
+                              ),
+                              _TextField(
+                                fieldKey: const ValueKey('ed-handoff-reason'),
+                                controller: _handoffReason,
+                                label: s.lookup('ed_trauma.handoff.reason'),
+                                maxLines: 2,
+                              ),
+                              _SubmitButton(
+                                key: const ValueKey('ed-handoff-request'),
+                                label: s.lookup('ed_trauma.handoff.request'),
+                                icon: Icons.outbox_outlined,
+                                busy: _loading,
+                                onPressed: _requestDestinationHandoff,
+                              ),
+                              if (_destinationHandoffs.isEmpty)
+                                Text(s.lookup('ed_trauma.handoff.empty'))
+                              else
+                                ..._destinationHandoffs.map(
+                                  (handoff) => _DestinationHandoffCard(
+                                    handoff: handoff,
+                                    busy: _loading,
+                                    onAccept: () => _decideDestinationHandoff(
+                                      handoff,
+                                      'accept',
+                                    ),
+                                    onDecline: () => _decideDestinationHandoff(
+                                      handoff,
+                                      'decline',
+                                    ),
+                                    onReroute: () => _rerouteHandoff(handoff),
+                                  ),
+                                ),
+                            ],
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.stemi.title'),
-                      icon: Icons.monitor_heart_outlined,
-                      children: [
-                        _TextField(
-                          fieldKey: const ValueKey('stemi-ed-visit-id'),
-                          controller: _stemiVisitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _TextField(
-                          fieldKey: const ValueKey('stemi-patient-uid'),
-                          controller: _stemiPatientUid,
-                          label: s.lookup('ed_trauma.patient_uid'),
-                        ),
-                        _SubmitButton(
-                          key: const ValueKey('code-stemi-activate'),
-                          label: s.lookup('ed_trauma.stemi.activate'),
-                          icon: Icons.monitor_heart_outlined,
-                          busy: _loading,
-                          onPressed: _submitStemiActivation,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.activation'),
-                      icon: Icons.emergency_share_outlined,
-                      children: [
-                        _TextField(
-                          controller: _activationNumber,
-                          label: s.lookup('ed_trauma.activation_number'),
-                        ),
-                        _TextField(
-                          controller: _visitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _TextField(
-                          controller: _patientUid,
-                          label: s.lookup('ed_trauma.patient_uid'),
-                        ),
-                        _TextField(
-                          controller: _activationReason,
-                          label: s.lookup('ed_trauma.reason'),
-                          maxLines: 2,
-                        ),
-                        _SelectField(
-                          label: s.lookup('ed_trauma.level'),
-                          value: _activationLevel,
-                          values: const [
-                            'standby',
-                            'partial',
-                            'full',
-                            'mass_casualty',
-                          ],
-                          onChanged: (value) =>
-                              setState(() => _activationLevel = value),
-                        ),
-                        _TextField(
-                          controller: _teamLeaderUid,
-                          label: s.lookup('ed_trauma.team_leader_uid'),
-                        ),
-                        _TextField(
-                          controller: _roleCode,
-                          label: s.lookup('ed_trauma.role_code'),
-                        ),
-                        _SubmitButton(
-                          label: s.lookup('ed_trauma.save_activation'),
-                          busy: _loading,
-                          onPressed: _submitActivation,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.survey'),
-                      icon: Icons.fact_check_outlined,
-                      children: [
-                        _TextField(
-                          controller: _surveyActivationId,
-                          label: s.lookup('ed_trauma.activation_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _TextField(
-                          controller: _surveyVisitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _SelectField(
-                          label: s.lookup('ed_trauma.survey_kind'),
-                          value: _surveyKind,
-                          values: const [
-                            'primary',
-                            'secondary',
-                            'reassessment',
-                          ],
-                          onChanged: (value) =>
-                              setState(() => _surveyKind = value),
-                        ),
-                        _TextField(
-                          controller: _airway,
-                          label: s.lookup('ed_trauma.airway'),
-                        ),
-                        _TextField(
-                          controller: _breathing,
-                          label: s.lookup('ed_trauma.breathing'),
-                        ),
-                        _TextField(
-                          controller: _circulation,
-                          label: s.lookup('ed_trauma.circulation'),
-                        ),
-                        _TextField(
-                          controller: _disability,
-                          label: s.lookup('ed_trauma.disability'),
-                        ),
-                        _TextField(
-                          controller: _exposure,
-                          label: s.lookup('ed_trauma.exposure'),
-                        ),
-                        _TextField(
-                          controller: _citation,
-                          label: s.lookup('ed_trauma.source_citation'),
-                        ),
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          value: _surveyComplete,
-                          onChanged: (value) =>
-                              setState(() => _surveyComplete = value ?? false),
-                          title: Text(s.lookup('ed_trauma.mark_complete')),
-                        ),
-                        _SubmitButton(
-                          label: s.lookup('ed_trauma.save_survey'),
-                          busy: _loading,
-                          onPressed: _submitSurvey,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.mlc'),
-                      icon: Icons.gavel_outlined,
-                      children: [
-                        _TextField(
-                          controller: _mlcId,
-                          label: s.lookup('ed_trauma.mlc_record_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _TextField(
-                          controller: _mlcVisitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _TextField(
-                          controller: _allegedHistory,
-                          label: s.lookup('ed_trauma.alleged_history'),
-                          maxLines: 2,
-                        ),
-                        _TextField(
-                          controller: _injuryDescription,
-                          label: s.lookup('ed_trauma.injury_description'),
-                          maxLines: 2,
-                        ),
-                        _TextField(
-                          controller: _certificateSignerUid,
-                          label: s.lookup('ed_trauma.signer_uid'),
-                        ),
-                        _CheckTile(
-                          value: _injuryDiagramComplete,
-                          label: s.lookup('ed_trauma.injury_diagram_complete'),
-                          onChanged: (value) =>
-                              setState(() => _injuryDiagramComplete = value),
-                        ),
-                        _CheckTile(
-                          value: _policeNotificationComplete,
-                          label: s.lookup('ed_trauma.police_complete'),
-                          onChanged: (value) => setState(
-                            () => _policeNotificationComplete = value,
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.stemi.title'),
+                            icon: Icons.monitor_heart_outlined,
+                            children: [
+                              _TextField(
+                                fieldKey: const ValueKey('stemi-ed-visit-id'),
+                                controller: _stemiVisitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _TextField(
+                                fieldKey: const ValueKey('stemi-patient-uid'),
+                                controller: _stemiPatientUid,
+                                label: s.lookup('ed_trauma.patient_uid'),
+                              ),
+                              _SubmitButton(
+                                key: const ValueKey('code-stemi-activate'),
+                                label: s.lookup('ed_trauma.stemi.activate'),
+                                icon: Icons.monitor_heart_outlined,
+                                busy: _loading,
+                                onPressed: _submitStemiActivation,
+                              ),
+                            ],
                           ),
-                        ),
-                        _CheckTile(
-                          value: _chainOfCustodyComplete,
-                          label: s.lookup('ed_trauma.custody_complete'),
-                          onChanged: (value) =>
-                              setState(() => _chainOfCustodyComplete = value),
-                        ),
-                        _SubmitButton(
-                          label: s.lookup('ed_trauma.save_mlc'),
-                          busy: _loading,
-                          onPressed: _submitMlc,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _Section(
-                      title: s.lookup('ed_trauma.evidence'),
-                      icon: Icons.monitor_heart_outlined,
-                      children: [
-                        _TextField(
-                          controller: _evidenceVisitId,
-                          label: s.lookup('ed_trauma.ed_visit_id'),
-                          keyboardType: TextInputType.number,
-                        ),
-                        _SelectField(
-                          label: s.lookup('ed_trauma.evidence_kind'),
-                          value: _evidenceKind,
-                          values: const [
-                            'vital_snapshot',
-                            'device_observation',
-                          ],
-                          onChanged: (value) =>
-                              setState(() => _evidenceKind = value),
-                        ),
-                        if (_evidenceKind == 'vital_snapshot')
-                          _TextField(
-                            controller: _vitalsChartId,
-                            label: s.lookup('ed_trauma.vitals_chart_id'),
-                            keyboardType: TextInputType.number,
-                          )
-                        else
-                          _TextField(
-                            controller: _deviceObservationId,
-                            label: s.lookup('ed_trauma.device_observation_id'),
-                            keyboardType: TextInputType.number,
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.activation'),
+                            icon: Icons.emergency_share_outlined,
+                            children: [
+                              _TextField(
+                                controller: _activationNumber,
+                                label: s.lookup('ed_trauma.activation_number'),
+                              ),
+                              _TextField(
+                                controller: _visitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _TextField(
+                                controller: _patientUid,
+                                label: s.lookup('ed_trauma.patient_uid'),
+                              ),
+                              _TextField(
+                                controller: _activationReason,
+                                label: s.lookup('ed_trauma.reason'),
+                                maxLines: 2,
+                              ),
+                              _SelectField(
+                                label: s.lookup('ed_trauma.level'),
+                                value: _activationLevel,
+                                values: const [
+                                  'standby',
+                                  'partial',
+                                  'full',
+                                  'mass_casualty',
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _activationLevel = value),
+                              ),
+                              _TextField(
+                                controller: _teamLeaderUid,
+                                label: s.lookup('ed_trauma.team_leader_uid'),
+                              ),
+                              _TextField(
+                                controller: _roleCode,
+                                label: s.lookup('ed_trauma.role_code'),
+                              ),
+                              _SubmitButton(
+                                label: s.lookup('ed_trauma.save_activation'),
+                                busy: _loading,
+                                onPressed: _submitActivation,
+                              ),
+                            ],
                           ),
-                        _SubmitButton(
-                          label: s.lookup('ed_trauma.save_evidence'),
-                          busy: _loading,
-                          onPressed: _submitEvidence,
-                        ),
-                      ],
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.survey'),
+                            icon: Icons.fact_check_outlined,
+                            children: [
+                              _TextField(
+                                controller: _surveyActivationId,
+                                label: s.lookup('ed_trauma.activation_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _TextField(
+                                controller: _surveyVisitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _SelectField(
+                                label: s.lookup('ed_trauma.survey_kind'),
+                                value: _surveyKind,
+                                values: const [
+                                  'primary',
+                                  'secondary',
+                                  'reassessment',
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _surveyKind = value),
+                              ),
+                              _TextField(
+                                controller: _airway,
+                                label: s.lookup('ed_trauma.airway'),
+                              ),
+                              _TextField(
+                                controller: _breathing,
+                                label: s.lookup('ed_trauma.breathing'),
+                              ),
+                              _TextField(
+                                controller: _circulation,
+                                label: s.lookup('ed_trauma.circulation'),
+                              ),
+                              _TextField(
+                                controller: _disability,
+                                label: s.lookup('ed_trauma.disability'),
+                              ),
+                              _TextField(
+                                controller: _exposure,
+                                label: s.lookup('ed_trauma.exposure'),
+                              ),
+                              _TextField(
+                                controller: _citation,
+                                label: s.lookup('ed_trauma.source_citation'),
+                              ),
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: _surveyComplete,
+                                onChanged: (value) => setState(
+                                  () => _surveyComplete = value ?? false,
+                                ),
+                                title: Text(
+                                  s.lookup('ed_trauma.mark_complete'),
+                                ),
+                              ),
+                              _SubmitButton(
+                                label: s.lookup('ed_trauma.save_survey'),
+                                busy: _loading,
+                                onPressed: _submitSurvey,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.mlc'),
+                            icon: Icons.gavel_outlined,
+                            children: [
+                              _TextField(
+                                controller: _mlcId,
+                                label: s.lookup('ed_trauma.mlc_record_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _TextField(
+                                controller: _mlcVisitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _TextField(
+                                controller: _allegedHistory,
+                                label: s.lookup('ed_trauma.alleged_history'),
+                                maxLines: 2,
+                              ),
+                              _TextField(
+                                controller: _injuryDescription,
+                                label: s.lookup('ed_trauma.injury_description'),
+                                maxLines: 2,
+                              ),
+                              _TextField(
+                                controller: _certificateSignerUid,
+                                label: s.lookup('ed_trauma.signer_uid'),
+                              ),
+                              _CheckTile(
+                                value: _injuryDiagramComplete,
+                                label: s.lookup(
+                                  'ed_trauma.injury_diagram_complete',
+                                ),
+                                onChanged: (value) => setState(
+                                  () => _injuryDiagramComplete = value,
+                                ),
+                              ),
+                              _CheckTile(
+                                value: _policeNotificationComplete,
+                                label: s.lookup('ed_trauma.police_complete'),
+                                onChanged: (value) => setState(
+                                  () => _policeNotificationComplete = value,
+                                ),
+                              ),
+                              _CheckTile(
+                                value: _chainOfCustodyComplete,
+                                label: s.lookup('ed_trauma.custody_complete'),
+                                onChanged: (value) => setState(
+                                  () => _chainOfCustodyComplete = value,
+                                ),
+                              ),
+                              _SubmitButton(
+                                label: s.lookup('ed_trauma.save_mlc'),
+                                busy: _loading,
+                                onPressed: _submitMlc,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _Section(
+                            title: s.lookup('ed_trauma.evidence'),
+                            icon: Icons.monitor_heart_outlined,
+                            children: [
+                              _TextField(
+                                controller: _evidenceVisitId,
+                                label: s.lookup('ed_trauma.ed_visit_id'),
+                                keyboardType: TextInputType.number,
+                              ),
+                              _SelectField(
+                                label: s.lookup('ed_trauma.evidence_kind'),
+                                value: _evidenceKind,
+                                values: const [
+                                  'vital_snapshot',
+                                  'device_observation',
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _evidenceKind = value),
+                              ),
+                              if (_evidenceKind == 'vital_snapshot')
+                                _TextField(
+                                  controller: _vitalsChartId,
+                                  label: s.lookup('ed_trauma.vitals_chart_id'),
+                                  keyboardType: TextInputType.number,
+                                )
+                              else
+                                _TextField(
+                                  controller: _deviceObservationId,
+                                  label: s.lookup(
+                                    'ed_trauma.device_observation_id',
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                ),
+                              _SubmitButton(
+                                label: s.lookup('ed_trauma.save_evidence'),
+                                busy: _loading,
+                                onPressed: _submitEvidence,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          const EdContinuityPanel(),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    const EdContinuityPanel(),
-                  ],
-                ),
-              ),
+            ),
+          ],
+        ),
       ),
     );
   }

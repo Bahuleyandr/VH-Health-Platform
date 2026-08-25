@@ -187,6 +187,70 @@ function readBackendStringArray(path, variableName) {
   return values;
 }
 
+// `home`, `messages` and `alerts` are chrome the Staff shell always renders
+// (dashboard, message centre, alert centre). They are advertised in the staff
+// feature catalog for sidebar ordering but are not route-gated features, so
+// they have no contract entry by design. Everything else must.
+const CATALOG_ONLY_SHELL_FEATURE_IDS = new Set(['home', 'messages', 'alerts']);
+
+/**
+ * One staff feature vocabulary, enforced at generation time.
+ *
+ * Three surfaces name staff features: this contract (what role_config.dart and
+ * staff_route_policy.dart authorize against), rolePolicyGraph's
+ * STAFF_FEATURE_CATALOG (what GET /api/v1/rbac/policy advertises), and
+ * UI_FEATURES_BY_ROLE (which the Staff desktop rail applies as a narrowing
+ * filter once that policy loads). They drifted silently once: the catalog
+ * declared `staff_roster_hub` while every role entry said `staff_roster`, four
+ * more roster ids were referenced but never declared, and `payroll` appeared in
+ * neither — so Payroll and Staff Roster disappeared from the rail for roles
+ * that hold them, with every test green. Fail the generated-contract gate
+ * instead of shipping that again.
+ */
+function assertOneStaffFeatureVocabulary(featureRouteRoles) {
+  const contractIds = new Set(Object.keys(featureRouteRoles));
+  const catalogIds = new Set(ROLE_POLICY_GRAPH.staff_features.map((f) => f.id));
+  const problems = [];
+
+  const undeclaredCatalogIds = [...catalogIds].filter(
+    (id) => !contractIds.has(id) && !CATALOG_ONLY_SHELL_FEATURE_IDS.has(id),
+  );
+  if (undeclaredCatalogIds.length > 0) {
+    problems.push(
+      `STAFF_FEATURE_CATALOG ids with no staff-contract entry: ${undeclaredCatalogIds.join(', ')}`,
+    );
+  }
+
+  const roleFeatureIds = new Set(
+    Object.values(ROLE_POLICY_GRAPH.staff_features_by_role).flat(),
+  );
+  const roleIdsMissingFromContract = [...roleFeatureIds].filter(
+    (id) => !contractIds.has(id),
+  );
+  if (roleIdsMissingFromContract.length > 0) {
+    problems.push(
+      `UI_FEATURES_BY_ROLE ids with no staff-contract entry: ${roleIdsMissingFromContract.join(', ')}`,
+    );
+  }
+
+  const roleIdsMissingFromCatalog = [...roleFeatureIds].filter(
+    (id) => !catalogIds.has(id),
+  );
+  if (roleIdsMissingFromCatalog.length > 0) {
+    problems.push(
+      `UI_FEATURES_BY_ROLE ids never declared in STAFF_FEATURE_CATALOG: ${roleIdsMissingFromCatalog.join(', ')}`,
+    );
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      'Staff feature vocabularies disagree. The staff contract, '
+        + 'STAFF_FEATURE_CATALOG and UI_FEATURES_BY_ROLE must name features '
+        + `identically.\n  - ${problems.join('\n  - ')}`,
+    );
+  }
+}
+
 function dartString(value) {
   return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
 }
@@ -379,6 +443,7 @@ export function buildStaffRoleContract() {
       uniqueStaff(roles, staffRoleCodes),
     ]),
   );
+  assertOneStaffFeatureVocabulary(featureRouteRoles);
 
   // Specialty tiles filter by the USER department, not the role. Feature ids
   // map to the backend gate keys via SPECIALTY_FEATURE_KEYS — derived from the

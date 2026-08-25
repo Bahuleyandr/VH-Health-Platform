@@ -1463,6 +1463,18 @@ app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBo
 app.use('/api/v1/drug-kb', requireRole(...CLINICAL_STAFF_ROLES), drugKbRoutes);
 
 // BCMA support (roadmap B1) — wristband printing for the bedside scan loop.
+// This mount guard does NOT decide who gets a band. Express has not matched the
+// route when a mount-level middleware runs, so the :patientUid param is not yet
+// in req.params and authorizePatientAccessRequest short-circuits on
+// no_patient_context — no policy evaluated, no audit row, in shadow AND in
+// enforce (measured: one wristband request writes exactly one
+// patient_access_audit_log row, pinned by
+// src/tests/bcma-wristband-admin-access.deep.test.js). The authority is
+// bcmaRoutes' own guard, which carries PATIENT_WRISTBAND_PRINT — the policy
+// holding the owner's 2026-08-25 administrator grant. Giving this line an
+// explicit policyCode was tried and reverted: it would have been a control that
+// can never fire. The phiAccessLogger below is the part of this chain that does
+// real work here (the hipaa_access_log PHI-read row).
 app.use('/api/v1/bcma', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('BCMA', { careTeamModeGoverned: true }), phiAccessLogger('BCMA'), bcmaRoutes);
 
 // Medication reconciliation (roadmap B6) — admission/transfer/discharge.

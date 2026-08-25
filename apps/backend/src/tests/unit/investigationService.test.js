@@ -75,6 +75,21 @@ jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationS
   createSharedInvestigationGenerationTx: createSharedInvestigationGenerationTxMock,
 }));
 
+// The result-ready push is privacy-stripped by sendPushNotification to a
+// generic "You have a new update" that lands on /notifications, so the in-app
+// row is the whole message. addResults imports this module lazily, after the
+// clinical transaction has committed.
+const outboxDrainWillWriteFeedRowMock = jest.fn();
+const recordPatientFeedNotificationMock = jest.fn();
+jest.unstable_mockModule('../../utils/notifications/patientNotificationFeed.js', () => ({
+  outboxDrainWillWriteFeedRow: outboxDrainWillWriteFeedRowMock,
+  recordPatientFeedNotification: recordPatientFeedNotificationMock,
+  default: {
+    outboxDrainWillWriteFeedRow: outboxDrainWillWriteFeedRowMock,
+    recordPatientFeedNotification: recordPatientFeedNotificationMock,
+  },
+}));
+
 const {
   getDoctorInvestigations,
   getInvestigations,
@@ -101,6 +116,8 @@ beforeEach(() => {
   enqueueCriticalResultTaskMock.mockReset().mockResolvedValue({ created: true, taskId: 1 });
   ensureCriticalResultTaskOpenMock.mockReset().mockResolvedValue({ created: true, taskId: 2 });
   notificationQueueMock.mockReset().mockResolvedValue({ id: 9, status: 'PENDING' });
+  outboxDrainWillWriteFeedRowMock.mockReset().mockResolvedValue(false);
+  recordPatientFeedNotificationMock.mockReset().mockResolvedValue(true);
   createSharedInvestigationGenerationTxMock.mockReset().mockResolvedValue({
     id: '22222222-2222-4222-8222-222222222222',
     classification: 'indeterminate',
@@ -257,6 +274,74 @@ describe('investigationService critical-result task routing', () => {
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledTimes(1);
     expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
     expect(notificationQueueMock).not.toHaveBeenCalled();
+  });
+
+  // ── the readable copy behind the result-ready push ───────────────────────
+  //
+  // notificationPayload is built only when getResultEpisodeReleaseDecision
+  // reports `visible`, which it does by counting released `lab_results` rows
+  // joined to this investigation — that is what the raw mock below stands in
+  // for. Before this fix the branch queued a push-only outbox intent and wrote
+  // nothing else, so the patient was buzzed into an empty inbox.
+  describe('patient result-ready feed row', () => {
+    function releaseVisibleResult() {
+      queryRawMock.mockResolvedValue([{ result_count: 1, all_visible: true }]);
+      findUniqueMock.mockResolvedValueOnce({
+        id: 51,
+        results: null,
+        interpretation: null,
+        status: 'COLLECTED',
+        completed_at: null,
+        previous_results: null,
+        result_version: 1,
+      });
+      updateMock.mockResolvedValueOnce(updatedInvestigation(1, {
+        results: normalResults,
+        resultSummary: 'Potassium: 4.2',
+        patient: { id: 7, name: 'Patient One', phone: '9876543210' },
+      }));
+    }
+
+    it('writes the in-app row the privacy-stripped push points at', async () => {
+      releaseVisibleResult();
+
+      await addResults(51, { results: normalResults }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH');
+
+      expect(notificationQueueMock).toHaveBeenCalledTimes(1);
+      expect(recordPatientFeedNotificationMock).toHaveBeenCalledTimes(1);
+      expect(recordPatientFeedNotificationMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          userId: 7,
+          phone: '9876543210',
+          // Routed by the patient app's inbox tap handler to
+          // /portal/lab-results — where the released lab_results rows that
+          // made this notification eligible actually are.
+          type: 'lab_result_ready',
+        }),
+      );
+    });
+
+    it('does not double-write when the tenant already routes results in-app', async () => {
+      releaseVisibleResult();
+      outboxDrainWillWriteFeedRowMock.mockResolvedValue(true);
+
+      await addResults(51, { results: normalResults }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH');
+
+      expect(notificationQueueMock).toHaveBeenCalledTimes(1);
+      expect(recordPatientFeedNotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('returns the committed result even if the feed-row tail blows up', async () => {
+      releaseVisibleResult();
+      // The real helper never rejects; this pins that addResults would survive
+      // it even if that contract were broken.
+      recordPatientFeedNotificationMock.mockRejectedValue(new Error('deadlock detected'));
+
+      await expect(
+        addResults(51, { results: normalResults }, LAB_TECH_UID, TENANT_ID, 'LAB_TECH'),
+      ).resolves.toMatchObject({ id: 51, status: 'COMPLETED' });
+    });
   });
 
   it('uses plain enqueue only for the initial critical result', async () => {

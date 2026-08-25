@@ -552,6 +552,18 @@ void main() {
       expect(source, isNot(contains('RealtimeStatusBanner')));
       expect(source, contains('_lastRefreshedAt = DateTime.now();'));
 
+      // The board DOES take a realtime nudge on `staff:icu-board` (that is
+      // what keeps the icu_chart depth panels current), but the nudge only
+      // covers the ICU cells — the alerts, tasks, beds and discharge columns
+      // are still plain HTTP snapshots. So the subscription must never grow a
+      // "live" banner: the snapshot timestamp stays the only freshness claim,
+      // and the background refresh has to keep it accurate.
+      expect(
+        source,
+        contains("patientCommandBoardRealtimeChannel = 'staff:icu-board'"),
+      );
+      expect(source, contains('_icuBoardSub?.cancel();'));
+
       for (final locale in AppStrings.supportedLocales) {
         final copy = AppStrings.forLocale(locale).format(
           's4.dynamic.patient_command_board.last_refreshed',

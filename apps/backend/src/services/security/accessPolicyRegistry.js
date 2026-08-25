@@ -17,6 +17,11 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_BED_WRITE: 'patient.bed.write',
   PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access',
   PATIENT_CLINICAL_WORKFLOW_WRITE: 'patient.clinical_workflow.write',
+  // Owner decision 2026-08-25 (see docs/ROADMAP.md, "BCMA wristband"). Used by
+  // EXACTLY ONE route — GET /api/v1/bcma/wristband/:patientUid. It exists so
+  // the administrator grant that decision authorises has a policy code of its
+  // own and cannot reach any other PHI surface. Do not reuse it.
+  PATIENT_WRISTBAND_PRINT: 'patient.wristband.print',
   PATIENT_CARE_PATHWAY_QUEUE_CLAIM: 'patient.care_pathway.queue_claim',
   PATIENT_CARE_PATHWAY_TRANSFER_READ: 'patient.care_pathway.transfer_read',
   PATIENT_CARE_PATHWAY_TRANSFER_DECLINE: 'patient.care_pathway.transfer_decline',
@@ -211,6 +216,42 @@ export const ACCESS_POLICIES = Object.freeze({
       'care_pathway_owner',
       'care_pathway_transfer_recipient',
     ],
+  }),
+  // Wristband printing (owner decision 2026-08-25). The gate SURFACE — PHI
+  // level, capability groups, relationship chain — is copied from
+  // PATIENT_CLINICAL_WORKFLOW_ACCESS so every actor who could print a band
+  // before this policy existed still can, on the same evidence.
+  //
+  // It is NOT a byte-for-byte copy, and an earlier version of this comment
+  // claimed it was. Two deliberate differences: findClinicalAuthorshipRelationship
+  // was code-gated to the clinical-workflow codes and had to learn this one, or
+  // splitting the route out would have silently dropped the authorship allow
+  // path; and the route binds an explicit patientSelector with
+  // requirePatientContext (bcmaRoutes.js), which the clinical-workflow routes do
+  // not, because resolvePatientForAccess consults req.phiContext before
+  // req.params and an earlier mount guard can leave a DIFFERENT patient there.
+  //
+  // The grant difference is that accessDecisionService gives ADMIN and
+  // SUPER_ADMIN a last-resort administrative allow for this code (and no other),
+  // recorded as administrative access. Splitting it out is the whole point: the
+  // administrator grant is keyed on this code, so widening it cannot leak into
+  // the 27 sites that run on PATIENT_CLINICAL_WORKFLOW_ACCESS.
+  [ACCESS_POLICY_CODES.PATIENT_WRISTBAND_PRINT]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_WRISTBAND_PRINT,
+    title: 'Print a patient wristband',
+    resourceType: 'patient_wristband',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'nursing_governance', 'pharmacy', 'theatre', 'cath_lab'],
+    // The full self/guardian/care_team/referral/clinical_authorship/appointment/
+    // admission/break_glass chain, i.e. every check that can actually fire on
+    // this route. PATIENT_CLINICAL_WORKFLOW_ACCESS additionally lists
+    // care_pathway_owner and care_pathway_transfer_recipient; both resolvers
+    // require a resourceContext of type care_pathway_instance /
+    // care_handoff_instance, which the wristband guard never supplies, so they
+    // were unreachable here before the split too. Listing them would be a
+    // control that can never fire.
+    relationshipChecks: RELATIONSHIP_CHECKS,
   }),
   [ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_QUEUE_CLAIM]: policy({
     code: ACCESS_POLICY_CODES.PATIENT_CARE_PATHWAY_QUEUE_CLAIM,

@@ -1,6 +1,6 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-08-13.**
+**Single source of truth for pending work. Last reconciled: 2026-08-25.**
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -178,10 +178,10 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
 
 ## Explicitly parked (once-over 2026-08-23 — recorded so audits stop re-discovering them)
 
-- **Bed-inspection endpoints** (`bedInspectionRoutes`): fully dead surface —
-  no client caller, no internal writer, manual-only sweep. Decision: parked
-  rather than wired; either integrate into the bed-board housekeeping flow
-  with a scheduler sweep or remove the routes in a future cleanup. Do not
+- **Bed-inspection endpoints** (`bedInspectionRoutes`): parked. Superseded by
+  the fuller "Bed inspections" entry later in this file, which is canonical —
+  this one said "manual-only sweep", but an hourly `expire-bed-inspections`
+  cron does exist (it only expires rows, never creates them). Do not
   re-report as a gap.
 - **Admin god-page rule**: 14+ pages exceed the documented split threshold
   (worst: death-certification, clinical-ai [half-migrated], continuity-
@@ -244,3 +244,1029 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
   assertion, since a mocked rejection cannot reproduce a real aborted
   transaction). Alert on `lab_critical_threshold_coverage` being non-zero:
   those tenants can never raise a critical lab alert.
+
+## Explicitly parked (re-audit lane J, 2026-08-24 — admin surfaces that could not finish their own workflow)
+
+- **Feature-flag console + `feature_flags` table — decision: RETIRE, do not
+  wire.** `services/featureFlags/featureFlagService.js#isEnabled()` has zero
+  call sites, so the table (migration 148), the SUPER_ADMIN CRUD routes
+  (`routes/admin/featureFlagRoutes.js`) and the `/dashboard/feature-flags` page
+  together form a control that changes nothing: an operator reaching for it
+  mid-incident gets a silent no-op. Wiring was considered and rejected on two
+  grounds. (a) *There is no flag to wire.* No migration seeds a row and the
+  console's name field is free-form, so "one real gate per flag the console
+  offers" is undefined — the console offers whatever an operator types. Worse,
+  `isEnabled()` treats an unknown flag as `false`, so bolting a gate onto a
+  working path would switch that feature **off for every tenant on deploy**.
+  (b) *The table is the wrong shape and the codebase already said so twice.* It
+  has no tenant column and a process-wide cache, so one tenant's toggle would
+  move every tenant; migration 429 says "…and never use the global
+  feature_flags table" and migration 351 says "The global feature_flags table
+  is insufficient: coverage/readiness differ per tenant". Every switch the
+  product actually wants is per-tenant and already exists — entitlements
+  (`admin.feature_flags` is itself one), `engagement_settings.enabled` /
+  `.emergency_stop`, kiosk settings, composition-search settings, plus env kill
+  switches for infrastructure. There is no flag left for this table to own.
+
+  **Shipped now** (the part that fits inside the backend service layer): the
+  service states its own inertness rather than implying an effect. `getFlags()`
+  stamps every row `inert: true` / `runtime_effect: 'none'` / `runtime_note`; a
+  cache refresh that finds rows warns once that they gate nothing; an upsert
+  warns, at the moment the operator flips something, that the flip is a no-op.
+  `WIRED_FEATURE_FLAGS` (currently empty) is the one list a future gate must
+  join for a flag to stop calling itself inert.
+
+  **Also shipped** (round 3, closing the "the console still looks functional on
+  screen" gap this entry used to describe): the admin page now consumes that
+  metadata instead of ignoring it.
+  `apps/admin/src/app/(with-auth)/dashboard/feature-flags/page.tsx` no longer
+  says "Manage dynamic feature rollout across the platform"; it banners how many
+  flags gate nothing — quoting the server's own `runtime_note` — splits the
+  table into "Stored value" and "Runtime effect" columns, labels an inert row's
+  control "Store as on/off" rather than "Enable", and confirms a write to an
+  inert flag as *"Stored value updated … no runtime behaviour changed"* instead
+  of "Flag toggled". A flag that ever joins `WIRED_FEATURE_FLAGS` reads as
+  "Gates a code path" with no further change to the page, and a server that
+  sends no metadata reads as "Not reported" — the page never guesses in either
+  direction. Pinned by
+  `apps/admin/src/__tests__/dashboard/feature-flags/page.test.tsx`.
+
+  **Still open**, and parked rather than queued because retirement spans the
+  admin portal and the packaging catalog and needs one owner call (delete the
+  console, or leave it read-only):
+  1. `apps/admin/src/app/(with-auth)/dashboard/feature-flags/page.tsx` — the
+     page now tells the truth, but it is still a CRUD console for a table
+     nothing reads. Deleting it, or dropping the write controls, is the owner
+     call.
+  2. `apps/admin/src/lib/navConfig.ts`, `routePolicy.ts`, `proxyPermissions.ts`
+     — drop the entries if the page goes.
+  3. `routes/admin/featureFlagRoutes.js` + `featureFlagValidator` in
+     `validators/sharedValidators.js` — remove with the page, then regenerate
+     the OpenAPI spec.
+  4. Entitlement key `admin.feature_flags` (`services/entitlements/
+     entitlementService.js`, catalog rows in migration 433) — retiring it is a
+     packaging change, so this is the piece that most needs the owner decision.
+  5. A forward-only migration dropping `feature_flags` — **last**, and only
+     after 1–4 ship.
+
+- **Patient gamification / step-rewards loop — parked: the server halves exist,
+  both ends have no UI.** `routes/gamification/adminGamificationRoutes.js`
+  (milestone CRUD + `POST /vouchers/:code/redeem`, mounted
+  `/api/v1/admin/gamification`) has no caller in the admin portal — no page, no
+  `lib/api` client, no `proxyPermissions` entry — and the mount's
+  `ADMIN_ROUTE_ROLES` (SUPER_ADMIN|ADMIN) + `requireSuperAdminStepUp` +
+  `adminIpAllowlist` chain puts it out of reach of the staff app, which is
+  where a pharmacy or front-desk role would actually redeem a voucher. The
+  `/api/v1/rewards/*` router (`routes/steps/stepRewardsRoutes.js`) is likewise
+  caller-less — the patient app talks only to `/gamification/*`.
+
+  The loop is broken at **both** ends, and the start is the harder one:
+  - *Cannot start.* `adminGamificationRoutes` is the only write path to
+    `health_milestones`, and no migration seeds that table — the only
+    `INSERT INTO health_milestones` outside tests is that router's own, at
+    `routes/gamification/adminGamificationRoutes.js:71`. Every tenant therefore
+    holds an empty reward catalog: `GET /gamification/milestones` returns
+    nothing and `POST /gamification/milestones/:id/claim` has nothing to claim.
+  - *Cannot close.* `pointService.claimMilestone` mints a `voucher_code` into
+    `health_milestone_claims`, and `POST /admin/gamification/vouchers/:code/redeem`
+    is the only thing that can burn it — unreachable from a counter.
+  - *A third orphan rides along.* `/rewards/badges/check`,
+    `/rewards/leaderboard/monthly` and the ADMIN-gated `/rewards/issue-monthly`
+    write real discount-bearing rows into `step_rewards`, and nothing calls
+    them, so no monthly reward is ever issued.
+
+  **Not wired in this pass, deliberately.** Making it honest needs a product
+  decision before it needs code: the reward catalog is commercial policy (what
+  a milestone is worth, who funds the discount, how long it lives) and
+  redemption is a counter workflow. Guessing either would be exactly the
+  speculative console this lane was told not to build.
+
+  **What closing the loop would require**, smallest honest version:
+  1. *Decide who owns the catalog.* Either seed a default `health_milestones`
+     set per tenant at provisioning — noting the lab-thresholds precedent above,
+     a blind cross-tenant copy is the wrong shape — or accept that gamification
+     stays dark until an operator populates it, and say so in the patient UI.
+  2. *Put redemption where redemption happens.* A voucher lookup + redeem
+     action on the staff app's pharmacy/billing counter screen, which means the
+     endpoint must move off the `/api/v1/admin` mount (IP allowlist + admin
+     step-up) onto a staff-role route, or gain a staff-reachable twin.
+  3. *A catalog editor* in the admin portal — a table and three fields on top
+     of the CRUD that already exists. Only worth building after (1).
+  4. *Schedule or drop `/rewards/issue-monthly`.* Either a `withJobLock` cron
+     issues monthly winners, or the badge/leaderboard half retires with the
+     rest of `/api/v1/rewards/*`.
+
+  Until then the surface is honest in the code: `adminGamificationRoutes.js`
+  carries a header saying it has no client and pointing here. Do not re-report
+  "unused admin gamification routes" as a fresh finding.
+
+## Explicitly parked (re-audit lane J, 2026-08-24 — caller-less clinical surfaces, plus the one alert that was fixed)
+
+Companion to the admin-surface section above; these are the *clinical* halves
+of the same sweep.
+
+**The census below was re-derived on 2026-08-24 (round 2), not extended.**
+Round 1 of this section missed three whole subsystems, which makes the method
+the defect, not the list. The corrected method, stated so it can be re-run:
+
+1. *Source set.* Every `/api/v1…` string passed as the first argument of an
+   `app.use(...)` in `apps/backend/src/app.js`: 171 distinct strings, of which
+   the bare `/api/v1` mount (`infrastructureRoutes`) is skipped, leaving
+   **170 prefixes** to census. The matcher must allow the prefix to sit on its
+   own line: several mounts, `/api/v1/surgical` among them, are written across
+   multiple lines, and a single-line-only extraction drops them silently.
+2. *Match.* For each prefix, either the absolute `/api/v1<prefix>` (the form
+   the admin console uses) **or** `<prefix>` at the start of a string literal
+   (the form the Dart clients use — they pass paths relative to a base URL
+   that already carries `/api/v1`). Matching only the absolute form
+   under-counts; matching the bare segment over-counts, e.g. the patient app's
+   `/steps/rewards` would score as a caller of `/api/v1/rewards`.
+3. *Client set.* `apps/staff/lib`, `apps/patient/lib`, `apps/admin/src`,
+   `packages/vhhealth_core/lib` — **and `apps/device-gateway`**, which round 1
+   did not name and which is the only caller of `/api/v1/ingest/cold-chain`.
+4. *Exclusions.* The whole of `packages/vhhealth_core/lib/api/generated/`,
+   plus `apps/admin/src/lib/openapi.generated.ts`. Round 1 named only
+   `openapi.swagger.dart` and `openapi.generated.ts`, and that omission is
+   what hid the three subsystems added below: the literal `/api/v1/...`
+   strings live in `openapi.swagger.chopper.dart`, a
+   `part of 'openapi.swagger.dart'` emitted for **every** path in the spec.
+   Grep a prefix while excluding only the two named files and you get a hit
+   for every surface on the platform — so any surface whose *only* hit is
+   generated reads as "has a caller".
+5. *Adjudicate the router, not the string.* A zero-hit prefix is not
+   automatically a caller-less surface. Some prefixes are aliases of a router
+   that is reachable elsewhere: `/api/v1/pharmacy-supply` mounts the same
+   `routes/admin/pharmacySupplyRoutes.js` the admin console calls at
+   `/api/v1/admin/pharmacy-supply`.
+
+**Output: 47 of the 170 prefixes have no client hit.** Dispositions below sum
+to those 47.
+
+They do NOT prove the census complete. The prefix list was derived
+mechanically from mount paths, and at least one real prefix — `/api/v1/documents`
+— is absent from it, so the input set is known to be short. Read the buckets as
+"every prefix this scan found", not "every prefix that exists"; a namespace
+missing from the list carries no disposition and no verdict.
+
+- **Not a router (2).** `/api/v1/auth/request-otp` and
+  `/api/v1/auth/verify-otp` are App Check *middleware* mounts layered over
+  paths `authRoutes` serves.
+- **Parameterised mount path, invisible to a literal match (7).**
+  `/api/v1/admissions/:admissionId/tpa-enhancement` and the six
+  `…/witness-approvals/:id/approve` approval-host mounts. A caller interpolates
+  the id, so the absence of a literal hit proves nothing about these.
+- **Alias of a router reachable elsewhere (2).** `/api/v1/pharmacy-supply`
+  (above) and `/api/v1/pharmacy-orders/inventory/v2`, which mounts the same
+  router as `/api/v1/pharmacy/inventory/v2` — called by both the staff app and
+  the admin console.
+- **External / machine-to-machine by design (4).** `/api/v1/uhi` and
+  `/api/v1/integrations/nhcx` (public signed gateway callbacks),
+  `/api/v1/scim/v2` (IdP provisioning), `/api/v1/cds-services` (CDS Hooks,
+  "consumed by external EHR systems" per `app.js`). No in-repo client is
+  expected for any of them.
+- **Already parked (4).** `/api/v1/admin/gamification` in the section above;
+  `/api/v1/admin/surgical` (the deprecated 308 covered by the surgical entry),
+  `/api/v1/research` and `/api/v1/rewards` below.
+- **Documented below for the first time (3).** `/api/v1/paediatric`,
+  `/api/v1/integrity`, `/api/v1/bed-inspections`.
+- **Not adjudicated — the standing backlog for the next lane (25).**
+  `/api/v1/abdm/enrolment`, `/api/v1/abdm/hiu`, `/api/v1/admin/uhi`,
+  `/api/v1/adoption`, `/api/v1/billing/revenue-cycle`, `/api/v1/care-pathways`,
+  `/api/v1/clinical-ai/control`,
+  `/api/v1/clinical-continuity/activation-transitions`,
+  `/api/v1/clinical/assessments`, `/api/v1/emr/mar`, `/api/v1/entitlements`,
+  `/api/v1/front-desk/abdm/share-intakes`, `/api/v1/hl7-feeds`, `/api/v1/ipd`,
+  `/api/v1/lab/release`, `/api/v1/nursing/mar`, `/api/v1/otp`, `/api/v1/pacs`,
+  `/api/v1/patient`, `/api/v1/patient-access/break-glass`,
+  `/api/v1/patient/chatbot`, `/api/v1/patient/virtual-ward`, `/api/v1/search`,
+  `/api/v1/sessions`, `/api/v1/storage`. These are **named, not cleared** —
+  each is a zero-hit prefix that nobody has yet checked for an alias mount, an
+  internal caller, or a real gap. The next lane starts from this list rather
+  than from scratch.
+
+Two migrations come out of this work —
+`src/migrations/730_ward_pharmacy_indent_notification_backlog_demotion.sql`,
+described under the ward-indent section below, and
+`src/migrations/731_hl7_feed_subscription_default_includes_transfers.sql`,
+described under the outbound-HL7 section below. 729 was the previous highest.
+
+### Outbound HL7 transfer feed — the DEFAULT is fixed, existing subscriptions must opt in `[OPERATOR]`
+
+Round 2 of this lane added the outbound transfer event (`emitTransferAdt`,
+ADT^A02, fired after a bed move commits) and shipped it unreachable:
+`queueFeedMessage` fans out with `$type = ANY(message_types)`, and the platform
+default for `hl7_feed_subscriptions.message_types` — both the column DEFAULT
+from migration 283 and the fallback in `createSubscription` — listed A01, A03
+and ORU^R01 only. Every feed created with platform defaults had the new emitter
+fan out to **zero** subscriptions.
+
+**Shipped:** migration 731 moves the column DEFAULT, and
+`DEFAULT_FEED_MESSAGE_TYPES` in `src/services/hl7/hl7OutboundService.js` moves
+the default the HTTP API actually applies, both to
+`ADT^A01, ADT^A02, ADT^A03, ORU^R01` — the four types the platform emits
+automatically. `src/tests/unit/hl7OutboundTransferAdt.test.js` pins the service
+constant against the column default as projected into `prisma/schema.prisma`, so
+the two cannot drift. A subscriber that must not receive transfers still passes
+an explicit `message_types` at create time.
+
+**Not shipped, and deliberately: existing subscriptions are not backfilled.**
+`message_types` is the only stored record of what a downstream system agreed to
+receive, and nothing in the row distinguishes "the operator accepted the
+platform default" from "the operator chose exactly these three". Guessing wrong
+is not a one-message mistake: an HL7 receiver that does not know a message type
+answers with an application reject, `recordTransportOutcome` then marks the
+message `reconciliation_required` / `held_owner_reconciliation`,
+`applyAcknowledgementToCursorTx` moves that subscription's delivery cursor to
+`paused_rejected`, and `claimPendingFeedMessages` refuses to claim **any**
+further message for a subscription whose cursor is not `ready` (it also refuses
+anything queued behind a message that is not acknowledged `aa`). One rejected
+A02 therefore stops that subscriber's admissions, discharges and lab results
+until an owner reconciles by hand. Enrolling a live third-party interface into a
+message type it never agreed to is an interface-contract change, and it is not a
+migration's to make.
+
+**Operator action, per existing subscription that should receive transfers.**
+First confirm with the receiving system's owner that it accepts ADT^A02 — see
+the paragraph above for what happens if it does not. Then either:
+
+1. Re-run the create/upsert API, `POST /api/v1/hl7-feeds/subscriptions`, with
+   the same `name` and the full desired `message_types`. **Sharp edge:** that
+   upsert overwrites `endpoint_url` and `auth_header` with whatever the request
+   carries, and `auth_header` is encrypted at rest and never returned by
+   `GET /subscriptions` — omitting it clears the credential with no way to read
+   the old value back. Use this only if you still hold the endpoint's auth
+   header. (There is no admin-console page for HL7 feeds; `/api/v1/hl7-feeds`
+   is on the un-adjudicated caller-less list above.)
+2. Otherwise add the type in place, which leaves the credential alone:
+
+   ```sql
+   UPDATE hl7_feed_subscriptions
+      SET message_types = array_append(message_types, 'ADT^A02'),
+          updated_at = NOW()
+    WHERE tenant_id = '<tenant-uuid>'::uuid
+      AND name = '<subscription name>'
+      AND NOT ('ADT^A02' = ANY(message_types));
+   ```
+
+**Follow-up worth a separate change (not this lane's):** the credential-wiping
+upsert in option 1 is a latent hazard independent of A02 — `createSubscription`
+is the only write path for `message_types`, it is an upsert on `(tenant_id,
+name)`, and it always writes `auth_header` from the request body. A dedicated
+scope-update path (or a `COALESCE` that keeps the stored header when the field
+is absent, with an explicit way to clear it) would remove the trap.
+
+### Pharmacy ward indents — the alert is FIXED, the surface is QUEUED
+
+What exists: live clinical writes auto-create `ward_indents` rows at status
+`'requested'` — `orderEntryService.js` on every inpatient CPOE medication
+order, and `admissionService.js` on every ER order carried into an admission,
+both through `ipdSupportService.createWardIndentForClinicalMedicationOrder`.
+The lifecycle that would move a row on (approve / reject / issue / receive) is
+published on three prefixes — `/api/v1/pharmacy/ward-indents`,
+`/api/v1/pharmacy-orders/ward-indents`, `/api/v1/ipd/ward-indents` — and has
+**no caller in any client**. The staff app's `PharmacyScreen` covers the OPD
+order queue, catalog, inventory and expiry alerts and has no ward-indent list;
+the admin console's pharmacy dashboard has Overview / Orders / Catalog /
+Expiry / Schedule-Register tabs and no indent tab. So the queue filled and
+could never be worked.
+
+The harm was not the rows — it was the page. The alert went out at priority
+`HIGH` with the body *"Please review the pharmacy ward indent for
+dispensing"*, and in the staff app `NotificationItem.isHighPriority` is true
+for `HIGH`, which puts the row into the Safety Center feed beside SOS and
+critical labs, on the 15-minute escalation ladder ("Escalates in N min if
+unread" → "Escalated until acknowledged") — an escalation nobody could clear
+by doing the work, because no screen did the work. Tapping it made that worse:
+`_defaultRouteForType()` maps any type containing `PHARMACY` to `/pharmacy`,
+where the indent is not visible.
+
+**What shipped:** the alert is retained but demoted. It still names the drug
+and the ward — it is the only system-generated pharmacy signal for an
+inpatient medication order, so silencing it outright would have been a
+clinical information regression — but it now goes out at `LOW`, titled "Ward
+drug indent recorded", with a body that states the manual fallback instead of
+instructing a screen that does not exist, and with
+`data.dispatch_surface_available: false` so a client can tell "act on this"
+from "for your information". `LOW` keeps it out of the Safety Center feed and
+the notifications screen's "critical" filter. The auto-creation was
+deliberately **not** gated: the rows are the only linkage between a clinical
+order and pharmacy demand, `drugChartService` renders them back to ward staff
+as each order's `pharmacy_status`, and gating would have meant adding a
+conditional to two clinical write paths for no safety gain.
+
+**The demotion is forward-only, so it needed a backlog migration.** The gate is
+read at dispatch time: it decides the priority of rows written after it
+deploys and cannot reach rows already in `notifications`. Left alone, every
+pre-existing `WARD_PHARMACY_INDENT` row keeps both behaviours the demotion
+exists to stop. (a) In the staff app they stay `isHighPriority` — and on this
+type that flag is driven by **the priority column alone**: `isHighPriority` is
+priority HIGH/CRITICAL *or* a type containing CRITICAL / EMERGENCY / SOS
+(`notification_provider.dart:119-124`), and `WARD_PHARMACY_INDENT` contains
+none of the three. So they remain in the Safety Center feed — which selects
+`isHighPriority || isInvestigationAlert` (`safety_center_screen.dart:171`;
+`isInvestigationAlert` is false here too, it matches LAB / INVESTIGATION /
+CRITICAL_VALUE / RADIOLOGY, provider lines 136-141) — and in the notifications
+screen's "critical" filter (`notifications_screen.dart:117`), with
+`safetyEscalationLabel()` (`safety_center_screen.dart:41-48`) still rendering
+"Escalates in N min if unread" and then "Escalated until acknowledged".
+(b) On the server — the half round 1 never mentioned, and the strongest
+argument for the demotion — `notificationService.runUnreadCriticalEscalation`
+(`notificationService.js:747-837`), driven by the `*/10 * * * *`
+`unread-critical-notification-escalation` cron in `src/utils/scheduler.js:910-912`,
+selects *unread* rows older than `CRITICAL_NOTIFICATION_ESCALATION_MINUTES`
+(default 15) whose `UPPER(priority)` is HIGH or CRITICAL **or** whose type is
+LIKE one of `%CRITICAL%` / `%EMERGENCY%` / `%SOS%` / `%CODE_BLUE%` /
+`%LAB_ALERT%` (`notificationService.js:763-770`). `WARD_PHARMACY_INDENT`
+matches none of those five patterns either, so here too the priority column is
+the only thing putting the row in the candidate set — which is precisely why
+changing that one column is a sufficient fix. Every match writes a
+`notification_events` `'auto_escalated'` row and pages ADMIN / SUPER_ADMIN with
+a HIGH `CRITICAL_ALERT_ESCALATION` notification. Its `NOT EXISTS` guard
+(`notificationService.js:772-777`) fires that at most once per notification, so
+the backlog is bounded rather than a repeating page — but each
+not-yet-escalated row still costs one admin escalation for an indent nobody can
+dispense.
+
+`src/migrations/730_ward_pharmacy_indent_notification_backlog_demotion.sql`
+closes that. It sets `priority = 'LOW'` on every `WARD_PHARMACY_INDENT` row
+that was dispatched while no surface existed (rows carrying
+`data.dispatch_surface_available = true` are excluded, so replaying the file
+after the dispensing release cannot silence a live alert), read and unread
+alike — a read row left at HIGH would sit in the "critical" filter forever.
+It changes **priority only**.
+
+**What the operator sees after it runs**, for those pre-existing rows: they
+leave the Safety Center feed and the notifications screen's "critical" filter
+(both keyed on `isHighPriority`, now false); they stay in the list under
+"all" / "unread" carrying the title and body that were actually delivered;
+anywhere `safetyEscalationLabel()` still runs over one, an unread row reads
+"Monitor until acknowledged" and a read row "Acknowledged" instead of an
+escalation countdown; and `runUnreadCriticalEscalation` stops selecting them
+altogether — `'LOW'` is not in `('HIGH','CRITICAL')` and the type matches none
+of the five LIKE patterns — so no further `'auto_escalated'` events and no
+further ADMIN / SUPER_ADMIN `CRITICAL_ALERT_ESCALATION` pages are raised for
+ward indents. Escalations that already fired are untouched, including the HIGH
+`CRITICAL_ALERT_ESCALATION` rows already sitting in admin feeds; the cron
+excludes that type from its own candidate set (`notificationService.js:771`),
+so those never escalate further either.
+
+**How it runs** (rewritten in round 3, after review found the first draft
+unsafe; lock behaviour corrected in round 4 and measured). The predicate is an
+exact `type = 'WARD_PHARMACY_INDENT'`, which uses `notifications_type_idx`
+(`000_baseline.sql:30736`). The first draft matched on
+`UPPER(COALESCE(type,''))`, which that index cannot serve, so the file became a
+full scan of one of the largest tables in the database — inside the PreSync
+Job that gates the release. Measured with `EXPLAIN (ANALYZE, BUFFERS)` on a
+throwaway PostgreSQL 17.9 fixture of 404,068 `notifications` rows (4,065 of
+type `WARD_PHARMACY_INDENT`, 4,000 of them demotable): the old predicate read
+9,648 buffers just to *find* its rows (400,065 removed by filter; 54,959
+buffers and 303 ms for the whole single-shot UPDATE); the exact predicate found
+them with a Bitmap Index Scan reading 6 index buffers plus 131 heap blocks, and
+one 1,000-row batch took 12.8 ms. Treat the heap-block figure as
+fixture-specific — it tracks how tightly the matching rows are clustered on
+disk. The claim that carries is structural: the exact predicate's cost scales
+with the number of *matching* rows, the `UPPER()` form's with the size of
+`notifications`. The exact match is also *complete*, not merely cheaper: the
+single writer stores `type` upper-cased and `priority` as exactly one of HIGH /
+MEDIUM / LOW (`staffNotificationService.js:33-43`), and both columns are NOT
+NULL, so the COALESCE wrappers were dead code.
+
+The UPDATE is batched at 1,000 rows per transaction under `-- @no-transaction`,
+so at most 1,000 row locks are held at any instant, no long-lived transaction
+sits on `notifications`, and an interrupted run resumes where it stopped rather
+than restarting. **Round 3's comment described the lock wait backwards**, and
+that is now fixed in both the file and here. Once a batch holds its rows, a
+concurrent writer (a staff mark-as-read) waits only for that batch — true. But
+the other direction was the dangerous one: with a plain `FOR UPDATE`, a writer
+that got there *first* makes the **migration** wait, and the appliers' session
+`lock_timeout = '15s'` turns that wait into SQLSTATE 55P03, which aborts the
+file and the PreSync Job — i.e. the release. Measured: one uncommitted
+`SELECT … FOR UPDATE` on a single row in batch 3 blocked the migration for
+15.1 s and killed it with 2,000 of 4,000 rows committed. The batch CTE now
+takes `FOR UPDATE SKIP LOCKED`, and the same scenario completes in 65 ms.
+**The trade, stated because it is real:** a successful run records the file and
+it never runs again, so a row locked at the instant its batch is built *and*
+still locked on the pass that ends the loop keeps its old priority for good.
+The migration counts those and raises a WARNING naming the number; one leftover
+costs one row in the Safety Center feed plus at most one admin escalation page,
+against a blocked release for the alternative. The count query and the
+one-statement `UPDATE` that finishes any leftovers are both in the migration's
+header. Operator-visible consequences of the row-level change, all three
+deliberate:
+
+- Pre-existing rows keep the body that was actually delivered, *"Please review
+  the pharmacy ward indent for dispensing"*, which names a screen that does not
+  exist. Rewriting delivered message history — push included — is a bigger
+  claim than this defect justifies, so old rows read differently from new ones.
+- Pre-existing rows carry no `dispatch_surface_available` key at all. A client
+  reading it must treat **absent as unknown**, not as `false`.
+- `notification_events` is untouched: escalations that already fired stay in
+  the audit trail with the HIGH priority they fired at snapshotted in
+  `notification_priority`. The migration changes what the feed shows and what
+  the cron will still pick up; it does not erase what happened.
+
+**What is queued:** a worklist that calls the existing lifecycle endpoints.
+The cheapest route is an admin-console tab — `api/v1/pharmacy` and
+`api/v1/pharmacy-orders` are already on the `pharmacyAdminRoutes` proxy
+allowlist, so no proxy change is needed — with a staff-app surface after it.
+In the **same release** that ships it, the operator sets
+`PHARMACY_WARD_INDENT_PUSH_ENABLED=true`, which restores the `HIGH` priority
+and the dispatch wording with no code change
+(`ipdSupportService.wardIndentDispatchSurfaceEnabled()`). The flag is
+deliberately **not** declared in `validateEnv.js`: that schema is
+`.unknown(true)`, and a `Joi.valid('true','false')` declaration would turn an
+operator typo (`1`, `yes`, `on`) into a boot crash instead of leaving the safe
+default.
+
+**What the operator sees meanwhile**, and must plan around:
+
+1. `ward_indents` keeps accumulating rows at `'requested'`. They are
+   inspectable today via `GET /api/v1/pharmacy/ward-indents?status=requested`
+   (allowlisted through the admin proxy) or directly in the DB.
+2. Ward staff still see the per-order `pharmacy_status` on the inpatient drug
+   chart; it reads `requested` and never advances.
+3. Pharmacy staff still get one `WARD_PHARMACY_INDENT` notification per new
+   indent, at `LOW`, naming the drug and the ward. Rows notified *before* this
+   release are demoted to `LOW` by migration 730 but keep their original
+   wording, so the feed carries two phrasings of the same alert. Nothing
+   retires the old ones on a timer: no cron deletes `notifications` rows —
+   the only age-based delete is the operator-triggered
+   `DELETE /api/v1/admin/notifications/cleanup`
+   (`adminNotificationService.cleanupNotifications`, line 663), so the two
+   phrasings coexist until an admin runs that by hand.
+4. **Inpatient ward-pharmacy charges are not billed from indents.**
+   `billingV2Service` emits a `source_ref_type: 'ward_indent'` line only for
+   indents at `'issued'` or `'received'`, so no such line is produced today.
+   Inpatient drug charges must be raised by the existing manual/counter route
+   until the lifecycle has a caller. This is a pre-existing consequence of the
+   missing surface, not something this change introduced.
+
+### Parked, not built (product decisions, not defect fixes)
+
+- **Research registry** (`/api/v1/research`) — the entire router, all 12
+  endpoints (`POST/GET /registries`, `POST/GET /registries/:id/forms`,
+  `POST /forms/:id/publish`, `POST/GET /registries/:id/enrollments`,
+  `POST /enrollments/:id/withdraw`, `PUT /forms/:id/responses`,
+  `POST /responses/:id/submit`, `POST /responses/:id/verify`,
+  `GET /registries/:id/export`) — has **zero callers** in any client. Missing:
+  a consent-aware enrolment and CRF-capture console. Closing it needs a
+  product decision that VH runs research registries at all, then that console
+  plus an IRB/consent story behind `guardEnrollmentCreate` and the export
+  path. Risk of leaving it: mounted behind clinical-staff RBAC with
+  `patientAccessGuard` and `phiAccessLogger('RESEARCH')`, its only current
+  effect is attack and audit surface — a PHI export endpoint no legitimate
+  workflow uses. **Deleting** the router is a valid close and is cheaper than
+  building the console.
+
+- **Step-challenge rewards** (`/api/v1/rewards/*`) — six endpoints
+  (`GET /badges`, `POST /badges/check`, `GET /vouchers`,
+  `GET /leaderboard/monthly`, `GET /my-monthly-rank`, `POST /issue-monthly`),
+  none called by any client, and no cron issues monthly rewards
+  (`src/utils/scheduler.js` names nothing reward-related). The gamification
+  entry in the section above covers the wider broken loop; two facts belong
+  here specifically. (a) The admin proxy allowlist
+  (`apps/admin/src/lib/proxyPermissions.ts`) carries **no `rewards` prefix**,
+  so even a future console could not trigger issuance through it — closing
+  this needs an allowlist entry as well as a page. (b) The patient app reads a
+  **different endpoint entirely**: its "Your Rewards" tab calls
+  `GET /api/v1/steps/rewards` (`stepsRoutes.js`), which selects the same
+  `step_rewards` table that only the caller-less `stepRewardsRoutes.js`
+  writes. So the tab is structurally always empty, and the reward tiers the
+  leaderboard names ("Free consultation + 10% off pharmacy & investigations")
+  are display text nothing issues. Risk of leaving it: a promise shown to
+  patients that the platform cannot keep — a customer-trust issue, not a
+  clinical one.
+
+- **Surgical documentation** (`/api/v1/surgical`, plus the deprecated 308 from
+  `/api/v1/admin/surgical`) — **20 of 21 endpoints are caller-less**. The one
+  live caller is `PUT /surgical/safety/:scheduleId/:phase` (WHO checklist
+  phases) from `apps/staff/lib/core/services/theatre_api_service.dart`. With
+  no caller: the pre-op checklist (`GET/PUT /preop/:scheduleId`,
+  `GET /preop`), intra-op notes and finalise (`POST/GET /intraop`,
+  `PATCH /intraop/:id/finalize`), post-op notes and finalise
+  (`POST/GET /postop`, `PATCH /postop/:id/finalize`), the anesthesia record
+  (`PUT/GET /anesthesia/:scheduleId`, `PATCH /anesthesia/:scheduleId/finalize`),
+  the implant registry (`POST/GET /implants`, `PATCH /implants/:id/remove`),
+  complications (`POST/GET /complications`,
+  `PATCH /complications/:id/acknowledge`, `PATCH /complications/:id/resolve`),
+  and even `GET /safety/:scheduleId` — the read-back of the checklist the one
+  live caller writes. Closing it needs an OT-staff surface for each phase of
+  the perioperative record. Risk of leaving it: surgical documentation and the
+  implant registry are medico-legal records with statutory retention; the
+  hospital keeps them on paper while the platform holds an empty parallel
+  schema, so any report built on these tables reads zero.
+
+- **Maternity structured capture** — ANC visits, deliveries, newborn/APGAR and
+  postnatal visits have no client. The staff app calls only labor and
+  partograph (`/maternity/labor-admissions/active`,
+  `/maternity/labor-admissions/:id`, `GET /maternity/partograph/labor/:id`,
+  `POST /maternity/partograph`); the patient app calls only the portal
+  endpoints (`/portal/maternity/` `timeline`, `packages`, `anc-advice`,
+  `fetal-kicks`, `supplements/:id/reminder`). Nothing calls
+  `POST /maternity/pregnancies`, `PATCH /maternity/pregnancies/:id`,
+  `POST /maternity/anc-visits`, `POST /maternity/deliveries`,
+  `POST /maternity/newborns`, `POST /maternity/newborns/:id/apgar` or
+  `POST /maternity/postnatal-visits`. That is a statement about the *routes*:
+  `maternity_pregnancies` itself does have a live writer elsewhere — see the
+  correction immediately below.
+
+  **Corrected 2026-08-24 (round 2).** The earlier text here said the patient
+  ANC timeline "resolves to 'no active pregnancy' for every patient". That is
+  factually wrong about the runtime, and the true symptom is worse.
+
+  `maternity_pregnancies` has a live writer *outside* the maternity router. The
+  admin console's walk-in dialog
+  (`apps/admin/src/app/(with-auth)/dashboard/appointments/components/WalkInDialog.tsx`)
+  shows an ANC block whenever the chosen department name contains
+  `obgyn` / `obstetrics` / `anc` / `gyna`, **requires** an LMP date in that
+  block, and posts it to `POST /api/v1/appointments/walk-in`.
+  `appointmentWorkflowController.registerWalkIn` (the E-12 block, ~2245-2340)
+  then inserts a `maternity_pregnancies` row at `status = 'ongoing'` —
+  idempotent per patient, EDD derived from LMP, with the same canonical
+  timeline + audit pair `maternityService.createPregnancy` writes. So for every
+  OBGYN walk-in booked through the admin console a pregnancy row exists.
+
+  **What the patient actually sees is therefore a populated screen with one
+  section permanently missing, not an empty state.**
+  `GET /api/v1/portal/maternity/timeline` →
+  `getAncTimelineForPatient` → `getAncTimelineForPregnancy` fills the pregnancy
+  header (gestational age, EDD), booked ANC appointments (from `appointments`),
+  BP/weight captured on the general vitals screen (from `vitals_chart`),
+  supplements auto-propagated from prescriptions (`maternity_supplements` via
+  `maybePropagateAncSupplements`), carried-forward supplement courses from
+  `e_prescriptions`, patient-logged fetal kicks, and an LMP-derived visit
+  schedule — all from tables that *do* have live writers. The one thing that is
+  structurally always empty is `maternity_anc_visits` — not because no code
+  writes it, but because its only writer, `maternityService.recordAncVisit`
+  (the `INSERT INTO maternity_anc_visits` at
+  `services/maternity/maternityService.js:593`), is reachable from exactly one
+  place, `maternityRoutes.js:99` serving the caller-less
+  `POST /maternity/anc-visits`. No cron and no other service calls it. And
+  `anc_timeline_screen.dart` renders the "visits so far" list only
+  `if (visitsAsc.isNotEmpty)` (line 340), with no "not recorded here" marker
+  and no `else` branch — so the
+  clinical record of each antenatal visit (BP, weight, fundal height, fetal
+  heart rate, Hb, urine albumin/sugar, IFA/calcium, TT dose) is simply absent
+  from an otherwise live-looking tracker. An empty state says "nothing here";
+  this says "here is your pregnancy, and no antenatal care was recorded".
+
+  Two further consequences of the same asymmetry, both verified: the walk-in
+  writer never *closes* an episode — only `recordDelivery` moves a pregnancy to
+  `'delivered'`, and `POST /maternity/deliveries` has no caller — so the row
+  stays `'ongoing'` indefinitely, including after the birth; and `high_risk` /
+  `high_risk_reasons` are set only by `createPregnancy` and `updatePregnancy`,
+  both caller-less, so the header's high-risk chip can never render for a
+  walk-in-created pregnancy.
+
+  Closing it needs staff capture screens for each ANC visit **and** for the
+  delivery/closure transition first — the patient screen is already built and
+  waiting on data. Risk of leaving it: a patient-visible feature that presents
+  a permanently empty clinical record as though it were complete, an episode
+  that never ends, and a maternity dataset (ANC coverage, delivery outcomes,
+  APGAR, postnatal follow-up) that cannot be reported on.
+
+- **Paediatric immunisations** (`/api/v1/paediatric`) — five endpoints
+  (`GET /immunisations/catalogue`, `POST /immunisations/seed`,
+  `GET /immunisations/patient/:patientUid`,
+  `GET /immunisations/patient/:patientUid/due`,
+  `POST /immunisations/:id/given`), all `requireStaffOrAdmin` behind
+  `PAEDIATRIC_ROUTE_ROLES` + `patientAccessGuard('PAEDIATRIC_IMMUNISATION')` +
+  `phiAccessLogger`, with **zero callers** in any client.
+
+  Same harm shape as the maternity entry above.
+  `services/paediatric/paediatricImmunisationService.js` is the *only* writer
+  of `patient_immunisations` anywhere in the backend — the upsert in
+  `seedScheduleForPatient` and the status update in `recordDose` — and both
+  are reachable only from those routes. No cron calls either. So the table can
+  only ever be empty in production.
+
+  Its one production reader is live:
+  `nicuPicuChartingService.getNicuPicuChartView` selects the patient's
+  `scheduled` doses and returns them as `nicu.immunisations_due`, and
+  `patientCommandBoardService` attaches that view as `icu_chart`
+  (`services/emr/patientCommandBoardService.js:709-773`) to command-board rows
+  backed by an active NICU/PICU `icu_admissions` row — for roles cleared to see
+  the ICU chart, and capped at the first `ICU_CHART_ENRICH_LIMIT = 40` such
+  rows per page (line 21) — which the staff app's patient command
+  board renders through `NicuPicuChartPanel`
+  (`apps/staff/lib/features/emr/widgets/nicu_picu_chart_panel.dart`). A live
+  neonatal chart ships a field that is structurally always `[]`. Today
+  `NicuPicuChartPanel` does not render `immunisations_due` — the only place
+  that key appears in application code is where the backend produces it,
+  `nicuPicuChartingService.js:1607` — so the emptiness is invisible rather than
+  misleading — but the first client that renders it will read "nothing due"
+  for every neonate.
+
+  Do not confuse this with the newborn schedule, which **does have a client**:
+  the admin console's Newborn immunisation page (`/dashboard/immunisations`)
+  calls
+  `/maternity/immunisations/*` and `/maternity/newborns/:id/immunisations*`,
+  served by `services/maternity/immunisationService.js` against a different
+  table, `newborn_immunisations`. `seedScheduleForPatient` links the two via
+  `newborn_immunisation_id`, which is precisely why the paediatric half looks
+  covered when it is not. Closing it needs a staff well-baby / paediatric
+  immunisation screen. Risk of leaving it: any report over
+  `patient_immunisations` reads zero, and `nicu.immunisations_due` is a
+  permanently empty field on a live neonatal chart payload.
+
+- **Document integrity** (`/api/v1/integrity`) — four endpoints
+  (`POST /sign`, `GET /signatures/:id/verify`,
+  `GET /signatures/:documentType/:documentId`, `GET /audit-chain/verify`)
+  behind `requireRole(...CLINICAL_STAFF_ROLES)` +
+  `phiAccessLogger('DOCUMENT_SIGNATURE')`, with **zero callers** in any client.
+
+  This one is not an empty table. `clinical_document_signatures` has four
+  internal writers through `documentIntegrityService.signDocument` /
+  `signDocumentTx`: the encounter sign transition
+  (`POST /api/v1/encounters/:id/sign` — verified live, the staff app reaches it
+  via `clinical_platform_api_service.dart`'s `_transition(encounterId, 'sign')`),
+  plus `diagnosticResultActionService`, `inpatientPathwayDomainService` and
+  `referralClosedLoopService`. Signatures accumulate.
+
+  **Split the four endpoints before judging them.** `GET /audit-chain/verify`
+  is caller-less but *not* a safety gap: `scheduler.js` already runs
+  `runAuditChainVerification` hourly under `withJobLock` — it recomputes the
+  per-tenant chain on `clinical_audit_events` for every active tenant and fires
+  a structured `AUDIT CHAIN TAMPER DETECTED` error log plus an
+  `AUDIT_CHAIN_TAMPERED` security webhook on any break. The endpoint is an
+  on-demand duplicate of a control that is already covered. Likewise
+  `POST /sign` largely duplicates what the encounter route does internally.
+
+  The real gap is the two **read** endpoints. `verifyDocumentSignature` and
+  `listDocumentSignatures` have no caller anywhere — no client, no cron, no
+  other service. So a signed clinical document's content hash is never
+  recomputed after the moment of signing, and nothing in the product can show
+  who signed a given document and when: the encounter sign response returns
+  the signature it just created, and after that the record is write-only. Risk
+  of leaving it: an e-signature nobody can re-verify is a claim rather than a
+  control, and per-document tamper evidence — as distinct from the audit chain,
+  which is watched — is never checked. Closing it needs a signature panel on
+  the encounter / document view that calls
+  `GET /integrity/signatures/:documentType/:documentId` and
+  `GET /integrity/signatures/:id/verify`.
+
+- **Bed inspections** (`/api/v1/bed-inspections`) — five endpoints
+  (`POST /`, `POST /:id/decide`, `GET /patient/:patientUid/active`,
+  `GET /appointment/:appointmentId`, `POST /expire-stale`), all
+  `requireStaffOrAdmin` behind `BED_INSPECTION_ROUTE_ROLES`, with **zero
+  callers** in any client.
+
+  This is the D1 consumer-choice flow: staff record which beds were shown to a
+  patient or attender and which one was chosen.
+  `services/bed/bedInspectionService.js` is the only writer of
+  `bed_inspections`, and its only entry points are those five routes plus the
+  hourly `expire-bed-inspections` cron, which calls `expireStaleInspections()`
+  — a sweeper that expires existing rows, never a source of new ones. So the
+  table can only ever be empty.
+
+  Worth recording because it is an operator-visible untruth: that cron's
+  comment in `src/utils/scheduler.js` says it expires stale rows *"so the
+  receptionist UI doesn't keep showing stale shortlists"*. There is no
+  receptionist UI — nothing calls these endpoints. That comment has now been
+  corrected in `scheduler.js` (the file was in scope after all, via a sibling
+  change in the same wave), so the cron no longer claims a consumer it lacks.
+
+  Risk of leaving it: a bed-choice record is the evidence that a patient was
+  offered and accepted a bed class, which is what a billing dispute turns on.
+  The hospital does this at the counter on paper while the platform holds an
+  empty parallel record and an hourly job sweeping nothing. Closing it needs an
+  inspection step inside the admission / bed-allocation flow.
+
+- **Ask-a-Doubt staff replies — already fixed by an earlier lane; recorded
+  here as the current true state.** `feedbackService.respondToFeedback`, its
+  `getFeedbackById` permission helper and the `POST /api/v1/feedback/respond`
+  route were **removed** in the re-audit I tenancy sweep. They wrote to
+  `feedback_responses`, a table present in no migration, absent from
+  `000_baseline.sql` and with no Prisma model, so every call raised 42P01 and
+  surfaced as a 500 — the staff answer was never stored. The removal is pinned
+  by `src/tests/unit/feedbackStaffReplyPathRemoved.test.js`, which fails if any
+  service, controller or route names `feedback_responses` again. **Do not
+  recreate the table.**
+
+  What remains true after that work: patients can still submit Ask-a-Doubt
+  questions
+  (`apps/patient/lib/features/feedback/screens/ask_a_doubt_screen.dart` →
+  `POST /api/v1/feedback`), and **there is still no path for staff to answer
+  one**. Nothing anywhere writes `response_status = 'responded'`, so
+  `responded_count` is structurally 0.
+
+  **The admin console no longer advertises otherwise** (round 3). This entry
+  previously ended by noting that `/dashboard/feedback` still rendered a
+  "Response Rate" KPI reading 0% forever and a `responded_by` /
+  `responded_at` block that could never populate — an operator reads a 0% KPI
+  as "we answer nobody", not as "the product has no reply feature". Both are
+  gone: the overview strip carries only the totals the backend can actually
+  compute, the detail panel no longer reserves a "Response:" section, and the
+  page's own comment records why. Pinned by
+  `apps/admin/src/__tests__/dashboard/feedback/page.test.tsx`. The NPS tab keeps
+  the one response rate this platform can measure, and that one is real.
+
+  Closing the underlying gap still needs a response table with a forward-only migration, a staff
+  compose surface **and** a patient-side render of the answer — all three or
+  none, since the removed path had no read side either. Risk of leaving it:
+  patients are invited to ask a question nobody can answer in the product;
+  direct them to the NPS / service-recovery surface
+  (`npsService.submitNpsResponse`), which is wired end to end.
+
+## Explicitly parked (re-audit lane J, 2026-08-24 — patient notification dead-ends)
+
+Three patient-facing notification paths reach the patient and then stop short of
+a destination. They were found by the two source gates that now hold the line —
+`src/tests/unit/patientPushFeedRowCensus.test.js` (every mechanism that can send
+a patient a privacy-stripped push must also write the in-app row it points at)
+and `src/tests/unit/patientInboxTypeRouting.test.js` (every `notifications.type`
+written for a patient must be one `_handleNotificationTap` routes). Both gates
+carry these three as an explicit, exact baseline: a fourth cannot join silently,
+and fixing one of these fails the gate until its line is removed here and there.
+They are parked rather than queued because each needs a decision or a surface
+outside the backend lane that found them. **These entries are the park; the Jest
+tables only point at them.**
+
+Shared background, true of all three: `sendPushNotification` replaces the FCM
+payload of every NORMAL-priority message with a generic *"You have a new update.
+Open the app to view it."* landing on `/notifications`
+(`sendPushNotification.js:36-43, :116-135`). The push deliberately carries no
+readable content and no deep link, so the inbox row **is** the message, and the
+row's `type` is the only thing that turns it back into a destination.
+
+- **Diagnostic result ready — the push fires, the inbox row is never written.**
+  `services/diagnostics/diagnosticResultPatientNotificationService.js` inserts
+  straight into `notification_outbox` (raw SQL, inside the transaction that also
+  writes the `diagnostic_result_patient_notifications` receipt) with
+  `type = 'diagnostic_result_ready'`, the patient's uid as `recipient_id`, and a
+  payload naming `route: '/portal/diagnostic-results'`.
+
+  *What exists.* The outbox row, the drain, the push, the receipt, and — on the
+  patient side — a real destination: `'diagnostic_result_ready'` **is** a case in
+  `_handleNotificationTap` and pushes `/portal/diagnostic-results`. The type is
+  also in `TYPE_TO_PREFERENCE_KEY` (→ `results_ready`), so a tenant that
+  configures the in-app channel for results *does* get a routed row.
+
+  *What is missing.* The default. With no tenant channel configuration,
+  `resolveChannelsForOutboxRow` falls through to `legacyChannelsForOutboxRow`,
+  which returns `['push']` for any row carrying a `recipient_id` — never
+  `['inapp']` — and the drain writes a `notifications` row **only** when the
+  resolved set contains `inapp`. The service writes none itself.
+
+  *Patient-visible symptom.* The phone buzzes with "You have a new update",
+  opens `/notifications`, and there is nothing new there. The report is sitting
+  at `/portal/diagnostic-results` and nothing tells the patient so.
+
+  *Shape of the fix.* One `recordPatientFeedNotification({ type:
+  'diagnostic_result_ready', … })` next to the outbox insert (the helper is
+  non-throwing by construction, so it cannot abort the clinical write). Parked
+  because the release policy for diagnostic results is owned by the diagnostics
+  lane — the outbox insert sits behind a `releaseDelayHours()` embargo and a
+  release-state check, and adding a second patient-visible artefact to that path
+  needs that owner's sign-off, not a drive-by edit.
+
+- **Referral response ready — same shape, and no tenant setting can fix it.**
+  `services/referral/referralClosedLoopService.js` inserts into
+  `notification_outbox` with `type = 'referral_response_ready'` and payload
+  `route: '/portal/referrals'`.
+
+  *What exists.* The outbox row, the push, and the destination:
+  `'referral_response_ready'` is a case in `_handleNotificationTap` and pushes
+  `/portal/referrals`.
+
+  *What is missing.* The row, permanently. Unlike the diagnostics case,
+  `referral_response_ready` has **no entry in `TYPE_TO_PREFERENCE_KEY`**, so
+  `preferenceKey` is null and `resolveChannelsForOutboxRow` returns the legacy
+  `['push']` unconditionally. No tenant configuration exists that would make the
+  drain write the in-app row.
+
+  *Patient-visible symptom.* Identical: a content-free buzz into an empty inbox,
+  while the referral update waits unannounced at `/portal/referrals`.
+
+  *Shape of the fix.* Either `recordPatientFeedNotification({ type:
+  'referral_response_ready', … })` beside the insert, or add the type to
+  `TYPE_TO_PREFERENCE_KEY` so tenants can configure it — the second is a
+  tenant-settings surface change (a new preference key appears in the admin
+  console) and therefore a product decision, which is why this is parked with
+  the first.
+
+- **Engagement campaign — the row IS written, and it is inert on tap.** This is
+  the other shape of dead end, and the only one of the three where the patient
+  gets something in the inbox. `services/engagement/engagementCampaignService.js`
+  queues `type = 'engagement_campaign'` with `data.channels = [row.channel]`,
+  one channel per recipient row. `'inapp'` is an accepted engagement channel
+  (`ENGAGEMENT_CHANNELS`), and `resolveChannelsForOutboxRow` has a dedicated
+  branch that returns the campaign's own payload channels verbatim — so a
+  campaign sent in-app reaches `dispatch()` with `['inapp']` and the dispatcher
+  commits a `notifications` row typed `engagement_campaign`.
+
+  *What is missing.* A `case 'engagement_campaign'` in `_handleNotificationTap`.
+  Without one the row renders with its title and body and tapping it only marks
+  it read.
+
+  *Patient-visible symptom.* A campaign message that looks like every other
+  inbox item and does nothing when tapped — worst for the recall campaigns,
+  where the message is an instruction to act (`CAMPAIGN_TYPES` covers
+  `appointment_recall`, `no_show_recall`, `feedback_nps_request`,
+  `generic_follow_up_reminder`, `rpm_enrollment_reminder`) and the tap does not
+  take the patient to the thing to act on.
+
+  *Why it is not fixed here, stated accurately.* Until 2026-08-24 both gates
+  dispositioned this as "another agent's file — the engagement module owns the
+  fix". That is **no longer true**: this same working tree adds
+  `routes/engagement/engagementListQueries.js` and three engagement GET routes.
+  The honest reason is different. There are two candidate fixes and neither
+  belongs to a backend notification lane. (a) Add the `case` in the patient app —
+  out of scope for this lane, and it needs a destination decision: a campaign is
+  arbitrary operator-authored content, so there is no single screen it is "about".
+  (b) Remap the feed-row type through `TRANSPORT_TYPE_TO_FEED_TYPE` to something
+  already routed — rejected outright, because pointing every campaign at, say,
+  `/appointments` would make the tap tell the patient something the message does
+  not say. The real question is a product one: should tapping a campaign have a
+  destination at all (deep-link off `data.template_kind`, which the queue already
+  carries), or is a campaign a read-only broadcast like the operator
+  announcements the tap handler deliberately falls through? Answering that closes
+  it; guessing at it is exactly the "operator-visible string claiming behaviour
+  the code does not have" failure this re-audit exists to stop.
+
+## Explicitly parked (re-audit lane J, 2026-08-24 — round 4: three decisions that were not this lane's to make)
+
+Round 4 closed lane J by making claims match code rather than building a fourth
+reachability path. Each item below was a decision an owner had to take; the code
+described itself accurately in the meantime. **One of the three — the BCMA
+wristband — was decided by the platform owner on 2026-08-25 and is now built;
+its entry is kept here, marked `[DONE]`, so the decision sits with the question
+it answers. Two remain parked.**
+
+### BCMA wristband — DECIDED 2026-08-25 by the platform owner, and shipped `[DONE]`
+
+*The decision, verbatim:*
+
+> "Yes administrator should be able to print a wristband without break-glass,
+> but such an action should be noted in logs for future audit if needed."
+
+*What exists, and it works.* `GET /api/v1/bcma/wristband/:patientUid`
+(`apps/backend/src/routes/clinical/bcmaRoutes.js`) returns the band payload as
+JSON and, with `?format=html`, a self-contained printable document: a Code 39
+rendering of the patient UID — the exact value the five bedside scan screens
+expect — plus the three-way allergy strip. It carries its own
+`Content-Security-Policy` (`default-src 'none'` plus one SHA-256-hashed inline
+autoprint script), which `apps/admin/src/middleware.ts` deliberately does not
+overwrite. The MAR round's "Print band" control
+(`apps/admin/src/lib/bcmaWristband.ts`, used by `dashboard/mar/page.tsx`) links
+to it through the portal proxy, which forwards the caller's own bearer.
+`src/tests/bcma-closed-loop.deep.test.js` exercises the whole round trip against
+the real database with a `NURSING_STAFF` token.
+
+*The scope of the grant — one policy code, and only one.* Rather than widen
+`PATIENT_CLINICAL_WORKFLOW_ACCESS` (which gates 27 sites across allergies,
+assessments, clinical notes, CDS, encounters, med-rec, problem lists and care
+pathways) or add it to `OPERATIONAL_ROLE_POLICIES` (which would have unblocked
+every clinical-workflow surface for ADMIN), the route was given a policy code of
+its own: **`patient.wristband.print`** (`PATIENT_WRISTBAND_PRINT` in
+`services/security/accessPolicyRegistry.js`). Its gate surface is a deliberate
+copy of the policy it replaced — same `patient_relationship_required` PHI level,
+same capability groups, same relationship chain — so every actor who could print
+a band before can still print one on exactly the same evidence, including the
+clinical-authorship path (`findClinicalAuthorshipRelationship` was widened to
+accept the new code for precisely that reason). The single behavioural
+difference is `administrativeGrantForPolicy` in `accessDecisionService.js`: a
+frozen set containing **one** policy code, admitting **two** roles (ADMIN,
+SUPER_ADMIN).
+
+Three properties keep it from leaking, each pinned by test:
+
+1. **Keyed on the policy code**, so no other policy can match it. Adding a code
+   to that set is a deliberate, reviewable act.
+2. **Evaluated last**, after every relationship check has already failed. An
+   administrator who genuinely holds a care-team / authorship / admission
+   relationship is attributed to that relationship; a live break-glass session
+   is still attributed to `break_glass`. The grant therefore only ever fires
+   when there is provably no care relationship — which is exactly what the audit
+   row claims.
+3. **Nobody else moves.** A staff role with neither a relationship nor
+   administrator status is refused exactly as before.
+
+*Where the audit lands.* Two sinks, both append-only under migration 324:
+
+| Sink | Written by | Row shape |
+|---|---|---|
+| `patient_access_audit_log` | the guard, automatically, on every decision | `tenant_id`, `patient_uid`, `actor_uid`, `actor_role`, `access_decision='allow'`, `access_source='role'`, `route`, `action='VIEW'`, `created_at`, and `metadata` carrying `policy_code='patient.wristband.print'`, **`administrative_access: true`** and `administrative_grant: 'administrator_no_relationship'` |
+| `audit_logs` | the route, per print, best-effort | `action='wristband-print-administrative-access'`, `resource='patient_wristband'`, `resource_id=<patient uid>`, `uid`/`actor_uid`, `role`, `tenant_id`, `created_at`, and `metadata` carrying `patient_uid`, `care_relationship: 'none'`, `break_glass: false`, `discloses_patient_name`, `format`, `actor_raw_role` |
+
+The compliance query is `SELECT … FROM patient_access_audit_log WHERE
+metadata->>'administrative_access' = 'true'`; the second sink is the one with a
+REST reader (`/api/v1/logs/audit`) and a UI (`/dashboard/system-logs`). A
+relationship-backed nursing print records `access_source='admission'` and
+`administrative_access: false`, and writes nothing to `audit_logs` — the two are
+distinguishable by query, not by prose. The mount's `phiAccessLogger('BCMA')`
+keeps writing the ordinary `hipaa_access_log` PHI-read row for every caller.
+`actor_raw_role` exists because `jwtMiddleware` canonicalises SUPER_ADMIN to
+ADMIN on `req.user.role`, so the shared audit columns say ADMIN for both.
+
+*The audit cannot break the print.* A wristband is a bedside safety artifact on
+a PHI read path, so the administrative write follows this repo's best-effort
+convention twice over: `logAudit()` already swallows its own DB failure into the
+Winston sink, and `recordAdministrativeWristbandAudit` additionally refuses to
+propagate anything the helper itself could throw.
+`src/tests/unit/wristbandAdministrativeAuditDurability.test.js` pins that a
+throwing sink resolves rather than rejects, and that the failure is still loud
+in the error log.
+
+*Proof.* `src/tests/bcma-wristband-admin-access.deep.test.js` (10 tests, real
+DB): ADMIN and SUPER_ADMIN print without break-glass and produce records in both
+sinks; the nursing print still succeeds attributed to `admission` and is not
+labelled administrative; `OT_NURSE` (which clears RBAC, the PHI bar and the
+capability group, so the refusal comes from the relationship layer) is still
+refused, as is a nurse against a patient she has no admission to; and the scope
+proof — the same administrator session, in the same test, still gets **403** on
+`GET /api/v1/allergies/patient/:patientUid/unified`, which runs
+`PATIENT_CLINICAL_WORKFLOW_ACCESS`, while the nurse still gets 200 there. The
+last test re-runs all four outcomes with `care_team_enforcement_mode=enforce`.
+
+*A finding shipped alongside it.* The `/api/v1/bcma` mount in `app.js` carries
+its own `patientAccessGuard('BCMA', { careTeamModeGoverned: true })`, and that
+guard **never decides this request**: Express has not matched the route when a
+mount-level middleware runs, so `:patientUid` is not in `req.params`, no patient
+resolves, and `authorizePatientAccessRequest` returns `no_patient_context`
+without evaluating a policy or writing a row — in shadow and in enforce alike.
+Measured, not assumed: one wristband request writes exactly one
+`patient_access_audit_log` row, and the deep suite asserts that count. Giving
+that mount an explicit `policyCode` was tried and reverted rather than shipped,
+because it would have been a control that can never fire; the mount line is
+unchanged and now carries a comment saying so. The route's own guard is the sole
+authority.
+
+*The proxy-gate trigger, resolved.* The round-4 note in
+`apps/admin/src/app/api/proxy/[...path]/route.ts` said: **"if the backend guard
+is ever widened to admit administrators, this prefix needs a real gate."** It
+has been, so the trigger fired and was answered: **no `PERMISSION_GATES` entry
+is added.** Those gates scope ADMIN accounts by per-admin permission flag, and
+the owner granted this capability to administrators as a class, not to a
+flagged subset — a flag gate would silently re-impose a restriction the decision
+removed, and none of the seven grantable flags describes wristband printing. The
+control the owner asked for is the audit trail, and it is unconditional. Revisit
+only if an owner asks for per-admin scoping of band printing specifically.
+
+### Engagement campaigns — no requester/approver separation exists; building one is a feature `[CODE]`
+
+*What the code does.* `approveCampaign`
+(`apps/backend/src/services/engagement/engagementCampaignService.js`) loads the
+campaign, checks the caller's **role** against `BROAD_APPROVAL_ROLES` (SUPER_ADMIN,
+ADMIN, QUALITY_OFFICER, CMO, CNO, MEDICAL_SUPERINTENDENT) when
+`approval_required_role = 'admin_quality'` and against `CARE_TEAM_APPROVAL_ROLES`
+(those plus the doctor and ward-incharge roles) otherwise, then moves the row
+`pending_approval → scheduled` and stamps `approved_by`/`approved_at` with
+whoever called. It never reads `submitted_by` or `created_by`.
+`submitCampaignForApproval` has no role gate of its own beyond the mount's
+`ENGAGEMENT_ROUTE_ROLES`. So a caller holding an approving role can submit a
+campaign and approve it themselves, and the platform records both stamps as the
+same person.
+
+*What was claimed.* Round 3 added three read endpoints and described them — in
+the published OpenAPI spec, in `routes/engagement/engagementListQueries.js`, in
+`routes/engagement/engagementRoutes.js`, and in the admin console's
+`CampaignsPanel.tsx` and `engagement/page.tsx` — as closing "a broken two-person
+control" for "the second approver, who is not the author". There is no such
+control to break. The reads are a genuine fix for a genuine hole (a campaign was
+addressable only by an id the caller already held, so no other session could open
+it), and that is now all they say.
+
+*Why the control is not built here.* Requester/approver separation is a policy
+choice with real operational consequences: the columns already exist
+(`engagement_campaigns.submitted_by`, `.approved_by`), so the code change is
+small, but a single-clinician site or an out-of-hours recall would be unable to
+send anything the moment it lands. The patient-merge two-person rule
+(`services/patient/patientMergeService.js`) is the shape to copy — including its
+handling of a NULL requester, which it refuses rather than waves through — but
+whether engagement campaigns warrant it, and whether it should apply to both
+`approval_required_role` tiers or only the broad one, is a product decision.
+
+### ADT^A02 on first bed allocation — an interface-contract decision, so the capability string was narrowed instead `[CODE]` `[OPERATOR]`
+
+*What was wrong.* `GET /api/v1/hl7/capability` advertised outbound `ADT^A02`
+with `trigger: 'automatic on bed transfer; feed subscriptions listing ADT^A02'`.
+`emitTransferAdt` has exactly one caller,
+`admissionService.transferPatient`, reachable from `POST
+/api/v1/admissions/{id}/transfer`, `POST /api/v1/emr/{id}/transfer` and `POST
+/api/v1/beds/transfer`. The other path that puts a patient into a bed — `POST
+/api/v1/admissions/{id}/assign-bed`, the emergency-exception allocation of a
+first bed to a bedless admission — updates `admissions.ward` and `bed_number`
+and writes a `bed_transfers` row with `from_bed_id = NULL`, and emits nothing.
+"On bed transfer" therefore over-promised to any integrator sizing an interface
+from the capability statement.
+
+*Choice taken: narrow the string, do not wire the emitter.* The capability entry
+now names the three endpoints that emit and states explicitly that
+`assign-bed` does not. Wiring `emitTransferAdt` into `assignBedToAdmission`
+would have been mechanically easy — a post-commit Phase 1.5 tail in its own
+try/catch, the same shape `transferPatient` already uses, adding no failure mode
+to the admission write. It was not done because the resulting message would be
+wrong, not merely new: an A02 is the one ADT trigger defined by carrying **both**
+locations (PV1-3 assigned, PV1-6 prior) and receivers reconcile a move by
+diffing them (`services/hl7/hl7Transformer.js#transferToADT`). A first allocation
+has no prior location, so it would ship an empty PV1-6 to systems that agreed to
+receive transfers. Announcing it may well be right — but under which trigger
+(A02 with an empty prior location, an A01 update, an A08) is an interface-contract
+question for the receiving systems' owners.
+
+*Sharp edge if it is ever wired.* Adding a message type to a live subscription is
+itself an operator action with a documented failure mode — see "Outbound HL7
+transfer feed — the DEFAULT is fixed, existing subscriptions must opt in" above:
+one rejected message pauses that subscriber's cursor and stops its admissions,
+discharges and lab results until an owner reconciles by hand.

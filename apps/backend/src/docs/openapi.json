@@ -109829,6 +109829,25 @@
       }
     },
     "/api/v1/engagement/campaigns": {
+      "get": {
+        "operationId": "get_api_v1_engagement_campaigns",
+        "tags": [
+          "engagement"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant-scoped campaign list for the engagement console. Filters: `status` (draft, dry_run, pending_approval, scheduled, running, paused, completed, archived, cancelled) and `campaign_type`; an unrecognised value is rejected with ENGAGEMENT_BAD_LIST_FILTER rather than silently returning an empty page. Paginated via `page`/`limit` (default 20, max 100) and sortable on created_at, updated_at, scheduled_at or status. Payload is `{ campaigns, pagination }`. Without it a campaign is addressable only by an id the caller already holds, so a console session cannot find one created elsewhere — `status=pending_approval` is the filter that lists the campaigns waiting on the role-gated approve action."
+      },
       "post": {
         "operationId": "post_api_v1_engagement_campaigns",
         "tags": [
@@ -109846,6 +109865,37 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}": {
+      "get": {
+        "operationId": "get_api_v1_engagement_campaigns_by_campaignId",
+        "tags": [
+          "engagement"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Single tenant-scoped engagement campaign, so a campaign can be opened by id from a queue or a link rather than only from the session that created it. 404 ENGAGEMENT_CAMPAIGN_NOT_FOUND when the id does not exist inside the caller's tenant.",
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/engagement/campaigns/{campaignId}/approve": {
@@ -110037,6 +110087,25 @@
       }
     },
     "/api/v1/engagement/templates": {
+      "get": {
+        "operationId": "get_api_v1_engagement_templates",
+        "tags": [
+          "engagement"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant-scoped engagement template list. Retired templates are hidden unless `include_retired=true`, matching the `WHERE retired_at IS NULL` partial indexes on the table. Filters: `template_kind`, `channel`. Paginated via `page`/`limit` (default 20, max 100). Payload is `{ templates, pagination }`."
+      },
       "post": {
         "operationId": "post_api_v1_engagement_templates",
         "tags": [

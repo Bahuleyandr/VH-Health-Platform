@@ -437,6 +437,22 @@ class RoleFeatures {
     route: '/transport',
     color: Color(0xFF5D4037),
   );
+
+  /// ED / trauma workbench — STEMI and trauma-team activation, ABCDE primary
+  /// and secondary survey, MLC certification, police notification, chain of
+  /// custody and destination handoff. It is a documenting-clinician surface
+  /// that writes medico-legal records, so its roster is the backend's
+  /// ED_ROUTE_ROLES (IP flow + emergency/ICU + medical records), pinned by
+  /// `ed_trauma_workbench` in the generated contract. Grant it below ONLY to
+  /// roles that roster contains. Anaesthesia, OT and OP nursing, the nursing
+  /// and medical superintendents and EMERGENCY_RESPONDER were granted it here
+  /// and denied by the contract, so for those canonical codes the grant only
+  /// reordered a tile getFeaturesForRawRole already dropped — while the legacy
+  /// raw spellings that skip that intersection (ANAESTHESIOLOGIST,
+  /// THEATRE_INCHARGE, CHIEF_MEDICAL_OFFICER, CHIEF_NURSING_OFFICER) got a
+  /// screen every backend ED route refuses. Pre-hospital EMERGENCY_RESPONDER
+  /// work is `sos_response`, `patient_transport` and `stroke_pathway`;
+  /// in-hospital ED work belongs to ER_STAFF, which the roster does contain.
   static const DashboardFeature _edTraumaWorkbench = DashboardFeature(
     id: 'ed_trauma_workbench',
     titleKey: 'role.feature.ed_trauma_workbench',
@@ -933,7 +949,6 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
-        _edTraumaWorkbench,
         _patientRecords,
         _investigationResults,
         _theatre,
@@ -1023,7 +1038,6 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
-        _edTraumaWorkbench,
         _patientRecords,
         _deviceAssociation,
         _nursingNotes,
@@ -1050,7 +1064,6 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
-        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _deviceAssociation,
@@ -1078,7 +1091,6 @@ class RoleFeatures {
         _opNursingDashboard,
         _dentalCharting,
         _clinicalInbox,
-        _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
         _deviceAssociation,
@@ -1103,7 +1115,6 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _clinicalInbox,
-        _edTraumaWorkbench,
         _theatre,
         _patientRecords,
         _investigationResults,
@@ -1155,7 +1166,6 @@ class RoleFeatures {
         _sosResponse,
         _staffRosterHub,
         _frontOfficeWorkbench,
-        _edTraumaWorkbench,
         _appointments,
         _admissions,
         _opDoctorWorkspace,
@@ -1418,11 +1428,13 @@ class RoleFeatures {
       StaffRole.driver ||
       StaffRole.security ||
       StaffRole.emergencyResponder => [
-        _patientTransport,
+        // Porter/transport tasks are a DRIVER and EMERGENCY_RESPONDER surface:
+        // the contract's `patient_transport` roster has no SECURITY, so this
+        // tile never reached a security guard's dashboard anyway.
+        if (role != StaffRole.security) _patientTransport,
         _sosResponse,
         _schedule,
         _dutyPreference,
-        if (role == StaffRole.emergencyResponder) _edTraumaWorkbench,
         _messaging,
         _profile,
         _settings,
@@ -1431,7 +1443,9 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _maintenanceRoster,
-        _biomedWorkOrders,
+        // No _biomedWorkOrders: the CMMS queue's `biomed_work_orders` roster is
+        // biomedical staff plus the medical/platform admins, so this tile never
+        // reached a maintenance technician's dashboard anyway.
         _staffDirectory,
         _messaging,
         _profile,
@@ -2248,7 +2262,7 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.biomedicalStaff || StaffRole.maintenance => [
+      StaffRole.biomedicalStaff => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -2290,7 +2304,13 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.emergencyResponder => [
+      // MAINTENANCE shared the biomedical nav and so carried a Work tab into
+      // the CMMS work-order queue, which `biomed_work_orders` grants to
+      // biomedical staff and the medical/platform admins only — the tab was
+      // dropped by the route guard for every maintenance technician. This app
+      // has no maintenance work-order queue, so there is no Work tab to give
+      // them; roster, leave and duty preference reach them through Home.
+      StaffRole.maintenance => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -2301,11 +2321,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.build_outlined),
-            activeIcon: Icon(Icons.emergency_share),
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
           ),
-          labelKey: 'role.nav.work',
-          route: '/ed-trauma',
+          labelKey: 'role.nav.my_roster',
+          route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -2324,7 +2344,68 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.driver || StaffRole.security => [
+      // Work tab = the task queue the role actually holds in the generated
+      // contract. The responder's used to open /ed-trauma, which
+      // EMERGENCY_RESPONDER is denied, so the tab was dropped by the route
+      // guard; Security's opened /dashboard, a duplicate of Home. Both hold
+      // `sos_response`, and the SOS console is the queue they work from.
+      StaffRole.emergencyResponder || StaffRole.security => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+          ),
+          labelKey: 'role.nav.home',
+          route: '/dashboard',
+        ),
+        // TWO Work candidates, because this ONE arm serves backend roles with
+        // DISJOINT grants. ER_STAFF (the in-hospital ED role) holds
+        // ed_trauma_workbench and NOT sos_response; EMERGENCY_RESPONDER holds
+        // sos_response and NOT ed_trauma_workbench — both present as
+        // StaffRole.emergencyResponder via the presentation-only archetype
+        // map. A single static route therefore always empties the tab for one
+        // of them: it used to be the responder, and pointing it at
+        // /sos-response merely moved the outage onto ER_STAFF.
+        //
+        // MainScaffold already drops any item the signed-in user cannot
+        // navigate to, and dedupes by labelKey, so each role keeps exactly the
+        // one it holds. Order is preference, not precedence.
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.emergency_outlined),
+            activeIcon: Icon(Icons.emergency),
+          ),
+          labelKey: 'role.nav.work',
+          route: '/ed-trauma',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.sos_outlined),
+            activeIcon: Icon(Icons.sos),
+          ),
+          labelKey: 'role.nav.work',
+          route: '/sos-response',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+          ),
+          labelKey: 'role.nav.messages',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+          ),
+          labelKey: 'role.nav.profile',
+          route: '/profile',
+        ),
+      ],
+      // The driver's queue is patient transport (`patient_transport`), which
+      // SECURITY does not hold — hence the separate arm above.
+      StaffRole.driver => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -2335,11 +2416,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.build_outlined),
-            activeIcon: Icon(Icons.build),
+            icon: Icon(Icons.transfer_within_a_station_outlined),
+            activeIcon: Icon(Icons.transfer_within_a_station),
           ),
           labelKey: 'role.nav.work',
-          route: '/dashboard',
+          route: '/transport',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -2734,9 +2815,17 @@ class RoleFeatures {
     };
   }
 
+  /// Builds the desktop workbench rail for [role].
+  ///
+  /// [policyFeatureIds] is the live `staff_features_by_role` entry for the
+  /// signed-in role and [policyKnownFeatureIds] the ids that same policy
+  /// snapshot declares in `staff_features`. The pair is required because the
+  /// policy can only ever NARROW this rail, and it may only narrow inside the
+  /// vocabulary the server actually publishes — see the filter at the end.
   static List<WorkbenchNavItem> getWorkbenchNavForRole(
     StaffRole role, {
     Set<String>? policyFeatureIds,
+    Set<String>? policyKnownFeatureIds,
     String? rawRole,
     String? department,
   }) {
@@ -2756,7 +2845,12 @@ class RoleFeatures {
           icon: Icons.calendar_month_outlined,
           selectedIcon: Icons.calendar_month,
           route: '/staff-rosters',
-          featureId: 'staff_roster_hub',
+          // `staff_roster` is the one feature id the backend, the generated
+          // contract, the /staff-rosters route gate and the dashboard tile all
+          // use. This item said `staff_roster_hub` (the SCREEN's name), which
+          // no policy source knows, so the rail hid Staff Roster the moment a
+          // role policy loaded.
+          featureId: 'staff_roster',
         ),
       );
     }
@@ -3008,10 +3102,21 @@ class RoleFeatures {
         .toList(growable: false);
 
     if (policyFeatureIds == null || policyFeatureIds.isEmpty) return filtered;
+
+    // The role policy NARROWS the rail, and only within the feature vocabulary
+    // the server itself publishes. An id the snapshot never declares in
+    // `staff_features` carries no verdict — reading its absence from the role's
+    // list as a denial is how Payroll and Staff Roster vanished from the rail
+    // for roles that hold them. Those ids keep the static role map + the
+    // generated contract as their authority.
+    final knownToPolicy = policyKnownFeatureIds ?? const <String>{};
+    if (knownToPolicy.isEmpty) return filtered;
     return filtered
         .where((item) {
           final featureId = item.featureId;
-          return featureId == null || policyFeatureIds.contains(featureId);
+          if (featureId == null) return true;
+          if (!knownToPolicy.contains(featureId)) return true;
+          return policyFeatureIds.contains(featureId);
         })
         .toList(growable: false);
   }

@@ -22,6 +22,37 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
   ['payslip_ready', 'payslip_ready'],
 ]);
 
+// ── outbox transport type → patient-inbox feed type ───────────────────────
+//
+// When a resolved channel set contains `inapp`, the outbox drain routes
+// through `dispatch()`, whose inapp branch writes a `notifications` row typed
+// with the OUTBOX ROW's type (notificationDispatcher.js). Some outbox types
+// are transport / template identity only and are NOT among the `case` labels
+// the patient app's inbox tap handler switches on
+// (apps/patient/lib/features/notifications/screens/notifications_screen.dart
+// `_handleNotificationTap`) — a row typed with one of those renders in the
+// inbox and goes nowhere when tapped, which is the same defect as no row at
+// all. Translate those before the row is written.
+//
+// Only add an entry here when the transport type and the routed inbox type
+// genuinely differ. Types already routed by the handler must NOT appear.
+const TRANSPORT_TYPE_TO_FEED_TYPE = new Map([
+  ['appointment_reminder_24h', 'appointment_reminder'],
+  ['appointment_reminder_1h', 'appointment_reminder'],
+  ['reminder', 'appointment_reminder'],
+]);
+
+/**
+ * The `notifications.type` an in-app row should carry for a given outbox /
+ * dispatch transport type. Returns the input unchanged when no translation is
+ * registered, so staff types and already-routed patient types pass through
+ * untouched.
+ */
+export function feedRowTypeForTransportType(type) {
+  const key = String(type ?? '').trim().toLowerCase();
+  return TRANSPORT_TYPE_TO_FEED_TYPE.get(key) || type;
+}
+
 export const DELIVERY_CHANNELS_PAYLOAD_KEY = '__delivery_channels';
 export const REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY = '__replay_chain_started_at_ms';
 
@@ -96,4 +127,5 @@ export const __testing__ = {
   normalizeChannelList,
   SUPPORTED_CHANNELS,
   TYPE_TO_PREFERENCE_KEY,
+  TRANSPORT_TYPE_TO_FEED_TYPE,
 };

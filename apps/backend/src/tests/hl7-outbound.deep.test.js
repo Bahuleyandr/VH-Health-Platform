@@ -12,6 +12,7 @@ import { authClient } from './testClient.js';
 import {
   emitAdmissionAdt,
   emitSignedResultsOru,
+  emitTransferAdt,
   deliverPendingFeedMessages,
 } from '../services/hl7/hl7OutboundService.js';
 import { generateACK, parseHL7 } from '../services/hl7/hl7Parser.js';
@@ -234,6 +235,79 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     expect(rows[0].hl7_payload).toContain('ORU^R01');
     expect(rows[0].hl7_payload).toContain('OBX|1|');
     expect(rows[0].hl7_payload).toContain('7.2');
+  });
+
+  test('transfer emission queues ADT^A02 once per bed move, with both locations', async () => {
+    // The type must be subscribable through the public management route, not
+    // just internally emittable.
+    const created = await tenantAuthClient('ADMIN')
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST transfers',
+        endpoint_url: `${baseUrl}/ok`,
+        message_types: ['ADT^A02'],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.data.subscription.message_types).toEqual(['ADT^A02']);
+
+    const moved = {
+      id: 424242,
+      patient_uid: patientUid,
+      tenant_id: TEST_TENANT_ID,
+      ward: 'C2TEST ICU',
+      bed_number: 'C2-ICU-1',
+      admitted_at: new Date(),
+    };
+
+    const firstMove = await emitTransferAdt(moved, {
+      transferId: 90001,
+      priorWard: 'C2TEST Ward',
+      priorBedNumber: 'C2-01',
+    });
+    expect(firstMove).toBe(1); // only the transfers subscription listens
+
+    // A SECOND move of the SAME admission must also emit. Keyed on the
+    // admission it would collide with the first A02 and silently vanish.
+    const secondMove = await emitTransferAdt(
+      { ...moved, ward: 'C2TEST HDU', bed_number: 'C2-HDU-4' },
+      { transferId: 90002, priorWard: 'C2TEST ICU', priorBedNumber: 'C2-ICU-1' },
+    );
+    expect(secondMove).toBe(1);
+
+    const rows = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT m.source_table, m.source_id, m.source_event_key, m.hl7_payload,
+              m.status, m.transport_state, m.acknowledgement_state, m.send_authority
+         FROM hl7_outbound_messages m
+         JOIN hl7_feed_subscriptions s
+           ON s.tenant_id = m.tenant_id AND s.id = m.subscription_id
+        WHERE m.tenant_id = $1::uuid
+          AND s.name = 'C2TEST transfers' AND m.message_type = 'ADT^A02'
+        ORDER BY m.source_id`,
+      TEST_TENANT_ID,
+    ));
+    expect(rows).toHaveLength(2);
+    expect(rows.map(r => r.source_event_key)).toEqual([
+      'bed_transfers:90001',
+      'bed_transfers:90002',
+    ]);
+    for (const row of rows) {
+      expect(row.source_table).toBe('bed_transfers');
+      expect(row.hl7_payload).toContain('ADT^A02');
+      // Queued only — the four I04 planes start neutral. A queued A02 is not
+      // a sent one; the ledger decides that from a correlated MSA|AA.
+      expect(row).toMatchObject({
+        status: 'queued',
+        transport_state: 'not_attempted',
+        acknowledgement_state: 'pending',
+        send_authority: 'authorized',
+      });
+    }
+    const pv1First = rows[0].hl7_payload.split('\r').find(seg => seg.startsWith('PV1|')).split('|');
+    expect(pv1First[3]).toBe('C2TEST ICU^C2-ICU-1');
+    expect(pv1First[6]).toBe('C2TEST Ward^C2-01');
+    const pv1Second = rows[1].hl7_payload.split('\r').find(seg => seg.startsWith('PV1|')).split('|');
+    expect(pv1Second[3]).toBe('C2TEST HDU^C2-HDU-4');
+    expect(pv1Second[6]).toBe('C2TEST ICU^C2-ICU-1');
   });
 
   test('message list remains available while the retired generic replay route cannot release', async () => {

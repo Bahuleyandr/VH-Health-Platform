@@ -88,6 +88,49 @@ const OPERATIONAL_ROLE_POLICIES = new Set([
   ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
 ]);
 
+// ---------------------------------------------------------------------------
+// Administrative no-relationship grant (owner decision, 2026-08-25)
+// ---------------------------------------------------------------------------
+// The platform owner decided that an administrator may print a patient
+// wristband without opening break-glass, and that every such print must be
+// recorded for audit. This set is the ENTIRE surface of that decision: one
+// policy code, used by one route (GET /api/v1/bcma/wristband/:patientUid).
+//
+// Three properties keep it from leaking, and each is pinned by a test in
+// src/tests/bcma-wristband-admin-access.deep.test.js:
+//   1. The set is keyed on policy CODE, so no other policy — above all
+//      PATIENT_CLINICAL_WORKFLOW_ACCESS, which gates 27 clinical sites — can
+//      match it. Adding a code here is a deliberate, reviewable act.
+//   2. The grant is evaluated LAST, after every relationship check has failed.
+//      An administrator who genuinely holds a care-team / authorship /
+//      admission relationship is attributed to that relationship, and a live
+//      break-glass session is still attributed to break_glass. The grant
+//      therefore only ever fires when there is provably no care relationship,
+//      which is exactly what the audit row claims.
+//   3. Only ADMIN and SUPER_ADMIN qualify. Every other role that lacks a
+//      relationship is still refused.
+const ADMINISTRATIVE_NO_RELATIONSHIP_POLICIES = new Set([
+  ACCESS_POLICY_CODES.PATIENT_WRISTBAND_PRINT,
+]);
+
+// Grant code written into the audit trail so "an administrator read this
+// patient with no care relationship" is queryable, not inferred from prose.
+export const ADMINISTRATIVE_ACCESS_GRANTS = Object.freeze({
+  ADMINISTRATOR_NO_RELATIONSHIP: 'administrator_no_relationship',
+});
+
+/**
+ * The last-resort administrative allow. Returns a grant code when `role` is an
+ * administrator AND `policy` is one of the narrowly enumerated codes the owner
+ * authorised; otherwise null. Callers must only consult it after every
+ * relationship check has already failed.
+ */
+export function administrativeGrantForPolicy(role, policy) {
+  if (!ADMINISTRATIVE_NO_RELATIONSHIP_POLICIES.has(policy?.code)) return null;
+  if (!OPERATIONAL_ADMIN_ROLES.has(normalizeRole(role))) return null;
+  return ADMINISTRATIVE_ACCESS_GRANTS.ADMINISTRATOR_NO_RELATIONSHIP;
+}
+
 export { ACCESS_POLICY_CODES, SAFE_PATIENT_ACCESS_DENIAL_MESSAGE };
 
 export function deriveTenantIdFromRequest(req) {
@@ -1173,7 +1216,17 @@ async function findReferralRelationship(req, patient, role) {
 }
 
 async function findClinicalAuthorshipRelationship(req, patient, policy) {
-  if (![ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE].includes(policy?.code)) {
+  // PATIENT_WRISTBAND_PRINT is listed because the wristband route ran on
+  // PATIENT_CLINICAL_WORKFLOW_ACCESS before it was split out (owner decision
+  // 2026-08-25) and a clinician who authored this patient's orders or notes
+  // could print a band on that authorship alone. Omitting it here would have
+  // silently REMOVED an allow path that ships today — the split must not cost
+  // anyone access, it only adds the administrator grant.
+  if (![
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+    ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+    ACCESS_POLICY_CODES.PATIENT_WRISTBAND_PRINT,
+  ].includes(policy?.code)) {
     return null;
   }
   const actorUid = cleanUuid(actorUidOf(req));
@@ -1785,6 +1838,8 @@ function _writePatientAccessAuditToFile(req, decision, extra = {}) {
       record_type: decision?.recordType ?? null,
       shadow_mode: decision?.shadow_mode === true,
       enforced: decision?.enforced !== false,
+      administrative_access: decision?.administrativeAccess === true,
+      administrative_grant: decision?.administrativeGrant ?? null,
       timestamp: new Date().toISOString(),
       ...extra,
     });
@@ -1854,6 +1909,15 @@ async function writePatientAccessAudit(req, decision) {
         subject_uid: req?.user?.uid ?? null,
         acting_as_dependent: req?.acting != null,
         shadow_mode: decision.shadow_mode === true,
+        // Owner decision 2026-08-25 — TRUE only when the allow came from the
+        // administrative last-resort grant, i.e. the actor is an administrator
+        // and every relationship check had already failed. A relationship-backed
+        // or break-glass allow is FALSE here, so the two are distinguishable by
+        // query:
+        //   SELECT * FROM patient_access_audit_log
+        //    WHERE metadata->>'administrative_access' = 'true';
+        administrative_access: decision.administrativeAccess === true,
+        administrative_grant: decision.administrativeGrant ?? null,
       }),
     );
   } catch (err) {
@@ -2099,6 +2163,29 @@ export async function authorizePatientAccessRequest(req, {
     const admission = await findAdmissionRelationship(req, resolvedPatient, role);
     if (admission?.id) {
       decision = allowDecision(args, 'admission', 'active admission relationship', { admissionId: admission.id });
+    }
+  }
+
+  // Last resort, and deliberately after EVERY relationship check above. Owner
+  // decision 2026-08-25: an administrator may print a patient wristband without
+  // break-glass, and the print is recorded as administrative access. Reaching
+  // this line proves the actor has no care-team, referral, authorship,
+  // appointment, admission, guardian, care-pathway or break-glass link to the
+  // patient — so `administrative_access: true` on the audit row is a verified
+  // fact, not an assumption. An administrator who DOES hold one of those links
+  // was already allowed above and is attributed to it instead.
+  if (!decision) {
+    const administrativeGrant = administrativeGrantForPolicy(role, policy);
+    if (administrativeGrant) {
+      decision = allowDecision(
+        args,
+        'role',
+        `${role} holds the ${administrativeGrant} administrative grant for ${policy.code} (no care relationship to this patient)`,
+        {
+          administrativeAccess: true,
+          administrativeGrant,
+        },
+      );
     }
   }
 

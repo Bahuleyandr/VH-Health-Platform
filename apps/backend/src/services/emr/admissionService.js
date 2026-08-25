@@ -3869,7 +3869,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   const phase1 = await scopedTx(tenantId, async (tx) => {
     // FOR UPDATE lock on the admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, tenant_id, patient_uid, bed_id, ward, status, admission_type
+      SELECT id, tenant_id, patient_uid, bed_id, ward, bed_number, status, admission_type
       FROM admissions
       WHERE id = ${admissionId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -4063,7 +4063,11 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
       },
     });
 
-    await tx.bed_transfers.create({
+    // `create` already returns the row it wrote — capturing it costs no extra
+    // query. The id is the per-MOVE identity the outbound ADT^A02 keys on
+    // (see emitTransferAdt); an admission-scoped key would silently drop the
+    // second and every later transfer of the same admission.
+    const transferRow = await tx.bed_transfers.create({
       data: {
         tenant_id: admission.tenant_id,
         patient_uid: admission.patient_uid,
@@ -4176,6 +4180,11 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     return {
       updated,
       bedTurnover: fromBedId ? { bed_id: fromBedId } : null,
+      transferId: transferRow?.id ?? null,
+      // Pre-move location, read off the admission row locked at the top of
+      // this tx — `updated` already carries the POST-move ward/bed.
+      priorWard: admission.ward ?? null,
+      priorBedNumber: admission.bed_number ?? null,
     };
   });
 
@@ -4199,6 +4208,22 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   // atomically with the transfer rows inside the transaction above (canonical
   // timeline invariant). The bed-cleaning request above is post-commit
   // best-effort and is not part of that canonical write.
+
+  // Roadmap C2 (Phase 1.5, best-effort) — announce the intra-hospital move to
+  // subscribed third-party systems as ADT^A02. Identical shape to the A01/A03
+  // hooks: dynamic import, own try/catch, after the transfer has committed.
+  // emitTransferAdt swallows its own errors too; this catch is the second
+  // belt, so a feed problem can never unwind a bed move that already happened.
+  try {
+    const { emitTransferAdt } = await import('../hl7/hl7OutboundService.js');
+    await emitTransferAdt(phase1.updated, {
+      transferId: phase1.transferId,
+      priorWard: phase1.priorWard,
+      priorBedNumber: phase1.priorBedNumber,
+    });
+  } catch (feedErr) {
+    logger.warn(`ADT^A02 feed emission failed (transfer stands): ${feedErr?.message}`);
+  }
 
   return phase1.updated;
 }

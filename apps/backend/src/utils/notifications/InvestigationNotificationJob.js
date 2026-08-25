@@ -85,7 +85,13 @@ export async function sendInvestigationNotifications() {
             row.phone || 'unknown',
             'Investigation Report Ready',
             message,
-            'investigation',
+            // Must match the push payload's data.type AND a case in the
+            // patient inbox's tap handler. The row was previously typed
+            // 'investigation', which the inbox does not route: it rendered,
+            // and tapping it only marked it read. 'investigation_result' is
+            // the string both the push above and
+            // notifications_screen.dart#_handleNotificationTap use.
+            'investigation_result',
             row.user_id || null,
           );
 

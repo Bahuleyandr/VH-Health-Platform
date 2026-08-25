@@ -51,6 +51,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   String _rawRole = StaffRole.general.value;
   String? _department;
   Set<String>? _policyFeatureIds;
+  Set<String>? _policyKnownFeatureIds;
 
   @override
   void initState() {
@@ -85,7 +86,17 @@ class _MainScaffoldState extends State<MainScaffold> {
           policy.featuresByRole[role.value.toUpperCase()] ??
           const <String>[];
       if (!mounted || featureIds.isEmpty) return;
-      setState(() => _policyFeatureIds = featureIds.toSet());
+      // `staff_features` is the server's own list of the feature ids it knows
+      // how to speak about. The rail may only narrow inside that vocabulary,
+      // so carry it alongside the role's grants.
+      final knownFeatureIds = policy.features
+          .map((feature) => feature.id)
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      setState(() {
+        _policyFeatureIds = featureIds.toSet();
+        _policyKnownFeatureIds = knownFeatureIds;
+      });
     } catch (_) {
       // Keep the static role map as the offline/stale-policy fallback.
     }
@@ -150,6 +161,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       final navItems = RoleFeatures.getWorkbenchNavForRole(
         _role,
         policyFeatureIds: _policyFeatureIds,
+        policyKnownFeatureIds: _policyKnownFeatureIds,
         rawRole: _rawRole,
         department: _department,
       ).where((item) => _canNavigateTo(item.route)).toList(growable: false);
@@ -198,8 +210,15 @@ class _MainScaffoldState extends State<MainScaffold> {
     final candidateNavItems = mode == AppDeviceMode.mobile
         ? RoleFeatures.getPhoneSelfServiceNavForRole(_role)
         : RoleFeatures.getBottomNavForRole(_role);
+    // Dedupe by labelKey AFTER the reachability filter. An arm may offer
+    // several candidates for one slot when it serves backend roles with
+    // disjoint grants (see the emergencyResponder/security arm); the filter
+    // leaves each role the one it actually holds, and this keeps a role that
+    // holds more than one from showing the same label twice.
+    final seenLabels = <String>{};
     final navItems = candidateNavItems
         .where((item) => _canNavigateTo(item.route))
+        .where((item) => seenLabels.add(item.labelKey))
         .toList(growable: false);
 
     return Scaffold(

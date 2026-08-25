@@ -37,6 +37,19 @@ d('Admin voucher redeem tenant scope (CAN-012)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can012-tenant-b', 'CAN-012 Tenant B') ON CONFLICT (id) DO NOTHING`,
       TENANT_B);
+    // The /api/v1/admin barrel has been gated on the admin.operations
+    // entitlement since the 2026-08-23 once-over (routes/admin/index.js).
+    // Migration 434 backfilled existing tenants and tenantService.createTenant
+    // seeds new ones, but this suite raw-INSERTs its tenant and so bypasses
+    // both — without this row the second case 403s FEATURE_NOT_ENTITLED before
+    // the router is ever reached, which silently retired the tenant-scope
+    // assertion this file exists for. Mirrors createTenant's default package.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source, metadata)
+       VALUES ($1::uuid, 'enterprise', 'active', NOW(), 'tenant_creation_default',
+               '{"reason": "Test tenant default package (CAN-012 voucher redeem suite)."}'::jsonb)
+       ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+      TENANT_B);
     const ms = await prisma.$queryRawUnsafe(
       `INSERT INTO health_milestones (name, points_required, reward_type, reward_value, reward_description)
        VALUES ($1, 100, 'voucher', 0, 'CAN-012 test reward') RETURNING id`, MILESTONE_NAME);

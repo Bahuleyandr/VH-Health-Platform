@@ -56,6 +56,32 @@ export function dischargeToADT(admission, patient) {
 }
 
 /**
+ * Generate ADT^A02 (transfer) message from VH Health admission + patient.
+ *
+ * An A02 is the only ADT trigger that carries BOTH locations: PV1-3 is the
+ * new assigned location and PV1-6 the prior one. Downstream feeds reconcile
+ * a bed move by diffing the two, so the prior location is passed explicitly
+ * rather than read off the admission row (which already holds the NEW ward
+ * and bed by the time a transfer has committed).
+ *
+ * @param {Object} admission - Internal admission record, POST-move
+ * @param {Object} patient - Internal user/patient record
+ * @param {Object} [options]
+ * @param {string|null} [options.priorWard] - ward the patient moved out of
+ * @param {string|null} [options.priorBedNumber] - bed the patient moved out of
+ * @returns {string} HL7v2 ADT^A02 message
+ */
+export function transferToADT(admission, patient, { priorWard = null, priorBedNumber = null } = {}) {
+  const now = formatHL7Date(new Date());
+  const segments = [
+    `MSH|^~\\&|VHHEALTH|VH_HOSPITALS||EXTERNAL|${now}||ADT^A02|${generateControlId()}|P|2.5`,
+    buildPID(patient),
+    buildPV1(admission, 'I', { priorWard, priorBedNumber }),
+  ];
+  return segments.join('\r');
+}
+
+/**
  * Generate ORM^O01 (lab/investigation order) from VH Health order + patient.
  * @param {Object} order - Internal investigation/order record
  * @param {Object} patient - Internal user/patient record
@@ -252,26 +278,30 @@ function buildPID(patient) {
   return `PID|||${encodeHL7Field(patient.uid)}||${name}||${dob}|${gender}|||${address}|||${phone}`;
 }
 
-function buildPV1(admission, defaultClass) {
+function buildPV1(admission, defaultClass, { priorWard = null, priorBedNumber = null } = {}) {
   if (!admission) return `PV1||${defaultClass || 'I'}`;
   // Encode each text component SEPARATELY, then join with the structural `^`.
-  const ward = encodeHL7Field(admission.ward);
-  const bed = encodeHL7Field(admission.bed_number);
-  const location = ward || bed ? `${ward}^${bed}` : '';
+  const location = buildLocation(admission.ward, admission.bed_number);
+  // PV1-6 prior patient location. Empty for every trigger except ADT^A02,
+  // where the caller passes the ward/bed the patient moved OUT of — the row
+  // itself already carries the post-move location in PV1-3.
+  const priorLocation = buildLocation(priorWard, priorBedNumber);
   const priority = admission.priority === 'emergent' ? 'E' : 'R';
   const doctor = encodeHL7Field(admission.admitting_doctor || admission.attending_doctor || '');
   const encounterId = admission.encounter_id || admission.id || '';
   const admitDate = formatHL7Date(admission.admitted_at) || '';
   const dischargeDate = formatHL7Date(admission.discharged_at) || '';
 
-  // PV1||class|location||priority|||doctor|||||||||||encounterId|||||||||||||||||admitDate|dischargeDate
-  // Fields: PV1.2=patientClass, PV1.3=location, PV1.5=priority, PV1.7=attendingDoctor
+  // PV1||class|location||priority|priorLocation|doctor|||||||||||encounterId|||||||||||||||||admitDate|dischargeDate
+  // Fields: PV1.2=patientClass, PV1.3=location, PV1.5=priority,
+  //         PV1.6=priorPatientLocation (ADT^A02 only), PV1.7=attendingDoctor
   //         PV1.19=encounterId, PV1.44=admitDate, PV1.45=dischargeDate
   const fields = new Array(46).fill('');
   fields[0] = 'PV1';
   fields[2] = defaultClass || 'I';
   fields[3] = location;
   fields[5] = priority;
+  fields[6] = priorLocation;
   fields[7] = doctor;
   fields[19] = encodeHL7Field(encounterId);
   fields[44] = admitDate;
@@ -305,6 +335,17 @@ function buildOBR(order, { enforceLocalOrderContract = false } = {}) {
   fields[7] = orderDate;
   fields[25] = resultStatus;
   return fields.join('|');
+}
+
+/**
+ * Build an HL7 person-location field (`ward^bed`). Each component is escaped
+ * SEPARATELY so a delimiter inside a ward or bed name cannot forge the
+ * structural `^` between them.
+ */
+function buildLocation(ward, bed) {
+  const encodedWard = encodeHL7Field(ward);
+  const encodedBed = encodeHL7Field(bed);
+  return encodedWard || encodedBed ? `${encodedWard}^${encodedBed}` : '';
 }
 
 function buildCodedElement(code, display = '') {
@@ -419,6 +460,7 @@ function mapOBRStatus(resultStatus) {
 export default {
   admissionToADT,
   dischargeToADT,
+  transferToADT,
   orderToORM,
   resultToORU,
   parseADTToAdmission,

@@ -2,11 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/config/campus_config.dart';
 import '../../../core/services/ambulance_tracking_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../l10n/app_strings.dart';
+
+/// Channel carrying live ambulance position fixes.
+const String ambulanceTrackingRealtimeChannel = 'staff:ambulance-tracking';
+
+typedef RealtimeEventStreamFactory = Stream<RealtimeEvent> Function(
+  String channel,
+);
 
 typedef ActiveTrackingLoader = Future<Map<String, dynamic>> Function();
 typedef PositionPoster = Future<Map<String, dynamic>> Function({
@@ -23,15 +32,28 @@ typedef DevicePositionProvider = Future<Position> Function();
 /// crew-side "share my location" toggle. The backend feature is config-gated
 /// per tenant; when disabled this screen renders an explicit banner.
 ///
-/// v1 deliberately polls (15s list refresh) instead of holding a socket —
-/// the backend also broadcasts `staff:ambulance-tracking` for boards that
-/// already keep a WebSocket open. No map widget: text/ETA/distance UI only.
+/// The list is refreshed from `staff:ambulance-tracking`, which the backend
+/// broadcasts for every position fix that becomes the new latest one
+/// (`realtimeEmitter.emitAmbulancePosition`). That channel is an accelerator,
+/// not a replacement for the poll: it carries position fixes and nothing else,
+/// so no event is broadcast when a request enters or leaves active transport,
+/// and a crew that never shares its location produces no events on it at all.
+/// The [pollInterval] backstop therefore stays tight (15s) and is skipped only
+/// for a tick that a position fix already refreshed this same list during —
+/// exactly the case the socket has covered. A crew the channel is silent for
+/// still gets a full refresh every [pollInterval]: adding the subscription
+/// must not slow this screen down for the crews it does not reach. Without the
+/// poll an arrived ambulance would sit on this list indefinitely, and the
+/// relative "updated N ago" label would freeze at whatever it last said.
+///
+/// No map widget: text/ETA/distance UI only.
 class AmbulanceTrackingScreen extends StatefulWidget {
   const AmbulanceTrackingScreen({
     super.key,
     this.loadActive,
     this.postPosition,
     this.getDevicePosition,
+    this.realtimeEvents,
     this.pollInterval = const Duration(seconds: 15),
     this.shareInterval = const Duration(seconds: 20),
   });
@@ -39,6 +61,13 @@ class AmbulanceTrackingScreen extends StatefulWidget {
   final ActiveTrackingLoader? loadActive;
   final PositionPoster? postPosition;
   final DevicePositionProvider? getDevicePosition;
+
+  /// Test seam. When null the screen listens on the shared [RealtimeClient].
+  final RealtimeEventStreamFactory? realtimeEvents;
+
+  /// Safety-net list refresh, and the worst-case staleness of this screen.
+  /// Live position fixes arrive over the socket; this covers the transitions
+  /// the channel never announces and the crews it never carries.
   final Duration pollInterval;
   final Duration shareInterval;
 
@@ -53,6 +82,13 @@ class _AmbulanceTrackingScreenState extends State<AmbulanceTrackingScreen> {
   String? _error;
   List<Map<String, dynamic>> _requests = const [];
   Timer? _pollTimer;
+  StreamSubscription<RealtimeEvent>? _positionSub;
+  Timer? _refreshDebounce;
+
+  /// Set when a position fix refreshed the list, cleared by the next backstop
+  /// tick. Never set for a crew the channel carries no fixes for, which is why
+  /// those crews keep the full [AmbulanceTrackingScreen.pollInterval] rate.
+  bool _refreshedFromChannelSinceTick = false;
 
   // Crew-side location sharing: at most one request shared at a time.
   int? _sharingRequestId;
@@ -63,17 +99,64 @@ class _AmbulanceTrackingScreenState extends State<AmbulanceTrackingScreen> {
   void initState() {
     super.initState();
     _refresh();
-    _pollTimer = Timer.periodic(widget.pollInterval, (_) => _refresh());
+    _attachRealtime();
+    _pollTimer = Timer.periodic(widget.pollInterval, (_) => _backstopTick());
+  }
+
+  /// The socket accelerates this screen, it does not replace the backstop. A
+  /// tick is dropped only when a position fix already reloaded this same list
+  /// during the interval that just elapsed; with no fixes — an unshared crew,
+  /// a denied or dead subscription — every tick refreshes, so worst-case
+  /// staleness stays at [AmbulanceTrackingScreen.pollInterval].
+  void _backstopTick() {
+    if (_refreshedFromChannelSinceTick) {
+      _refreshedFromChannelSinceTick = false;
+      return;
+    }
+    unawaited(_refresh());
+  }
+
+  Future<void> _attachRealtime() async {
+    final injectedEvents = widget.realtimeEvents;
+    if (injectedEvents != null) {
+      _positionSub = injectedEvents(ambulanceTrackingRealtimeChannel)
+          .listen(_handleRealtimeNudge);
+      return;
+    }
+
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    if (!mounted) return;
+    _positionSub = rt
+        .events(ambulanceTrackingRealtimeChannel)
+        .listen(_handleRealtimeNudge);
+  }
+
+  void _handleRealtimeNudge(RealtimeEvent _) => _debouncedRefresh();
+
+  /// A convoy of ambulances all posting fixes at once must produce one reload,
+  /// not one per fix.
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      unawaited(_refresh(fromChannel: true));
+    });
   }
 
   @override
   void dispose() {
+    _positionSub?.cancel();
+    _refreshDebounce?.cancel();
     _pollTimer?.cancel();
     _shareTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _refresh() async {
+  /// [fromChannel] marks a reload a position fix triggered, so the next
+  /// backstop tick can skip the duplicate fetch. A failed reload never marks
+  /// it: the list is then no fresher than it was, and the tick must still run.
+  Future<void> _refresh({bool fromChannel = false}) async {
     try {
       final loader =
           widget.loadActive ?? AmbulanceTrackingApiService.listActive;
@@ -91,6 +174,7 @@ class _AmbulanceTrackingScreenState extends State<AmbulanceTrackingScreen> {
         _requests = rows;
         _error = null;
       });
+      if (fromChannel) _refreshedFromChannelSinceTick = true;
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -194,58 +278,80 @@ class _AmbulanceTrackingScreenState extends State<AmbulanceTrackingScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _refresh,
-              child: ListView(
-                key: const ValueKey('ambulance-tracking-scroll'),
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                children: [
-                  if (!_enabled)
-                    _Banner(
-                      key: const ValueKey('ambulance-tracking-disabled'),
-                      icon: Icons.gps_off,
-                      color: Colors.orange,
-                      text: s.lookup('s4.lib.ambulance_tracking.disabled'),
+      body: Column(
+        children: [
+          // No fallbackPoll: this screen runs its own backstop poll at the
+          // full rate whenever the channel is not already refreshing it — a
+          // dead or denied subscription produces no fixes, so every tick
+          // fetches. The banner is purely the "live position fixes have
+          // stopped" indicator.
+          const RealtimeStatusBanner(
+            watchChannels: {ambulanceTrackingRealtimeChannel},
+            deniedMessageKey: 's4.lib.realtime_status.stale',
+            margin: EdgeInsets.fromLTRB(16, 12, 16, 0),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView(
+                      key: const ValueKey('ambulance-tracking-scroll'),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                      children: [
+                        if (!_enabled)
+                          _Banner(
+                            key: const ValueKey('ambulance-tracking-disabled'),
+                            icon: Icons.gps_off,
+                            color: Colors.orange,
+                            text: s.lookup(
+                              's4.lib.ambulance_tracking.disabled',
+                            ),
+                          ),
+                        if (_error != null)
+                          _Banner(
+                            icon: Icons.error_outline,
+                            color: Colors.red,
+                            text: _error!,
+                          ),
+                        if (_shareError != null)
+                          _Banner(
+                            key: const ValueKey(
+                              'ambulance-tracking-share-error',
+                            ),
+                            icon: Icons.location_disabled,
+                            color: Colors.red,
+                            text: _shareError!,
+                          ),
+                        if (_enabled && _requests.isEmpty && _error == null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 48),
+                            child: Center(
+                              child: Text(
+                                s.lookup('s4.lib.ambulance_tracking.no_active'),
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            ),
+                          ),
+                        for (final request in _requests)
+                          _AmbulanceCard(
+                            request: request,
+                            sharing:
+                                _sharingRequestId ==
+                                _asInt(request['ambulance_request_id']),
+                            onShareChanged: (share) {
+                              final id = _asInt(
+                                request['ambulance_request_id'],
+                              );
+                              if (id != null) _toggleShare(id, share);
+                            },
+                          ),
+                      ],
                     ),
-                  if (_error != null)
-                    _Banner(
-                      icon: Icons.error_outline,
-                      color: Colors.red,
-                      text: _error!,
-                    ),
-                  if (_shareError != null)
-                    _Banner(
-                      key: const ValueKey('ambulance-tracking-share-error'),
-                      icon: Icons.location_disabled,
-                      color: Colors.red,
-                      text: _shareError!,
-                    ),
-                  if (_enabled && _requests.isEmpty && _error == null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 48),
-                      child: Center(
-                        child: Text(
-                          s.lookup('s4.lib.ambulance_tracking.no_active'),
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      ),
-                    ),
-                  for (final request in _requests)
-                    _AmbulanceCard(
-                      request: request,
-                      sharing:
-                          _sharingRequestId ==
-                          _asInt(request['ambulance_request_id']),
-                      onShareChanged: (share) {
-                        final id = _asInt(request['ambulance_request_id']);
-                        if (id != null) _toggleShare(id, share);
-                      },
-                    ),
-                ],
-              ),
-            ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

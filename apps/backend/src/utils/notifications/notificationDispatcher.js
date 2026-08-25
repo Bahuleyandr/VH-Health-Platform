@@ -11,6 +11,7 @@ import { sendPushNotification } from './sendPushNotification.js';
 import { placeVoiceCall } from './sendVoiceNotification.js';
 import { sendWhatsApp } from './sendWhatsAppNotification.js';
 import { classifyFcmProviderResponse } from './terminalRejectionCodes.js';
+import { feedRowTypeForTransportType } from './tenantNotificationChannels.js';
 
 const SMS_OUTCOMES = new Set(['acknowledged', 'rejected', 'uncertain']);
 
@@ -220,6 +221,15 @@ export async function dispatch({
   if (channels.includes('inapp')) {
     try {
       const inAppTenantId = resolveInAppTenantId(user);
+      // The row's `type` is what the patient app's inbox tap handler switches
+      // on, so it must be a type that handler routes — not the transport /
+      // template identity the outbox row happens to carry. The drain re-enters
+      // dispatch() with the outbox row's type verbatim, which is how a tenant
+      // that configured `inapp` for appointment reminders got rows typed
+      // `appointment_reminder_24h`: they rendered and went nowhere on tap.
+      // feedRowTypeForTransportType returns its input unchanged for every type
+      // that needs no translation, so staff types are unaffected.
+      const feedRowType = feedRowTypeForTransportType(type);
       const stored = await prisma.$queryRawUnsafe(
         // tenant_id is bound explicitly ($7) rather than left to the column
         // DEFAULT — see resolveInAppTenantId above for why the DEFAULT is not
@@ -227,7 +237,7 @@ export async function dispatch({
         `INSERT INTO notifications (tenant_id, user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
          VALUES ($7::uuid, $1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
          RETURNING id`,
-        user.id, user.uid, user.phone, title, body, type, inAppTenantId
+        user.id, user.uid, user.phone, title, body, feedRowType, inAppTenantId
       );
       results.inapp = providerReceiptMode
         ? {

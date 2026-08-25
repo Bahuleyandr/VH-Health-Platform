@@ -21,13 +21,20 @@ import { FieldLabel, SectionCard, StatusPill, inputClass } from "./shared";
  * (by id) to a campaign kind + channel with a whitelisted variable set —
  * the backend rejects any variable outside ENGAGEMENT_TEMPLATE_VARIABLES
  * and any clinical-content value outright.
+ *
+ * `templates` is the tenant's live list from `GET /engagement/templates`
+ * (retired ones excluded server-side); `onCreated` asks the page to re-read it.
  */
 export function TemplateStudio({
   templates,
+  isLoading = false,
+  error,
   onCreated,
 }: {
   templates: EngagementTemplate[];
-  onCreated: (template: EngagementTemplate) => void;
+  isLoading?: boolean;
+  error?: unknown;
+  onCreated: () => void;
 }) {
   const [kind, setKind] = useState<EngagementCampaignType>(
     ENGAGEMENT_CAMPAIGN_TYPES[0],
@@ -52,7 +59,7 @@ export function TemplateStudio({
       }),
     onSuccess: (template) => {
       toast.success(`Template #${template.id} created`);
-      onCreated(template);
+      onCreated();
     },
     onError: (err: Error) =>
       toast.error(err.message || "Template creation failed"),
@@ -151,10 +158,19 @@ export function TemplateStudio({
       </button>
 
       <div className="mt-4 divide-y divide-border border-t border-border">
-        {templates.length === 0 ? (
+        {error instanceof Error && (
+          <p role="alert" className="pt-3 text-sm text-red-700">
+            Could not load templates: {error.message}
+          </p>
+        )}
+        {isLoading ? (
           <p className="pt-3 text-sm text-muted-foreground">
-            Templates created in this session appear here (the engagement API
-            has no template listing endpoint).
+            Loading this tenant&apos;s templates…
+          </p>
+        ) : templates.length === 0 ? (
+          <p className="pt-3 text-sm text-muted-foreground">
+            No engagement templates for this tenant yet. Retired templates are
+            not listed.
           </p>
         ) : (
           templates.map((template) => (
@@ -172,7 +188,7 @@ export function TemplateStudio({
                 </span>
               </div>
               <StatusPill
-                value={template.approved_at ? "scheduled" : "pending_approval"}
+                value={template.approved_at ? "approved" : "not_approved"}
               />
             </div>
           ))

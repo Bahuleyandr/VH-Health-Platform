@@ -4,17 +4,26 @@ import 'package:flutter/material.dart';
 ///
 /// English (`en`) is the source of truth and the runtime fallback.
 ///
-/// **Translation status (as of 2026-05-02 second-pass):**
-/// - `hi` (Hindi) - second-pass reviewed for register and clinical
-///   terminology. Most strings are production-ready; a handful are
-///   flagged `// REVIEW:` where context-sensitivity matters (e.g.
-///   discharge / consent / urgency wording - should be confirmed
-///   against the deploying hospital's existing Hindi documentation).
+/// **Translation status (as of the 2026-08-25 parity fill):**
+/// - `hi` (Hindi) - the 2026-05-02 second pass reviewed register and
+///   clinical terminology for the keys that existed then; strings added
+///   since (including the 458-key 2026-08-25 parity fill) are first-pass
+///   only. Anything flagged `// REVIEW:` is context-sensitive (e.g.
+///   discharge / consent / urgency wording) and should be confirmed
+///   against the deploying hospital's existing Hindi documentation.
 /// - `ta` (Tamil) - first-pass machine translation with light
 ///   verification. Treat as placeholder; ALL clinical-action strings
 ///   need a Tamil-fluent clinician's review before production.
 /// - `te` (Telugu) - same as Tamil. Placeholder. ALL clinical-action
 ///   strings need a Telugu-fluent clinician's review.
+///
+/// hi/ta/te are held at structural key parity with `en` by a BLOCKING CI
+/// gate - `node scripts/i18n-verify.mjs --check`, wired into both halves
+/// of the Flutter tier. Parity is a key-set check only and says nothing
+/// about translation quality. Three keys are deliberately left to the
+/// English fallback (signed attestations); the gate's
+/// `DELIBERATE_ENGLISH_FALLBACK` list names them with reasons. See
+/// `docs/LANGUAGE_HEALTH.md`.
 ///
 /// Why not just remove the lower-confidence locales? Because the
 /// scaffolding works - the UI localises Material widgets (date
@@ -16698,6 +16707,720 @@ class AppStrings {
       's4.dynamic.duty_preference.date_label': "दिनांक {date}",
       's4.dynamic.duty_preference.from_label': "{date} से",
       's4.dynamic.duty_preference.to_label': "{date} तक",
+
+      // ── 2026-08-25 structural-parity fill (AI first pass) ────────────
+      // Added to close the 461-463 key gap that opened after the
+      // 2026-06-10 verification. Same standing as the rest of this map:
+      // machine first pass, NOT clinically approved. Entries marked
+      // `// REVIEW:` below are the high-stakes ones a fluent clinician or
+      // hospital operations translator must confirm before rollout.
+      // See apps/staff/docs/LANGUAGE_HEALTH.md.
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.server_revocation_failed': 'इस डिवाइस पर साइन आउट हो गया, लेकिन सर्वर ने सत्र रद्द होने की पुष्टि नहीं की। चालू कनेक्शन पर फिर से साइन इन और साइन आउट करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.notification_teardown_failed': 'साइन आउट हो गया, लेकिन यह डिवाइस अपना पिछला नोटिफिकेशन चैनल हटने की पुष्टि नहीं कर सका। कोई अन्य स्टाफ सदस्य साइन इन करे उससे पहले फिर से कनेक्ट करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.combined_teardown_failed': 'इस डिवाइस पर साइन आउट हो गया, लेकिन सर्वर ने सत्र रद्द होने की पुष्टि नहीं की और यह डिवाइस अपना पिछला नोटिफिकेशन चैनल हटने की पुष्टि नहीं कर सका। कोई अन्य स्टाफ सदस्य इस डिवाइस का उपयोग करे उससे पहले, चालू कनेक्शन पर फिर से साइन इन और साइन आउट करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.title': 'सत्र लॉक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.body': 'आपको सुरक्षित रूप से साइन आउट किया जा रहा है। रोगी की जानकारी छिपी हुई है।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.acknowledge_critical': 'गंभीर परिणाम स्वीकार करें',
+      'clinical_inbox.classification': 'वर्गीकरण',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.correction': 'संशोधित रिपोर्ट',
+      'clinical_inbox.current_owner': 'वर्तमान उत्तरदायी',
+      'clinical_inbox.role_queue': 'भूमिका कतार',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.review_action': 'समीक्षा करें और कार्रवाई दर्ज करें',
+      'clinical_inbox.claim_review': 'लें और समीक्षा करें',
+      'clinical_inbox.claiming': 'लिया जा रहा है...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.title': 'नैदानिक कार्रवाई दर्ज करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.disposition': 'नैदानिक निर्णय',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.treated': 'उपचारित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.repeated': 'दोहराया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.referred': 'रेफर किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.no_action': 'कोई कार्रवाई आवश्यक नहीं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.note': 'नैदानिक समीक्षा नोट',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.reason': 'कोई कार्रवाई आवश्यक न होने का कारण',
+      'clinical_inbox.action.evidence_type': 'साक्ष्य संसाधन प्रकार',
+      'clinical_inbox.action.evidence_id': 'साक्ष्य संसाधन आईडी',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.submit': 'हस्ताक्षर करें और कार्रवाई दर्ज करें',
+      'clinical_inbox.action.recording': 'दर्ज हो रहा है...',
+      'clinical_inbox.action.recorded': 'नैदानिक कार्रवाई दर्ज की गई',
+      'clinical_inbox.action.failed_prefix':
+          'नैदानिक कार्रवाई दर्ज नहीं की जा सकी:',
+      'clinical_inbox.field_required': 'यह फ़ील्ड आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen': 'डॉक्टर की समीक्षा के लिए फिर से खोलें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_title': 'सामान्य परिणाम फिर से खोलें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_reason': 'पुनः समीक्षा का कारण',
+      'clinical_inbox.reopening': 'फिर से खोला जा रहा है...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopened':
+          'परिणाम डॉक्टर की समीक्षा के लिए फिर से खोला गया',
+      'clinical_inbox.reopen_failed_prefix': 'परिणाम फिर से नहीं खोला जा सका:',
+      'clinical_inbox.group.in_progress': 'प्रगति में',
+      'vitals_chart.news2.title_prefix': 'NEWS2',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.critical': 'गंभीर — उच्च जोखिम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.high': 'बढ़ा हुआ — मध्यम जोखिम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.medium': 'कम–मध्यम जोखिम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.low': 'कम जोखिम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.notified': 'देखभाल टीम को स्वतः सूचित किया गया।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.escalate': 'एस्केलेशन प्रतिक्रिया',
+      'vitals_chart.news2.dismiss': 'खारिज करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance_title': 'NEWS2 एस्केलेशन प्रतिक्रिया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.critical': 'क्रिटिकल-केयर दक्षता वाली क्लिनिकल टीम द्वारा आपातकालीन मूल्यांकन। महत्वपूर्ण संकेतों की निरंतर निगरानी।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.high': 'क्रिटिकल केयर तक एस्केलेट कर सकने वाले चिकित्सक द्वारा तत्काल समीक्षा। महत्वपूर्ण संकेतों की कम से कम हर घंटे निगरानी करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.medium': 'पंजीकृत नर्स द्वारा समीक्षा, जो एस्केलेट करने का निर्णय लेती है। महत्वपूर्ण संकेतों की कम से कम हर 4–6 घंटे निगरानी करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.low':
+          'नियमित निगरानी (हर 12 घंटे) जारी रखें और पुनर्मूल्यांकन करें।',
+      'payroll.detail.password_title': 'PDF पासवर्ड',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_description':
+          'पासवर्ड तभी माँगें जब आप यह वेतन-पर्ची खोलने के लिए तैयार हों।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_reveal': 'PDF पासवर्ड देखें',
+      'payroll.detail.password_retrieving': 'प्राप्त किया जा रहा है...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_unavailable':
+          'वेतन-पर्ची का पासवर्ड प्राप्त नहीं हो सका। फिर से प्रयास करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_dialog_title': 'वेतन-पर्ची PDF पासवर्ड',
+      'payroll.detail.password_field_label': 'पासवर्ड',
+      'payroll.detail.password_show': 'पासवर्ड दिखाएँ',
+      'payroll.detail.password_hide': 'पासवर्ड छिपाएँ',
+      'payroll.detail.password_copy': 'प्रतिलिपि',
+      'payroll.detail.password_close': 'बंद करें',
+      'blood_bank.select_patient_label': 'रोगी चुनें',
+      'blood_bank.select_patient_required': 'मरीज चुनें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_label': 'रक्त घटक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_required': 'रक्त घटक चुनें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.whole_blood': 'संपूर्ण रक्त',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.prbc': 'पैक्ड रेड ब्लड सेल्स',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.ffp': 'फ्रेश फ्रोज़न प्लाज़्मा',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.platelets': 'प्लेटलेट्स',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.cryoprecipitate': 'क्रायोप्रेसिपिटेट',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.units_range': '1 से 10 तक यूनिट दर्ज करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_label': 'नैदानिक संकेत',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_required': 'नैदानिक संकेत आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency_label': 'अत्यावश्यकता',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.routine': 'नियमित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.urgent': 'अति आवश्यक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.emergency': 'आपातकालीन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.sign_off_report': 'रिपोर्ट पर साइन ऑफ़ करें',
+      'radiology.add_addendum': 'परिशिष्ट जोड़ें',
+      'radiology.addendum_text': 'परिशिष्ट',
+      'radiology.addendum_required': 'परिशिष्ट पाठ आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification': 'परिणाम वर्गीकरण',
+      'radiology.generation_version': 'हस्ताक्षरित परिणाम संस्करण',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification_attestation': 'इस रिपोर्ट के लिए आप जिस क्लिनिकल वर्गीकरण पर हस्ताक्षर कर रहे हैं उसे चुनें।',
+      'radiology.classification_required': 'परिणाम वर्गीकरण आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.critical': 'गंभीर',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.abnormal': 'असामान्य',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.normal': 'सामान्य',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.indeterminate': 'अनिश्चित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.clinical_significance': 'क्लिनिकल महत्व',
+      'radiology.significance_required': 'क्लिनिकल महत्व आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.unchanged': 'अपरिवर्तित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.new_finding': 'नया निष्कर्ष',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.worsened': 'बिगड़ा',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.improved': 'सुधार',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.corrected': 'संशोधित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.report_signed_off': 'रिपोर्ट पर साइन ऑफ़ किया गया',
+      'radiology.addendum_submitted': 'परिशिष्ट जमा किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release': 'रोगी को जारी करना',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_pending': 'अभी जारी नहीं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_needs_doctor_review':
+          'रोगी को जारी करने से पहले डॉक्टर की समीक्षा प्रतीक्षित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_released': 'रोगी को जारी किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.hold_from_patient': 'रोगी से रोकें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.lift_patient_hold': 'रोगी को जारी करने की रोक हटाएँ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_to_patient_now': 'अभी रोगी को जारी करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_hold_reason': 'रोगी को जारी करने की रोक का कारण',
+      'radiology.release_hold_reason_required': 'रोक का कारण आवश्यक है',
+      'radiology.release_updated': 'रोगी को जारी करना अपडेट किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.title':
+          'दवा नहीं दी जा सकती — फिर से स्कैन करना आवश्यक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.patient':
+          'स्कैन किया गया रिस्टबैंड इस आदेश से मेल नहीं खाता (गलत रोगी)।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.drug':
+          'स्कैन किया गया बारकोड आदेशित दवा से मेल नहीं खाता (गलत दवा)।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.body': 'रोगी और दवा की पहचान के मेल न खाने को ओवरराइड नहीं किया जा सकता। पुष्टि करें कि रोगी और दवा सही हैं, फिर दोबारा स्कैन करें।',
+      'biomed.work_orders.title': 'मेरे कार्य आदेश',
+      'biomed.work_orders.started': 'कार्य आदेश शुरू हुआ',
+      'biomed.work_orders.completed': 'कार्य आदेश पूरा हुआ',
+      'biomed.work_orders.complete_title': 'कार्य आदेश पूरा करें',
+      'biomed.work_orders.completion_notes': 'पूर्णता नोट्स',
+      'biomed.work_orders.action_start': 'शुरू',
+      'biomed.work_orders.action_done': 'पूरा',
+      'biomed.work_orders.tab_all': 'सभी',
+      'biomed.work_orders.tab_active': 'सक्रिय',
+      'biomed.work_orders.tab_done': 'पूरा',
+      'biomed.work_orders.empty': 'यहाँ कोई बायोमेडिकल कार्य आदेश नहीं है',
+      'biomed.work_orders.sla_breached': 'एसएलए का उल्लंघन',
+      'op_nursing_dashboard.title': 'OP नर्सिंग डैशबोर्ड',
+      'op_nursing_dashboard.refresh_tooltip': 'ताज़ा करें',
+      'op_nursing_dashboard.queue_title': 'OP नर्सिंग कतार',
+      'op_nursing_dashboard.search_hint': 'मरीज़, फ़ोन, डॉक्टर, विभाग खोजें',
+      'op_nursing_dashboard.clear_search_tooltip': 'खोज साफ़ करें',
+      'op_nursing_dashboard.filter.active': 'सक्रिय',
+      'op_nursing_dashboard.filter.overdue': 'देरी हो चुकी',
+      'op_nursing_dashboard.filter.completed': 'पूर्ण',
+      'op_nursing_dashboard.filter.all': 'सभी',
+      'op_nursing_dashboard.stat.active_queue': 'सक्रिय कतार',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'op_nursing_dashboard.stat.needs_triage': 'ट्राइएज आवश्यक',
+      'op_nursing_dashboard.stat.overdue_wait': 'प्रतीक्षा में देरी',
+      'op_nursing_dashboard.stat.completed': 'पूर्ण',
+      'op_nursing_dashboard.no_matching_appointments':
+          'कोई मेल खाती OP अपॉइंटमेंट नहीं',
+      'op_nursing_dashboard.date.today': 'आज',
+      'op_nursing_dashboard.date.tomorrow': 'कल',
+      'op_nursing_dashboard.date.following_day': 'परसों',
+      'op_nursing_dashboard.card.records': 'रिकॉर्ड',
+      'op_nursing_dashboard.card.investigations': 'जाँच',
+      'op_nursing_dashboard.card.nursing_note': 'नर्सिंग नोट',
+      'op_nursing_dashboard.card.timeline': 'टाइमलाइन',
+      'op_nursing_dashboard.card.overdue_wait': 'प्रतीक्षा में देरी',
+      'op_nursing_dashboard.patient_uid_missing': 'रोगी UID अनुपलब्ध; रोगी कार्रवाइयाँ केवल फ़ोन या ID का उपयोग करती हैं।',
+      'maternity.title': 'मातृत्व',
+      'maternity.refresh_tooltip': 'ताज़ा करें',
+      'maternity.retry': 'पुनः प्रयास करें',
+      'maternity.empty_title': 'प्रसव वार्ड शांत है',
+      'maternity.empty_body': 'अभी कोई सक्रिय प्रसव भर्ती नहीं है।',
+      'maternity.admitted_prefix': 'भर्ती',
+      'maternity.patient_prefix': 'मरीज़',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.high_risk_label': '⚠ उच्च जोखिम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.cervix': 'गर्भाशय ग्रीवा',
+      'maternity.stat.fhr': 'FHR',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.ctx': 'संकुचन /10 मिनट',
+      'maternity.stat.reason': 'कारण',
+      'maternity.action.partograph_chart': 'पार्टोग्राफ चार्ट',
+      'maternity.action.new_entry': 'नई प्रविष्टि',
+      'partograph_entry.title': 'पार्टोग्राफ प्रविष्टि',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.labour_progress': 'प्रसव की प्रगति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.fetal_status': 'भ्रूण की स्थिति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.maternal_vitals': 'माता के वाइटल्स',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.drugs_fluids': 'दवाएँ / द्रव',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation': 'गर्भाशय ग्रीवा फैलाव (cm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation_hint': 'सक्रिय चरण 4cm पर शुरू होता है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.descent': 'अवरोहण (ब्रिम से ऊपर पाँचवें भाग, 0–5)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_per_10min': 'प्रति 10 मिनट संकुचन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_duration': 'संकुचन अवधि (सेकंड)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_intensity': 'संकुचन की तीव्रता',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.weak': 'कमज़ोर',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.moderate': 'मध्यम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.strong': 'तेज़',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.fhr': 'भ्रूण हृदय गति (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decelerations': 'डिसेलरेशन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.none': 'कोई नहीं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.early': 'प्रारंभिक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.late': 'विलंबित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.variable': 'परिवर्तनशील',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.amniotic_fluid': 'एमनियोटिक द्रव',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.moulding': 'मोल्डिंग',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_systolic': 'BP सिस्टोलिक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_diastolic': 'BP डायस्टोलिक',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.pulse': 'पल्स (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.temperature': 'तापमान (°C)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_output': 'मूत्र निकास (mL)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_protein': 'मूत्र प्रोटीन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_acetone': 'मूत्र एसीटोन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin': 'ऑक्सीटोसिन (units/L)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin_drops': 'ऑक्सीटोसिन (drops/min)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.other_drugs': 'दी गई अन्य दवाएँ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.iv_fluids': 'IV द्रव',
+      'partograph_entry.notes': 'नोट्स',
+      'partograph_entry.saving': 'सहेज रहा है…',
+      'partograph_entry.save_entry': 'प्रविष्टि सहेजें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_action_line':
+          'सहेजा गया · ACTION रेखा पार — प्रसूति विशेषज्ञ को सूचित करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_alert_line': 'सहेजा गया · अलर्ट रेखा पार',
+      'partograph_entry.saved': 'सहेजा गया',
+      'partograph_view.title': 'पार्टोग्राफ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.action_line_subtitle': 'प्रसूति विशेषज्ञ को सूचित करें — प्रसव की प्रगति WHO ACTION रेखा से नीचे है।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.alert_line_subtitle': 'निगरानी की आवृत्ति बढ़ाएँ; प्रगति न होने पर हस्तक्षेप पर विचार करें।',
+      'partograph_view.no_anchor': 'कोई सक्रिय चरण एंकर दर्ज नहीं — चार्ट बनाने के लिए भर्ती पर labor_started_at सेट करें।',
+      'partograph_view.new_entry': 'नई प्रविष्टि',
+      'partograph_view.recent_entries': 'हाल की प्रविष्टियाँ',
+      'partograph_view.no_entries':
+          'अभी कोई प्रविष्टि नहीं — दर्ज करने के लिए "नई प्रविष्टि" टैप करें।',
+      'safety_center.title': 'सुरक्षा केंद्र',
+      'safety_center.refresh_tooltip': 'ताज़ा करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.critical_alerts': 'गंभीर अलर्ट',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.discharge_blockers': 'डिस्चार्ज बाधाएँ',
+      'safety_center.metric.cleaning_overdue': 'सफ़ाई में देरी',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.title': 'गंभीर अलर्ट',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.subtitle': 'अपठित या उच्च-प्राथमिकता वाले वर्कफ़्लो अलर्ट जिन्हें स्वीकार करना आवश्यक है।',
+      'safety_center.critical_alerts.empty':
+          'कोई गंभीर अलर्ट प्रतीक्षा में नहीं।',
+      'safety_center.critical_alerts.action': 'अलर्ट खोलें',
+      'safety_center.acknowledge': 'स्वीकार करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.title': 'डिस्चार्ज बाधाएँ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.subtitle':
+          'अंतिम डिस्चार्ज रोक रहे भूमिका-स्वामित्व वाले आइटम।',
+      'safety_center.discharge.empty': 'कोई डिस्चार्ज बाधा नहीं।',
+      'safety_center.discharge.action': 'डिस्चार्ज हब खोलें',
+      'safety_center.discharge.open_hub': 'हब खोलें',
+      'safety_center.housekeeping.title': 'बेड सफ़ाई SLA',
+      'safety_center.housekeeping.subtitle':
+          'निकटतम SLA समय-सीमा के अनुसार क्रमबद्ध सौंपे गए हाउसकीपिंग कार्य।',
+      'safety_center.housekeeping.empty': 'कोई सौंपे गए सफ़ाई कार्य नहीं।',
+      'safety_center.housekeeping.action': 'हाउसकीपिंग खोलें',
+      'safety_center.housekeeping.open_task': 'कार्य खोलें',
+      'safety_center.owner_prefix': 'उत्तरदायी',
+      'safety_center.retry': 'पुनः प्रयास करें',
+      'reception_counter.title': 'रिसेप्शन काउंटर',
+      'reception_counter.mode_title': 'काउंटर मोड',
+      'reception_counter.mode_subtitle':
+          'एक ही स्क्रीन से OPD विज़िट और IP भर्तियाँ दर्ज करें।',
+      'reception_counter.refresh_tooltip': 'ताज़ा करें',
+      'reception_counter.stat.today_opd': 'आज OPD',
+      'reception_counter.stat.active_ip': 'सक्रिय IP',
+      'reception_counter.tab.opd': 'OPD',
+      'reception_counter.tab.ip_admission': 'IP भर्ती',
+      'reception_counter.tab.today': 'आज',
+      'reception_counter.opd.title': 'नई OPD अपॉइंटमेंट',
+      'reception_counter.ip.title': 'नई IP भर्ती',
+      'reception_counter.today.title': 'आज काउंटर पर',
+      'reception_counter.patient_lookup.title': 'रोगी खोज',
+      'reception_counter.patient_lookup.hint': 'अस्पताल ID / फ़ोन / नाम',
+      'reception_counter.doctor.title': 'डॉक्टर',
+      'reception_counter.doctor.search_hint':
+          'नाम, विभाग, विशेषज्ञता से डॉक्टर खोजें',
+      'reception_counter.doctor.none_match':
+          'उस खोज से कोई डॉक्टर मेल नहीं खाता।',
+      'reception_counter.doctor.could_not_load': 'डॉक्टर लोड नहीं हो सके।',
+      'reception_counter.opd.reason': 'कारण / मुख्य शिकायत',
+      'reception_counter.opd.notes': 'काउंटर नोट्स',
+      'reception_counter.opd.book_button': 'OPD अपॉइंटमेंट बुक करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.chief_complaint': 'मुख्य शिकायत',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.diagnosis': 'अस्थायी निदान',
+      'reception_counter.ip.ward': 'वार्ड / मंज़िल',
+      'reception_counter.ip.bed': 'बेड',
+      'reception_counter.ip.priority': 'प्राथमिकता',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.code_status': 'कोड स्थिति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_title': 'काउंटर पर ली गई उपचार सहमति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_subtitle':
+          'चार्ट खोलने से पहले नियमित IP भर्तियों के लिए आवश्यक।',
+      'reception_counter.ip.create_button': 'IP भर्ती बनाएँ',
+      'reception_counter.ward.floor': 'वार्ड / मंज़िल',
+      'reception_counter.bed': 'बेड',
+      'reception_counter.bed.select_ward_first': 'पहले वार्ड चुनें',
+      'reception_counter.bed.unavailable': 'बेड अनुपलब्ध',
+      'reception_counter.bed.no_free': 'कोई खाली बेड नहीं',
+      'reception_counter.today.opd_appointments': 'OPD अपॉइंटमेंट',
+      'reception_counter.today.active_admissions': 'सक्रिय भर्तियाँ',
+      'reception_counter.today.no_appointments': 'कोई अपॉइंटमेंट लोड नहीं हुई',
+      'reception_counter.today.no_admissions': 'कोई सक्रिय भर्ती लोड नहीं हुई',
+      'reception_counter.today.open_appointments': 'खुली अपॉइंटमेंट',
+      'reception_counter.clear_patient': 'साफ़ करें',
+      'reception_counter.selected_patient': 'चयनित रोगी',
+      'reception_counter.unnamed_patient': 'बिना नाम का मरीज़',
+      'reception_counter.unknown_patient': 'अज्ञात मरीज़',
+      'reception_counter.admission_active': 'भर्ती सक्रिय',
+      'reception_counter.validate.phone_or_patient':
+          'कोई रोगी चुनें या मान्य फ़ोन नंबर दर्ज करें।',
+      'reception_counter.validate.doctor': 'परामर्श देने वाले डॉक्टर को चुनें।',
+      'reception_counter.validate.reason': 'विजिट का कारण दर्ज करें।',
+      'reception_counter.validate.select_patient':
+          'कोई रोगी खोजकर चुनें या रोगी पहचानकर्ता दर्ज करें।',
+      'reception_counter.validate.admitting_doctor':
+          'भर्ती करने वाले डॉक्टर को चुनें।',
+      'reception_counter.validate.chief_complaint': 'मुख्य शिकायत दर्ज करें।',
+      'reception_counter.validate.patient_name':
+          'नई IP भर्ती के लिए रोगी का नाम दर्ज करें।',
+      'reception_counter.opd_booked_success': 'OPD अपॉइंटमेंट बुक हो गई।',
+      'reception_counter.ip_created_prefix': 'IP भर्ती',
+      'reception_counter.ip_hospital_id_prefix': 'अस्पताल ID',
+      'reception_counter.admission_lookup.hint':
+          'पूर्व भर्तियाँ और IP नंबर देखने के लिए रोगी का फ़ोन नंबर टाइप करें।',
+      'reception_counter.admission_lookup.new_patient': 'नया रोगी नंबर। रोगी का नाम जोड़ें; भर्ती पर अस्पताल ID और IP नंबर बनाए जाएँगे।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.admission_lookup.multiple_matches': 'इस नंबर पर एक से अधिक मरीज़ हैं। सही मरीज़ चुनने के लिए नीचे रोगी खोज का उपयोग करें।',
+      'reception_counter.admission_lookup.last_ip_prefix': 'अंतिम IP',
+      'reception_counter.admission_lookup.prior_admission_one': '1 पूर्व भर्ती',
+      'reception_counter.admission_lookup.prior_admission_other':
+          '{n} पूर्व भर्तियाँ',
+      'reception_counter.open_front_office': 'फ्रंट कार्यालय',
+      'reception_counter.open_admissions': 'भर्तियाँ',
+      'reception_counter.search_tooltip': 'खोजें',
+      's4.lib.ambulance_tracking.title': 'एम्बुलेंस लाइव ट्रैकिंग',
+      's4.lib.ambulance_tracking.disabled': 'इस अस्पताल के लिए लाइव GPS ट्रैकिंग अभी सक्षम नहीं है। GPS डिवाइस उपलब्ध होने पर व्यवस्थापक इसे टेनेंट सेटिंग्स में सक्षम कर सकते हैं।',
+      's4.lib.ambulance_tracking.no_active':
+          'अभी कोई एम्बुलेंस सक्रिय रूप से परिवहन नहीं कर रही है।',
+      's4.lib.ambulance_tracking.no_fix': 'अभी तक कोई स्थिति प्राप्त नहीं हुई',
+      's4.lib.ambulance_tracking.distance': 'अस्पताल से {km} किमी',
+      's4.lib.ambulance_tracking.updated': '{age} पहले अपडेट हुआ',
+      's4.lib.ambulance_tracking.eta': 'ETA {time}',
+      's4.lib.ambulance_tracking.share': 'इस यूनिट के लिए मेरा स्थान साझा करें',
+      's4.lib.ambulance_tracking.share_hint': 'यूनिट के रास्ते में रहते हुए हर 20 सेकंड में इस डिवाइस की GPS स्थिति भेजता है। हैंडओवर के बाद बंद कर दें।',
+      's4.lib.shift_swap.title': 'शिफ्ट अदला-बदली और ऑन-कॉल',
+      's4.lib.shift_swap.propose_title': 'शिफ्ट अदला-बदली का प्रस्ताव दें',
+      's4.lib.shift_swap.my_shift': 'मेरी शिफ्ट',
+      's4.lib.shift_swap.their_shift': 'सहकर्मी की शिफ्ट',
+      's4.lib.shift_swap.no_own_shifts':
+          'प्रस्ताव के लिए कोई आगामी प्रकाशित शिफ्ट नहीं',
+      's4.lib.shift_swap.no_candidates':
+          'अदला-बदली के लिए कोई सहकर्मी शिफ्ट उपलब्ध नहीं',
+      's4.lib.shift_swap.reason_label': 'कारण (वैकल्पिक)',
+      's4.lib.shift_swap.submit': 'अदला-बदली का प्रस्ताव दें',
+      's4.lib.shift_swap.submitted': 'शिफ्ट अदला-बदली प्रस्तावित',
+      's4.lib.shift_swap.my_swaps': 'मेरे अदला-बदली अनुरोध',
+      's4.lib.shift_swap.no_swaps_yet': 'अभी तक कोई अदला-बदली अनुरोध नहीं',
+      's4.lib.shift_swap.incoming_badge': 'आपके लिए',
+      's4.lib.shift_swap.accept': 'स्वीकार करें',
+      's4.lib.shift_swap.decline': 'अस्वीकार',
+      's4.lib.shift_swap.cancel_request': 'वापस लें',
+      's4.lib.shift_swap.approvals_title': 'अदला-बदली स्वीकृतियाँ',
+      's4.lib.shift_swap.approve': 'मंज़ूरी देना',
+      's4.lib.shift_swap.reject': 'अस्वीकार करें',
+      's4.lib.shift_swap.on_call_title': 'ऑन-कॉल',
+      's4.lib.shift_swap.my_on_call': 'मेरी ऑन-कॉल ड्यूटी',
+      's4.lib.shift_swap.no_on_call': 'कोई वर्तमान या आगामी ऑन-कॉल ड्यूटी नहीं',
+      's4.lib.shift_swap.on_call_now': 'अभी कौन ऑन-कॉल है',
+      's4.lib.shift_swap.no_one_on_call': 'अभी कोई ऑन-कॉल नहीं है',
+      's4.lib.shift_swap.manage_on_call': 'विभाग की ऑन-कॉल सूची',
+      's4.lib.shift_swap.add_on_call': 'ऑन-कॉल अवधि जोड़ें',
+      's4.lib.shift_swap.end_on_call': 'समाप्त करें',
+      's4.lib.shift_swap.on_call_created': 'ऑन-कॉल अवधि बनाई गई',
+      's4.lib.shift_swap.on_call_ended': 'ऑन-कॉल अवधि समाप्त',
+      's4.lib.shift_swap.staff_label': 'स्टाफ के सदस्य',
+      's4.lib.shift_swap.tier_label': 'स्तर',
+      's4.lib.shift_swap.start_label': 'प्रारंभ',
+      's4.lib.shift_swap.end_label': 'समाप्ति',
+      's4.lib.shift_swap.create': 'बनाएँ',
+      's4.lib.counter_sale.title': 'काउंटर बिक्री',
+      's4.lib.counter_sale.open': 'काउंटर बिक्री',
+      's4.lib.counter_sale.sell_tab': 'बेचें',
+      's4.lib.counter_sale.recent_tab': 'हाल की बिक्री',
+      's4.lib.counter_sale.search_hint': 'आइटम खोजें (नाम / SKU / जेनेरिक)',
+      's4.lib.counter_sale.in_stock': 'स्टॉक में {count}',
+      's4.lib.counter_sale.out_of_stock': 'स्टॉक में नहीं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.batch_line': 'बैच {batch} · समाप्ति {expiry}',
+      's4.lib.counter_sale.cart_empty':
+          'कार्ट खाली है — बेचने के लिए आइटम खोजें और जोड़ें',
+      's4.lib.counter_sale.quantity': 'मात्रा',
+      's4.lib.counter_sale.walk_in': 'वॉक-इन',
+      's4.lib.counter_sale.registered_patient': 'पंजीकृत रोगी',
+      's4.lib.counter_sale.customer_name': 'ग्राहक का नाम',
+      's4.lib.counter_sale.customer_phone': 'ग्राहक का फ़ोन (वैकल्पिक)',
+      's4.lib.counter_sale.patient_uid': 'रोगी UID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_section':
+          'नुस्खा (Schedule H/H1/X के लिए आवश्यक)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_doctor': 'नुस्खा लिखने वाले डॉक्टर',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_reference': 'Rx नंबर / संदर्भ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_section':
+          'साक्षी (Schedule X / नारकोटिक के लिए आवश्यक)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_two_person_hint': 'ठीक इसी बिक्री के लिए स्वीकृति का अनुरोध करें, फिर समीक्षा और साइन-इन के लिए डिवाइस किसी योग्य दूसरे स्टाफ सदस्य को दें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_request':
+          'साक्षी की स्वीकृति का अनुरोध करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approve': 'समीक्षा करें और अनुमोदित करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_title': 'स्वतंत्र साक्षी साइन-इन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_review_hint': 'अपने स्टाफ क्रेडेंशियल दर्ज करने से पहले इन दवाओं और मात्राओं की पुष्टि करें:',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_employee_id': 'साक्षी की कर्मचारी ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_password': 'साक्षी का पासवर्ड',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_not_requested':
+          'स्वीकृति का अनुरोध नहीं किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_pending': 'साक्षी के साइन-इन की प्रतीक्षा',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved': 'साक्षी की स्वीकृति दर्ज',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved_by': '{name} द्वारा अनुमोदित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_canonical_staff': 'सत्यापित स्टाफ साक्षी',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_required': 'यह बिक्री जमा करने से पहले एक अनुमोदित दूसरा स्टाफ साक्षी आवश्यक है।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_expired':
+          'साक्षी की स्वीकृति समाप्त हो गई। नई स्वीकृति का अनुरोध करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_used': 'वह साक्षी स्वीकृति पहले ही उपयोग हो चुकी है। नई स्वीकृति का अनुरोध करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_self':
+          'विक्रेता अपने ही नियंत्रित वितरण का साक्षी नहीं बन सकता।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_role':
+          'यह स्टाफ खाता नियंत्रित दवा वितरण का साक्षी बनने के योग्य नहीं है।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_changed':
+          'बिक्री बदल गई, इसलिए उसकी साक्षी स्वीकृति अमान्य हो गई।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_failed': 'साक्षी का प्रमाणीकरण या अनुमोदन विफल। क्रेडेंशियल जाँचें और फिर से अनुरोध करें।',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_mode': 'भुगतान का तरीका',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_reference': 'भुगतान संदर्भ (txn id)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.cash_drawer_hint':
+          'नकद बिक्री के लिए आपका खुला कैश-ड्रॉअर सत्र आवश्यक है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.estimated_total':
+          'अनुमानित कुल (बिक्री के समय सर्वर मूल्य)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sell': 'बेचें और भुगतान लें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sold': 'बिक्री पूर्ण — इनवॉइस {invoice}',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_action': 'रद्द करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_reason': 'रद्द करने का कारण',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.voided': 'बिक्री रद्द और धनवापसी की गई',
+      's4.lib.counter_sale.no_recent': 'आज अभी तक कोई काउंटर बिक्री नहीं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.pharmacy.substitution_witness_required': 'यह Schedule X / नारकोटिक विकल्प वितरित करने से पहले एक अनुमोदित दूसरा स्टाफ साक्षी आवश्यक है।',
+      's4.lib.referrals.patient_receiver_department_reason_required':
+          'रोगी, नामित प्राप्तकर्ता डॉक्टर, विभाग और कारण आवश्यक हैं',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_specialist_response':
+          'विशेषज्ञ की प्रतिक्रिया पर हस्ताक्षर करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.assessment': 'मूल्यांकन',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.recommendations': 'सिफ़ारिशें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.follow_up_plan': 'फ़ॉलो-अप योजना',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.release_to_patient':
+          'रोगी-सुरक्षित सारांश और अगले चरण जारी करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_summary': 'रोगी-सुरक्षित सारांश',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_instructions': 'रोगी के अगले चरण',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_response': 'प्रतिक्रिया पर हस्ताक्षर करें',
+      's4.lib.referrals.decline_referral': 'रेफरल अस्वीकार करें',
+      's4.lib.referrals.decline_reason': 'अस्वीकार करने का कारण',
+      's4.lib.referrals.acknowledge_response': 'प्रतिक्रिया स्वीकार करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.plan_update':
+          'विशेषज्ञ की प्रतिक्रिया को देखभाल योजना में कैसे शामिल किया गया',
+      's4.lib.referrals.reroute_referral': 'रेफरल पुनः भेजें',
+      's4.lib.referrals.reroute_reason': 'पुनः भेजने का कारण',
+      's4.lib.referrals.reroute': 'पुनः भेजें',
+      'ed_trauma.handoff.decline_reason_code': 'संरचित अस्वीकृति कारण',
+      'ed_trauma.continuity.title': 'ED गंतव्य और अनुवर्ती देखभाल',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.intro': 'गंतव्य की स्वीकृति, डिस्चार्ज या स्थानांतरण साक्ष्य, LAMA/LWBS रिकवरी, और मृत्यु या MLC समापन सत्यापित करने के लिए ED विज़िट लोड करें।',
+      'ed_trauma.continuity.load': 'ED निरंतरता लोड करें',
+      'ed_trauma.continuity.visit_status':
+          'विज़िट स्थिति: {status} · निर्णय: {disposition}',
+      'ed_trauma.continuity.branch_complete': 'शाखा समापन पूर्ण',
+      'ed_trauma.continuity.handoff_accepted': 'गंतव्य ने स्वीकार किया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_complete': 'पहचान का लेखा-जोखा पूरा',
+      'ed_trauma.continuity.recovery_complete': 'रिकवरी परिणाम दर्ज किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_certified': 'मृत्यु प्रमाणित',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mortuary_recorded': 'शवगृह अभिरक्षा दर्ज',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mlc_complete': 'MLC पूर्ण',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.bed_pending':
+          'भर्ती स्वीकृत है, लेकिन बेड अभी लंबित है।',
+      'ed_trauma.continuity.transition_title': 'ED विज़िट आगे बढ़ाएँ',
+      'ed_trauma.continuity.next_status': 'अगली विज़िट स्थिति',
+      'ed_trauma.continuity.disposition': 'निर्णय',
+      'ed_trauma.continuity.transition': 'विज़िट परिवर्तन दर्ज करें',
+      'ed_trauma.continuity.transition_saved':
+          'ED विज़िट परिवर्तन दर्ज किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_title': 'समापन साक्ष्य दर्ज करें',
+      'ed_trauma.continuity.closure_kind': 'समापन शाखा',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.follow_up_required': 'फ़ॉलो-अप आवश्यक है',
+      'ed_trauma.continuity.follow_up_plan_id': 'सटीक फ़ॉलो-अप योजना ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.no_follow_up_reason':
+          'डॉक्टर का कारण कि फ़ॉलो-अप आवश्यक नहीं है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_steps': 'रोगी-सुरक्षित अगले चरण',
+      'ed_trauma.continuity.add_patient_step': 'एक और रोगी चरण जोड़ें',
+      'ed_trauma.continuity.patient_step_number': 'रोगी चरण {number}',
+      'ed_trauma.continuity.step_label': 'चरण लेबल',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.step_explanation': 'रोगी-सुरक्षित स्पष्टीकरण',
+      'ed_trauma.continuity.step_due_date': 'नियत तिथि (YYYY-MM-DD)',
+      'ed_trauma.continuity.step_status': 'चरण स्थिति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_action': 'रोगी को क्या करना चाहिए',
+      'ed_trauma.continuity.route_token':
+          'सुरक्षित ऐप रूट, उदाहरण के लिए appointments',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_reconciliation_id':
+          'पूर्ण डिस्चार्ज दवा समाधान UUID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_not_applicable':
+          'डॉक्टर का कारण कि दवा समाधान लागू नहीं है',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_code': 'क्लिनिकल जोखिम कोड',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_summary': 'क्लिनिकल जोखिम सारांश',
+      'ed_trauma.continuity.accepted_handoff_id': 'स्वीकृत गंतव्य हैंडऑफ UUID',
+      'ed_trauma.continuity.receiving_facility': 'प्राप्तकर्ता संस्थान',
+      'ed_trauma.continuity.receiving_reference': 'प्राप्तकर्ता संस्थान संदर्भ',
+      'ed_trauma.continuity.receiving_confirmed_by':
+          'प्राप्ति की पुष्टि करने वाला व्यक्ति',
+      'ed_trauma.continuity.summary_resource_type':
+          'क्लिनिकल सारांश संसाधन प्रकार',
+      'ed_trauma.continuity.summary_resource_id': 'क्लिनिकल सारांश संसाधन ID',
+      'ed_trauma.continuity.ambulance_request_id': 'एम्बुलेंस अनुरोध ID',
+      'ed_trauma.continuity.transport_reference': 'परिवहन संदर्भ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_record_id': 'प्रमाणित मृत्यु रिकॉर्ड ID',
+      'ed_trauma.continuity.identity_status': 'पहचान समाधान स्थिति',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_reason': 'अस्थायी पहचान बनी रहने का कारण',
+      'ed_trauma.continuity.merge_request_id': 'रोगी विलय अनुरोध ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_closure': 'समापन साक्ष्य दर्ज करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_saved': 'ED समापन साक्ष्य दर्ज किया गया',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_title': 'LAMA या LWBS रिकवरी',
+      'ed_trauma.continuity.recovery_kind': 'रिकवरी घटना',
+      'ed_trauma.continuity.contact_channel': 'संपर्क माध्यम',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.outcome_code': 'चिकित्सक परिणाम कोड',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_safe_summary': 'रोगी-सुरक्षित सारांश',
+      'ed_trauma.continuity.staff_notes': 'निजी स्टाफ नोट्स',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_recovery': 'रिकवरी साक्ष्य दर्ज करें',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_saved': 'ED रिकवरी साक्ष्य दर्ज किया गया',
+      'ed_trauma.continuity.closure_history': 'समापन संशोधन इतिहास',
+      'ed_trauma.continuity.recovery_history': 'रिकवरी संपर्क इतिहास',
     },
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -23740,6 +24463,748 @@ class AppStrings {
       's4.dynamic.duty_preference.date_label': "தேதி {date}",
       's4.dynamic.duty_preference.from_label': "{date} இலிருந்து",
       's4.dynamic.duty_preference.to_label': "{date} வரை",
+
+      // ── 2026-08-25 structural-parity fill (AI first pass) ────────────
+      // Added to close the 461-463 key gap that opened after the
+      // 2026-06-10 verification. Same standing as the rest of this map:
+      // machine first pass, NOT clinically approved. Entries marked
+      // `// REVIEW:` below are the high-stakes ones a fluent clinician or
+      // hospital operations translator must confirm before rollout.
+      // See apps/staff/docs/LANGUAGE_HEALTH.md.
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.server_revocation_failed': 'இந்த சாதனத்தில் வெளியேறிவிட்டீர்கள், ஆனால் அமர்வு ரத்து செய்யப்பட்டதை சேவையகம் உறுதிப்படுத்தவில்லை. இணைப்பு சரியாக இருக்கும்போது மீண்டும் உள்நுழைந்து வெளியேறவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.notification_teardown_failed': 'வெளியேறிவிட்டீர்கள், ஆனால் இந்த சாதனத்தின் முந்தைய அறிவிப்பு சேனல் அகற்றப்பட்டதை உறுதிப்படுத்த முடியவில்லை. வேறு பணியாளர் உள்நுழைவதற்கு முன் மீண்டும் இணைக்கவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.combined_teardown_failed': 'இந்த சாதனத்தில் வெளியேறிவிட்டீர்கள், ஆனால் அமர்வு ரத்து செய்யப்பட்டதை சேவையகம் உறுதிப்படுத்தவில்லை; இந்த சாதனத்தின் முந்தைய அறிவிப்பு சேனல் அகற்றப்பட்டதையும் உறுதிப்படுத்த முடியவில்லை. வேறு பணியாளர் இந்த சாதனத்தைப் பயன்படுத்தும் முன், இணைப்பு சரியாக இருக்கும்போது மீண்டும் உள்நுழைந்து வெளியேறவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.title': 'அமர்வு பூட்டப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.body': 'உங்களைப் பாதுகாப்பாக வெளியேற்றுகிறோம். நோயாளர் தகவல் மறைக்கப்பட்டுள்ளது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.acknowledge_critical': 'தீவிர முடிவை ஏற்கவும்',
+      'clinical_inbox.classification': 'வகைப்பாடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.correction': 'திருத்தப்பட்ட அறிக்கை',
+      'clinical_inbox.current_owner': 'தற்போதைய பொறுப்பாளர்',
+      'clinical_inbox.role_queue': 'பணி வரிசை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.review_action':
+          'மறுஆய்வு செய்து நடவடிக்கையைப் பதிவு செய்',
+      'clinical_inbox.claim_review': 'எடுத்து மறுஆய்வு செய்',
+      'clinical_inbox.claiming': 'எடுக்கப்படுகிறது...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.title': 'நோயறிதல் நடவடிக்கையைப் பதிவு செய்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.disposition': 'மருத்துவ முடிவு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.treated': 'சிகிச்சை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.repeated': 'மீண்டும் செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.referred': 'பரிந்துரைக்கப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.no_action': 'எந்த நடவடிக்கையும் தேவையில்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.note': 'மருத்துவ மறுஆய்வு குறிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.reason': 'நடவடிக்கை தேவையில்லை என்பதற்கான காரணம்',
+      'clinical_inbox.action.evidence_type': 'சான்று வள வகை',
+      'clinical_inbox.action.evidence_id': 'சான்று வள ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.submit': 'கையொப்பமிட்டு நடவடிக்கையைப் பதிவு செய்',
+      'clinical_inbox.action.recording': 'பதிவாகிறது...',
+      'clinical_inbox.action.recorded':
+          'நோயறிதல் நடவடிக்கை பதிவு செய்யப்பட்டது',
+      'clinical_inbox.action.failed_prefix':
+          'நோயறிதல் நடவடிக்கையைப் பதிவு செய்ய முடியவில்லை:',
+      'clinical_inbox.field_required': 'இந்தப் புலம் அவசியம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen': 'மருத்துவர் மறுஆய்வுக்காக மீண்டும் திற',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_title': 'சாதாரண முடிவை மீண்டும் திற',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_reason': 'மறுஆய்வுக்கான காரணம்',
+      'clinical_inbox.reopening': 'மீண்டும் திறக்கப்படுகிறது...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopened':
+          'முடிவு மருத்துவர் மறுஆய்வுக்காக மீண்டும் திறக்கப்பட்டது',
+      'clinical_inbox.reopen_failed_prefix':
+          'முடிவை மீண்டும் திறக்க முடியவில்லை:',
+      'clinical_inbox.group.in_progress': 'நடைபெறுகிறது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'drug_chart.dose_hint':
+          'மருந்தின் வீரியத்திலிருந்து தானாக நிரப்பப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'drug_chart.dose_helper': 'மாத்திரை அளவு வேறுபட்டால் மட்டும் திருத்தவும்',
+      'vitals_chart.news2.title_prefix': 'NEWS2',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.critical': 'தீவிரம் — அதிக ஆபத்து',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.high': 'உயர்ந்தது — நடுத்தர ஆபத்து',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.medium': 'குறைந்த–நடுத்தர ஆபத்து',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.low': 'குறைந்த ஆபத்து',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.notified':
+          'பராமரிப்புக் குழுவுக்குத் தானாகவே அறிவிக்கப்பட்டது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.escalate': 'மேலெழுப்பு நடவடிக்கை',
+      'vitals_chart.news2.dismiss': 'நிராகரி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance_title': 'NEWS2 மேலெழுப்பு நடவடிக்கை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.critical': 'தீவிர சிகிச்சைத் திறன் கொண்ட மருத்துவக் குழுவால் அவசர மதிப்பீடு. உயிர்நிலைக் குறியீடுகளின் தொடர்ச்சியான கண்காணிப்பு.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.high': 'தீவிர சிகிச்சைக்கு மேலெழுப்பக்கூடிய மருத்துவரால் அவசர மறுஆய்வு. உயிர்நிலைக் குறியீடுகளை குறைந்தது ஒரு மணி நேரத்திற்கு ஒருமுறை கண்காணிக்கவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.medium': 'மேலெழுப்ப வேண்டுமா என்பதைத் தீர்மானிக்கும் பதிவு செய்யப்பட்ட செவிலியரால் மறுஆய்வு. உயிர்நிலைக் குறியீடுகளை குறைந்தது 4–6 மணி நேரத்திற்கு ஒருமுறை கண்காணிக்கவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.low': 'வழக்கமான கண்காணிப்பைத் (12 மணி நேரத்திற்கு ஒருமுறை) தொடர்ந்து மீண்டும் மதிப்பிடவும்.',
+      'payroll.detail.password_title': 'PDF கடவுச்சொல்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_description': 'இந்த சம்பளப் பட்டியலைத் திறக்கத் தயாராக இருக்கும்போது மட்டும் கடவுச்சொல்லைக் கோரவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_reveal': 'PDF கடவுச்சொல்லைப் பார்',
+      'payroll.detail.password_retrieving': 'பெறப்படுகிறது...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_unavailable': 'சம்பளப் பட்டியலின் கடவுச்சொல்லைப் பெற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_dialog_title': 'சம்பளப் பட்டியல் PDF கடவுச்சொல்',
+      'payroll.detail.password_field_label': 'கடவுச்சொல்',
+      'payroll.detail.password_show': 'கடவுச்சொல்லைக் காட்டு',
+      'payroll.detail.password_hide': 'கடவுச்சொல்லை மறை',
+      'payroll.detail.password_copy': 'நகலெடுக்கவும்',
+      'payroll.detail.password_close': 'மூடு',
+      'blood_bank.select_patient_label': 'நோயாளரை தேர்ந்தெடுக்கவும்',
+      'blood_bank.select_patient_required': 'நோயாளியைத் தேர்ந்தெடுக்கவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_label': 'இரத்தக் கூறு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_required': 'இரத்தக் கூறைத் தேர்ந்தெடுக்கவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.whole_blood': 'முழு இரத்தம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.prbc': 'பேக்டு சிவப்பு அணுக்கள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.ffp': 'ஃபிரெஷ் ஃப்ரோஸன் பிளாஸ்மா',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.platelets': 'பிளேட்லெட்டுகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.cryoprecipitate': 'கிரையோபிரெசிபிடேட்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.units_range': '1 முதல் 10 வரை யூனிட்களை உள்ளிடவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_label': 'மருத்துவக் காரணம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_required': 'மருத்துவக் காரணம் தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency_label': 'அவசரத் தன்மை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.routine': 'வழக்கமான',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.urgent': 'அவசரம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.emergency': 'அவசரநிலை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.sign_off_report': 'அறிக்கையைக் கையொப்பமிடு',
+      'radiology.add_addendum': 'சேர்க்கை சேர்',
+      'radiology.addendum_text': 'சேர்க்கை',
+      'radiology.addendum_required': 'சேர்க்கை உரை தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification': 'முடிவு வகைப்பாடு',
+      'radiology.generation_version': 'கையொப்பமிடப்பட்ட முடிவு பதிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification_attestation': 'இந்த அறிக்கைக்கு நீங்கள் கையொப்பமிடும் மருத்துவ வகைப்பாட்டைத் தேர்ந்தெடுக்கவும்.',
+      'radiology.classification_required': 'முடிவு வகைப்பாடு தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.critical': 'தீவிர',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.abnormal': 'அசாதாரண',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.normal': 'சாதாரண',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.indeterminate': 'தீர்மானிக்க முடியாத',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.clinical_significance': 'மருத்துவ முக்கியத்துவம்',
+      'radiology.significance_required': 'மருத்துவ முக்கியத்துவம் தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.unchanged': 'மாற்றமில்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.new_finding': 'புதிய கண்டுபிடிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.worsened': 'மோசமடைந்தது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.improved': 'முன்னேற்றம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.corrected': 'திருத்தப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.report_signed_off': 'அறிக்கை கையொப்பமிடப்பட்டது',
+      'radiology.addendum_submitted': 'சேர்க்கை சமர்ப்பிக்கப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release': 'நோயாளருக்கு வெளியீடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_pending': 'இன்னும் வெளியிடப்படவில்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_needs_doctor_review':
+          'நோயாளருக்கு வெளியிடுவதற்கு முன் மருத்துவர் மறுஆய்வு நிலுவையில்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_released': 'நோயாளருக்கு வெளியிடப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.hold_from_patient': 'நோயாளரிடமிருந்து நிறுத்தி வை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.lift_patient_hold': 'நோயாளருக்கு வெளியிடுவதற்கான தடையை நீக்கு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_to_patient_now': 'இப்போது நோயாளருக்கு வெளியிடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_hold_reason': 'நோயாளர் வெளியீட்டுத் தடைக்கான காரணம்',
+      'radiology.release_hold_reason_required': 'தடைக்கான காரணம் தேவை',
+      'radiology.release_updated': 'நோயாளர் வெளியீடு புதுப்பிக்கப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.title':
+          'மருந்து வழங்க முடியாது — மீண்டும் ஸ்கேன் செய்ய வேண்டும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.patient': 'ஸ்கேன் செய்யப்பட்ட ரிஸ்ட் பேண்ட் இந்த ஆணையுடன் பொருந்தவில்லை (தவறான நோயாளி).',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.drug': 'ஸ்கேன் செய்யப்பட்ட பார்கோடு ஆணையிடப்பட்ட மருந்துடன் பொருந்தவில்லை (தவறான மருந்து).',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.body': 'நோயாளர் மற்றும் மருந்து அடையாளப் பொருத்தமின்மையை மீற முடியாது. சரியான நோயாளியும் சரியான மருந்தும் உள்ளதா என உறுதிசெய்து, மீண்டும் ஸ்கேன் செய்யவும்.',
+      'biomed.work_orders.title': 'எனது பணி ஆணைகள்',
+      'biomed.work_orders.started': 'பணி ஆணை தொடங்கியது',
+      'biomed.work_orders.completed': 'பணி ஆணை நிறைவடைந்தது',
+      'biomed.work_orders.complete_title': 'பணி ஆணையை நிறைவு செய்',
+      'biomed.work_orders.completion_notes': 'நிறைவு குறிப்புகள்',
+      'biomed.work_orders.action_start': 'தொடங்கு',
+      'biomed.work_orders.action_done': 'முடிந்தது',
+      'biomed.work_orders.tab_all': 'அனைத்தும்',
+      'biomed.work_orders.tab_active': 'செயலில்',
+      'biomed.work_orders.tab_done': 'முடிந்தது',
+      'biomed.work_orders.empty': 'இங்கு பயோமெடிக்கல் பணி ஆணைகள் இல்லை',
+      'biomed.work_orders.sla_breached': 'SLA மீறப்பட்டது',
+      'op_nursing_dashboard.title': 'OP நர்சிங் டாஷ்போர்டு',
+      'op_nursing_dashboard.refresh_tooltip': 'புதுப்பி',
+      'op_nursing_dashboard.queue_title': 'OP நர்சிங் வரிசை',
+      'op_nursing_dashboard.search_hint':
+          'நோயாளி, தொலைபேசி, மருத்துவர், துறை தேடு',
+      'op_nursing_dashboard.clear_search_tooltip': 'தேடலை அழி',
+      'op_nursing_dashboard.filter.active': 'செயலில்',
+      'op_nursing_dashboard.filter.overdue': 'காலாவதி',
+      'op_nursing_dashboard.filter.completed': 'முடிந்தது',
+      'op_nursing_dashboard.filter.all': 'அனைத்தும்',
+      'op_nursing_dashboard.stat.active_queue': 'செயலில் உள்ள வரிசை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'op_nursing_dashboard.stat.needs_triage': 'ட்ரையேஜ் தேவை',
+      'op_nursing_dashboard.stat.overdue_wait': 'காத்திருப்பு தாமதம்',
+      'op_nursing_dashboard.stat.completed': 'முடிந்தது',
+      'op_nursing_dashboard.no_matching_appointments':
+          'பொருந்தும் OP சந்திப்புகள் இல்லை',
+      'op_nursing_dashboard.date.today': 'இன்று',
+      'op_nursing_dashboard.date.tomorrow': 'நாளை',
+      'op_nursing_dashboard.date.following_day': 'அடுத்த நாள்',
+      'op_nursing_dashboard.card.records': 'பதிவுகள்',
+      'op_nursing_dashboard.card.investigations': 'விசாரணைகள்',
+      'op_nursing_dashboard.card.nursing_note': 'நர்சிங் குறிப்பு',
+      'op_nursing_dashboard.card.timeline': 'காலவரிசை',
+      'op_nursing_dashboard.card.overdue_wait': 'காத்திருப்பு தாமதம்',
+      'op_nursing_dashboard.patient_uid_missing': 'நோயாளர் UID இல்லை; நோயாளர் நடவடிக்கைகள் தொலைபேசி அல்லது ID மட்டுமே பயன்படுத்தும்.',
+      'maternity.title': 'மகப்பேறு',
+      'maternity.refresh_tooltip': 'புதுப்பி',
+      'maternity.retry': 'மீண்டும் முயற்சி',
+      'maternity.empty_title': 'பிரசவ வார்டு அமைதியாக உள்ளது',
+      'maternity.empty_body': 'தற்போது செயலில் உள்ள பிரசவ அனுமதிகள் இல்லை.',
+      'maternity.admitted_prefix': 'அனுமதிக்கப்பட்டது',
+      'maternity.patient_prefix': 'நோயாளி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.high_risk_label': '⚠ அதிக ஆபத்து',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.cervix': 'கருப்பை வாய்',
+      'maternity.stat.fhr': 'FHR',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.ctx': 'சுருக்கங்கள் /10 நிமி',
+      'maternity.stat.reason': 'காரணம்',
+      'maternity.action.partograph_chart': 'பார்டோகிராஃப் விளக்கப்படம்',
+      'maternity.action.new_entry': 'புதிய பதிவு',
+      'partograph_entry.title': 'பார்டோகிராஃப் பதிவு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.labour_progress': 'பிரசவ முன்னேற்றம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.fetal_status': 'கருவின் நிலை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.maternal_vitals': 'தாயின் உயிர்நிலைகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.drugs_fluids': 'மருந்துகள் / திரவங்கள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation': 'கருப்பை வாய் விரிவு (cm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation_hint':
+          'செயல் நிலை 4cm இல் தொடங்குகிறது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.descent':
+          'இறக்கம் (பிரிம்-க்கு மேல் ஐந்தில் பங்கு, 0–5)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_per_10min': '10 நிமிடத்திற்கு சுருக்கங்கள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_duration': 'சுருக்க கால அளவு (வினாடி)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_intensity': 'சுருக்கங்களின் தீவிரம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.weak': 'பலவீனமான',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.moderate': 'மிதமான',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.strong': 'வலுவான',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.fhr': 'கருவின் இதயத் துடிப்பு (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decelerations': 'டிசெலரேஷன்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.none': 'எதுவும் இல்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.early': 'ஆரம்ப',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.late': 'தாமத',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.variable': 'மாறுபடும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.amniotic_fluid': 'அம்னியோடிக் திரவம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.moulding': 'மோல்டிங்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_systolic': 'BP சிஸ்டாலிக்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_diastolic': 'BP டயஸ்டாலிக்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.pulse': 'நாடித்துடிப்பு (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.temperature': 'வெப்பநிலை (°C)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_output': 'சிறுநீர் வெளியேற்றம் (mL)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_protein': 'சிறுநீர் புரதம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_acetone': 'சிறுநீர் அசிட்டோன்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin': 'ஆக்சிடோசின் (units/L)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin_drops': 'ஆக்சிடோசின் (drops/min)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.other_drugs': 'வழங்கப்பட்ட பிற மருந்துகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.iv_fluids': 'IV திரவங்கள்',
+      'partograph_entry.notes': 'குறிப்புகள்',
+      'partograph_entry.saving': 'சேமிக்கிறது…',
+      'partograph_entry.save_entry': 'பதிவைச் சேமி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_action_line': 'சேமிக்கப்பட்டது · ACTION கோடு கடந்தது — மகப்பேறு மருத்துவரிடம் உடனே தெரிவிக்கவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_alert_line':
+          'சேமிக்கப்பட்டது · எச்சரிக்கை கோடு கடந்தது',
+      'partograph_entry.saved': 'சேமிக்கப்பட்டது',
+      'partograph_view.title': 'பார்டோகிராஃப்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.action_line_subtitle': 'மகப்பேறு மருத்துவரிடம் தெரிவிக்கவும் — பிரசவ முன்னேற்றம் WHO ACTION கோட்டுக்குக் கீழே உள்ளது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.alert_line_subtitle': 'கண்காணிப்பின் அடிக்கடித்தன்மையை அதிகரிக்கவும்; முன்னேற்றம் இல்லையெனில் தலையீட்டைக் கருதவும்.',
+      'partograph_view.no_anchor': 'செயல் நிலை நங்கூரம் பதிவு செய்யப்படவில்லை — விளக்கப்படத்தை வரைய அனுமதியின்போது labor_started_at அமைக்கவும்.',
+      'partograph_view.new_entry': 'புதிய பதிவு',
+      'partograph_view.recent_entries': 'சமீபத்திய பதிவுகள்',
+      'partograph_view.no_entries': 'இன்னும் பதிவுகள் இல்லை — பதிவு செய்ய "புதிய பதிவு" என்பதைத் தட்டவும்.',
+      'safety_center.title': 'பாதுகாப்பு மையம்',
+      'safety_center.refresh_tooltip': 'புதுப்பி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.critical_alerts': 'தீவிர எச்சரிக்கைகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.discharge_blockers': 'டிஸ்சார்ஜ் தடைகள்',
+      'safety_center.metric.cleaning_overdue': 'சுத்தம் தாமதம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.title': 'தீவிர எச்சரிக்கைகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.subtitle': 'ஏற்புத் தேவைப்படும் படிக்காத அல்லது உயர்-முன்னுரிமை பணிப்பாய்வு எச்சரிக்கைகள்.',
+      'safety_center.critical_alerts.empty':
+          'காத்திருக்கும் தீவிர எச்சரிக்கைகள் இல்லை.',
+      'safety_center.critical_alerts.action': 'எச்சரிக்கைகளைத் திற',
+      'safety_center.acknowledge': 'ஏற்கவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.title': 'டிஸ்சார்ஜ் தடைகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.subtitle':
+          'இறுதி டிஸ்சார்ஜைத் தடுக்கும் பங்கு-சார்ந்த உருப்படிகள்.',
+      'safety_center.discharge.empty': 'டிஸ்சார்ஜ் தடைகள் இல்லை.',
+      'safety_center.discharge.action': 'டிஸ்சார்ஜ் மையத்தைத் திற',
+      'safety_center.discharge.open_hub': 'மையத்தைத் திற',
+      'safety_center.housekeeping.title': 'படுக்கை சுத்தம் SLA',
+      'safety_center.housekeeping.subtitle': 'நெருங்கிய SLA காலக்கெடு வரிசையில் ஒதுக்கப்பட்ட ஹவுஸ்கீப்பிங் பணிகள்.',
+      'safety_center.housekeeping.empty':
+          'ஒதுக்கப்பட்ட சுத்தம் செய்யும் பணிகள் இல்லை.',
+      'safety_center.housekeeping.action': 'ஹவுஸ்கீப்பிங்கைத் திற',
+      'safety_center.housekeeping.open_task': 'பணியைத் திற',
+      'safety_center.owner_prefix': 'பொறுப்பாளர்',
+      'safety_center.retry': 'மீண்டும் முயற்சி',
+      'reception_counter.title': 'வரவேற்பு கவுண்டர்',
+      'reception_counter.mode_title': 'கவுண்டர் பயன்முறை',
+      'reception_counter.mode_subtitle': 'ஒரே திரையிலிருந்து OPD வருகைகளையும் IP அனுமதிகளையும் பதிவு செய்யவும்.',
+      'reception_counter.refresh_tooltip': 'புதுப்பி',
+      'reception_counter.stat.today_opd': 'இன்றைய OPD',
+      'reception_counter.stat.active_ip': 'செயலில் உள்ள IP',
+      'reception_counter.tab.opd': 'OPD',
+      'reception_counter.tab.ip_admission': 'IP அனுமதி',
+      'reception_counter.tab.today': 'இன்று',
+      'reception_counter.opd.title': 'புதிய OPD சந்திப்பு',
+      'reception_counter.ip.title': 'புதிய IP அனுமதி',
+      'reception_counter.today.title': 'இன்று கவுண்டரில்',
+      'reception_counter.patient_lookup.title': 'நோயாளர் தேடல்',
+      'reception_counter.patient_lookup.hint':
+          'மருத்துவமனை ID / தொலைபேசி / பெயர்',
+      'reception_counter.doctor.title': 'மருத்துவர்',
+      'reception_counter.doctor.search_hint':
+          'பெயர், துறை, சிறப்புத்துறை மூலம் மருத்துவரைத் தேடு',
+      'reception_counter.doctor.none_match':
+          'அந்தத் தேடலுக்கு எந்த மருத்துவரும் பொருந்தவில்லை.',
+      'reception_counter.doctor.could_not_load':
+          'மருத்துவர்களை ஏற்ற முடியவில்லை.',
+      'reception_counter.opd.reason': 'காரணம் / முக்கிய புகார்',
+      'reception_counter.opd.notes': 'கவுண்டர் குறிப்புகள்',
+      'reception_counter.opd.book_button': 'OPD சந்திப்பைப் பதிவு செய்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.chief_complaint': 'முக்கிய புகார்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.diagnosis': 'தற்காலிக நோயறிதல்',
+      'reception_counter.ip.ward': 'வார்டு / தளம்',
+      'reception_counter.ip.bed': 'படுக்கை',
+      'reception_counter.ip.priority': 'முன்னுரிமை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.code_status': 'கோட் நிலை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_title':
+          'கவுண்டரில் பெறப்பட்ட சிகிச்சை சம்மதம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_subtitle': 'நோயாளர் பதிவேடு திறக்கப்படுவதற்கு முன் வழக்கமான IP அனுமதிகளுக்குத் தேவை.',
+      'reception_counter.ip.create_button': 'IP அனுமதியை உருவாக்கு',
+      'reception_counter.ward.floor': 'வார்டு / தளம்',
+      'reception_counter.bed': 'படுக்கை',
+      'reception_counter.bed.select_ward_first':
+          'முதலில் வார்டைத் தேர்ந்தெடுக்கவும்',
+      'reception_counter.bed.unavailable': 'படுக்கைகள் இல்லை',
+      'reception_counter.bed.no_free': 'காலியான படுக்கைகள் இல்லை',
+      'reception_counter.today.opd_appointments': 'OPD சந்திப்புகள்',
+      'reception_counter.today.active_admissions': 'செயலில் உள்ள அனுமதிகள்',
+      'reception_counter.today.no_appointments': 'சந்திப்புகள் ஏற்றப்படவில்லை',
+      'reception_counter.today.no_admissions':
+          'செயலில் உள்ள அனுமதிகள் ஏற்றப்படவில்லை',
+      'reception_counter.today.open_appointments': 'திறந்த சந்திப்புகள்',
+      'reception_counter.clear_patient': 'அழி',
+      'reception_counter.selected_patient': 'தேர்ந்தெடுக்கப்பட்ட நோயாளி',
+      'reception_counter.unnamed_patient': 'பெயரிடப்படாத நோயாளி',
+      'reception_counter.unknown_patient': 'தெரியாத நோயாளி',
+      'reception_counter.admission_active': 'அனுமதி செயலில்',
+      'reception_counter.validate.phone_or_patient': 'ஒரு நோயாளியைத் தேர்ந்தெடுக்கவும் அல்லது சரியான தொலைபேசி எண்ணை உள்ளிடவும்.',
+      'reception_counter.validate.doctor':
+          'ஆலோசனை மருத்துவரைத் தேர்ந்தெடுக்கவும்.',
+      'reception_counter.validate.reason': 'வருகைக்கான காரணத்தை உள்ளிடவும்.',
+      'reception_counter.validate.select_patient': 'ஒரு நோயாளியைத் தேடித் தேர்ந்தெடுக்கவும் அல்லது நோயாளர் அடையாளத்தை உள்ளிடவும்.',
+      'reception_counter.validate.admitting_doctor':
+          'அனுமதிக்கும் மருத்துவரைத் தேர்ந்தெடுக்கவும்.',
+      'reception_counter.validate.chief_complaint':
+          'முக்கிய புகாரை உள்ளிடவும்.',
+      'reception_counter.validate.patient_name':
+          'புதிய IP அனுமதிக்கு நோயாளர் பெயரை உள்ளிடவும்.',
+      'reception_counter.opd_booked_success':
+          'OPD சந்திப்பு பதிவு செய்யப்பட்டது.',
+      'reception_counter.ip_created_prefix': 'IP அனுமதி',
+      'reception_counter.ip_hospital_id_prefix': 'மருத்துவமனை ID',
+      'reception_counter.admission_lookup.hint': 'முந்தைய அனுமதிகள் மற்றும் IP எண்ணைச் சரிபார்க்க நோயாளியின் தொலைபேசி எண்ணைத் தட்டச்சு செய்யவும்.',
+      'reception_counter.admission_lookup.new_patient': 'புதிய நோயாளர் எண். நோயாளர் பெயரைச் சேர்க்கவும்; அனுமதியின்போது மருத்துவமனை ID மற்றும் IP எண் உருவாக்கப்படும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.admission_lookup.multiple_matches': 'இந்த எண்ணைப் பல நோயாளிகள் பகிர்ந்துள்ளனர். சரியான நோயாளியைத் தேர்ந்தெடுக்க கீழே உள்ள நோயாளர் தேடலைப் பயன்படுத்தவும்.',
+      'reception_counter.admission_lookup.last_ip_prefix': 'கடைசி IP',
+      'reception_counter.admission_lookup.prior_admission_one':
+          '1 முந்தைய அனுமதி',
+      'reception_counter.admission_lookup.prior_admission_other':
+          '{n} முந்தைய அனுமதிகள்',
+      'reception_counter.open_front_office': 'முன் அலுவலகம்',
+      'reception_counter.open_admissions': 'அனுமதிகள்',
+      'reception_counter.search_tooltip': 'தேடு',
+      's4.lib.ambulance_tracking.title': 'ஆம்புலன்ஸ் நேரடி கண்காணிப்பு',
+      's4.lib.ambulance_tracking.disabled': 'இந்த மருத்துவமனைக்கு நேரடி GPS கண்காணிப்பு இன்னும் இயக்கப்படவில்லை. GPS சாதனங்கள் கிடைக்கும்போது நிர்வாகி டெனன்ட் அமைப்புகளில் இதை இயக்கலாம்.',
+      's4.lib.ambulance_tracking.no_active':
+          'தற்போது எந்த ஆம்புலன்சும் செயலில் போக்குவரத்தில் இல்லை.',
+      's4.lib.ambulance_tracking.no_fix': 'இன்னும் இருப்பிடம் பெறப்படவில்லை',
+      's4.lib.ambulance_tracking.distance': 'மருத்துவமனையிலிருந்து {km} கிமீ',
+      's4.lib.ambulance_tracking.updated': '{age} முன்பு புதுப்பிக்கப்பட்டது',
+      's4.lib.ambulance_tracking.eta': 'ETA {time}',
+      's4.lib.ambulance_tracking.share':
+          'இந்த யூனிட்டுக்கு எனது இருப்பிடத்தைப் பகிர்',
+      's4.lib.ambulance_tracking.share_hint': 'யூனிட் பயணத்தில் இருக்கும்போது ஒவ்வொரு 20 வினாடிக்கும் இந்த சாதனத்தின் GPS இருப்பிடத்தை அனுப்பும். ஒப்படைப்புக்குப் பிறகு அணைக்கவும்.',
+      's4.lib.shift_swap.title': 'பணி நேர பரிமாற்றங்கள் & ஆன்-கால்',
+      's4.lib.shift_swap.propose_title': 'பணி நேர பரிமாற்றத்தை முன்மொழி',
+      's4.lib.shift_swap.my_shift': 'எனது பணி நேரம்',
+      's4.lib.shift_swap.their_shift': 'சக ஊழியரின் பணி நேரம்',
+      's4.lib.shift_swap.no_own_shifts':
+          'வழங்குவதற்கு வரவிருக்கும் வெளியிடப்பட்ட பணி நேரங்கள் இல்லை',
+      's4.lib.shift_swap.no_candidates':
+          'பரிமாற்றத்திற்கு சக ஊழியர் பணி நேரங்கள் எதுவும் இல்லை',
+      's4.lib.shift_swap.reason_label': 'காரணம் (விருப்பம்)',
+      's4.lib.shift_swap.submit': 'பரிமாற்றத்தை முன்மொழி',
+      's4.lib.shift_swap.submitted': 'பணி நேர பரிமாற்றம் முன்மொழியப்பட்டது',
+      's4.lib.shift_swap.my_swaps': 'எனது பரிமாற்றக் கோரிக்கைகள்',
+      's4.lib.shift_swap.no_swaps_yet': 'இதுவரை பரிமாற்றக் கோரிக்கைகள் இல்லை',
+      's4.lib.shift_swap.incoming_badge': 'உங்களுக்காக',
+      's4.lib.shift_swap.accept': 'ஏற்கவும்',
+      's4.lib.shift_swap.decline': 'நிராகரி',
+      's4.lib.shift_swap.cancel_request': 'திரும்பப் பெறு',
+      's4.lib.shift_swap.approvals_title': 'பரிமாற்ற ஒப்புதல்கள்',
+      's4.lib.shift_swap.approve': 'ஒப்புதல்',
+      's4.lib.shift_swap.reject': 'நிராகரி',
+      's4.lib.shift_swap.on_call_title': 'ஆன்-கால்',
+      's4.lib.shift_swap.my_on_call': 'எனது ஆன்-கால் பணி',
+      's4.lib.shift_swap.no_on_call':
+          'தற்போதைய அல்லது வரவிருக்கும் ஆன்-கால் பணி இல்லை',
+      's4.lib.shift_swap.on_call_now': 'இப்போது யார் ஆன்-காலில் உள்ளார்',
+      's4.lib.shift_swap.no_one_on_call': 'தற்போது யாரும் ஆன்-காலில் இல்லை',
+      's4.lib.shift_swap.manage_on_call': 'துறையின் ஆன்-கால் பட்டியல்',
+      's4.lib.shift_swap.add_on_call': 'ஆன்-கால் பணிக்காலத்தைச் சேர்',
+      's4.lib.shift_swap.end_on_call': 'முடி',
+      's4.lib.shift_swap.on_call_created':
+          'ஆன்-கால் பணிக்காலம் உருவாக்கப்பட்டது',
+      's4.lib.shift_swap.on_call_ended': 'ஆன்-கால் பணிக்காலம் முடிந்தது',
+      's4.lib.shift_swap.staff_label': 'பணியாளர் உறுப்பினர்',
+      's4.lib.shift_swap.tier_label': 'அடுக்கு',
+      's4.lib.shift_swap.start_label': 'தொடக்கம்',
+      's4.lib.shift_swap.end_label': 'முடிவு',
+      's4.lib.shift_swap.create': 'உருவாக்கு',
+      's4.lib.counter_sale.title': 'கவுண்டர் விற்பனை',
+      's4.lib.counter_sale.open': 'கவுண்டர் விற்பனை',
+      's4.lib.counter_sale.sell_tab': 'விற்பனை',
+      's4.lib.counter_sale.recent_tab': 'சமீபத்திய விற்பனைகள்',
+      's4.lib.counter_sale.search_hint':
+          'உருப்படிகளைத் தேடு (பெயர் / SKU / பொதுப்பெயர்)',
+      's4.lib.counter_sale.in_stock': '{count} கையிருப்பில்',
+      's4.lib.counter_sale.out_of_stock': 'கையிருப்பில் இல்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.batch_line': 'பேட்ச் {batch} · காலாவதி {expiry}',
+      's4.lib.counter_sale.cart_empty':
+          'வண்டி காலியாக உள்ளது — விற்பனைக்கு உருப்படிகளைத் தேடிச் சேர்க்கவும்',
+      's4.lib.counter_sale.quantity': 'அளவு',
+      's4.lib.counter_sale.walk_in': 'நேரடி வருகை',
+      's4.lib.counter_sale.registered_patient': 'பதிவு செய்யப்பட்ட நோயாளி',
+      's4.lib.counter_sale.customer_name': 'வாடிக்கையாளர் பெயர்',
+      's4.lib.counter_sale.customer_phone':
+          'வாடிக்கையாளர் தொலைபேசி (விருப்பம்)',
+      's4.lib.counter_sale.patient_uid': 'நோயாளர் UID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_section':
+          'மருந்துச் சீட்டு (Schedule H/H1/X-க்குத் தேவை)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_doctor': 'மருந்து பரிந்துரைத்த மருத்துவர்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_reference': 'Rx எண் / குறிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_section':
+          'சாட்சி (Schedule X / போதைப்பொருளுக்குத் தேவை)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_two_person_hint': 'இதே விற்பனைக்கு ஒப்புதலைக் கோரி, பின்னர் மறுஆய்வு செய்து உள்நுழைய தகுதியான இரண்டாவது பணியாளரிடம் சாதனத்தை வழங்கவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_request': 'சாட்சி ஒப்புதலைக் கோரவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approve': 'மறுஆய்வு செய்து ஒப்புதல் அளி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_title': 'சுயாதீன சாட்சி உள்நுழைவு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_review_hint': 'உங்கள் சொந்த பணியாளர் சான்றுகளை உள்ளிடும் முன் இந்த மருந்துகளையும் அளவுகளையும் உறுதிப்படுத்தவும்:',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_employee_id': 'சாட்சியின் பணியாளர் ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_password': 'சாட்சியின் கடவுச்சொல்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_not_requested': 'ஒப்புதல் கோரப்படவில்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_pending':
+          'சாட்சி உள்நுழைவுக்காகக் காத்திருக்கிறது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved':
+          'சாட்சி ஒப்புதல் பதிவு செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved_by':
+          '{name} அவர்களால் ஒப்புதல் அளிக்கப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_canonical_staff':
+          'சரிபார்க்கப்பட்ட பணியாளர் சாட்சி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_required': 'இந்த விற்பனையைச் சமர்ப்பிக்கும் முன் ஒப்புதல் பெற்ற இரண்டாவது பணியாளர் சாட்சி தேவை.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_expired':
+          'சாட்சி ஒப்புதல் காலாவதியானது. புதிய ஒப்புதலைக் கோரவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_used': 'அந்த சாட்சி ஒப்புதல் ஏற்கனவே பயன்படுத்தப்பட்டது. புதிய ஒப்புதலைக் கோரவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_self': 'விற்பனையாளர் தனது சொந்த கட்டுப்படுத்தப்பட்ட வழங்கலுக்குச் சாட்சியாக இருக்க முடியாது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_role': 'இந்தப் பணியாளர் கணக்கு கட்டுப்படுத்தப்பட்ட மருந்து வழங்கலுக்குச் சாட்சியாக இருக்கத் தகுதியற்றது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_changed':
+          'விற்பனை மாறியதால், அதன் சாட்சி ஒப்புதல் செல்லாததாகியது.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_failed': 'சாட்சியின் அங்கீகாரம் அல்லது ஒப்புதல் தோல்வியடைந்தது. சான்றுகளைச் சரிபார்த்து மீண்டும் கோரவும்.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_mode': 'கட்டண முறை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_reference': 'கட்டணக் குறிப்பு (txn id)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.cash_drawer_hint':
+          'பணப் பரிவர்த்தனைகளுக்கு உங்கள் திறந்த பணப்பெட்டி அமர்வு தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.estimated_total':
+          'மதிப்பிடப்பட்ட மொத்தம் (விற்பனையின்போது சேவையக விலைகள்)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sell': 'விற்று கட்டணம் பெறு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sold': 'விற்பனை நிறைவு — விலைப்பட்டியல் {invoice}',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_action': 'செல்லாததாக்கு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_reason': 'செல்லாததாக்கும் காரணம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.voided':
+          'விற்பனை செல்லாததாக்கப்பட்டு பணம் திரும்ப வழங்கப்பட்டது',
+      's4.lib.counter_sale.no_recent': 'இன்று இதுவரை கவுண்டர் விற்பனை இல்லை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.pharmacy.substitution_witness_required': 'இந்த Schedule X / போதைப்பொருள் மாற்று மருந்தை வழங்கும் முன் ஒப்புதல் பெற்ற இரண்டாவது பணியாளர் சாட்சி தேவை.',
+      's4.lib.referrals.patient_receiver_department_reason_required':
+          'நோயாளி, பெயரிடப்பட்ட பெறும் மருத்துவர், துறை மற்றும் காரணம் தேவை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_specialist_response':
+          'நிபுணரின் பதிலைக் கையொப்பமிடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.assessment': 'மதிப்பீடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.recommendations': 'பரிந்துரைகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.follow_up_plan': 'பின்தொடர் திட்டம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.release_to_patient': 'நோயாளருக்குப் பாதுகாப்பான சுருக்கத்தையும் அடுத்த படிகளையும் வெளியிடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_summary': 'நோயாளருக்குப் பாதுகாப்பான சுருக்கம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_instructions': 'நோயாளரின் அடுத்த படிகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_response': 'பதிலைக் கையொப்பமிடு',
+      's4.lib.referrals.decline_referral': 'பரிந்துரையை நிராகரி',
+      's4.lib.referrals.decline_reason': 'நிராகரிப்பதற்கான காரணம்',
+      's4.lib.referrals.acknowledge_response': 'பதிலை ஏற்கவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.plan_update':
+          'நிபுணரின் பதில் பராமரிப்புத் திட்டத்தில் எவ்வாறு சேர்க்கப்பட்டது',
+      's4.lib.referrals.reroute_referral': 'பரிந்துரையை மீண்டும் அனுப்பு',
+      's4.lib.referrals.reroute_reason': 'மீண்டும் அனுப்புவதற்கான காரணம்',
+      's4.lib.referrals.reroute': 'மீண்டும் அனுப்பவும்',
+      'ed_trauma.handoff.decline_reason_code':
+          'கட்டமைக்கப்பட்ட நிராகரிப்புக் காரணம்',
+      'ed_trauma.continuity.title': 'ED இலக்கு மற்றும் தொடர் பராமரிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.intro': 'இலக்கு ஏற்பு, டிஸ்சார்ஜ் அல்லது இடமாற்றச் சான்று, LAMA/LWBS மீட்பு, மற்றும் இறப்பு அல்லது MLC நிறைவு ஆகியவற்றைச் சரிபார்க்க ED வருகையை ஏற்றவும்.',
+      'ed_trauma.continuity.load': 'ED தொடர்ச்சியை ஏற்றவும்',
+      'ed_trauma.continuity.visit_status':
+          'வருகை நிலை: {status} · முடிவு: {disposition}',
+      'ed_trauma.continuity.branch_complete': 'கிளை நிறைவு முடிந்தது',
+      'ed_trauma.continuity.handoff_accepted': 'இலக்கு ஏற்றுக்கொண்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_complete': 'அடையாளம் உறுதி செய்யப்பட்டது',
+      'ed_trauma.continuity.recovery_complete':
+          'மீட்பு விளைவு பதிவு செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_certified': 'இறப்பு சான்றளிக்கப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mortuary_recorded':
+          'பிணவறைப் பொறுப்பு பதிவு செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mlc_complete': 'MLC நிறைவு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.bed_pending':
+          'அனுமதி ஏற்கப்பட்டது, ஆனால் படுக்கை இன்னும் நிலுவையில் உள்ளது.',
+      'ed_trauma.continuity.transition_title': 'ED வருகையை முன்னெடுக்கவும்',
+      'ed_trauma.continuity.next_status': 'அடுத்த வருகை நிலை',
+      'ed_trauma.continuity.disposition': 'முடிவு',
+      'ed_trauma.continuity.transition': 'வருகை மாற்றத்தைப் பதிவு செய்யவும்',
+      'ed_trauma.continuity.transition_saved':
+          'ED வருகை மாற்றம் பதிவு செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_title': 'நிறைவுச் சான்றைப் பதிவு செய்யவும்',
+      'ed_trauma.continuity.closure_kind': 'நிறைவுக் கிளை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.follow_up_required': 'பின்தொடர்தல் தேவை',
+      'ed_trauma.continuity.follow_up_plan_id': 'துல்லியமான பின்தொடர் திட்ட ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.no_follow_up_reason':
+          'பின்தொடர்தல் தேவையில்லை என்பதற்கான மருத்துவரின் காரணம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_steps':
+          'நோயாளருக்குப் பாதுகாப்பான அடுத்த படிகள்',
+      'ed_trauma.continuity.add_patient_step':
+          'மேலும் ஒரு நோயாளர் படியைச் சேர்க்கவும்',
+      'ed_trauma.continuity.patient_step_number': 'நோயாளர் படி {number}',
+      'ed_trauma.continuity.step_label': 'படி லேபிள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.step_explanation':
+          'நோயாளருக்குப் பாதுகாப்பான விளக்கம்',
+      'ed_trauma.continuity.step_due_date': 'இறுதி நாள் (YYYY-MM-DD)',
+      'ed_trauma.continuity.step_status': 'படி நிலை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_action': 'நோயாளர் என்ன செய்ய வேண்டும்',
+      'ed_trauma.continuity.route_token':
+          'பாதுகாப்பான ஆப் ரூட், எடுத்துக்காட்டாக appointments',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_reconciliation_id':
+          'நிறைவடைந்த டிஸ்சார்ஜ் மருந்து ஒப்பீடு UUID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_not_applicable':
+          'மருந்து ஒப்பீடு பொருந்தாது என்பதற்கான மருத்துவரின் காரணம்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_code': 'மருத்துவ அபாயக் குறியீடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_summary': 'மருத்துவ அபாயச் சுருக்கம்',
+      'ed_trauma.continuity.accepted_handoff_id':
+          'ஏற்கப்பட்ட இலக்கு ஒப்படைப்பு UUID',
+      'ed_trauma.continuity.receiving_facility': 'பெறும் மருத்துவமனை',
+      'ed_trauma.continuity.receiving_reference': 'பெறும் மருத்துவமனை குறிப்பு',
+      'ed_trauma.continuity.receiving_confirmed_by':
+          'பெறுதலை உறுதிப்படுத்தியவர்',
+      'ed_trauma.continuity.summary_resource_type': 'மருத்துவச் சுருக்க வள வகை',
+      'ed_trauma.continuity.summary_resource_id': 'மருத்துவச் சுருக்க வள ID',
+      'ed_trauma.continuity.ambulance_request_id': 'ஆம்புலன்ஸ் கோரிக்கை ID',
+      'ed_trauma.continuity.transport_reference': 'போக்குவரத்து குறிப்பு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_record_id':
+          'சான்றளிக்கப்பட்ட இறப்புப் பதிவு ID',
+      'ed_trauma.continuity.identity_status': 'அடையாள தீர்வு நிலை',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_reason':
+          'தற்காலிக அடையாளம் தொடர வேண்டியதற்கான காரணம்',
+      'ed_trauma.continuity.merge_request_id': 'நோயாளர் இணைப்புக் கோரிக்கை ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_closure':
+          'நிறைவுச் சான்றைப் பதிவு செய்யவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_saved':
+          'ED நிறைவுச் சான்று பதிவு செய்யப்பட்டது',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_title': 'LAMA அல்லது LWBS மீட்பு',
+      'ed_trauma.continuity.recovery_kind': 'மீட்பு நிகழ்வு',
+      'ed_trauma.continuity.contact_channel': 'தொடர்பு வழி',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.outcome_code': 'மருத்துவர் விளைவுக் குறியீடு',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_safe_summary':
+          'நோயாளருக்குப் பாதுகாப்பான சுருக்கம்',
+      'ed_trauma.continuity.staff_notes': 'தனிப்பட்ட பணியாளர் குறிப்புகள்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_recovery':
+          'மீட்புச் சான்றைப் பதிவு செய்யவும்',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_saved':
+          'ED மீட்புச் சான்று பதிவு செய்யப்பட்டது',
+      'ed_trauma.continuity.closure_history': 'நிறைவு திருத்த வரலாறு',
+      'ed_trauma.continuity.recovery_history': 'மீட்புத் தொடர்பு வரலாறு',
     },
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -30701,6 +32166,733 @@ class AppStrings {
       's4.dynamic.duty_preference.date_label': "తేదీ {date}",
       's4.dynamic.duty_preference.from_label': "{date} నుండి",
       's4.dynamic.duty_preference.to_label': "{date} వరకు",
+
+      // ── 2026-08-25 structural-parity fill (AI first pass) ────────────
+      // Added to close the 461-463 key gap that opened after the
+      // 2026-06-10 verification. Same standing as the rest of this map:
+      // machine first pass, NOT clinically approved. Entries marked
+      // `// REVIEW:` below are the high-stakes ones a fluent clinician or
+      // hospital operations translator must confirm before rollout.
+      // See apps/staff/docs/LANGUAGE_HEALTH.md.
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.server_revocation_failed': 'ఈ పరికరంలో సైన్ అవుట్ అయ్యారు, కానీ సెషన్ రద్దయినట్లు సర్వర్ నిర్ధారించలేదు. పని చేసే కనెక్షన్‌లో మళ్లీ సైన్ ఇన్ చేసి సైన్ అవుట్ చేయండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.notification_teardown_failed': 'సైన్ అవుట్ అయ్యారు, కానీ ఈ పరికరం తన మునుపటి నోటిఫికేషన్ ఛానెల్ తొలగించబడిందని నిర్ధారించలేకపోయింది. మరో సిబ్బంది సైన్ ఇన్ చేసే ముందు మళ్లీ కనెక్ట్ చేయండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'logout.combined_teardown_failed': 'ఈ పరికరంలో సైన్ అవుట్ అయ్యారు, కానీ సెషన్ రద్దయినట్లు సర్వర్ నిర్ధారించలేదు; ఈ పరికరం తన మునుపటి నోటిఫికేషన్ ఛానెల్ తొలగించబడిందని కూడా నిర్ధారించలేకపోయింది. మరో సిబ్బంది ఈ పరికరాన్ని ఉపయోగించే ముందు, పని చేసే కనెక్షన్‌లో మళ్లీ సైన్ ఇన్ చేసి సైన్ అవుట్ చేయండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.title': 'సెషన్ లాక్ చేయబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'session_lock.body': 'మిమ్మల్ని సురక్షితంగా సైన్ అవుట్ చేస్తున్నాము. రోగి సమాచారం దాచబడింది.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.acknowledge_critical': 'క్రిటికల్ ఫలితాన్ని అంగీకరించండి',
+      'clinical_inbox.classification': 'వర్గీకరణ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.correction': 'సవరించిన నివేదిక',
+      'clinical_inbox.current_owner': 'ప్రస్తుత బాధ్యుడు',
+      'clinical_inbox.role_queue': 'రోల్ క్యూ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.review_action': 'సమీక్షించి చర్యను నమోదు చేయండి',
+      'clinical_inbox.claim_review': 'తీసుకుని సమీక్షించండి',
+      'clinical_inbox.claiming': 'తీసుకుంటోంది...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.title': 'డయాగ్నస్టిక్ చర్యను నమోదు చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.disposition': 'క్లినికల్ నిర్ణయం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.treated': 'చికిత్స',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.repeated': 'పునరావృతం చేయబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.referred': 'రిఫర్ చేయబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.no_action': 'ఎటువంటి చర్య అవసరం లేదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.note': 'క్లినికల్ సమీక్ష గమనిక',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.reason': 'చర్య అవసరం లేకపోవడానికి కారణం',
+      'clinical_inbox.action.evidence_type': 'సాక్ష్య రిసోర్స్ రకం',
+      'clinical_inbox.action.evidence_id': 'సాక్ష్య రిసోర్స్ ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.action.submit': 'సంతకం చేసి చర్యను నమోదు చేయండి',
+      'clinical_inbox.action.recording': 'నమోదవుతోంది...',
+      'clinical_inbox.action.recorded': 'డయాగ్నస్టిక్ చర్య నమోదైంది',
+      'clinical_inbox.action.failed_prefix':
+          'డయాగ్నస్టిక్ చర్యను నమోదు చేయలేకపోయాము:',
+      'clinical_inbox.field_required': 'ఈ ఫీల్డ్ తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen': 'డాక్టర్ సమీక్ష కోసం మళ్ళీ తెరవండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_title': 'సాధారణ ఫలితాన్ని మళ్ళీ తెరవండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopen_reason': 'పునఃసమీక్షకు కారణం',
+      'clinical_inbox.reopening': 'మళ్ళీ తెరవబడుతోంది...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'clinical_inbox.reopened': 'ఫలితం డాక్టర్ సమీక్ష కోసం మళ్ళీ తెరవబడింది',
+      'clinical_inbox.reopen_failed_prefix': 'ఫలితాన్ని మళ్ళీ తెరవలేకపోయాము:',
+      'clinical_inbox.group.in_progress': 'పురోగతిలో ఉంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'drug_chart.dose_hint': 'ఔషధ బలం నుండి స్వయంచాలకంగా నింపబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'drug_chart.dose_helper': 'డోసు వేరుగా ఉంటే మాత్రమే సవరించండి',
+      'vitals_chart.news2.title_prefix': 'NEWS2',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.critical': 'క్రిటికల్ — అధిక ప్రమాదం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.high': 'పెరిగింది — మధ్యస్థ ప్రమాదం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.medium': 'తక్కువ–మధ్యస్థ ప్రమాదం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.band.low': 'తక్కువ ప్రమాదం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.notified':
+          'సంరక్షణ బృందానికి స్వయంచాలకంగా తెలియజేయబడింది.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.escalate': 'ఎస్కలేషన్ ప్రతిస్పందన',
+      'vitals_chart.news2.dismiss': 'తొలగించు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance_title': 'NEWS2 ఎస్కలేషన్ ప్రతిస్పందన',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.critical': 'క్రిటికల్-కేర్ సామర్థ్యం ఉన్న క్లినికల్ బృందం ద్వారా అత్యవసర మూల్యాంకనం. వైటల్ సైన్స్ నిరంతర పర్యవేక్షణ.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.high': 'క్రిటికల్ కేర్‌కు ఎస్కలేట్ చేయగల వైద్యుని ద్వారా తక్షణ సమీక్ష. వైటల్ సైన్స్‌ను కనీసం గంటకు ఒకసారి పర్యవేక్షించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.medium': 'ఎస్కలేట్ చేయాలా వద్దా అని నిర్ణయించే రిజిస్టర్డ్ నర్సు ద్వారా సమీక్ష. వైటల్ సైన్స్‌ను కనీసం 4–6 గంటలకు ఒకసారి పర్యవేక్షించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'vitals_chart.news2.guidance.low': 'రొటీన్ పర్యవేక్షణను (12 గంటలకు ఒకసారి) కొనసాగించి మళ్లీ అంచనా వేయండి.',
+      'payroll.detail.password_title': 'PDF పాస్‌వర్డ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_description': 'ఈ జీతం స్లిప్‌ను తెరవడానికి సిద్ధంగా ఉన్నప్పుడు మాత్రమే పాస్‌వర్డ్‌ను అభ్యర్థించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_reveal': 'PDF పాస్‌వర్డ్ చూడండి',
+      'payroll.detail.password_retrieving': 'పొందుతోంది...',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_unavailable':
+          'జీతం స్లిప్ పాస్‌వర్డ్‌ను పొందలేకపోయాము. మళ్లీ ప్రయత్నించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'payroll.detail.password_dialog_title': 'జీతం స్లిప్ PDF పాస్‌వర్డ్',
+      'payroll.detail.password_field_label': 'పాస్‌వర్డ్',
+      'payroll.detail.password_show': 'పాస్‌వర్డ్ చూపించు',
+      'payroll.detail.password_hide': 'పాస్‌వర్డ్‌ను దాచండి',
+      'payroll.detail.password_copy': 'కాపీ చేయండి',
+      'payroll.detail.password_close': 'మూసివేయి',
+      'blood_bank.select_patient_label': 'రోగిని ఎంచుకోండి',
+      'blood_bank.select_patient_required': 'రోగిని ఎంచుకోండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_label': 'రక్త భాగం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component_required': 'రక్త భాగాన్ని ఎంచుకోండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.whole_blood': 'పూర్తి రక్తం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.prbc': 'ప్యాక్డ్ రెడ్ బ్లడ్ సెల్స్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.ffp': 'ఫ్రెష్ ఫ్రోజెన్ ప్లాస్మా',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.platelets': 'ప్లేట్‌లెట్లు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.component.cryoprecipitate': 'క్రయోప్రెసిపిటేట్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.units_range': '1 నుండి 10 వరకు యూనిట్లను నమోదు చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_label': 'క్లినికల్ సూచన',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.clinical_indication_required': 'క్లినికల్ సూచన తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency_label': 'ఆవశ్యకత',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.routine': 'రొటీన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.urgent': 'తక్షణ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'blood_bank.urgency.emergency': 'అత్యవసరం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.sign_off_report': 'నివేదికను సైన్ ఆఫ్ చేయండి',
+      'radiology.add_addendum': 'అనుబంధం జోడించండి',
+      'radiology.addendum_text': 'అనుబంధం',
+      'radiology.addendum_required': 'అనుబంధ వచనం తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification': 'ఫలిత వర్గీకరణ',
+      'radiology.generation_version': 'సంతకం చేసిన ఫలిత వెర్షన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification_attestation':
+          'ఈ నివేదిక కోసం మీరు సంతకం చేస్తున్న క్లినికల్ వర్గీకరణను ఎంచుకోండి.',
+      'radiology.classification_required': 'ఫలిత వర్గీకరణ తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.critical': 'క్రిటికల్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.abnormal': 'అసాధారణ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.normal': 'సాధారణ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.classification.indeterminate': 'నిర్ధారించలేని',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.clinical_significance': 'క్లినికల్ ప్రాముఖ్యత',
+      'radiology.significance_required': 'క్లినికల్ ప్రాముఖ్యత తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.unchanged': 'మార్పు లేదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.new_finding': 'కొత్తగా కనుగొన్న అంశం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.worsened': 'దిగజారింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.improved': 'మెరుగుపడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.significance.corrected': 'సవరించబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.report_signed_off': 'నివేదిక సైన్ ఆఫ్ చేయబడింది',
+      'radiology.addendum_submitted': 'అనుబంధం సమర్పించబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release': 'రోగికి విడుదల',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_pending': 'ఇంకా విడుదల చేయలేదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_release_needs_doctor_review':
+          'రోగికి విడుదల చేసే ముందు డాక్టర్ సమీక్ష పెండింగ్‌లో ఉంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.patient_released': 'రోగికి విడుదల చేయబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.hold_from_patient': 'రోగి నుండి నిలిపివేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.lift_patient_hold': 'రోగికి విడుదల నిలిపివేతను ఎత్తివేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_to_patient_now': 'ఇప్పుడే రోగికి విడుదల చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'radiology.release_hold_reason': 'రోగి విడుదల నిలిపివేతకు కారణం',
+      'radiology.release_hold_reason_required': 'నిలిపివేత కారణం తప్పనిసరి',
+      'radiology.release_updated': 'రోగి విడుదల నవీకరించబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.title': 'మందు ఇవ్వలేరు — మళ్లీ స్కాన్ చేయడం తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.patient':
+          'స్కాన్ చేసిన రిస్ట్‌బ్యాండ్ ఈ ఆర్డర్‌తో సరిపోలడం లేదు (తప్పు రోగి).',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.drug': 'స్కాన్ చేసిన బార్‌కోడ్ ఆర్డర్ చేసిన మందుతో సరిపోలడం లేదు (తప్పు మందు).',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'mar_scan.hardstop.body': 'రోగి మరియు మందు గుర్తింపు సరిపోలకపోవడాన్ని ఓవర్‌రైడ్ చేయలేరు. సరైన రోగి మరియు సరైన మందు ఉన్నాయని నిర్ధారించుకుని, మళ్లీ స్కాన్ చేయండి.',
+      'biomed.work_orders.title': 'నా వర్క్ ఆర్డర్లు',
+      'biomed.work_orders.started': 'వర్క్ ఆర్డర్ ప్రారంభమైంది',
+      'biomed.work_orders.completed': 'వర్క్ ఆర్డర్ పూర్తయింది',
+      'biomed.work_orders.complete_title': 'వర్క్ ఆర్డర్‌ను పూర్తి చేయండి',
+      'biomed.work_orders.completion_notes': 'పూర్తి గమనికలు',
+      'biomed.work_orders.action_start': 'ప్రారంభించండి',
+      'biomed.work_orders.action_done': 'పూర్తయింది',
+      'biomed.work_orders.tab_all': 'అన్నీ',
+      'biomed.work_orders.tab_active': 'యాక్టివ్',
+      'biomed.work_orders.tab_done': 'పూర్తయింది',
+      'biomed.work_orders.empty': 'ఇక్కడ బయోమెడికల్ వర్క్ ఆర్డర్లు లేవు',
+      'biomed.work_orders.sla_breached': 'SLA ఉల్లంఘించబడింది',
+      'op_nursing_dashboard.title': 'OP నర్సింగ్ డాష్‌బోర్డ్',
+      'op_nursing_dashboard.refresh_tooltip': 'రిఫ్రెష్',
+      'op_nursing_dashboard.queue_title': 'OP నర్సింగ్ క్యూ',
+      'op_nursing_dashboard.search_hint': 'రోగి, ఫోన్, డాక్టర్, విభాగం వెతకండి',
+      'op_nursing_dashboard.clear_search_tooltip': 'శోధన క్లియర్',
+      'op_nursing_dashboard.filter.active': 'యాక్టివ్',
+      'op_nursing_dashboard.filter.overdue': 'గడువు దాటింది',
+      'op_nursing_dashboard.filter.completed': 'పూర్తయింది',
+      'op_nursing_dashboard.filter.all': 'అన్నీ',
+      'op_nursing_dashboard.stat.active_queue': 'యాక్టివ్ క్యూ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'op_nursing_dashboard.stat.needs_triage': 'ట్రయాజ్ అవసరం',
+      'op_nursing_dashboard.stat.overdue_wait': 'వేచి ఉండటంలో ఆలస్యం',
+      'op_nursing_dashboard.stat.completed': 'పూర్తయింది',
+      'op_nursing_dashboard.no_matching_appointments':
+          'సరిపోలే OP అపాయింట్‌మెంట్లు లేవు',
+      'op_nursing_dashboard.date.today': 'ఈరోజు',
+      'op_nursing_dashboard.date.tomorrow': 'రేపు',
+      'op_nursing_dashboard.date.following_day': 'తరువాతి రోజు',
+      'op_nursing_dashboard.card.records': 'రికార్డులు',
+      'op_nursing_dashboard.card.investigations': 'పరిశోధనలు',
+      'op_nursing_dashboard.card.nursing_note': 'నర్సింగ్ గమనిక',
+      'op_nursing_dashboard.card.timeline': 'టైమ్‌లైన్',
+      'op_nursing_dashboard.card.overdue_wait': 'వేచి ఉండటంలో ఆలస్యం',
+      'op_nursing_dashboard.patient_uid_missing':
+          'రోగి UID లేదు; రోగి చర్యలు ఫోన్ లేదా ID మాత్రమే ఉపయోగిస్తాయి.',
+      'maternity.title': 'ప్రసూతి',
+      'maternity.refresh_tooltip': 'రిఫ్రెష్',
+      'maternity.retry': 'మళ్ళీ ప్రయత్నించు',
+      'maternity.empty_title': 'ప్రసవ వార్డు ప్రశాంతంగా ఉంది',
+      'maternity.empty_body': 'ప్రస్తుతం క్రియాశీల ప్రసవ అడ్మిషన్లు లేవు.',
+      'maternity.admitted_prefix': 'అడ్మిట్ అయ్యారు',
+      'maternity.patient_prefix': 'రోగి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.high_risk_label': '⚠ అధిక ప్రమాదం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.cervix': 'గర్భాశయ ముఖద్వారం',
+      'maternity.stat.fhr': 'FHR',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'maternity.stat.ctx': 'సంకోచాలు /10 నిమి',
+      'maternity.stat.reason': 'కారణం',
+      'maternity.action.partograph_chart': 'పార్టోగ్రాఫ్ చార్ట్',
+      'maternity.action.new_entry': 'కొత్త ఎంట్రీ',
+      'partograph_entry.title': 'పార్టోగ్రాఫ్ ఎంట్రీ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.labour_progress': 'ప్రసవ పురోగతి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.fetal_status': 'పిండం స్థితి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.maternal_vitals': 'తల్లి వైటల్స్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.section.drugs_fluids': 'మందులు / ద్రవాలు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation': 'గర్భాశయ ముఖద్వార విస్తరణ (cm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.cervix_dilation_hint':
+          'క్రియాశీల దశ 4cm వద్ద ప్రారంభమవుతుంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.descent': 'దిగడం (బ్రిమ్ పైన ఐదవ వంతులు, 0–5)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_per_10min': '10 నిమిషాలకు సంకోచాలు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_duration': 'సంకోచ వ్యవధి (సెకన్లు)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx_intensity': 'సంకోచాల తీవ్రత',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.weak': 'బలహీనం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.moderate': 'మధ్యస్థం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.ctx.strong': 'బలమైన',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.fhr': 'పిండం గుండె వేగం (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decelerations': 'డిసెలరేషన్లు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.none': 'ఏవీ లేవు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.early': 'ప్రారంభ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.late': 'ఆలస్య',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.decel.variable': 'వేరియబుల్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.amniotic_fluid': 'అమ్నియోటిక్ ద్రవం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.moulding': 'మౌల్డింగ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_systolic': 'BP సిస్టోలిక్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.bp_diastolic': 'BP డయాస్టోలిక్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.pulse': 'పల్స్ (bpm)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.temperature': 'ఉష్ణోగ్రత (°C)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_output': 'మూత్ర విసర్జన (mL)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_protein': 'మూత్ర ప్రోటీన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.urine_acetone': 'మూత్ర అసిటోన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin': 'ఆక్సిటోసిన్ (units/L)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.oxytocin_drops': 'ఆక్సిటోసిన్ (drops/min)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.other_drugs': 'ఇచ్చిన ఇతర మందులు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.iv_fluids': 'IV ద్రవాలు',
+      'partograph_entry.notes': 'గమనికలు',
+      'partograph_entry.saving': 'సేవ్ అవుతోంది…',
+      'partograph_entry.save_entry': 'ఎంట్రీని సేవ్ చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_action_line': 'సేవ్ చేయబడింది · ACTION లైన్ దాటింది — ప్రసూతి వైద్యుడికి తక్షణమే తెలియజేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_entry.saved_alert_line':
+          'సేవ్ చేయబడింది · అలర్ట్ లైన్ దాటింది',
+      'partograph_entry.saved': 'సేవ్ చేయబడింది',
+      'partograph_view.title': 'పార్టోగ్రాఫ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.action_line_subtitle': 'ప్రసూతి వైద్యుడికి తెలియజేయండి — ప్రసవ పురోగతి WHO ACTION లైన్ కంటే దిగువన ఉంది.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'partograph_view.alert_line_subtitle': 'పర్యవేక్షణ తరచుదనాన్ని పెంచండి; పురోగతి లేకపోతే జోక్యాన్ని పరిగణించండి.',
+      'partograph_view.no_anchor': 'క్రియాశీల దశ యాంకర్ నమోదు కాలేదు — చార్ట్‌ను గీయడానికి అడ్మిషన్ సమయంలో labor_started_at సెట్ చేయండి.',
+      'partograph_view.new_entry': 'కొత్త ఎంట్రీ',
+      'partograph_view.recent_entries': 'ఇటీవలి ఎంట్రీలు',
+      'partograph_view.no_entries':
+          'ఇంకా ఎంట్రీలు లేవు — నమోదు చేయడానికి "కొత్త ఎంట్రీ" నొక్కండి.',
+      'safety_center.title': 'భద్రతా కేంద్రం',
+      'safety_center.refresh_tooltip': 'రిఫ్రెష్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.critical_alerts': 'క్రిటికల్ అలర్ట్‌లు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.metric.discharge_blockers': 'డిశ్చార్జ్ అడ్డంకులు',
+      'safety_center.metric.cleaning_overdue': 'శుభ్రత ఆలస్యం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.title': 'క్రిటికల్ అలర్ట్‌లు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.critical_alerts.subtitle':
+          'అంగీకారం అవసరమైన చదవని లేదా అధిక-ప్రాధాన్యత వర్క్‌ఫ్లో అలర్ట్‌లు.',
+      'safety_center.critical_alerts.empty':
+          'వేచి ఉన్న క్రిటికల్ అలర్ట్‌లు లేవు.',
+      'safety_center.critical_alerts.action': 'అలర్ట్‌లను తెరవండి',
+      'safety_center.acknowledge': 'అంగీకరించండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.title': 'డిశ్చార్జ్ అడ్డంకులు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'safety_center.discharge.subtitle':
+          'తుది డిశ్చార్జ్‌ను అడ్డుకుంటున్న రోల్-యాజమాన్య అంశాలు.',
+      'safety_center.discharge.empty': 'డిశ్చార్జ్ అడ్డంకులు లేవు.',
+      'safety_center.discharge.action': 'డిశ్చార్జ్ హబ్‌ను తెరవండి',
+      'safety_center.discharge.open_hub': 'హబ్‌ను తెరవండి',
+      'safety_center.housekeeping.title': 'బెడ్ శుభ్రపరచే SLA',
+      'safety_center.housekeeping.subtitle': 'సమీప SLA గడువు ప్రకారం క్రమబద్ధీకరించిన కేటాయించిన హౌస్‌కీపింగ్ పనులు.',
+      'safety_center.housekeeping.empty': 'కేటాయించిన శుభ్రపరిచే పనులు లేవు.',
+      'safety_center.housekeeping.action': 'హౌస్‌కీపింగ్‌ను తెరవండి',
+      'safety_center.housekeeping.open_task': 'పనిని తెరవండి',
+      'safety_center.owner_prefix': 'బాధ్యుడు',
+      'safety_center.retry': 'మళ్ళీ ప్రయత్నించు',
+      'reception_counter.title': 'రిసెప్షన్ కౌంటర్',
+      'reception_counter.mode_title': 'కౌంటర్ మోడ్',
+      'reception_counter.mode_subtitle':
+          'ఒకే స్క్రీన్ నుండి OPD సందర్శనలు మరియు IP అడ్మిషన్లను నమోదు చేయండి.',
+      'reception_counter.refresh_tooltip': 'రిఫ్రెష్',
+      'reception_counter.stat.today_opd': 'ఈ రోజు OPD',
+      'reception_counter.stat.active_ip': 'యాక్టివ్ IP',
+      'reception_counter.tab.opd': 'OPD',
+      'reception_counter.tab.ip_admission': 'IP అడ్మిషన్',
+      'reception_counter.tab.today': 'ఈ రోజు',
+      'reception_counter.opd.title': 'కొత్త OPD అపాయింట్‌మెంట్',
+      'reception_counter.ip.title': 'కొత్త IP అడ్మిషన్',
+      'reception_counter.today.title': 'ఈ రోజు కౌంటర్‌లో',
+      'reception_counter.patient_lookup.title': 'రోగి శోధన',
+      'reception_counter.patient_lookup.hint': 'ఆసుపత్రి ID / ఫోన్ / పేరు',
+      'reception_counter.doctor.title': 'డాక్టర్',
+      'reception_counter.doctor.search_hint':
+          'పేరు, విభాగం, స్పెషాలిటీ ద్వారా డాక్టర్‌ను వెతకండి',
+      'reception_counter.doctor.none_match': 'ఆ శోధనకు ఏ డాక్టర్ సరిపోలలేదు.',
+      'reception_counter.doctor.could_not_load':
+          'డాక్టర్లను లోడ్ చేయలేకపోయాము.',
+      'reception_counter.opd.reason': 'కారణం / ముఖ్య ఫిర్యాదు',
+      'reception_counter.opd.notes': 'కౌంటర్ గమనికలు',
+      'reception_counter.opd.book_button': 'OPD అపాయింట్‌మెంట్ బుక్ చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.chief_complaint': 'ముఖ్య ఫిర్యాదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.diagnosis': 'తాత్కాలిక నిర్ధారణ',
+      'reception_counter.ip.ward': 'వార్డు / అంతస్తు',
+      'reception_counter.ip.bed': 'బెడ్',
+      'reception_counter.ip.priority': 'ప్రాధాన్యత',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.code_status': 'కోడ్ స్థితి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_title':
+          'కౌంటర్‌లో తీసుకున్న చికిత్స సమ్మతి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.ip.consent_subtitle':
+          'చార్ట్ తెరవడానికి ముందు రొటీన్ IP అడ్మిషన్లకు అవసరం.',
+      'reception_counter.ip.create_button': 'IP అడ్మిషన్‌ను సృష్టించండి',
+      'reception_counter.ward.floor': 'వార్డు / అంతస్తు',
+      'reception_counter.bed': 'బెడ్',
+      'reception_counter.bed.select_ward_first': 'ముందుగా వార్డును ఎంచుకోండి',
+      'reception_counter.bed.unavailable': 'బెడ్‌లు అందుబాటులో లేవు',
+      'reception_counter.bed.no_free': 'ఖాళీ బెడ్‌లు లేవు',
+      'reception_counter.today.opd_appointments': 'OPD అపాయింట్‌మెంట్లు',
+      'reception_counter.today.active_admissions': 'యాక్టివ్ అడ్మిషన్లు',
+      'reception_counter.today.no_appointments': 'అపాయింట్‌మెంట్లు లోడ్ కాలేదు',
+      'reception_counter.today.no_admissions':
+          'యాక్టివ్ అడ్మిషన్లు లోడ్ కాలేదు',
+      'reception_counter.today.open_appointments': 'ఓపెన్ అపాయింట్‌మెంట్లు',
+      'reception_counter.clear_patient': 'క్లియర్',
+      'reception_counter.selected_patient': 'ఎంచుకున్న రోగి',
+      'reception_counter.unnamed_patient': 'పేరు లేని రోగి',
+      'reception_counter.unknown_patient': 'తెలియని రోగి',
+      'reception_counter.admission_active': 'అడ్మిషన్ యాక్టివ్',
+      'reception_counter.validate.phone_or_patient': 'ఒక రోగిని ఎంచుకోండి లేదా చెల్లుబాటు అయ్యే ఫోన్ నంబర్‌ను నమోదు చేయండి.',
+      'reception_counter.validate.doctor': 'సంప్రదింపు డాక్టర్‌ను ఎంచుకోండి.',
+      'reception_counter.validate.reason': 'విజిట్ కారణాన్ని నమోదు చేయండి.',
+      'reception_counter.validate.select_patient':
+          'ఒక రోగిని వెతికి ఎంచుకోండి లేదా రోగి గుర్తింపును నమోదు చేయండి.',
+      'reception_counter.validate.admitting_doctor':
+          'అడ్మిట్ చేసే డాక్టర్‌ను ఎంచుకోండి.',
+      'reception_counter.validate.chief_complaint':
+          'ముఖ్య ఫిర్యాదును నమోదు చేయండి.',
+      'reception_counter.validate.patient_name':
+          'కొత్త IP అడ్మిషన్ కోసం రోగి పేరును నమోదు చేయండి.',
+      'reception_counter.opd_booked_success':
+          'OPD అపాయింట్‌మెంట్ బుక్ చేయబడింది.',
+      'reception_counter.ip_created_prefix': 'IP అడ్మిషన్',
+      'reception_counter.ip_hospital_id_prefix': 'ఆసుపత్రి ID',
+      'reception_counter.admission_lookup.hint': 'మునుపటి అడ్మిషన్లు మరియు IP నంబర్‌ను తనిఖీ చేయడానికి రోగి ఫోన్ నంబర్‌ను టైప్ చేయండి.',
+      'reception_counter.admission_lookup.new_patient': 'కొత్త రోగి నంబర్. రోగి పేరును జోడించండి; అడ్మిషన్ సమయంలో ఆసుపత్రి ID మరియు IP నంబర్ రూపొందించబడతాయి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'reception_counter.admission_lookup.multiple_matches': 'ఈ నంబర్‌ను పలువురు రోగులు పంచుకుంటున్నారు. సరైన రోగిని ఎంచుకోవడానికి క్రింద ఉన్న రోగి శోధనను ఉపయోగించండి.',
+      'reception_counter.admission_lookup.last_ip_prefix': 'చివరి IP',
+      'reception_counter.admission_lookup.prior_admission_one':
+          '1 మునుపటి అడ్మిషన్',
+      'reception_counter.admission_lookup.prior_admission_other':
+          '{n} మునుపటి అడ్మిషన్లు',
+      'reception_counter.open_front_office': 'ముందు కార్యాలయం',
+      'reception_counter.open_admissions': 'అడ్మిషన్లు',
+      'reception_counter.search_tooltip': 'వెతకండి',
+      's4.lib.ambulance_tracking.title': 'అంబులెన్స్ లైవ్ ట్రాకింగ్',
+      's4.lib.ambulance_tracking.disabled': 'ఈ ఆసుపత్రికి లైవ్ GPS ట్రాకింగ్ ఇంకా ప్రారంభించబడలేదు. GPS పరికరాలు అందుబాటులో ఉన్నప్పుడు నిర్వాహకుడు టెనెంట్ సెట్టింగ్‌లలో దీన్ని ప్రారంభించవచ్చు.',
+      's4.lib.ambulance_tracking.no_active':
+          'ప్రస్తుతం ఏ అంబులెన్స్ చురుకుగా రవాణాలో లేదు.',
+      's4.lib.ambulance_tracking.no_fix': 'ఇంకా స్థానం అందలేదు',
+      's4.lib.ambulance_tracking.distance': 'ఆసుపత్రి నుండి {km} కి.మీ',
+      's4.lib.ambulance_tracking.updated': '{age} క్రితం నవీకరించబడింది',
+      's4.lib.ambulance_tracking.eta': 'ETA {time}',
+      's4.lib.ambulance_tracking.share':
+          'ఈ యూనిట్ కోసం నా స్థానాన్ని షేర్ చేయండి',
+      's4.lib.ambulance_tracking.share_hint': 'యూనిట్ మార్గంలో ఉన్నప్పుడు ప్రతి 20 సెకన్లకు ఈ పరికరం GPS స్థానాన్ని పంపుతుంది. అప్పగింత తర్వాత ఆఫ్ చేయండి.',
+      's4.lib.shift_swap.title': 'షిఫ్ట్ మార్పిడులు & ఆన్-కాల్',
+      's4.lib.shift_swap.propose_title': 'షిఫ్ట్ మార్పిడిని ప్రతిపాదించండి',
+      's4.lib.shift_swap.my_shift': 'నా షిఫ్ట్',
+      's4.lib.shift_swap.their_shift': 'సహోద్యోగి షిఫ్ట్',
+      's4.lib.shift_swap.no_own_shifts':
+          'అందించడానికి రాబోయే ప్రచురిత షిఫ్ట్‌లు లేవు',
+      's4.lib.shift_swap.no_candidates':
+          'మార్పిడికి సహోద్యోగుల షిఫ్ట్‌లు అందుబాటులో లేవు',
+      's4.lib.shift_swap.reason_label': 'కారణం (ఐచ్ఛికం)',
+      's4.lib.shift_swap.submit': 'మార్పిడిని ప్రతిపాదించండి',
+      's4.lib.shift_swap.submitted': 'షిఫ్ట్ మార్పిడి ప్రతిపాదించబడింది',
+      's4.lib.shift_swap.my_swaps': 'నా మార్పిడి అభ్యర్థనలు',
+      's4.lib.shift_swap.no_swaps_yet': 'ఇంకా మార్పిడి అభ్యర్థనలు లేవు',
+      's4.lib.shift_swap.incoming_badge': 'మీ కోసం',
+      's4.lib.shift_swap.accept': 'అంగీకరించండి',
+      's4.lib.shift_swap.decline': 'తిరస్కరించు',
+      's4.lib.shift_swap.cancel_request': 'ఉపసంహరించుకోండి',
+      's4.lib.shift_swap.approvals_title': 'మార్పిడి ఆమోదాలు',
+      's4.lib.shift_swap.approve': 'ఆమోదించండి',
+      's4.lib.shift_swap.reject': 'తిరస్కరించు',
+      's4.lib.shift_swap.on_call_title': 'ఆన్-కాల్',
+      's4.lib.shift_swap.my_on_call': 'నా ఆన్-కాల్ డ్యూటీ',
+      's4.lib.shift_swap.no_on_call':
+          'ప్రస్తుత లేదా రాబోయే ఆన్-కాల్ డ్యూటీ లేదు',
+      's4.lib.shift_swap.on_call_now': 'ఇప్పుడు ఎవరు ఆన్-కాల్‌లో ఉన్నారు',
+      's4.lib.shift_swap.no_one_on_call': 'ప్రస్తుతం ఎవరూ ఆన్-కాల్‌లో లేరు',
+      's4.lib.shift_swap.manage_on_call': 'విభాగం ఆన్-కాల్ రోస్టర్',
+      's4.lib.shift_swap.add_on_call': 'ఆన్-కాల్ విడతను జోడించండి',
+      's4.lib.shift_swap.end_on_call': 'ముగించండి',
+      's4.lib.shift_swap.on_call_created': 'ఆన్-కాల్ విడత సృష్టించబడింది',
+      's4.lib.shift_swap.on_call_ended': 'ఆన్-కాల్ విడత ముగిసింది',
+      's4.lib.shift_swap.staff_label': 'సిబ్బంది సభ్యుడు',
+      's4.lib.shift_swap.tier_label': 'శ్రేణి',
+      's4.lib.shift_swap.start_label': 'ప్రారంభం',
+      's4.lib.shift_swap.end_label': 'ముగింపు',
+      's4.lib.shift_swap.create': 'సృష్టించు',
+      's4.lib.counter_sale.title': 'కౌంటర్ అమ్మకం',
+      's4.lib.counter_sale.open': 'కౌంటర్ అమ్మకం',
+      's4.lib.counter_sale.sell_tab': 'విక్రయం',
+      's4.lib.counter_sale.recent_tab': 'ఇటీవలి అమ్మకాలు',
+      's4.lib.counter_sale.search_hint':
+          'వస్తువులను వెతకండి (పేరు / SKU / జెనరిక్)',
+      's4.lib.counter_sale.in_stock': 'స్టాక్‌లో {count}',
+      's4.lib.counter_sale.out_of_stock': 'స్టాక్‌లో లేదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.batch_line': 'బ్యాచ్ {batch} · గడువు {expiry}',
+      's4.lib.counter_sale.cart_empty':
+          'కార్ట్ ఖాళీగా ఉంది — విక్రయించడానికి వస్తువులను వెతికి జోడించండి',
+      's4.lib.counter_sale.quantity': 'పరిమాణం',
+      's4.lib.counter_sale.walk_in': 'వాక్-ఇన్',
+      's4.lib.counter_sale.registered_patient': 'నమోదైన రోగి',
+      's4.lib.counter_sale.customer_name': 'కస్టమర్ పేరు',
+      's4.lib.counter_sale.customer_phone': 'కస్టమర్ ఫోన్ (ఐచ్ఛికం)',
+      's4.lib.counter_sale.patient_uid': 'రోగి UID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_section':
+          'ప్రిస్క్రిప్షన్ (Schedule H/H1/X కోసం తప్పనిసరి)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_doctor': 'ప్రిస్క్రిప్షన్ రాసిన డాక్టర్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.rx_reference': 'Rx నంబర్ / రిఫరెన్స్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_section':
+          'సాక్షి (Schedule X / నార్కోటిక్ కోసం తప్పనిసరి)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_two_person_hint': 'సరిగ్గా ఈ అమ్మకానికి ఆమోదాన్ని అభ్యర్థించి, ఆ తర్వాత సమీక్షించి సైన్ ఇన్ చేయడానికి అర్హత ఉన్న రెండవ సిబ్బందికి పరికరాన్ని అందించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_request': 'సాక్షి ఆమోదాన్ని అభ్యర్థించండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approve': 'సమీక్షించి ఆమోదించండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_title': 'స్వతంత్ర సాక్షి సైన్-ఇన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_review_hint': 'మీ స్వంత సిబ్బంది క్రెడెన్షియల్స్ నమోదు చేసే ముందు ఈ మందులు మరియు పరిమాణాలను నిర్ధారించండి:',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_employee_id': 'సాక్షి ఉద్యోగి ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_password': 'సాక్షి పాస్‌వర్డ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_not_requested': 'ఆమోదం అభ్యర్థించబడలేదు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_pending': 'సాక్షి సైన్-ఇన్ కోసం వేచి ఉంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved': 'సాక్షి ఆమోదం నమోదైంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_approved_by': '{name} ఆమోదించారు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_canonical_staff':
+          'ధృవీకరించిన సిబ్బంది సాక్షి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_required': 'ఈ అమ్మకాన్ని సమర్పించే ముందు ఆమోదం పొందిన రెండవ సిబ్బంది సాక్షి తప్పనిసరి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_expired':
+          'సాక్షి ఆమోదం గడువు ముగిసింది. కొత్త ఆమోదాన్ని అభ్యర్థించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_used': 'ఆ సాక్షి ఆమోదం ఇప్పటికే ఉపయోగించబడింది. కొత్త ఆమోదాన్ని అభ్యర్థించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_self':
+          'విక్రేత తన సొంత నియంత్రిత పంపిణీకి సాక్షిగా ఉండలేరు.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_role': 'ఈ సిబ్బంది ఖాతా నియంత్రిత మందుల పంపిణీకి సాక్షిగా ఉండటానికి అర్హత లేదు.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_changed':
+          'అమ్మకం మారింది, కాబట్టి దాని సాక్షి ఆమోదం చెల్లనిదైంది.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.witness_auth_failed': 'సాక్షి ప్రామాణీకరణ లేదా ఆమోదం విఫలమైంది. క్రెడెన్షియల్స్‌ను తనిఖీ చేసి మళ్లీ అభ్యర్థించండి.',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_mode': 'చెల్లింపు విధానం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.payment_reference': 'చెల్లింపు రిఫరెన్స్ (txn id)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.cash_drawer_hint':
+          'నగదు అమ్మకాలకు మీ ఓపెన్ క్యాష్-డ్రాయర్ సెషన్ అవసరం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.estimated_total':
+          'అంచనా మొత్తం (అమ్మకం సమయంలో సర్వర్ ధరలు)',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sell': 'విక్రయించి చెల్లింపు తీసుకోండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.sold': 'అమ్మకం పూర్తయింది — ఇన్‌వాయిస్ {invoice}',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_action': 'రద్దు చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.void_reason': 'రద్దుకు కారణం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.counter_sale.voided':
+          'అమ్మకం రద్దు చేయబడి డబ్బు తిరిగి ఇవ్వబడింది',
+      's4.lib.counter_sale.no_recent': 'ఈ రోజు ఇంకా కౌంటర్ అమ్మకాలు లేవు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.pharmacy.substitution_witness_required': 'ఈ Schedule X / నార్కోటిక్ ప్రత్యామ్నాయాన్ని పంపిణీ చేసే ముందు ఆమోదం పొందిన రెండవ సిబ్బంది సాక్షి తప్పనిసరి.',
+      's4.lib.referrals.patient_receiver_department_reason_required':
+          'రోగి, పేర్కొన్న స్వీకరించే డాక్టర్, విభాగం మరియు కారణం తప్పనిసరి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_specialist_response':
+          'నిపుణుని ప్రతిస్పందనపై సంతకం చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.assessment': 'మూల్యాంకనం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.recommendations': 'సిఫార్సులు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.follow_up_plan': 'ఫాలో-అప్ ప్లాన్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.release_to_patient':
+          'రోగికి సురక్షితమైన సారాంశం మరియు తదుపరి దశలను విడుదల చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_summary': 'రోగికి సురక్షితమైన సారాంశం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.patient_instructions': 'రోగి తదుపరి దశలు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.sign_response': 'ప్రతిస్పందనపై సంతకం చేయండి',
+      's4.lib.referrals.decline_referral': 'రిఫరల్‌ను తిరస్కరించండి',
+      's4.lib.referrals.decline_reason': 'తిరస్కరించడానికి కారణం',
+      's4.lib.referrals.acknowledge_response': 'ప్రతిస్పందనను అంగీకరించండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      's4.lib.referrals.plan_update':
+          'నిపుణుని ప్రతిస్పందన సంరక్షణ ప్రణాళికలో ఎలా చేర్చబడింది',
+      's4.lib.referrals.reroute_referral': 'రిఫరల్‌ను మళ్లీ పంపండి',
+      's4.lib.referrals.reroute_reason': 'మళ్లీ పంపడానికి కారణం',
+      's4.lib.referrals.reroute': 'మళ్లీ పంపండి',
+      'ed_trauma.handoff.decline_reason_code': 'నిర్మాణాత్మక తిరస్కరణ కారణం',
+      'ed_trauma.continuity.title': 'ED గమ్యస్థానం మరియు అనంతర సంరక్షణ',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.intro': 'గమ్యస్థాన ఆమోదం, డిశ్చార్జ్ లేదా బదిలీ సాక్ష్యం, LAMA/LWBS రికవరీ, మరియు మరణం లేదా MLC ముగింపును ధృవీకరించడానికి ED సందర్శనను లోడ్ చేయండి.',
+      'ed_trauma.continuity.load': 'ED కొనసాగింపును లోడ్ చేయండి',
+      'ed_trauma.continuity.visit_status':
+          'సందర్శన స్థితి: {status} · నిర్ణయం: {disposition}',
+      'ed_trauma.continuity.branch_complete': 'బ్రాంచ్ ముగింపు పూర్తయింది',
+      'ed_trauma.continuity.handoff_accepted': 'గమ్యస్థానం ఆమోదించింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_complete': 'గుర్తింపు నిర్ధారించబడింది',
+      'ed_trauma.continuity.recovery_complete': 'రికవరీ ఫలితం నమోదైంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_certified': 'మరణం ధృవీకరించబడింది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mortuary_recorded': 'శవాగార అప్పగింత నమోదైంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.mlc_complete': 'MLC పూర్తి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.bed_pending':
+          'అడ్మిషన్ ఆమోదించబడింది, కానీ బెడ్ ఇంకా పెండింగ్‌లో ఉంది.',
+      'ed_trauma.continuity.transition_title':
+          'ED సందర్శనను ముందుకు తీసుకెళ్లండి',
+      'ed_trauma.continuity.next_status': 'తదుపరి సందర్శన స్థితి',
+      'ed_trauma.continuity.disposition': 'నిర్ణయం',
+      'ed_trauma.continuity.transition': 'సందర్శన మార్పును నమోదు చేయండి',
+      'ed_trauma.continuity.transition_saved': 'ED సందర్శన మార్పు నమోదైంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_title': 'ముగింపు సాక్ష్యాన్ని నమోదు చేయండి',
+      'ed_trauma.continuity.closure_kind': 'ముగింపు బ్రాంచ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.follow_up_required': 'ఫాలో-అప్ అవసరం',
+      'ed_trauma.continuity.follow_up_plan_id': 'ఖచ్చితమైన ఫాలో-అప్ ప్లాన్ ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.no_follow_up_reason':
+          'ఫాలో-అప్ అవసరం లేదని డాక్టర్ తెలిపిన కారణం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_steps': 'రోగికి సురక్షితమైన తదుపరి దశలు',
+      'ed_trauma.continuity.add_patient_step': 'మరో రోగి దశను జోడించండి',
+      'ed_trauma.continuity.patient_step_number': 'రోగి దశ {number}',
+      'ed_trauma.continuity.step_label': 'దశ లేబుల్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.step_explanation': 'రోగికి సురక్షితమైన వివరణ',
+      'ed_trauma.continuity.step_due_date': 'గడువు తేదీ (YYYY-MM-DD)',
+      'ed_trauma.continuity.step_status': 'దశ స్థితి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_action': 'రోగి ఏమి చేయాలి',
+      'ed_trauma.continuity.route_token':
+          'సురక్షిత యాప్ రూట్, ఉదాహరణకు appointments',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_reconciliation_id':
+          'పూర్తయిన డిశ్చార్జ్ మందుల సమన్వయ UUID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.medication_not_applicable':
+          'మందుల సమన్వయం వర్తించదని డాక్టర్ తెలిపిన కారణం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_code': 'క్లినికల్ రిస్క్ కోడ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.risk_summary': 'క్లినికల్ రిస్క్ సారాంశం',
+      'ed_trauma.continuity.accepted_handoff_id':
+          'ఆమోదించిన గమ్యస్థాన అప్పగింత UUID',
+      'ed_trauma.continuity.receiving_facility': 'స్వీకరించే సంస్థ',
+      'ed_trauma.continuity.receiving_reference': 'స్వీకరించే సంస్థ రిఫరెన్స్',
+      'ed_trauma.continuity.receiving_confirmed_by':
+          'స్వీకరణను ధృవీకరించిన వ్యక్తి',
+      'ed_trauma.continuity.summary_resource_type':
+          'క్లినికల్ సారాంశ రిసోర్స్ రకం',
+      'ed_trauma.continuity.summary_resource_id':
+          'క్లినికల్ సారాంశ రిసోర్స్ ID',
+      'ed_trauma.continuity.ambulance_request_id': 'అంబులెన్స్ అభ్యర్థన ID',
+      'ed_trauma.continuity.transport_reference': 'రవాణా రిఫరెన్స్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.death_record_id': 'ధృవీకరించిన మరణ రికార్డు ID',
+      'ed_trauma.continuity.identity_status': 'గుర్తింపు పరిష్కార స్థితి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.identity_reason':
+          'తాత్కాలిక గుర్తింపు కొనసాగడానికి కారణం',
+      'ed_trauma.continuity.merge_request_id': 'రోగి విలీన అభ్యర్థన ID',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_closure':
+          'ముగింపు సాక్ష్యాన్ని నమోదు చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.closure_saved': 'ED ముగింపు సాక్ష్యం నమోదైంది',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_title': 'LAMA లేదా LWBS రికవరీ',
+      'ed_trauma.continuity.recovery_kind': 'రికవరీ ఈవెంట్',
+      'ed_trauma.continuity.contact_channel': 'సంప్రదింపు మార్గం',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.outcome_code': 'వైద్యుని ఫలిత కోడ్',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.patient_safe_summary': 'రోగికి సురక్షితమైన సారాంశం',
+      'ed_trauma.continuity.staff_notes': 'ప్రైవేట్ సిబ్బంది గమనికలు',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.record_recovery':
+          'రికవరీ సాక్ష్యాన్ని నమోదు చేయండి',
+      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
+      'ed_trauma.continuity.recovery_saved': 'ED రికవరీ సాక్ష్యం నమోదైంది',
+      'ed_trauma.continuity.closure_history': 'ముగింపు సవరణ చరిత్ర',
+      'ed_trauma.continuity.recovery_history': 'రికవరీ సంప్రదింపు చరిత్ర',
     },
 
     // ── Malayalam (ml) ─────────────────────────────────────────────────

@@ -4,14 +4,19 @@
 // /api/v1/engagement).
 //
 // Contract notes:
-// - The backend exposes NO list/read endpoints for templates or campaigns —
-//   only creates and state transitions. The admin page therefore keeps a
-//   session-local workspace of the objects it has created/acted on.
+// - Reads and writes are separate modules server-side: the campaign state
+//   machine lives in services/engagement/engagementCampaignService.js and the
+//   three tenant-scoped list/read queries in
+//   routes/engagement/engagementListQueries.js. Listing a campaign therefore
+//   cannot fail an approval or a queue-due.
 // - Safety order is enforced server-side: draft -> dry-run -> submit-approval
 //   -> approve (scheduled) -> queue-due. The UI must gate its buttons on
 //   campaign status and surface backend refusals verbatim.
+// - Approval is ROLE-gated, not person-gated: the backend checks the actor's
+//   role against the campaign's `approval_required_role` and records who
+//   approved. Nothing here should claim a different-person rule.
 
-import { getJSON, postJSON, putJSON } from "./core";
+import { getJSON, postJSON, putJSON, type QueryParams } from "./core";
 
 export const ENGAGEMENT_CAMPAIGN_TYPES = [
   "appointment_recall",
@@ -139,6 +144,10 @@ export interface EngagementCampaign {
   approved_by?: string | null;
   approved_at?: string | null;
   scheduled_at: string | null;
+  /** Present on rows read back through GET; POST returns them too when set. */
+  started_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
   frozen_audience_hash?: string | null;
   current_audience_snapshot_id?: number | null;
   created_at: string;
@@ -247,8 +256,86 @@ export interface QueueDueResult {
   failed: number;
 }
 
+/** Shape of `buildPagination` (apps/backend/src/utils/listQuery.js). */
+export interface EngagementPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+export interface EngagementCampaignPage {
+  campaigns: EngagementCampaign[];
+  pagination: EngagementPagination;
+}
+
+export interface EngagementTemplatePage {
+  templates: EngagementTemplate[];
+  pagination: EngagementPagination;
+}
+
+/** Sort keys the campaign list accepts; anything else falls back to created_at. */
+export const ENGAGEMENT_CAMPAIGN_SORT_FIELDS = [
+  "created_at",
+  "updated_at",
+  "scheduled_at",
+  "status",
+] as const;
+
+export interface EngagementCampaignListParams {
+  status?: EngagementCampaignStatus;
+  campaign_type?: EngagementCampaignType;
+  page?: number;
+  /** Server caps this at 100. */
+  limit?: number;
+  sortBy?: (typeof ENGAGEMENT_CAMPAIGN_SORT_FIELDS)[number];
+  sortOrder?: "ASC" | "DESC";
+}
+
+export interface EngagementTemplateListParams {
+  template_kind?: EngagementCampaignType;
+  channel?: EngagementChannel;
+  /** Retired templates are hidden unless this is true. */
+  include_retired?: boolean;
+  page?: number;
+  limit?: number;
+}
+
 export function getEngagementSettings() {
   return getJSON<EngagementSettings>("/engagement/settings");
+}
+
+/**
+ * Tenant-scoped campaign list — the read that makes a campaign parked in
+ * `pending_approval` findable by an approver who did not submit it. An unknown
+ * `status`/`campaign_type` is refused by the backend (400) rather than
+ * silently returning an empty page, so the filters here are typed to the
+ * enums the server accepts.
+ */
+export function listEngagementCampaigns(
+  params: EngagementCampaignListParams = {},
+) {
+  return getJSON<EngagementCampaignPage>(
+    "/engagement/campaigns",
+    params as QueryParams,
+  );
+}
+
+/** Single campaign by id — lets an approver open one straight from a link. */
+export function getEngagementCampaign(campaignId: number) {
+  return getJSON<EngagementCampaign>(`/engagement/campaigns/${campaignId}`);
+}
+
+/** Tenant-scoped template list; retired templates are excluded by default. */
+export function listEngagementTemplates(
+  params: EngagementTemplateListParams = {},
+) {
+  return getJSON<EngagementTemplatePage>(
+    "/engagement/templates",
+    params as QueryParams,
+  );
 }
 
 export function updateEngagementSettings(patch: EngagementSettingsPatch) {

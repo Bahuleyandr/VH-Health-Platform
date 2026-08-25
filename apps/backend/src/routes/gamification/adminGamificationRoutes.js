@@ -1,5 +1,31 @@
 // src/routes/gamification/adminGamificationRoutes.js
 // Admin gamification routes — milestone CRUD, voucher redemption
+//
+// ★ NO CLIENT CALLS THIS ROUTER. It is reachable only by hand (curl/Postman)
+// from an allowlisted admin IP. Verified 2026-08-24: the admin portal has no
+// gamification page, no `lib/api` client and no `proxyPermissions` entry for
+// `/admin/gamification`; and the mount
+// (`app.js` -> `/api/v1/admin/gamification`) gates on ADMIN_ROUTE_ROLES
+// = SUPER_ADMIN|ADMIN plus `requireSuperAdminStepUp` and `adminIpAllowlist`,
+// so the staff app — whose pharmacy/front-desk roles are the ones that would
+// actually redeem a voucher at a counter — cannot reach it at any URL.
+//
+// Consequence, and why it matters more than "an unused endpoint": this router
+// is the ONLY write path to `health_milestones`, and no migration seeds that
+// table (grep `INSERT INTO health_milestones` — zero hits outside tests). So
+// every tenant starts with an empty reward catalog, the patient app's
+// Milestones tab renders nothing, and `POST /gamification/milestones/:id/claim`
+// has nothing to claim. At the other end, `POST /vouchers/:code/redeem` is the
+// only way to burn a voucher minted by `pointService.claimMilestone`, and it
+// is equally unreachable. The patient rewards loop can therefore neither start
+// nor close.
+//
+// This is PARKED, not forgotten — the decision and what closing the loop would
+// require are written up in docs/ROADMAP.md ("Patient gamification / step
+// rewards loop"). The routes are left in place, working and tenant-scoped,
+// because they are the correct server half; do not delete them and do not
+// build a speculative admin console for them without the product decision the
+// ROADMAP entry asks for.
 
 import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';

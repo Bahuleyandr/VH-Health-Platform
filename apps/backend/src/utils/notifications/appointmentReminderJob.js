@@ -3,6 +3,10 @@ import { getCurrentTenantId, runInTenantContext } from '../../lib/tenantContext.
 import logger from '../../logging/logger.js';
 import { queueAppointmentReminderSms } from './smsOutbox.js';
 import { notificationOutbox } from './notificationOutbox.js';
+import {
+  outboxDrainWillWriteFeedRow,
+  recordPatientFeedNotification,
+} from './patientNotificationFeed.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
@@ -175,8 +179,14 @@ function reminderCopy(appointment, hoursAhead) {
 
 async function queueAppointmentReminderPush(appointment, hoursAhead) {
   const copy = reminderCopy(appointment, hoursAhead);
-  return notificationOutbox.queue({
-    type: `appointment_reminder_${hoursAhead}h`,
+  const type = `appointment_reminder_${hoursAhead}h`;
+  const data = {
+    type,
+    appointment_id: String(appointment.id),
+    hours_ahead: hoursAhead,
+  };
+  const queued = await notificationOutbox.queue({
+    type,
     channel: 'push',
     tenantId: appointment.tenant_id,
     recipientId: appointment.patient_user_id,
@@ -184,12 +194,39 @@ async function queueAppointmentReminderPush(appointment, hoursAhead) {
     body: copy.body,
     sourceEventKey: `appointment-reminder-${hoursAhead}h:${appointment.id}`,
     templateVersion: 'push.appointment_reminder.v1',
-    data: {
-      type: `appointment_reminder_${hoursAhead}h`,
-      appointment_id: String(appointment.id),
-      hours_ahead: hoursAhead,
-    },
+    data,
   });
+
+  // The push this intent becomes is privacy-stripped by
+  // sendPushNotification: the patient sees "You have a new update" and lands
+  // on /notifications. Without a feed row the inbox is empty. Skip only the
+  // duplicate — a re-queue of an already-recorded intent, or a tenant whose
+  // configured channels already make the drain write the row. The drain's row
+  // is routing-equivalent to this one: `feedRowTypeForTransportType` maps the
+  // suffixed transport type back to `appointment_reminder` before the insert,
+  // and the inbox tap handler routes on type alone for this case.
+  if (queued && !queued.duplicate && !(await outboxDrainWillWriteFeedRow({
+    tenant_id: appointment.tenant_id,
+    type,
+    recipient_id: appointment.patient_user_id,
+    payload: data,
+  }))) {
+    await recordPatientFeedNotification({
+      tenantId: appointment.tenant_id,
+      userId: appointment.patient_user_id,
+      phone: appointment.patient_phone || null,
+      title: copy.title,
+      body: copy.body,
+      // `appointment_reminder` (unsuffixed) is the type string the patient
+      // app's inbox tap handler routes to /appointments; the suffixed
+      // `..._24h` / `..._1h` forms are transport/template identity only and
+      // fall through its switch to "mark read, go nowhere".
+      type: 'appointment_reminder',
+      data,
+      context: `appointment-reminder-${hoursAhead}h`,
+    });
+  }
+  return queued;
 }
 
 async function queuePatientReminder(appointment, hoursAhead) {
@@ -500,6 +537,32 @@ export async function processPendingScheduledNotifications({
           }, { strict: true });
           if (!outbox?.id) throw new Error('notification outbox returned no row');
           queued += 1;
+          // `feedback_request` has no tenant preference key, so its channels
+          // always resolve legacy `['push']` — the drain never writes an
+          // in-app row for it. The push is privacy-stripped to a generic
+          // "open the app" landing on /notifications, so without this the
+          // patient is buzzed into an empty inbox two hours after their
+          // visit. Never throws; a re-queue is skipped via `duplicate`.
+          //
+          // The row does NOT reuse rendered.title/body. That copy ("How was
+          // your visit? ⭐" / "take a moment to rate your experience") was
+          // written for a push, where it was privacy-stripped and never
+          // patient-visible. Rendering it in the inbox for the first time
+          // would promise a rating control: `feedback_request` taps to
+          // /ask-a-doubt, which is a single free-text box posting to
+          // /feedback — there are no stars on it. The row therefore
+          // carries copy that matches where the tap actually lands.
+          if (!outbox.duplicate) {
+            await recordPatientFeedNotification({
+              tenantId: tid,
+              userId: notification.user_id,
+              title: 'How was your visit?',
+              body: 'Tell us about your visit, or ask a question about your care.',
+              type: 'feedback_request',
+              data: rendered.data,
+              context: 'scheduled-feedback-request',
+            });
+          }
         } catch (err) {
           retrying += 1;
           await setScheduledNotificationStatus(tid, notification.id, 'retrying');
@@ -537,4 +600,5 @@ export const __testing__ = Object.freeze({
   loadDueAppointmentsWithClient,
   scheduledNotificationSourceKey,
   renderScheduledNotification,
+  queueAppointmentReminderPush,
 });

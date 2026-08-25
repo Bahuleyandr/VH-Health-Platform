@@ -13,6 +13,7 @@ import {
 } from '../../services/security/accessDecisionService.js';
 import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
@@ -421,23 +422,39 @@ export const uploadAppointmentDocument = async (req, res) => {
     // Notify patient if staff upload
     if (uploadRole === 'staff' && a.patient_id) {
       const patient = await prisma.$queryRawUnsafe(
-        'SELECT device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+        'SELECT uid::text AS uid, phone, device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid',
         a.patient_id,
         tenantId,
       );
-      if (patient[0]?.device_token) {
-        setImmediate(async () => {
-          try {
-            await sendPushNotification({
-              tokens: patient[0].device_token,
-              title: 'Document Available',
-              body: `Your ${document_type || 'prescription'} from your recent visit is now available in Records.`,
-              data: { type: 'document_uploaded', appointment_id: String(appointment_id) },
-              userId: String(a.patient_id),
-            });
-          } catch (e) { logger.warn('Doc notification failed:', e.message); }
+      const notifyTitle = 'Document Available';
+      const notifyBody = `Your ${document_type || 'prescription'} from your recent visit is now available in Records.`;
+      setImmediate(async () => {
+        // The in-app row first, and unconditionally: the push below is
+        // privacy-stripped to a generic "open the app" that lands on
+        // /notifications, so this row IS the message. It is also the only
+        // surface a patient with no registered device ever sees.
+        await recordPatientFeedNotification({
+          tenantId,
+          userId: a.patient_id,
+          uid: patient[0]?.uid || null,
+          phone: patient[0]?.phone || null,
+          title: notifyTitle,
+          body: notifyBody,
+          type: 'document_uploaded',
+          data: { type: 'document_uploaded', appointment_id: String(appointment_id) },
+          context: 'appointment-document-uploaded',
         });
-      }
+        if (!patient[0]?.device_token) return;
+        try {
+          await sendPushNotification({
+            tokens: patient[0].device_token,
+            title: notifyTitle,
+            body: notifyBody,
+            data: { type: 'document_uploaded', appointment_id: String(appointment_id) },
+            userId: String(a.patient_id),
+          });
+        } catch (e) { logger.warn('Doc notification failed:', e.message); }
+      });
     }
 
     success(res, result[0], 'Document uploaded');

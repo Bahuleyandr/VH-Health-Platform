@@ -46,6 +46,9 @@ jest.mock("next/server", () => ({
 }));
 
 import { middleware, config } from "@/middleware";
+// Pure string builder, no next/server import — safe to use under the mock
+// above, and it binds the exemption below to the URL the UI actually emits.
+import { printableWristbandUrl } from "@/lib/bcmaWristband";
 import { jwtVerify } from "jose/jwt/verify";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -70,14 +73,24 @@ const mockJwtVerify = jwtVerify as jest.MockedFunction<typeof jwtVerify>;
 function makeRequest(
   pathname: string,
   authToken?: string,
-  options: { origin?: string; headers?: HeadersInit } = {},
+  options: {
+    origin?: string;
+    headers?: HeadersInit;
+    /** Query string INCLUDING the leading '?' — mirrors `NextURL.search`. */
+    search?: string;
+    method?: string;
+  } = {},
 ): NextRequest {
   const origin = options.origin || "http://localhost:3001";
   return {
+    // Callers that pass no `method` leave it undefined, exactly as the
+    // pre-existing fixtures did — the middleware must not require it.
+    method: options.method,
     nextUrl: {
       pathname,
+      search: options.search,
     },
-    url: `${origin}${pathname}`,
+    url: `${origin}${pathname}${options.search ?? ""}`,
     // Plain object is a valid HeadersInit for `new Headers(request.headers)`
     // in the middleware's CSP/nonce forwarding.
     headers: new Headers(options.headers),
@@ -854,5 +867,128 @@ describe("middleware — CSP header (M9)", () => {
     // The nonce + strict-dynamic XSS backstop stays intact.
     expect(scriptSrc).toContain("'strict-dynamic'");
     expect(scriptSrc).toContain("'nonce-");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Printable wristband — the one proxied response that keeps the backend's CSP
+// ---------------------------------------------------------------------------
+// Next.js sets a middleware response header on the outgoing response BEFORE
+// the route handler runs, then merges the handler's headers only where the
+// name is not already present (next/dist/server/send-response.js;
+// Content-Security-Policy is not in its multi-value allowlist). So a CSP set
+// here for /api/proxy silently REPLACES the one the backend sent — which, for
+// the printable wristband HTML, is `default-src 'none'` plus one SHA-256
+// hashed inline script. Under the portal's nonce + 'strict-dynamic' policy
+// that script has no nonce and never runs.
+describe("middleware — printable wristband keeps its producer's CSP", () => {
+  const UID = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+  const WRISTBAND = `/api/proxy/api/v1/bcma/wristband/${UID}`;
+
+  function adminToken() {
+    return fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+  }
+
+  function cspOf(res: unknown): string | undefined {
+    const call = (
+      res as { headers: { set: jest.Mock } }
+    ).headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    return call ? (call[1] as string) : undefined;
+  }
+
+  it("sets NO CSP on the wristband HTML document, so the band's own policy survives", async () => {
+    // Split the URL the "Print band" control emits, so this exemption is
+    // pinned to the real caller and not to a hand-copied string.
+    const href = printableWristbandUrl(UID)!;
+    const [pathname, search] = href.split("?");
+    expect(pathname).toBe(WRISTBAND);
+
+    const res = await middleware(
+      makeRequest(pathname, adminToken(), {
+        method: "GET",
+        search: `?${search}`,
+      }),
+    );
+
+    expect(cspOf(res)).toBeUndefined();
+    // Still an ordinary pass-through to the proxy handler — the exemption is
+    // about the header only, never about auth.
+    expect(mockNext).toHaveBeenCalled();
+    expect(mockJson).not.toHaveBeenCalled();
+  });
+
+  it("matches the proxy's other accepted spelling of the same path", async () => {
+    const res = await middleware(
+      makeRequest(`/api/proxy/bcma/wristband/${UID}`, adminToken(), {
+        method: "GET",
+        search: "?autoprint=1&format=HTML",
+      }),
+    );
+
+    expect(cspOf(res)).toBeUndefined();
+  });
+
+  it("keeps the portal CSP on the JSON wristband payload (no format=html)", async () => {
+    const res = await middleware(
+      makeRequest(WRISTBAND, adminToken(), { method: "GET" }),
+    );
+
+    expect(cspOf(res)).toContain("'strict-dynamic'");
+  });
+
+  it.each([
+    // A non-UUID patient segment: the backend 400s, so no document is
+    // produced and there is no producer policy to preserve.
+    [`/api/proxy/api/v1/bcma/wristband/not-a-uuid`, "?format=html"],
+    // Deeper path under the same prefix — not the wristband operation.
+    [`/api/proxy/api/v1/bcma/wristband/${UID}/history`, "?format=html"],
+    // A different proxied family cannot borrow the exemption.
+    [`/api/proxy/api/v1/engagement/campaigns`, "?format=html"],
+    // `format` must be exactly html, matching the backend's own compare.
+    [WRISTBAND, "?format=htmlish"],
+    [WRISTBAND, "?format=json"],
+    [WRISTBAND, "?format="],
+    // Express folds a repeated parameter into an ARRAY, which stringifies to
+    // "html,json" — not html, so the backend answers with JSON.
+    [WRISTBAND, "?format=html&format=json"],
+    [WRISTBAND, "?format=json&format=html"],
+    // A different parameter that merely ends in `format`.
+    [WRISTBAND, "?xformat=html"],
+  ])("keeps the portal CSP for %s%s", async (pathname, search) => {
+    const res = await middleware(
+      makeRequest(pathname, adminToken(), { method: "GET", search }),
+    );
+
+    expect(cspOf(res)).toContain("'strict-dynamic'");
+  });
+
+  it("keeps the portal CSP for a non-GET on the wristband path", async () => {
+    const res = await middleware(
+      makeRequest(WRISTBAND, adminToken(), {
+        method: "POST",
+        search: "?format=html",
+      }),
+    );
+
+    expect(cspOf(res)).toContain("'strict-dynamic'");
+  });
+
+  it("still rejects an unauthenticated wristband request", async () => {
+    await middleware(
+      makeRequest(WRISTBAND, undefined, {
+        method: "GET",
+        search: "?format=html",
+      }),
+    );
+
+    expect(mockJson).toHaveBeenCalledWith(
+      { message: "Authentication required" },
+      { status: 401 },
+    );
   });
 });

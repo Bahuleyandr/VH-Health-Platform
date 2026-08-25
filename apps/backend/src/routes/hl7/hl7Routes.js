@@ -700,6 +700,35 @@ router.get(
             description: 'Admit/Visit Notification',
             trigger: 'event_type: ADT_A01',
           },
+          // A02 has no `event_type` on POST /hl7/outbound — that endpoint
+          // still generates A01/A03/ORM/ORU only. It is listed here because a
+          // feed subscription receives it: `emitTransferAdt` queues one after
+          // an admission transfer commits, and 'ADT^A02' is in the default
+          // `message_types` (migration 731). An integrator reading this
+          // capability statement to size their interface must expect it.
+          //
+          // The trigger names endpoints rather than saying "on bed transfer",
+          // because that shorthand was wrong. `emitTransferAdt` has exactly one
+          // caller, `admissionService.transferPatient`, reached only by the
+          // three transfer endpoints below. The other path that moves a patient
+          // into a bed — POST /api/v1/admissions/{id}/assign-bed, which
+          // allocates the first bed to a bedless emergency-exception admission,
+          // updates `admissions.ward`/`bed_number` and writes a `bed_transfers`
+          // row with `from_bed_id = NULL` — emits nothing, so a statement
+          // covering "bed transfer" as a class over-promised.
+          //
+          // That gap is left open on purpose rather than closed here. An A02 is
+          // the one ADT trigger defined by carrying BOTH locations (PV1-3 new,
+          // PV1-6 prior) and receivers reconcile a move by diffing them, so a
+          // first allocation would ship an empty PV1-6 to systems that agreed
+          // to receive transfers. Whether it should be announced at all, and
+          // under which trigger, is an interface-contract decision — parked in
+          // docs/ROADMAP.md, not guessed at in a capability string.
+          {
+            type: 'ADT^A02',
+            description: 'Transfer a Patient',
+            trigger: 'automatic once POST /api/v1/admissions/{id}/transfer, POST /api/v1/emr/{id}/transfer or POST /api/v1/beds/transfer commits; delivered to feed subscriptions listing ADT^A02. Not emitted by POST /api/v1/admissions/{id}/assign-bed (first bed allocation)',
+          },
           {
             type: 'ADT^A03',
             description: 'Discharge/End Visit',

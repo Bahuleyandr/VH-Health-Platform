@@ -278,6 +278,71 @@ function withCsp<T extends NextResponse>(response: T, csp: string): T {
   return response;
 }
 
+// ── The one proxied response that keeps the BACKEND's CSP ────────────────────
+// Next.js applies a middleware response header to the outgoing response with
+// `res.setHeader` BEFORE the route handler runs
+// (next/dist/server/lib/router-server.js — "apply any response headers from
+// routing"), and then merges the handler's own headers with
+// `if (!isHeaderPresent) res.appendHeader(...)`
+// (next/dist/server/send-response.js). Content-Security-Policy is not in that
+// file's multi-value allowlist, so for any /api/proxy path the middleware's
+// header WINS and the upstream's is dropped entirely.
+//
+// That silently defeated one response: GET
+// /api/v1/bcma/wristband/:patientUid?format=html (the printable patient
+// wristband, apps/backend/src/routes/clinical/bcmaRoutes.js) is an HTML
+// DOCUMENT, not JSON, and it ships its own far stricter policy —
+// `default-src 'none'` plus a single SHA-256-hashed inline script, the
+// `?autoprint=1` trigger. Overwritten by the nonce + 'strict-dynamic' policy
+// built above, that script carries no nonce and the browser refuses to run it,
+// so the print never fires. Every other directive of the band's own policy was
+// discarded at the same time.
+//
+// Skipping the middleware CSP for exactly this request shape lets the
+// backend's header through. It weakens nothing: on that document the band's
+// policy is at least as strict as the portal default in every direction —
+// stricter in most, equal on frame-ancestors — and differs only by naming the
+// hashed script instead of a nonce. The match is deliberately narrow: GET
+// only, the bcma wristband path (with or without the `api/v1` spelling the
+// proxy also accepts), a UUID patient segment, and `format=html`, which is
+// what makes the response a document at all. Anything else on /api/proxy —
+// including this same path without `format=html` — keeps the portal CSP.
+const WRISTBAND_HTML_PROXY_PATH =
+  /^\/api\/proxy\/(?:api\/v1\/)?bcma\/wristband\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Every `format=…` parameter in a query string, in order. */
+const FORMAT_PARAMS = /[?&]format=([^&]*)/gi;
+
+/**
+ * Whether the backend would read this query string as `format=html`, i.e.
+ * `String(req.query.format || '').toLowerCase() === 'html'` (bcmaRoutes.js).
+ * A repeated `format` reaches Express as an ARRAY and stringifies to
+ * "html,json", so it is not html — hence the single-occurrence requirement.
+ *
+ * A percent-encoded parameter NAME would be decoded by Express but is not
+ * matched here; that direction only costs the exemption (the band still
+ * renders, under the portal CSP, with autoprint blocked), never grants it.
+ */
+function backendSeesFormatHtml(search: string): boolean {
+  const found = search.match(FORMAT_PARAMS);
+  return found !== null && found.length === 1 && /=html$/i.test(found[0]);
+}
+
+/**
+ * True when this request is the printable-wristband document, whose response
+ * carries a CSP of its own that must not be overwritten.
+ *
+ * Deliberately reads `nextUrl.pathname`/`nextUrl.search` and runs regexes over
+ * them rather than constructing a URL or touching `searchParams`: this runs on
+ * every request the matcher covers, so it must add no parsing step that could
+ * throw. A failure here would be a portal-wide outage.
+ */
+function servesItsOwnCsp(request: NextRequest): boolean {
+  if (request.method !== "GET") return false;
+  const pathname = String(request.nextUrl.pathname ?? "");
+  if (!WRISTBAND_HTML_PROXY_PATH.test(pathname)) return false;
+  return backendSeesFormatHtml(String(request.nextUrl.search ?? ""));
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -373,10 +438,12 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return withCsp(
-    NextResponse.next({ request: { headers: requestHeaders } }),
-    csp,
-  );
+  const passThrough = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+  // The printable wristband is the single response allowed to keep the CSP its
+  // producer sent — see servesItsOwnCsp() above.
+  return servesItsOwnCsp(request) ? passThrough : withCsp(passThrough, csp);
 }
 
 export const config = {

@@ -301,9 +301,13 @@ describe('Investigation order workflow — deep integration', () => {
       });
       expect(res.statusCode).toBe(200);
 
+      // 'investigation_booking', not 'investigation_ordered': the row's type is
+      // what the patient app's inbox tap handler switches on, and it has no
+      // 'investigation_ordered' case (src/tests/unit/patientInboxTypeRouting.test.js
+      // is the gate that keeps every patient row's type routed).
       const notifs = await prisma.$queryRawUnsafe(
         `SELECT type, title FROM notifications
-         WHERE phone = $1 AND type = 'investigation_ordered' AND title LIKE 'New Investigation%'
+         WHERE phone = $1 AND type = 'investigation_booking' AND title LIKE 'New Investigation%'
          ORDER BY created_at DESC LIMIT 1`, PATIENT_PHONE);
       expect(notifs.length).toBe(1);
     });
@@ -603,9 +607,12 @@ describe('Investigation order workflow — deep integration', () => {
       expect(inv.status).toBe('REQUESTED');
       expect(inv.phone).toBe(PATIENT_PHONE);
 
+      // 'investigation_result', not 'investigation_ready' — same reason as the
+      // order-placed notice above; this is the type the inbox routes to
+      // /investigations for a ready report.
       const notifs = await prisma.$queryRawUnsafe(
         `SELECT type FROM notifications
-         WHERE phone = $1 AND type = 'investigation_ready'
+         WHERE phone = $1 AND type = 'investigation_result'
          ORDER BY created_at DESC LIMIT 1`, PATIENT_PHONE);
       expect(notifs.length).toBe(1);
     });

@@ -4,31 +4,52 @@ import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
   getEngagementSettings,
+  listEngagementCampaigns,
+  listEngagementTemplates,
   type EngagementCampaign,
-  type EngagementTemplate,
 } from "@/lib/api/engagement";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { CampaignComposer } from "./components/CampaignComposer";
+import {
+  CampaignsPanel,
+  type CampaignStatusFilter,
+} from "./components/CampaignsPanel";
 import { CampaignWorkflow } from "./components/CampaignWorkflow";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { StatusPill } from "./components/shared";
 import { TemplateStudio } from "./components/TemplateStudio";
+
+const CAMPAIGNS_KEY = "engagement-campaigns";
+const TEMPLATES_KEY = "engagement-templates";
 
 /**
  * NL9 patient-engagement campaign authoring.
  *
- * The backend deliberately ships no list/read endpoints for templates or
- * campaigns — only creates and audited state transitions — so this page is a
- * session workspace: objects created here stay editable here, and every
- * status shown is the one the backend last returned.
+ * Campaigns and templates are read back from the backend
+ * (`GET /engagement/campaigns`, `/campaigns/:id`, `/templates`), all
+ * tenant-scoped, so a campaign is visible to anyone who can open this console
+ * rather than only to the browser session that created it. That is what lets a
+ * campaign be approved from somewhere other than the tab that submitted it; it
+ * is not a requester/approver separation, and the backend does not enforce one
+ * (approveCampaign gates on role only — see
+ * apps/backend/src/routes/engagement/engagementListQueries.js).
+ *
+ * The workflow panel always drives a campaign object the backend returned —
+ * a list row, a by-id lookup, or the result of the last transition — never a
+ * locally invented one. The list is re-fetched after every transition.
  */
 export default function EngagementPage() {
-  const [templates, setTemplates] = useState<EngagementTemplate[]>([]);
-  const [campaigns, setCampaigns] = useState<EngagementCampaign[]>([]);
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(
+    null,
+  );
+  // The campaign the workflow panel is acting on, exactly as the backend last
+  // returned it. It may not be on the list page currently loaded — a by-id
+  // lookup deliberately reaches past the filter.
+  const [openCampaign, setOpenCampaign] = useState<EngagementCampaign | null>(
     null,
   );
 
@@ -37,18 +58,39 @@ export default function EngagementPage() {
     queryFn: getEngagementSettings,
   });
 
-  const upsertCampaign = (campaign: EngagementCampaign) => {
-    setCampaigns((current) => {
-      const exists = current.some((item) => item.id === campaign.id);
-      return exists
-        ? current.map((item) => (item.id === campaign.id ? campaign : item))
-        : [...current, campaign];
-    });
+  const campaignsQuery = useQuery({
+    queryKey: [CAMPAIGNS_KEY, statusFilter],
+    queryFn: () =>
+      listEngagementCampaigns({
+        ...(statusFilter ? { status: statusFilter } : {}),
+        limit: 50,
+      }),
+  });
+
+  const templatesQuery = useQuery({
+    queryKey: [TEMPLATES_KEY],
+    queryFn: () => listEngagementTemplates({ limit: 100 }),
+  });
+
+  const campaigns = campaignsQuery.data?.campaigns ?? [];
+  const templates = templatesQuery.data?.templates ?? [];
+
+  /** A row click or a by-id lookup: drive the workflow panel from this row. */
+  const showCampaign = (campaign: EngagementCampaign) => {
+    setOpenCampaign(campaign);
     setSelectedCampaignId(campaign.id);
   };
 
+  /** A create or a state transition: show it at once, then re-read the list. */
+  const onCampaignChanged = (campaign: EngagementCampaign) => {
+    showCampaign(campaign);
+    void queryClient.invalidateQueries({ queryKey: [CAMPAIGNS_KEY] });
+  };
+
   const selectedCampaign =
-    campaigns.find((item) => item.id === selectedCampaignId) ?? null;
+    openCampaign && openCampaign.id === selectedCampaignId
+      ? openCampaign
+      : (campaigns.find((item) => item.id === selectedCampaignId) ?? null);
 
   return (
     <div className="space-y-6">
@@ -78,9 +120,10 @@ export default function EngagementPage() {
       <div className="flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          The engagement API exposes no listing endpoints — templates and
-          campaigns created or transitioned in this session appear below.
-          Reloading the page clears the workspace, not the backend records.
+          Campaigns and templates are listed for the whole tenant, so a campaign
+          waiting on approval can be found and opened by an approver who did not
+          submit it. Approval is gated on your role, and the backend records who
+          approved.
         </span>
       </div>
 
@@ -94,47 +137,42 @@ export default function EngagementPage() {
       )}
       {settingsQuery.data && <SettingsPanel settings={settingsQuery.data} />}
 
+      <CampaignsPanel
+        campaigns={campaigns}
+        pagination={campaignsQuery.data?.pagination}
+        isLoading={campaignsQuery.isLoading}
+        isFetching={campaignsQuery.isFetching}
+        error={campaignsQuery.error}
+        status={statusFilter}
+        onStatusChange={setStatusFilter}
+        selectedId={selectedCampaignId}
+        onSelect={showCampaign}
+        onRefresh={() => void campaignsQuery.refetch()}
+      />
+
       <div className="grid gap-4 xl:grid-cols-2">
         <TemplateStudio
           templates={templates}
-          onCreated={(template) =>
-            setTemplates((current) => [...current, template])
+          isLoading={templatesQuery.isLoading}
+          error={templatesQuery.error}
+          onCreated={() =>
+            void queryClient.invalidateQueries({ queryKey: [TEMPLATES_KEY] })
           }
         />
-        <CampaignComposer templates={templates} onCreated={upsertCampaign} />
+        <CampaignComposer templates={templates} onCreated={onCampaignChanged} />
       </div>
-
-      {campaigns.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {campaigns.map((campaign) => (
-            <button
-              key={campaign.id}
-              type="button"
-              onClick={() => setSelectedCampaignId(campaign.id)}
-              className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
-                campaign.id === selectedCampaignId
-                  ? "border-teal-400 bg-teal-50 text-teal-900"
-                  : "border-border bg-background text-foreground"
-              }`}
-            >
-              #{campaign.id} {campaign.campaign_type.replace(/_/g, " ")}
-              <StatusPill value={campaign.status} />
-            </button>
-          ))}
-        </div>
-      )}
 
       {selectedCampaign ? (
         <CampaignWorkflow
           key={selectedCampaign.id}
           campaign={selectedCampaign}
-          onUpdate={upsertCampaign}
+          onUpdate={onCampaignChanged}
         />
       ) : (
         <EmptyState
           compact
           title="No campaign selected"
-          description="Create a draft campaign above to start the dry-run → approval → queue workflow."
+          description="Open a campaign from the list above, or create a draft to start the dry-run → approval → queue workflow."
         />
       )}
     </div>

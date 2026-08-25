@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { queuePatientSms } from '../../utils/notifications/smsOutbox.js';
+import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
@@ -517,16 +518,36 @@ export const confirmBooking = async (req, res) => {
     setImmediate(async () => {
       try {
         const patient = await prisma.$queryRawUnsafe(
-          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          'SELECT uid::text AS uid, device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
           booking[0].patient_id,
           tenantId,
         );
+        const confirmTitle = 'Investigation Confirmed ✓';
+        const confirmBody = `Your investigation booking ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'A collector will be dispatched shortly.' : 'Please visit the lab at your preferred time.'}`;
+        // In-app feed row first, and unconditionally — the push below is
+        // privacy-stripped to a generic "open the app" landing on
+        // /notifications, so this row is the only readable copy.
+        await recordPatientFeedNotification({
+          tenantId,
+          userId: booking[0].patient_id,
+          uid: patient[0]?.uid || null,
+          phone: patient[0]?.phone || booking[0].patient_phone || null,
+          title: confirmTitle,
+          body: confirmBody,
+          type: 'investigation_confirmed',
+          data: {
+            type: 'investigation_confirmed',
+            booking_id: String(id),
+            booking_number: booking[0].booking_number || null,
+          },
+          context: 'investigation-booking-confirmed',
+        });
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
-            title: 'Investigation Confirmed ✓',
-            body: `Your investigation booking ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'A collector will be dispatched shortly.' : 'Please visit the lab at your preferred time.'}`,
+            title: confirmTitle,
+            body: confirmBody,
             data: { type: 'investigation_confirmed', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send booking confirmation push notification:', e.message));
         }
@@ -617,13 +638,37 @@ export const dispatchCollector = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', booking[0].patient_id);
+        const patient = await prisma.$queryRawUnsafe(
+          'SELECT uid::text AS uid, device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          booking[0].patient_id,
+          tenantId,
+        );
+        const dispatchTitle = 'Collector On The Way 🚗';
+        const dispatchBody = `Sample collector dispatched for ${booking[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`;
+        // In-app feed row first, and unconditionally — the push below is
+        // privacy-stripped to a generic "open the app" landing on
+        // /notifications, so this row is the only readable copy.
+        await recordPatientFeedNotification({
+          tenantId,
+          userId: booking[0].patient_id,
+          uid: patient[0]?.uid || null,
+          phone: patient[0]?.phone || booking[0].patient_phone || null,
+          title: dispatchTitle,
+          body: dispatchBody,
+          type: 'collector_dispatched',
+          data: {
+            type: 'collector_dispatched',
+            booking_id: String(id),
+            booking_number: booking[0].booking_number || null,
+          },
+          context: 'investigation-collector-dispatched',
+        });
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
-            title: 'Collector On The Way 🚗',
-            body: `Sample collector dispatched for ${booking[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
+            title: dispatchTitle,
+            body: dispatchBody,
             data: { type: 'collector_dispatched', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send dispatch push notification:', e.message));
         }
@@ -839,16 +884,36 @@ export const uploadResult = async (req, res) => {
     setImmediate(async () => {
       try {
         const patient = await prisma.$queryRawUnsafe(
-          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          'SELECT uid::text AS uid, device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
           booking[0].patient_id,
           tenantId,
         );
+        const resultTitle = 'Investigation Results Ready 🔬';
+        const resultBody = `Results for ${booking[0].booking_number} are ready. Tap to view and download.`;
+        // In-app feed row first, and unconditionally — the push below is
+        // privacy-stripped to a generic "open the app" landing on
+        // /notifications, so this row is the only readable copy.
+        await recordPatientFeedNotification({
+          tenantId,
+          userId: booking[0].patient_id,
+          uid: patient[0]?.uid || null,
+          phone: patient[0]?.phone || booking[0].patient_phone || null,
+          title: resultTitle,
+          body: resultBody,
+          type: 'investigation_result_ready',
+          data: {
+            type: 'investigation_result_ready',
+            booking_id: String(id),
+            booking_number: booking[0].booking_number || null,
+          },
+          context: 'investigation-result-ready',
+        });
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
-            title: 'Investigation Results Ready 🔬',
-            body: `Results for ${booking[0].booking_number} are ready. Tap to view and download.`,
+            title: resultTitle,
+            body: resultBody,
             data: { type: 'investigation_result_ready', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send result ready push notification:', e.message));
         }

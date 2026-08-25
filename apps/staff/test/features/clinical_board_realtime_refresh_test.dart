@@ -9,6 +9,9 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/emergency/screens/ambulance_tracking_screen.dart';
+import 'package:vhhealth_staff/features/emergency/screens/ed_trauma_workbench_screen.dart';
+import 'package:vhhealth_staff/features/emr/screens/patient_command_board_screen.dart';
 import 'package:vhhealth_staff/features/investigations/screens/lab_bookings_screen.dart';
 import 'package:vhhealth_staff/features/theatre/screens/theatre_screen.dart';
 
@@ -307,6 +310,341 @@ void main() {
       controller.add(_event('staff:code-stemi', 'acknowledged'));
       await tester.pump(const Duration(milliseconds: 500));
       expect(loads, 2);
+    },
+  );
+
+  testWidgets(
+    'ED trauma workbench subscribes to staff:ed-board, debounces, and '
+    'cancels on dispose',
+    (tester) async {
+      var channelName = '';
+      var cancelled = false;
+      var handoffLoads = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast(
+        onCancel: () => cancelled = true,
+      );
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EdTraumaWorkbenchScreen(
+            loadPolicy: () async => const {
+              'active': true,
+              'canonical_triage_scale': 'esi',
+            },
+            loadDestinationHandoffs: () async {
+              handoffLoads += 1;
+              return const <Map<String, dynamic>>[];
+            },
+            realtimeEvents: (channel) {
+              channelName = channel;
+              return controller.stream;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(channelName, edBoardRealtimeChannel);
+      expect(handoffLoads, 1);
+
+      controller.add(_event(edBoardRealtimeChannel, 'arrival'));
+      controller.add(_event(edBoardRealtimeChannel, 'transition'));
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(handoffLoads, 1);
+
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+      expect(handoffLoads, 2);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+
+      controller.add(_event(edBoardRealtimeChannel, 'priority'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(handoffLoads, 2);
+    },
+  );
+
+  testWidgets(
+    'ambulance tracking refreshes from staff:ambulance-tracking and keeps a '
+    'full-rate backstop poll for crews the channel never covers',
+    (tester) async {
+      var channelName = '';
+      var cancelled = false;
+      var loads = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast(
+        onCancel: () => cancelled = true,
+      );
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AmbulanceTrackingScreen(
+            pollInterval: const Duration(seconds: 30),
+            loadActive: () async {
+              loads += 1;
+              return const {'enabled': true, 'count': 0, 'requests': []};
+            },
+            realtimeEvents: (channel) {
+              channelName = channel;
+              return controller.stream;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(channelName, ambulanceTrackingRealtimeChannel);
+      expect(loads, 1);
+
+      controller.add(_event(ambulanceTrackingRealtimeChannel, 'position'));
+      controller.add(_event(ambulanceTrackingRealtimeChannel, 'position'));
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(loads, 1);
+
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+
+      // The tick a position fix already covered is dropped - the socket
+      // accelerates this list, it does not get to fetch it twice.
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+
+      // With no fixes on the channel - the crew that never shares GPS, or a
+      // dead subscription - every tick refreshes, so the backstop rate is the
+      // one the screen had before the channel existed. The channel carries
+      // position fixes only, so a request that leaves active transport is
+      // never announced and only this poll takes it off the list.
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(loads, 3);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(loads, 4);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+
+      controller.add(_event(ambulanceTrackingRealtimeChannel, 'position'));
+      await tester.pump(const Duration(seconds: 60));
+      expect(loads, 4);
+    },
+  );
+
+  testWidgets(
+    'patient command board subscribes to staff:icu-board, refreshes in the '
+    'background, and cancels on dispose',
+    (tester) async {
+      var channelName = '';
+      var cancelled = false;
+      var loads = 0;
+      var lastLimit = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast(
+        onCancel: () => cancelled = true,
+      );
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PatientCommandBoardScreen(
+            loadBoard:
+                ({
+                  String? ward,
+                  String? patientUid,
+                  int? admissionId,
+                  required int limit,
+                  required int offset,
+                }) async {
+                  loads += 1;
+                  lastLimit = limit;
+                  return <String, dynamic>{
+                    'rows': <Map<String, dynamic>>[],
+                    'board': <String, dynamic>{
+                      'counts': {'total': 0, 'loaded': 0, 'has_more': false},
+                    },
+                  };
+                },
+            realtimeEvents: (channel) {
+              channelName = channel;
+              return controller.stream;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(channelName, patientCommandBoardRealtimeChannel);
+      expect(loads, 1);
+
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'admitted'));
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'flowsheet'));
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(loads, 1);
+
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+      expect(lastLimit, 50);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'discharged'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(loads, 2);
+    },
+  );
+
+  testWidgets(
+    'patient command board nudge keeps rows paged in past one backend page',
+    (tester) async {
+      // Tall surface so every row card and the load-more button lay out
+      // without scrolling; the board renders one non-lazy ListView.
+      tester.view.physicalSize = const Size(1400, 90000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      var boardTotal = 260;
+      final requests = <List<int>>[];
+      final controller = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PatientCommandBoardScreen(
+            loadBoard:
+                ({
+                  String? ward,
+                  String? patientUid,
+                  int? admissionId,
+                  required int limit,
+                  required int offset,
+                }) async {
+                  requests.add(<int>[limit, offset]);
+                  final end = offset + limit > boardTotal
+                      ? boardTotal
+                      : offset + limit;
+                  final page = <Map<String, dynamic>>[
+                    for (var id = offset + 1; id <= end; id++)
+                      <String, dynamic>{
+                        'admission_id': id,
+                        'patient': <String, dynamic>{'name': 'Patient $id'},
+                      },
+                  ];
+                  return <String, dynamic>{
+                    'rows': page,
+                    'board': <String, dynamic>{
+                      'counts': {
+                        'total': boardTotal,
+                        'returned': page.length,
+                        'loaded': offset + page.length,
+                        'has_more': offset + page.length < boardTotal,
+                      },
+                    },
+                  };
+                },
+            realtimeEvents: (_) => controller.stream,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 50 rows on open plus four pages of "load more" = 250 rows held, past
+      // the backend's 200-row-per-request cap.
+      for (var page = 0; page < 4; page++) {
+        await tester.tap(
+          find.byKey(const ValueKey('patient-command-board-load-more')),
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(
+        find.textContaining('Showing first 250 of 260 patients'),
+        findsOneWidget,
+      );
+
+      requests.clear();
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'flowsheet'));
+      await tester.pump(const Duration(milliseconds: 401));
+      await tester.pumpAndSettle();
+
+      // The nudge re-reads every page the clinician holds — one request per
+      // 200-row backend page — instead of truncating the board to the first.
+      expect(requests, <List<int>>[
+        <int>[200, 0],
+        <int>[50, 200],
+      ]);
+      expect(
+        find.textContaining('Showing first 250 of 260 patients'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Patient 250'), findsOneWidget);
+
+      // A board that shrank below the held depth still collapses: rows the
+      // re-read no longer returns are gone, not resurrected from the old list.
+      boardTotal = 120;
+      requests.clear();
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'discharged'));
+      await tester.pump(const Duration(milliseconds: 401));
+      await tester.pumpAndSettle();
+
+      expect(requests, <List<int>>[
+        <int>[200, 0],
+      ]);
+      expect(
+        find.textContaining('Showing 120 of 120 patients'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Patient 250'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'patient command board clears a stale error when an ICU nudge recovers',
+    (tester) async {
+      var loads = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PatientCommandBoardScreen(
+            loadBoard:
+                ({
+                  String? ward,
+                  String? patientUid,
+                  int? admissionId,
+                  required int limit,
+                  required int offset,
+                }) async {
+                  loads += 1;
+                  if (loads == 1) throw Exception('transient ICU outage');
+                  return <String, dynamic>{
+                    'rows': <Map<String, dynamic>>[],
+                    'board': <String, dynamic>{
+                      'counts': {'total': 0, 'loaded': 0, 'has_more': false},
+                    },
+                  };
+                },
+            realtimeEvents: (_) => controller.stream,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('transient ICU outage'), findsOneWidget);
+
+      controller.add(_event(patientCommandBoardRealtimeChannel, 'admitted'));
+      await tester.pump(const Duration(milliseconds: 401));
+      await tester.pumpAndSettle();
+
+      expect(loads, 2);
+      expect(find.textContaining('transient ICU outage'), findsNothing);
     },
   );
 }
