@@ -41,6 +41,44 @@ const VALID_MOVEMENTS = [
   'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
 ];
 
+// Schedule H / H1 / X are the register-tracked controlled classes (migration
+// 150); Schedule X and any narcotic-flagged item additionally demand a witness
+// on every decrement. Kept in lockstep with counterSaleService's SCHEDULED_CLASSES.
+const CONTROLLED_SCHEDULES = ['H', 'H1', 'X'];
+
+function isControlledItem(item) {
+  return CONTROLLED_SCHEDULES.includes(item?.schedule_class) || item?.is_narcotic === true;
+}
+
+// Maps a stock movement_kind onto the statutory register's own vocabulary
+// (migration 150: receive / dispense / return / dispose / recall / adjust).
+// 'issue' is deliberately absent — a controlled issue is a patient dispense and
+// must go through the witnessed /controlled-dispense path, never this endpoint.
+const REGISTER_KIND_BY_MOVEMENT = {
+  receive: 'receive',
+  transfer_in: 'receive',
+  return: 'return',
+  adjust_increase: 'adjust',
+  adjust_decrease: 'adjust',
+  dispose: 'dispose',
+  expire: 'dispose',
+  recall: 'recall',
+  transfer_out: 'adjust',
+};
+
+async function loadMovementItem(db, tenantId, inventoryItemId) {
+  const id = Number(inventoryItemId);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, schedule_class, is_narcotic, unit_label
+       FROM pharmacy_inventory_items
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    id,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
 function tenantOf(req) {
   return req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
@@ -184,7 +222,120 @@ function replayedMovementResult(movement, { movementKind, delta, increasing, dec
 }
 
 export async function recordMovement(params) {
-  return setTenantTx(params.tenantId, async (tx) => recordMovementTx(tx, params));
+  return setTenantTx(params.tenantId, async (tx) => {
+    // Controlled stock can never move without its statutory register row. This
+    // public single-movement path spreads req.body straight through, so the
+    // schedule/narcotic status is resolved from the item row here rather than
+    // trusted from the caller. A controlled decrement off this generic endpoint
+    // was the last remaining register-bypass door (2026-08-25 reaudit BC-H1);
+    // receipts and other custody events additionally need a register row so the
+    // register can reconcile chain-of-custody on its own (BC-M1). Trusted in-tx
+    // composers (dispenseControlledTx, counterSale finalize/void) call
+    // recordMovementTx directly and write the register themselves, so this
+    // controlled branch rides only recordMovement().
+    const item = await loadMovementItem(tx, params.tenantId, params.inventory_item_id);
+    if (item && isControlledItem(item)) {
+      return recordControlledMovementTx(tx, params, item);
+    }
+    return recordMovementTx(tx, params);
+  });
+}
+
+/**
+ * Controlled-stock movement through the generic movements endpoint: performs
+ * the stock movement AND appends a same-tx pharmacy_schedule_register row for
+ * every custody event. Enforces the dispense/witness discipline the statutory
+ * register demands — a controlled 'issue' is refused (it is a patient dispense
+ * and must use /controlled-dispense), and a Schedule X / narcotic decrement
+ * requires a named witness. Never called for non-controlled items.
+ */
+async function recordControlledMovementTx(tx, params, item) {
+  const { tenantId, movement_kind, quantity, performed_by } = params;
+  if (!VALID_MOVEMENTS.includes(movement_kind)) {
+    throw AppError.badRequest(`Invalid movement_kind. Allowed: ${VALID_MOVEMENTS.join(', ')}`);
+  }
+
+  // A controlled issue is a patient dispense: it needs the witness ceremony and
+  // the patient/prescriber identity the register demands, none of which this
+  // endpoint carries. Steer it to the sanctioned path rather than silently
+  // decrementing narcotic stock off the shelf.
+  if (movement_kind === 'issue') {
+    throw AppError.conflict(
+      'Controlled substances cannot be issued through the generic movements endpoint; use POST /api/v1/pharmacy/inventory/v2/controlled-dispense',
+      'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH',
+    );
+  }
+
+  const registerKind = REGISTER_KIND_BY_MOVEMENT[movement_kind];
+  if (!registerKind) {
+    throw AppError.conflict(
+      `Movement kind '${movement_kind}' is not permitted on controlled stock through this endpoint`,
+      'CONTROLLED_MOVEMENT_KIND_UNSUPPORTED',
+    );
+  }
+
+  if (!performed_by) {
+    throw AppError.badRequest(
+      'performed_by is required for controlled stock movements',
+      'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    );
+  }
+
+  const decreasing = ['transfer_out', 'dispose', 'expire', 'recall', 'adjust_decrease'].includes(movement_kind);
+  // Schedule X / narcotic decrements (disposal, recall, downward adjustment,
+  // expiry write-off, transfer out) demand a named witness exactly as a dispense
+  // does — an unwitnessed narcotic decrement is the same diversion hole as issue.
+  const needsWitness = decreasing && (item.schedule_class === 'X' || item.is_narcotic === true);
+  const witnessUid = params.witness_uid ? String(params.witness_uid) : null;
+  const witnessName = params.witness_name ? String(params.witness_name).trim() : null;
+  if (needsWitness && (!witnessUid || !witnessName)) {
+    throw AppError.badRequest(
+      'A witness (witness_uid + witness_name) is required to move Schedule X / narcotic stock',
+      'CONTROLLED_MOVEMENT_WITNESS_REQUIRED',
+    );
+  }
+
+  const { movement, increasing, decreasing: didDecrease } = await recordMovementTx(tx, {
+    ...params,
+    require_usable_batch: params.require_usable_batch ?? decreasing,
+  });
+
+  // Running balance read inside the same tx so it reflects the movement above
+  // (no stale-balance race), mirroring dispenseControlledTx.
+  const balance = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
+       FROM pharmacy_inventory_batches
+      WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
+    Number(params.inventory_item_id),
+    tenantId,
+  );
+
+  const reg = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_schedule_register
+       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+        movement_kind, quantity, unit_label, running_balance,
+        performed_by, performed_by_name, witness_uid, witness_name,
+        reference_movement_id, notes)
+     VALUES ($1::uuid, $2::int, $3, $4, $5, $6::numeric, $7, $8::numeric,
+             $9::uuid, $10, $11::uuid, $12, $13::int, $14)
+     RETURNING *`,
+    tenantId,
+    Number(params.inventory_item_id),
+    params.inventory_batch_id ? Number(params.inventory_batch_id) : null,
+    item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+    registerKind,
+    Math.abs(Number(quantity)),
+    item.unit_label,
+    Number(balance[0].bal),
+    String(performed_by),
+    params.performed_by_name || null,
+    witnessUid,
+    witnessName,
+    movement.id,
+    params.notes || null,
+  );
+
+  return { movement, increasing, decreasing: didDecrease, register_entry: reg[0] };
 }
 
 /**
