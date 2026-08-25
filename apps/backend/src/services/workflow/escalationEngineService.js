@@ -871,14 +871,12 @@ function taskStatusEligibilitySql() {
 // That is deliberate here — this engine cannot tell whether two same-tier rules
 // are a misconfiguration or two genuinely different populations, and
 // suppressing one would silently drop a page. It does mean the rule SET must
-// not contain a duplicate tier for a task's SLA family, which is a provisioning
-// invariant, not one this function can enforce:
-// tenantProvisioningRegistry's escalation_rules guard therefore keys on
-// (scope, trigger_condition, match_filter->>'sla_key', action_payload->>'tier')
-// so a tenant that authored its own tier never also receives the platform one.
-// Do not weaken that guard back to display_name — a label collision is not a
-// tier collision. An operator can still author a duplicate tier through
-// taskService.upsertEscalationRule; that path is unguarded today.
+// not contain a duplicate tier for a task's SLA family, which is a
+// provisioning invariant, not one this function can enforce. Cross-tenant
+// rule provisioning was WITHDRAWN on 2026-08-24 (no safe key exists — see
+// tenantProvisioningRegistry.js and the migration-728 header), so today the
+// only writers are the seeds and taskService.upsertEscalationRule, and the
+// operator path is unguarded against authoring a duplicate tier.
 function firedMarkerEligibilitySql() {
   return `NOT EXISTS (
     SELECT 1
@@ -1036,9 +1034,12 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     // orphan-SLA backfill BACKSTOP are rule-independent, and a tenant with no
     // active task-scope rule was skipped entirely — so its overdue tasks never
     // flipped status and a breached critical-result SLA that lost its task was
-    // never re-created. Because escalation_rules was seeded default-tenant-only
-    // (re-audit 2026-08-24; migration 728 backfills it), that was every tenant
-    // but one. Rule-less tenants now still cost one cheap UPDATE and one indexed
+    // never re-created. Because escalation_rules is seeded default-tenant-only
+    // (re-audit 2026-08-24; migration 728 DELIBERATELY does not backfill it —
+    // no safe cross-tenant key exists, see its header — tenants author their
+    // own tiers via PUT /api/v1/admin/workflow/escalation-rules), that was
+    // every tenant but one.
+    // Rule-less tenants now still cost one cheap UPDATE and one indexed
     // SELECT each, and contribute nothing to the escalated/autoResolved counters.
     //
     // The `status = 'active'` filter is the one narrowing this change makes: a
