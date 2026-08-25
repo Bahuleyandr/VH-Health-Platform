@@ -351,27 +351,88 @@ jobs:
       # so seeding always runs fresh below. pg_dump/pg_restore run from the
       # postgres service image for client/server version parity (the runner's
       # bundled client is older than the pg17 service).
+      #
+      # HARDENING (poisoned-cache fix): a prior optimization saved this cache
+      # from every shard in parallel on a miss, and a partial/empty dump could
+      # be captured — poisoning the key so every later run got a cache HIT on a
+      # zero-byte archive and died at pg_restore ("input file is too short").
+      # Three defenses now:
+      #   1. key bumped v1 -> v2 to abandon the poisoned entry;
+      #   2. restore is split from save (actions/cache/restore is restore-only),
+      #      a cache hit is VALIDATED before use, and any bad dump falls through
+      #      to the fresh build path — the job never dies on a corrupt cache;
+      #   3. exactly ONE shard saves, only after building a validated dump, and
+      #      the dump is written atomically (temp file -> mv) so a save can
+      #      never capture a half-written archive.
       - name: Restore migrated DB template
         id: db-template
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: apps/backend/.db-template/template.dump
-          key: db-template-v1-${{ inputs.postgres_image }}-${{ hashFiles('apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs') }}
+          key: db-template-v2-${{ inputs.postgres_image }}-${{ hashFiles('apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs') }}
 
-      - name: Build migrated template (cache miss)
-        if: steps.db-template.outputs.cache-hit != 'true'
-        run: |
-          node scripts/ci-setup-db.mjs --skip-seeds
-          mkdir -p .db-template
-          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
-            pg_dump -Fc -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth > .db-template/template.dump
-
-      - name: Restore migrated template (cache hit)
+      # Self-heal: only trust a cached dump that exists, is non-trivially sized,
+      # and parses as a valid custom-format archive. A failing check is demoted
+      # to a miss (file removed) so the build path below rebuilds instead of the
+      # restore path dying.
+      - name: Validate cached DB template
+        id: validate-template
         if: steps.db-template.outputs.cache-hit == 'true'
+        run: |
+          valid=false
+          dump=.db-template/template.dump
+          if [ -f "$dump" ] && [ "$(stat -c%s "$dump")" -gt 1024 ]; then
+            if docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+                pg_restore --list < "$dump" > /dev/null 2>&1; then
+              valid=true
+            fi
+          fi
+          echo "valid=$valid" >> "$GITHUB_OUTPUT"
+          if [ "$valid" != "true" ]; then
+            echo "::warning::Cached DB template is missing/empty/corrupt — falling through to a fresh migrated rebuild."
+            rm -f "$dump"
+          fi
+
+      - name: Load template into database (valid cache hit)
+        if: steps.db-template.outputs.cache-hit == 'true' && steps.validate-template.outputs.valid == 'true'
         run: |
           docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
             pg_restore --no-owner --no-privileges --exit-on-error -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth \
             < .db-template/template.dump
+
+      # Fresh build path: runs on a genuine cache miss OR when the cached dump
+      # failed validation. Applies migrations to the live DB and dumps ATOMICALLY
+      # (temp file, size-checked, then mv into place) so the artifact that a
+      # cache save may later capture is always complete.
+      - name: Build migrated template (cache miss or invalid cache)
+        id: build-template
+        if: steps.db-template.outputs.cache-hit != 'true' || steps.validate-template.outputs.valid != 'true'
+        run: |
+          set -o pipefail
+          node scripts/ci-setup-db.mjs --skip-seeds
+          mkdir -p .db-template
+          tmp=.db-template/template.dump.tmp
+          rm -f "$tmp"
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            pg_dump -Fc -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth > "$tmp"
+          if [ ! -s "$tmp" ] || [ "$(stat -c%s "$tmp")" -le 1024 ]; then
+            echo "::error::pg_dump produced an empty/short template archive — refusing to publish it."
+            rm -f "$tmp"
+            exit 1
+          fi
+          mv "$tmp" .db-template/template.dump
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      # Single-writer save: only shard 1, only after a validated fresh build, and
+      # only when the key was a genuine miss (an existing key is immutable in the
+      # cache backend anyway). This eliminates the parallel-save race that
+      # poisoned the key.
+      - name: Save migrated DB template (single writer)
+        if: matrix.shard == 1 && steps.build-template.outputs.built == 'true' && steps.db-template.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/.db-template/template.dump
+          key: ${{ steps.db-template.outputs.cache-primary-key }}
 
       # Migrations now present either way (tracker-driven ci-setup-db skips them);
       # this run seeds lookup data and provisions the non-owner RLS test roles,
@@ -410,6 +471,17 @@ jobs:
         run: |
           set -o pipefail
           npm run test:ci 2>&1 | tee /tmp/jest-shard-output.log
+
+      # Recoverability: the tee'd log is also uploaded as an artifact below, but
+      # artifact egress has been blocked before, leaving failing assertions
+      # unreadable. Echo the log tail into the job log itself (which get_job_logs
+      # can always read) so the real FAIL lines survive even when the artifact
+      # does not. Runs before the Postgres service teardown at job end.
+      - name: Dump failing jest log tail (job-log recoverable)
+        if: failure()
+        run: |
+          echo "===== tail of /tmp/jest-shard-output.log (shard ${{ matrix.shard }}/${{ strategy.job-total }}) ====="
+          tail -n 400 /tmp/jest-shard-output.log || echo "(no jest log captured — failure was before/at DB setup)"
 
       - name: Upload jest output
         if: always()
