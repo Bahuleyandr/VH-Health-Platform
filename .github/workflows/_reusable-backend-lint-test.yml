@@ -344,11 +344,51 @@ jobs:
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
 
-      - name: Apply raw migrations + seed lookup data
+      # Cache a MIGRATED-but-UNSEEDED template so each shard restores the schema
+      # instead of replaying the whole migration chain. Keyed on the migrations
+      # dir + the applier, so any migration change is a cache miss (fresh apply).
+      # Seeds are NEVER cached — they use NOW() and date-relative tests exist —
+      # so seeding always runs fresh below. pg_dump/pg_restore run from the
+      # postgres service image for client/server version parity (the runner's
+      # bundled client is older than the pg17 service).
+      - name: Restore migrated DB template
+        id: db-template
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/.db-template/template.dump
+          key: db-template-v1-${{ inputs.postgres_image }}-${{ hashFiles('apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs') }}
+
+      - name: Build migrated template (cache miss)
+        if: steps.db-template.outputs.cache-hit != 'true'
+        run: |
+          node scripts/ci-setup-db.mjs --skip-seeds
+          mkdir -p .db-template
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            pg_dump -Fc -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth > .db-template/template.dump
+
+      - name: Restore migrated template (cache hit)
+        if: steps.db-template.outputs.cache-hit == 'true'
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            pg_restore --no-owner --no-privileges --exit-on-error -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth \
+            < .db-template/template.dump
+
+      # Migrations now present either way (tracker-driven ci-setup-db skips them);
+      # this run seeds lookup data and provisions the non-owner RLS test roles,
+      # which live outside a per-database dump and must be recreated per shard.
+      - name: Seed lookup data + provision RLS roles
         run: node scripts/ci-setup-db.mjs
 
       - name: Seed comprehensive test data
         run: npm run seed:test-data
+
+      # T-M1: runtime-role (NOBYPASSRLS) regression for the pre-tenant webhook /
+      # ABDM / sweep paths under migration 726's fail-closed RLS. Runs once
+      # (shard 1) against the migrated DB; fails loudly if migration 732's
+      # resolver or 733's system-job sweep predicate regress.
+      - name: Runtime-role webhook/ABDM RLS regression (T-M1)
+        if: matrix.shard == 1
+        run: node --experimental-vm-modules node_modules/jest/bin/jest.js src/tests/deep/runtimeRoleWebhookRls.deep.test.js --runInBand --forceExit
 
       - name: Run tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
         # Deterministic interleave over the chunked suite: every shard
