@@ -85,6 +85,10 @@ export const schemas = {
         type: 'boolean',
         description: 'LAB_LOINC_MAPPING_ENABLED env kill switch.',
       },
+      lis_listeners_configured: {
+        type: 'integer',
+        description: 'Count of listener profiles in the backend mirror of DEVICE_GATEWAY_LIS_LISTENERS (config shape only, never ports/hosts/token names).',
+      },
     },
   },
 
@@ -134,6 +138,8 @@ export const schemas = {
           // Terminology & knowledge gates (slate C1; appended block). Their
           // "provider_config" layer means imported content.
           'terminology_coding', 'lab_loinc_mapping', 'drug_kb',
+          // Device-gateway LIS ingress (#891 deferral) + embedded BI (C2).
+          'lis_listeners', 'analytics_bi',
         ],
         properties: {
           payment_gateway: { $ref: '#/components/schemas/IntegrationGateState' },
@@ -148,6 +154,12 @@ export const schemas = {
           terminology_coding: { $ref: '#/components/schemas/IntegrationGateState' },
           lab_loinc_mapping: { $ref: '#/components/schemas/IntegrationGateState' },
           drug_kb: { $ref: '#/components/schemas/IntegrationGateState' },
+          // Device-gateway LIS analyzer transport (#891 deferral).
+          lis_listeners: { $ref: '#/components/schemas/IntegrationGateState' },
+          // Embedded Metabase BI (slate C2). Emitted by the service since
+          // #894; was missing from this additionalProperties:false object
+          // (2026-08 audits' K-1) — a strict validator dropped the row.
+          analytics_bi: { $ref: '#/components/schemas/IntegrationGateState' },
         },
       },
     },

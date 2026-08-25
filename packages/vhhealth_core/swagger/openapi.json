@@ -27854,6 +27854,10 @@
           "lab_loinc_mapping_enabled": {
             "type": "boolean",
             "description": "LAB_LOINC_MAPPING_ENABLED env kill switch."
+          },
+          "lis_listeners_configured": {
+            "type": "integer",
+            "description": "Count of listener profiles in the backend mirror of DEVICE_GATEWAY_LIS_LISTENERS (config shape only, never ports/hosts/token names)."
           }
         }
       },
@@ -28003,7 +28007,9 @@
               "facility_assets",
               "terminology_coding",
               "lab_loinc_mapping",
-              "drug_kb"
+              "drug_kb",
+              "lis_listeners",
+              "analytics_bi"
             ],
             "properties": {
               "payment_gateway": {
@@ -28037,6 +28043,12 @@
                 "$ref": "#/components/schemas/IntegrationGateState"
               },
               "drug_kb": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "lis_listeners": {
+                "$ref": "#/components/schemas/IntegrationGateState"
+              },
+              "analytics_bi": {
                 "$ref": "#/components/schemas/IntegrationGateState"
               }
             }

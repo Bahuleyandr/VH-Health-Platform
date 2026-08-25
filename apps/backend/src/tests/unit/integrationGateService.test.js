@@ -130,6 +130,7 @@ beforeEach(() => {
   UHI_CONFIG.enabled = false;
   delete process.env.METABASE_URL;
   delete process.env.METABASE_EMBED_SECRET;
+  delete process.env.DEVICE_GATEWAY_LIS_LISTENERS;
   // Clear every dashboard id so the configured count starts from 0 even if
   // another suite in this worker primed METABASE_DASH_* values.
   for (const key of Object.keys(process.env)) {
@@ -164,6 +165,38 @@ describe('effective-state assembly', () => {
       effective: false,
       blocking_layer: 'env',
       layers: { env: false, tenant_setting: false },
+    });
+    expect(gates.lis_listeners).toMatchObject({
+      effective: false,
+      blocking_layer: 'env',
+      reason: 'no_listeners_configured',
+      layers: { env: false, provider_config: false },
+      listeners_configured: 0,
+    });
+  });
+
+  it('lis_listeners: env layer parses the listener JSON; analyzers gate the tenant side', async () => {
+    // A parseable listener array lights the env layer; with no active
+    // interface analyzers the provider_config layer still holds it dark.
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name": "chem-1", "port": 4001, "protocol": "astm-e1394"}]';
+    let report = await listIntegrationGates();
+    expect(report.tenants[0].gates.lis_listeners).toMatchObject({
+      effective: false,
+      blocking_layer: 'provider_config',
+      reason: 'no_active_interface_analyzers',
+      layers: { env: true, provider_config: false },
+      listeners_configured: 1,
+    });
+
+    // Set-but-unparseable reads as dark with its own reason, never as open.
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS = 'not json';
+    report = await listIntegrationGates();
+    expect(report.tenants[0].gates.lis_listeners).toMatchObject({
+      effective: false,
+      blocking_layer: 'env',
+      reason: 'listeners_env_invalid',
+      listeners_configured: 0,
     });
   });
 
@@ -232,6 +265,17 @@ describe('effective-state assembly', () => {
     const serialized = JSON.stringify(facts);
     expect(serialized).not.toContain('metabase.example.test');
     expect(serialized).not.toContain('unit-test-secret');
+  });
+
+  it('env facts surface the LIS listener count, never the listener config', async () => {
+    expect(integrationGateEnvFacts()).toMatchObject({ lis_listeners_configured: 0 });
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name": "chem-1", "host": "10.0.0.5", "port": 4001}, {"name": "haem-1", "port": 4002}]';
+    const facts = integrationGateEnvFacts();
+    expect(facts.lis_listeners_configured).toBe(2);
+    const serialized = JSON.stringify(facts);
+    expect(serialized).not.toContain('chem-1');
+    expect(serialized).not.toContain('10.0.0.5');
   });
 
   it('payment gateway: effective comes from resolveGatewayContext, layers from the admin view', async () => {

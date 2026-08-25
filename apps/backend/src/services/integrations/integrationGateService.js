@@ -115,6 +115,11 @@ export function integrationGateEnvFacts() {
     terminology_coding_enforcement: normalizeCodingEnforcementEnv(),
     drug_kb_deterministic_matching: knowledgeEnvFlagEnabled('DRUG_KB_DETERMINISTIC_MATCHING'),
     lab_loinc_mapping_enabled: knowledgeEnvFlagEnabled('LAB_LOINC_MAPPING_ENABLED'),
+    // Device-gateway LIS ingress (#891 deferral): count of listener profiles
+    // in the backend's mirror of DEVICE_GATEWAY_LIS_LISTENERS (the gateway
+    // deployment holds the authoritative copy; config shape only, never
+    // ports/hosts/token names).
+    lis_listeners_configured: lisListenersEnvSummary().count,
 
     // Embedded BI (slate C2): presence booleans/counts only, never URLs or
     // secrets. metabase_dashboards_configured counts METABASE_DASH_* env
@@ -429,6 +434,66 @@ async function drugKbGate(tenant) {
 }
 
 
+// ── lis_listeners (device-gateway LIS analyzer transport; #891 deferral) ────
+// Surfaces the dark LIS ingress in the console. Two AND-ed layers mirroring
+// the path's real gates:
+//   env             — DEVICE_GATEWAY_LIS_LISTENERS parses to >=1 listener
+//                     profile. The variable is authoritative on the DEVICE
+//                     GATEWAY deployment (which opens the ports); operators
+//                     mirror it into the backend configmap so this console
+//                     can report it. Unset here reads as dark.
+//   provider_config — active interface analyzers registered for the tenant
+//                     (lab_analyzers, interface_kind astm/hl7): the
+//                     trusted-sender registry the ASTM/ORU ingest requires
+//                     before any analyzer message can land.
+// There is no tenants.settings boolean for LIS — per-tenant enablement IS
+// the analyzer registry, so the console shows no flip button for this row.
+function lisListenersEnvSummary(env = process.env) {
+  const raw = String(env.DEVICE_GATEWAY_LIS_LISTENERS || '').trim();
+  if (!raw) return { count: 0, invalid: false };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return { count: 0, invalid: true };
+    return { count: parsed.length, invalid: false };
+  } catch {
+    return { count: 0, invalid: true };
+  }
+}
+
+async function lisListenersGate(tenant) {
+  const listeners = lisListenersEnvSummary();
+  const analyzerCount = await knowledgeContentCount(
+    `SELECT COUNT(*)::int AS count
+       FROM lab_analyzers
+      WHERE tenant_id = $1::uuid
+        AND status = 'active'
+        AND interface_kind IN ('astm', 'hl7')`,
+    tenant.id,
+  );
+  const envOn = listeners.count > 0;
+  const contentOn = analyzerCount > 0;
+  const effective = envOn && contentOn;
+  let reason = null;
+  let blockingLayer = null;
+  if (!effective) {
+    if (!envOn) {
+      reason = listeners.invalid ? 'listeners_env_invalid' : 'no_listeners_configured';
+      blockingLayer = 'env';
+    } else {
+      reason = 'no_active_interface_analyzers';
+      blockingLayer = 'provider_config';
+    }
+  }
+  return {
+    effective,
+    reason,
+    blocking_layer: blockingLayer,
+    layers: { env: envOn, provider_config: contentOn },
+    listeners_configured: listeners.count,
+    active_interface_analyzers: analyzerCount,
+  };
+}
+
 // ── analytics_bi (embedded Metabase BI, slate C2) ───────────────────────────
 // Self-contained append-style block (wt/bi-app). Two AND-ed layers:
 //   env           — METABASE_URL + METABASE_EMBED_SECRET both set
@@ -469,10 +534,11 @@ async function tenantGates(tenant) {
     ]);
   // Terminology & knowledge gates (slate C1) — separate await so the block
   // above keeps its positional destructure untouched for sibling merges.
-  const [terminologyCoding, labLoincMapping, drugKb] = await Promise.all([
+  const [terminologyCoding, labLoincMapping, drugKb, lisListeners] = await Promise.all([
     terminologyCodingGate(tenant),
     labLoincMappingGate(tenant),
     drugKbGate(tenant),
+    lisListenersGate(tenant),
   ]);
   // Consistency belt: the standalone accessors and the resolver views should
   // agree; the resolver wins, but log if they ever diverge (cache skew).
@@ -498,6 +564,8 @@ async function tenantGates(tenant) {
       terminology_coding: terminologyCoding,
       lab_loinc_mapping: labLoincMapping,
       drug_kb: drugKb,
+      // Device-gateway LIS analyzer transport (#891 deferral).
+      lis_listeners: lisListeners,
 
       analytics_bi: analyticsBi,
     },

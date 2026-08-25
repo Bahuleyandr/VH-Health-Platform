@@ -86,6 +86,8 @@ export type GateKey =
   | "terminology_coding"
   | "lab_loinc_mapping"
   | "drug_kb"
+  // Device-gateway LIS analyzer transport (#891 deferral).
+  | "lis_listeners"
   | "analytics_bi";
 
 export interface IntegrationGateTenantEntry {
@@ -115,6 +117,12 @@ export interface IntegrationGateEnvFacts {
   terminology_coding_enforcement?: "off" | "warn" | "block";
   drug_kb_deterministic_matching?: boolean;
   lab_loinc_mapping_enabled?: boolean;
+  /**
+   * Count of listener profiles in the backend mirror of
+   * DEVICE_GATEWAY_LIS_LISTENERS (the gateway deployment holds the
+   * authoritative copy).
+   */
+  lis_listeners_configured?: number;
   /** Embedded BI (wt/bi-app): METABASE_URL + METABASE_EMBED_SECRET present. */
   metabase_configured: boolean;
   /** Count of METABASE_DASH_* env vars carrying a positive dashboard id. */
