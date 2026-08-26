@@ -8,12 +8,32 @@ import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
 import {
+  pharmacyOrderGuard,
+  selectOrderPatient,
+  selectPatientByBodyPhone,
+} from './pharmacyOrderPatientGuards.js';
+import {
   placeOrderValidation,
   updateOrderStatusValidation,
   uidParamValidation
 } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
+
+// Per-route patient access guards (see pharmacyOrderPatientGuards.js for why
+// the mount-level guard never decided these path-keyed routes).
+//
+// Order-keyed routes do NOT force patient context: pharmacy_orders.patient_id
+// is nullable and legacy rows may be phone-only, so a subject-less order must
+// keep working on the role gate while every registered-patient order gets a
+// real decision. /uid/:uid names its subject directly and DOES force context.
+const guardOrderByIdParam = pharmacyOrderGuard(selectOrderPatient((req) => req.params?.id));
+const guardOrderByOrderIdParam = pharmacyOrderGuard(selectOrderPatient((req) => req.params?.orderId));
+const guardLegacyPlaceByPhone = pharmacyOrderGuard(selectPatientByBodyPhone);
+const guardOrdersByPatientUid = pharmacyOrderGuard(
+  (req) => (req.params?.uid ? { uid: req.params.uid } : null),
+  { requirePatientContext: true },
+);
 
 // Multer for prescription photo upload
 const upload = multer({
@@ -46,51 +66,54 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   get: [
     // D57: documented/admin probes call GET /pharmacy/orders. Keep it as
     // a staff queue alias rather than falling through to the legacy :phone route.
+    // Cross-patient staff queue — no single subject, so no patient guard.
     ['/', [], pharmacyOrderController.getOrderQueue],
-    ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
+    ['/:id/detail', [guardOrderByIdParam], pharmacyOrderController.getOrderDetail],
     // Patient + prescribed catalog_id lines behind an order — pharmacist substitution context.
-    ['/:id/dispensable', [], pharmacyOrderController.getOrderDispensableContext],
-    ['/:id', [], pharmacyOrderController.getOrderDetail],
+    ['/:id/dispensable', [guardOrderByIdParam], pharmacyOrderController.getOrderDispensableContext],
+    ['/:id', [guardOrderByIdParam], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
-    ['/:id/label', [], pharmacyOrderController.getDispenseLabel],
-    ['/:id/receipt', [], pharmacyOrderController.getDispenseLabel],
+    ['/:id/label', [guardOrderByIdParam], pharmacyOrderController.getDispenseLabel],
+    ['/:id/receipt', [guardOrderByIdParam], pharmacyOrderController.getDispenseLabel],
     // B1 — med-pack barcode label (requires cleared clinical verification).
-    ['/:id/pack-label', [], pharmacyVerificationController.getPharmacyPackLabel]
+    ['/:id/pack-label', [guardOrderByIdParam], pharmacyVerificationController.getPharmacyPackLabel]
   ],
   post: [
-    ['/:id/confirm', [], pharmacyOrderController.confirmOrder],
+    ['/:id/confirm', [guardOrderByIdParam], pharmacyOrderController.confirmOrder],
     // B1 — pharmacist clinical verification gate (before PREPARING/dispense).
-    ['/:id/verify', [], pharmacyVerificationController.verifyPharmacyOrder],
-    ['/:id/preparing', [], pharmacyOrderController.markPreparing],
-    ['/:id/dispatch', [], pharmacyOrderController.dispatchOrder],
-    ['/:id/delivered', [], pharmacyOrderController.markDelivered],
+    ['/:id/verify', [guardOrderByIdParam], pharmacyVerificationController.verifyPharmacyOrder],
+    ['/:id/preparing', [guardOrderByIdParam], pharmacyOrderController.markPreparing],
+    ['/:id/dispatch', [guardOrderByIdParam], pharmacyOrderController.dispatchOrder],
+    ['/:id/delivered', [guardOrderByIdParam], pharmacyOrderController.markDelivered],
     // B-2: counter-dispense — short-circuit lifecycle for walk-in customers.
-    ['/:id/dispense-counter', [], pharmacyOrderController.markCounterDispensed],
+    ['/:id/dispense-counter', [guardOrderByIdParam], pharmacyOrderController.markCounterDispensed],
     // D57: documented short alias used by the swarm/client contract.
-    ['/:id/dispense', [], pharmacyOrderController.markCounterDispensed],
-    ['/:id/unavailable', [], pharmacyOrderController.markUnavailable],
-    ['/:id/cancel', [], pharmacyOrderController.cancelOrder]
+    ['/:id/dispense', [guardOrderByIdParam], pharmacyOrderController.markCounterDispensed],
+    ['/:id/unavailable', [guardOrderByIdParam], pharmacyOrderController.markUnavailable],
+    ['/:id/cancel', [guardOrderByIdParam], pharmacyOrderController.cancelOrder]
   ]
 });
 
 // ── Legacy routes (existing) ────────────────────────────────────────────────
 
-// Patient routes
+// Patient routes. The legacy create resolves its target purely from
+// body.phone — the guard resolves the same phone to the registered patient
+// (an unregistered walk-in phone has no subject and stays role-gated).
 wrapAutoRBAC(router, 'pharmacyOrderRoutes', {
   post: [
-    ['/', placeOrderValidation, sanitizePharmacyFields, orderController.placeOrder]
+    ['/', placeOrderValidation, sanitizePharmacyFields, guardLegacyPlaceByPhone, orderController.placeOrder]
   ],
-  
+
   get: [
-    ['/uid/:uid', uidParamValidation, orderController.getOrdersByUID]
+    ['/uid/:uid', uidParamValidation, guardOrdersByPatientUid, orderController.getOrdersByUID]
   ]
 });
 
 // Pharmacy staff routes
 wrapAutoRBAC(router, 'pharmacyStaffOrderRoutes', {
   put: [
-    ['/:orderId/status', updateOrderStatusValidation, orderController.updateOrderStatus]
+    ['/:orderId/status', updateOrderStatusValidation, guardOrderByOrderIdParam, orderController.updateOrderStatus]
   ]
 });
 

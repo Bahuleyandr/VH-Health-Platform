@@ -33,9 +33,24 @@ import {
 import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  pharmacyOrderGuard,
+  selectPatientFromBodyUid,
+} from './pharmacyOrderPatientGuards.js';
 
 const router = Router();
 export const pharmacySubstitutionWitnessApprovalRoutes = Router({ mergeParams: true });
+
+// Per-route patient access guard (see pharmacyOrderPatientGuards.js). A
+// substitution witness request must name its patient (resolveSubstitutionPhase0
+// rejects a missing body.patient_uid), so the guard forces patient context:
+// the request is a controlled-dispense action about exactly one patient.
+// The :id/approve router mounted at app level is deliberately untouched — the
+// witness approves an unchanged, already-guarded payload and may hold a
+// clinical role with no pharmacy-order route access.
+const guardSubstitutionWitnessPatient = pharmacyOrderGuard(selectPatientFromBodyUid, {
+  requirePatientContext: true,
+});
 
 export const SUBSTITUTION_DISPENSE_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const SUBSTITUTION_WITNESS_APPROVAL_HOST_ROLES = [
@@ -116,7 +131,7 @@ async function resolveWitnessActor(req, tenantId) {
   }
 }
 
-router.post('/', requireDispense, requireIdempotencyKey({
+router.post('/', requireDispense, guardSubstitutionWitnessPatient, requireIdempotencyKey({
   required: true,
   scope: 'pharmacy_substitution_witness_request',
   retainOnServerError: true,

@@ -103,6 +103,13 @@ jest.unstable_mockModule('../../middleware/rejectMobileClinicalWriteMiddleware.j
 jest.unstable_mockModule('../../middleware/uploadMiddleware.js', () => ({
   validateFileContent: (_req, _res, next) => next(),
 }));
+// Per-route patient guards (re-audit M mount fix) — pass-through: this suite
+// pins controller AppError propagation, not access decisions.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  phiAccessLogger: () => (_req, _res, next) => next(),
+}));
 
 const { default: prescriptionRoutes } = await import('../../routes/prescription/index.js');
 

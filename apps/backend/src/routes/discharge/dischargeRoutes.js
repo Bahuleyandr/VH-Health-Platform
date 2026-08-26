@@ -4,10 +4,13 @@
 // /api/v1/discharge-summaries/*.
 
 import { Router } from 'express';
+import prisma from '../../lib/prisma.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import * as discharge from '../../services/discharge/dischargeService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { positiveIntOrNull } from '../../middleware/routePatientAccessGuards.js';
 
 const router = Router();
 
@@ -41,6 +44,98 @@ function requireDoctorOrAdmin(req, res, next) {
   next();
 }
 
+// ── Patient-access guards (re-audit 2026-08, M: mount guards) ────────
+//
+// The DISCHARGE_SUMMARY patientAccessGuard used to sit on the app.js mount.
+// A mount-level middleware runs BEFORE Express matches the route, so
+// req.params is empty there; the single-subject routes in this file carry
+// the patient only behind :id / :admissionId / :patientUid path params, so
+// resolvePatientForAccess found nothing and authorizePatientAccessRequest
+// returned no_patient_context without evaluating a policy — in shadow AND in
+// enforce. The mount guard DID read req.body, which is worse, not better: a
+// body-supplied decoy patient_uid on a write (e.g. PATCH /:id/sections/:key)
+// could be authorised while the handler served the summary behind :id.
+//
+// The guard now sits on each single-subject route with an explicit
+// patientSelector that resolves THE ROW THE HANDLER IS ABOUT TO SERVE,
+// tenant-scoped, from the same identifier the handler passes to
+// dischargeService (same pattern as bcmaRoutes.guardWristbandView and the
+// abdmHiuRoutes selector factories). requirePatientContext refuses instead
+// of falling back when the selector yields nothing:
+// discharge_summaries.patient_uid is NOT NULL and createDraft rejects a
+// missing patient_uid, so a missing subject means a malformed id or a
+// missing/foreign record, never a legitimately subject-less request. In
+// shadow mode the refusal (like every denial) is audit-only.
+//
+// GET /templates (template catalogue) and GET /pending (cross-patient
+// worklist) have no single patient subject and deliberately keep the role
+// gate only — a patient guard there has no subject to resolve and would be a
+// control that can never fire.
+//
+// Mode governance is carried over from the mount unchanged:
+// careTeamModeGoverned stays true, so the per-tenant
+// care_team_enforcement_mode flag ('shadow' by default) governs these
+// routes. DISCHARGE_SUMMARY resolves to the patient.clinical_document.view
+// policy (accessPolicyRegistry.policyCodeForRecordType).
+
+// Delegates to the shared int4-capped parser. The local copy lacked the
+// int4 cap, so a 10-digit id reached the ::int bind and threw 22003 —
+// a guard 500 on malformed input, violating the never-throw contract.
+function positiveInt(value) {
+  return positiveIntOrNull(value);
+}
+
+const dischargeGuard = (patientSelector) => patientAccessGuard('DISCHARGE_SUMMARY', {
+  careTeamModeGoverned: true,
+  requirePatientContext: true,
+  requireResolvedPatient: true,
+  patientSelector,
+});
+
+// The patient behind discharge_summaries.:id — the row every /:id handler
+// loads. A malformed id returns null (clean refusal), never a throw.
+const patientFromSummaryId = async (req) => {
+  const summaryId = positiveInt(req.params?.id);
+  if (summaryId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM discharge_summaries
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    summaryId,
+  );
+  return rows[0] ?? null;
+};
+
+const guardSummaryById = dischargeGuard(patientFromSummaryId);
+
+// GET /admission/:admissionId/pdf resolves its summary through the admission
+// row — the subject is that admission's patient, exactly the linkage
+// generateSignedDischargeSummaryPdfBuffer serves.
+const guardSummaryByAdmissionId = dischargeGuard(async (req) => {
+  const admissionId = positiveInt(req.params?.admissionId);
+  if (admissionId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM admissions
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    admissionId,
+  );
+  return rows[0] ?? null;
+});
+
+// GET /patient/:patientUid names the subject directly in the path — bind the
+// selector to that same param so the decision, the audit row and the listing
+// are the same patient by construction.
+const guardSummariesByPatientParam = dischargeGuard((req) => ({ uid: req.params?.patientUid }));
+
+// POST / carries the subject only in the body — resolve it exactly the way
+// createDraft will (body.patient_uid, required by the service).
+const guardSummaryCreate = dischargeGuard((req) => ({ uid: req.body?.patient_uid }));
+
 async function sendDischargeSummaryPdf(req, res, target) {
   const result = await discharge.generateSignedDischargeSummaryPdfBuffer({
     tenantId: tenantOf(req),
@@ -56,6 +151,7 @@ async function sendDischargeSummaryPdf(req, res, target) {
 }
 
 // ── Templates ────────────────────────────────────────────────────────
+// Template catalogue — no patient subject; role gate only.
 router.get('/templates', requireStaffOrAdmin, wrap(async (req) =>
   discharge.listTemplates({
     tenantId: tenantOf(req),
@@ -64,7 +160,7 @@ router.get('/templates', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // ── Summaries ────────────────────────────────────────────────────────
-router.post('/', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/', requireStaffOrAdmin, guardSummaryCreate, wrap(async (req) =>
   discharge.createDraft({
     ...req.body,
     tenantId: tenantOf(req),
@@ -72,6 +168,8 @@ router.post('/', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// Cross-patient sign-off worklist — no single patient subject; role gate
+// only (see the guard block comment above).
 router.get('/pending', requireStaffOrAdmin, wrap(async (req) =>
   discharge.listPending({
     tenantId: tenantOf(req),
@@ -79,7 +177,7 @@ router.get('/pending', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/patient/:patientUid', requireStaffOrAdmin, guardSummariesByPatientParam, wrap(async (req) =>
   discharge.listForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -87,19 +185,19 @@ router.get('/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/admission/:admissionId/pdf', requireStaffOrAdmin, wrap(async (req, res) =>
+router.get('/admission/:admissionId/pdf', requireStaffOrAdmin, guardSummaryByAdmissionId, wrap(async (req, res) =>
   sendDischargeSummaryPdf(req, res, { admissionId: req.params.admissionId }),
 ));
 
-router.get('/:id/pdf', requireStaffOrAdmin, wrap(async (req, res) =>
+router.get('/:id/pdf', requireStaffOrAdmin, guardSummaryById, wrap(async (req, res) =>
   sendDischargeSummaryPdf(req, res, { id: req.params.id }),
 ));
 
-router.get('/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/:id', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.getOne({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
-router.patch('/:id/sections/:key', requireStaffOrAdmin, wrap(async (req) =>
+router.patch('/:id/sections/:key', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.updateSection({
     tenantId: tenantOf(req),
     id: req.params.id,
@@ -111,7 +209,7 @@ router.patch('/:id/sections/:key', requireStaffOrAdmin, wrap(async (req) =>
 
 // Replace the draft's ICD-10 code list (WP2 coding enforcement + structured
 // clinical_code_bindings mirror). Draft/ready-for-signoff only.
-router.patch('/:id/codes', requireStaffOrAdmin, wrap(async (req) =>
+router.patch('/:id/codes', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.updateDraftCodes({
     tenantId: tenantOf(req),
     id: req.params.id,
@@ -120,7 +218,7 @@ router.patch('/:id/codes', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/:id/ready', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/:id/ready', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.markReadyForSignoff({
     tenantId: tenantOf(req),
     id: req.params.id,
@@ -128,7 +226,7 @@ router.post('/:id/ready', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/:id/sign', requireDoctorOrAdmin, wrap(async (req) =>
+router.post('/:id/sign', requireDoctorOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.sign({
     tenantId: tenantOf(req),
     id: req.params.id,
@@ -138,7 +236,7 @@ router.post('/:id/sign', requireDoctorOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/:id/deliver', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/:id/deliver', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.markDelivered({
     tenantId: tenantOf(req),
     id: req.params.id,
@@ -151,7 +249,7 @@ router.post('/:id/deliver', requireStaffOrAdmin, wrap(async (req) =>
 // the translation-review placeholder so the section is queued for a
 // human translator rather than silently staying English. Never
 // machine-translates clinical text.
-router.patch('/:id/sections/:key/translation', requireStaffOrAdmin, wrap(async (req) =>
+router.patch('/:id/sections/:key/translation', requireStaffOrAdmin, guardSummaryById, wrap(async (req) =>
   discharge.setSectionTranslation({
     tenantId: tenantOf(req),
     id: req.params.id,

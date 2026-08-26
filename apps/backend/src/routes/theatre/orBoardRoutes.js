@@ -11,8 +11,23 @@ import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
 
 const router = Router();
+
+// Re-audit M: the /api/v1/theatre mount used to wrap this router in
+// patientAccessGuard('OPERATING_THEATRE'), which ran before route match and
+// could never resolve a patient. The only route here that serves a single
+// patient subject is POST /bookings (it creates an ot_schedules case for
+// body.patient_uid); it now carries the guard itself. Everything else on this
+// router — room master, procedure catalog, the conflict pre-check (room/time
+// overlap facts, no patient identifiers in its response), the OR board and the
+// throughput/safety aggregates — has no single patient subject and keeps the
+// mount's role gate only.
+const guardOrBookingCreate = routePatientGuard('OPERATING_THEATRE', {
+  tag: 'or-board:body-patient-uid',
+  patientSelector: (req) => ({ uid: req.body?.patient_uid }),
+});
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -67,7 +82,7 @@ router.post('/bookings/conflict-check', requireStaffOrAdmin, wrap(async (req) =>
   orBoard.findConflicts({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
-router.post('/bookings', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/bookings', requireStaffOrAdmin, guardOrBookingCreate, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const result = await orBoard.scheduleWithConflictCheck({ ...req.body, tenantId });
   // Real-time OR board: a case created via the conflict-aware booking path also

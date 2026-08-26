@@ -25,6 +25,17 @@ jest.unstable_mockModule('../../services/pathology/pathologyService.js', () => (
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  requireTenantId: jest.fn((v) => v ?? '00000000-0000-4000-8000-000000000001'),
+}));
+
+// Pass-through: pathologyRoutes now applies patientAccessGuard per route (the
+// 2026-08 mount-guard conversion). The guard's own decide/deny behavior is
+// pinned by labPathologyNursingRouteGuards.test.js; this suite tests the
+// handlers' error-envelope contract, which the guard must not intercept —
+// and the real guard would query the DB from a unit suite.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  phiAccessLogger: () => (_req, _res, next) => next(),
+  patientAccessGuard: () => (_req, _res, next) => next(),
 }));
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
