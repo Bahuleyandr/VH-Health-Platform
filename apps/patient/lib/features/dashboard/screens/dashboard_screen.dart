@@ -38,6 +38,7 @@ import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/dashboard/widgets/stat_detail_panels.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
+import 'package:vhhealth/features/period_tracker/services/period_tracker_eligibility_loader.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 enum _DashboardStatPanel { wellness, steps, points, period }
@@ -390,24 +391,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final birthday =
         activeDependent?.birthday?.toString() ??
         profile?['birthday']?.toString();
-    final age = _ageYears(birthday);
-    if (age == null || age < 10 || age > 55) return false;
-    final normalizedGender = gender?.trim().toLowerCase();
-    return normalizedGender == 'female' || normalizedGender == 'f';
-  }
-
-  int? _ageYears(String? birthday) {
-    final raw = birthday?.trim();
-    if (raw == null || raw.isEmpty) return null;
-    final parsed = DateTime.tryParse(raw);
-    if (parsed == null) return null;
-    final today = DateTime.now();
-    var age = today.year - parsed.year;
-    final hadBirthdayThisYear =
-        today.month > parsed.month ||
-        (today.month == parsed.month && today.day >= parsed.day);
-    if (!hadBirthdayThisYear) age -= 1;
-    return age < 0 ? null : age;
+    return isPeriodTrackerEligible(gender: gender, birthday: birthday);
   }
 
   String? _appointmentSummary(Map<String, dynamic> appointment) {

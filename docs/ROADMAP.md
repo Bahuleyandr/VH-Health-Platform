@@ -1554,49 +1554,26 @@ ARB metadata marks the Aadhaar/OTP identity strings `LEGAL/IDENTITY`, and
 "human clinical review: pending". "ABHA", "OTP" and the Aadhaar term are kept
 in their standard forms in every locale rather than translated as common nouns.
 
-## Explicitly parked (re-audit lane L, 2026-08-25 — patient routes a link cannot reach)
+## Closed (re-audit lane L, 2026-08-26 — stable patient deep-link hydration)
 
-`DeepLinkService`'s allowlist is now a **partition** of `app_router.dart`'s
-route table: `deep_link_route_table_test.dart` parses the router source and
-fails unless every `GoRoute` path is either a link destination or carries a
-reason in `DeepLinkService.unreachableByLinkRoutes`. That closed the class the
-lane was pointed at — `/portal/discharge-summaries` (list and detail) and
-`/portal/diagnostic-results/:id` were real screens that a `vhhealth://app/…`
-link or a `route`-carrying push payload dead-ended on, purely because nobody
-remembered to add them.
+`DeepLinkService` still enforces a tested partition of `app_router.dart`, and
+the formerly transient appointment, teleconsult, and period-tracker routes are
+now real link destinations. Appointment routes hydrate the authenticated,
+tenant-scoped resource named by the positive numeric path ID when matching
+typed `state.extra` is absent. A 401, 403, or 404 never falls back to a stale
+authorized copy; a transport outage may use only the encrypted active-profile
+appointment feed and labels appointment detail as stale. Cold consult links
+re-enter the teleconsult lobby so live join state, consent, and device readiness
+must be re-established rather than fabricated from the URL.
 
-Four routes are dispositioned `needs-extra` rather than allowlisted, and that
-disposition is a **product limitation, not a bug fixed**:
-
-- `/appointments/:id`
-- `/teleconsult/appointments/:appointmentId/lobby`
-- `/teleconsult/appointments/:appointmentId/consult`
-- `/period-tracker`
-
-Each one's own `redirect` bounces it to a fallback (`/appointments`, `/home`)
-unless `state.extra` carries typed args — `TeleconsultRouteArgs`,
-`TeleconsultConsultArgs`, or `{eligible: true}`. A URL cannot carry `extra`, so
-allowlisting them would ship a destination that can never show what the link
-promises: the patient taps a notification about **one** appointment and silently
-lands on the list of **all** of them, with no indication that the app went
-somewhere else.
-
-*Patient-visible symptom, stated plainly.* There is no way to deep-link a
-patient to a specific appointment, to a teleconsult lobby, or into the period
-tracker. Everything about a single appointment — including a "your teleconsult
-starts in 10 minutes" push — can only reach `/appointments`.
-
-*Shape of the fix.* Make the three appointment routes self-sufficient: fetch
-the appointment (and its teleconsult lobby state) from the `:id` in the path
-when `state.extra` is absent, instead of redirecting. That is a real change to
-three route builders plus a loading/failure state each, and for the teleconsult
-lobby it also needs a decision about what a patient should see when the link is
-followed outside the join window. `/period-tracker` is different again: its
-`eligible` flag is an eligibility judgement made by the caller, so making the
-route self-sufficient means deciding where that judgement lives. Parked because
-each is a design decision, not an omission — and because the honest partial
-step, allowlisting the routes so the link "works", is precisely the silent
-wrong-destination outcome above.
+`/period-tracker` now rechecks the authenticated command-center profile and
+fails closed for missing, malformed, ineligible, signed-out, or unavailable
+authority. The existing `{eligible: true}` argument remains only a warm
+in-process optimization from the dashboard. Focused route tests cover custom
+scheme and notification parsing, malformed IDs, killed-process/no-extra
+hydration, expired or revoked access, deleted appointments, encrypted offline
+fallback, response-ID mismatch, and stale async responses after a route or
+profile change.
 
 ## Explicitly parked (re-audit lane L, 2026-08-25 — the offline notification badge reads zero)
 

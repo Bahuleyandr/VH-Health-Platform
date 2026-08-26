@@ -44,6 +44,31 @@ class AppointmentInfo {
     this.visitType = '',
   });
 
+  factory AppointmentInfo.fromJson(Map<String, dynamic> json) {
+    final doctor = json['doctor'];
+    final doctorMap = doctor is Map ? doctor : const <String, dynamic>{};
+    return AppointmentInfo(
+      id: _appointmentInt(json['id']) ?? 0,
+      doctorName:
+          json['doctor_name']?.toString() ??
+          doctorMap['name']?.toString() ??
+          'Doctor',
+      department:
+          json['department_name']?.toString() ??
+          json['department']?.toString() ??
+          '',
+      date: json['appointment_date']?.toString().split('T').first ?? '',
+      time: json['appointment_time']?.toString() ?? '',
+      status: json['status']?.toString().toLowerCase() ?? 'scheduled',
+      reason: json['reason']?.toString(),
+      tokenNumber: _appointmentInt(json['token_number']),
+      confirmationNotes: json['confirmation_notes']?.toString(),
+      hasDocuments: json['has_documents'] == true,
+      visitType:
+          json['visit_type']?.toString() ?? json['visitType']?.toString() ?? '',
+    );
+  }
+
   bool get isTeleconsult => visitType.trim().toUpperCase() == 'TELE';
 
   /// Fail-closed: an unknown status string parses to null and reads as
@@ -55,4 +80,27 @@ class AppointmentInfo {
     final dt = DateTime.tryParse('$date $time');
     return dt != null && dt.isAfter(DateTime.now()) && !hasTerminalStatus;
   }
+}
+
+List<AppointmentInfo> parseAppointmentInfos(Object? responseData) {
+  final Object? raw = switch (responseData) {
+    List<dynamic> value => value,
+    Map<dynamic, dynamic> value => value['appointments'],
+    _ => null,
+  };
+  if (raw is! List) return const [];
+  return raw
+      .whereType<Map>()
+      .map((item) => AppointmentInfo.fromJson(Map<String, dynamic>.from(item)))
+      .where((appointment) => appointment.id > 0)
+      .toList(growable: false);
+}
+
+int? _appointmentInt(Object? value) {
+  if (value is int) return value;
+  if (value is double) {
+    if (!value.isFinite || value != value.truncateToDouble()) return null;
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '');
 }

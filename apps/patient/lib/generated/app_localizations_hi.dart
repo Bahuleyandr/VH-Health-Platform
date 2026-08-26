@@ -3066,6 +3066,10 @@ class AppLocalizationsHi extends AppLocalizations {
   String get periodTrackerTitle => 'पीरियड ट्रैकर';
 
   @override
+  String get periodTrackerProfileUnavailable =>
+      'इस प्रोफ़ाइल के लिए पीरियड ट्रैकिंग उपलब्ध नहीं है।';
+
+  @override
   String get periodTrackerCycleDetails => 'साइकिल विवरण';
 
   @override

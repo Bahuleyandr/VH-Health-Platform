@@ -30,6 +30,7 @@ import 'package:vhhealth/features/notifications/screens/notifications_screen.dar
 import 'package:vhhealth/features/settings/screens/settings_screen.dart';
 import 'package:vhhealth/features/settings/screens/record_access_screen.dart';
 import 'package:vhhealth/features/appointments/screens/appointments_screen.dart';
+import 'package:vhhealth/features/appointments/screens/appointment_deep_link_route.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
 import 'package:vhhealth/features/teleconsult/screens/appointment_detail_screen.dart';
 import 'package:vhhealth/features/teleconsult/screens/teleconsult_consult_screen.dart';
@@ -53,7 +54,7 @@ import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
 import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
-import 'package:vhhealth/features/period_tracker/screens/period_tracker_screen.dart';
+import 'package:vhhealth/features/period_tracker/screens/period_tracker_deep_link_route.dart';
 import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/portal/screens/bills_screen.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
@@ -426,12 +427,18 @@ class AppRouter {
         path: '/appointments/:id',
         redirect: (context, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
-          return id == null || state.extra is! TeleconsultRouteArgs
-              ? '/appointments'
-              : null;
+          return id == null || id < 1 ? '/appointments' : null;
         },
         builder: (context, state) {
-          final args = state.extra! as TeleconsultRouteArgs;
+          final id = int.parse(state.pathParameters['id']!);
+          final extra = state.extra;
+          if (extra is! TeleconsultRouteArgs || extra.appointment.id != id) {
+            return AppointmentDeepLinkRoute(
+              appointmentId: id,
+              destination: AppointmentDeepLinkDestination.detail,
+            );
+          }
+          final args = extra;
           return AppointmentDetailScreen(
             appointment: args.appointment,
             initialTeleconsultState: args.initialState,
@@ -443,12 +450,18 @@ class AppRouter {
         path: '/teleconsult/appointments/:appointmentId/lobby',
         redirect: (context, state) {
           final id = int.tryParse(state.pathParameters['appointmentId'] ?? '');
-          return id == null || state.extra is! TeleconsultRouteArgs
-              ? '/appointments'
-              : null;
+          return id == null || id < 1 ? '/appointments' : null;
         },
         builder: (context, state) {
-          final args = state.extra! as TeleconsultRouteArgs;
+          final id = int.parse(state.pathParameters['appointmentId']!);
+          final extra = state.extra;
+          if (extra is! TeleconsultRouteArgs || extra.appointment.id != id) {
+            return AppointmentDeepLinkRoute(
+              appointmentId: id,
+              destination: AppointmentDeepLinkDestination.lobby,
+            );
+          }
+          final args = extra;
           return TeleconsultLobbyScreen(
             appointment: args.appointment,
             initialState: args.initialState,
@@ -464,12 +477,18 @@ class AppRouter {
         path: '/teleconsult/appointments/:appointmentId/consult',
         redirect: (context, state) {
           final id = int.tryParse(state.pathParameters['appointmentId'] ?? '');
-          return id == null || state.extra is! TeleconsultConsultArgs
-              ? '/appointments'
-              : null;
+          return id == null || id < 1 ? '/appointments' : null;
         },
         builder: (context, state) {
-          final args = state.extra! as TeleconsultConsultArgs;
+          final id = int.parse(state.pathParameters['appointmentId']!);
+          final extra = state.extra;
+          if (extra is! TeleconsultConsultArgs || extra.appointment.id != id) {
+            return AppointmentDeepLinkRoute(
+              appointmentId: id,
+              destination: AppointmentDeepLinkDestination.consult,
+            );
+          }
+          final args = extra;
           return TeleconsultConsultScreen(
             appointment: args.appointment,
             lobbyState: args.lobbyState,
@@ -821,13 +840,12 @@ class AppRouter {
       ),
       GoRoute(
         path: '/period-tracker',
-        redirect: (context, state) {
+        builder: (context, state) {
           final extra = state.extra;
-          final allowed =
+          final warmEligible =
               extra is Map<String, dynamic> && extra['eligible'] == true;
-          return allowed ? null : '/home';
+          return PeriodTrackerDeepLinkRoute(warmEligible: warmEligible);
         },
-        builder: (context, state) => const PeriodTrackerScreen(),
       ),
       GoRoute(path: '/records', redirect: (_, _) => '/health'),
 

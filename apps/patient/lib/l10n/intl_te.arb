@@ -2318,6 +2318,7 @@
   "periodTrackerSavedToast": "సైకిల్ ట్రాకర్ సేవ్ అయింది",
   "periodTrackerLastPeriodStart": "చివరి పీరియడ్ ప్రారంభం",
   "periodTrackerTitle": "పీరియడ్ ట్రాకర్",
+  "periodTrackerProfileUnavailable": "ఈ ప్రొఫైల్‌కు పీరియడ్ ట్రాకింగ్ అందుబాటులో లేదు.",
   "periodTrackerCycleDetails": "సైకిల్ వివరాలు",
   "periodTrackerCycleLength": "సైకిల్ పొడవు",
   "periodTrackerDays": "రోజులు",

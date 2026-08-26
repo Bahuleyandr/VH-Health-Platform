@@ -49,6 +49,7 @@ function client(uid, id, phone, role = 'PATIENT') {
   const token = generateTestToken(role, { uid, id, phone, tenant_id: TENANT_ID });
   const h = (r) => r.set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`);
   return {
+    get: (p) => h(request(app).get(p)),
     put: (p) => h(request(app).put(p)),
     delete: (p) => h(request(app).delete(p)),
   };
@@ -166,6 +167,25 @@ d('Appointment + patient-record owner access (IDOR positive path)', () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
   }, 120000);
+
+  describe('GET /api/v1/appointments/:id', () => {
+    it('hydrates an owning patient appointment by stable ID', async () => {
+      const res = await asOwner().get(`/api/v1/appointments/${appt.ownerUpdate}`);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.appointment).toEqual(expect.objectContaining({
+        id: appt.ownerUpdate,
+        patient_id: ownerId,
+      }));
+    });
+
+    it('denies a non-owning patient on an appointment that exists', async () => {
+      const res = await asStranger().get(`/api/v1/appointments/${appt.strangerUpdate}`);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.data?.appointment).toBeUndefined();
+    });
+  });
 
   describe('PUT /api/v1/appointments/:id', () => {
     it('allows the owning patient to update their own appointment', async () => {

@@ -3057,6 +3057,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get periodTrackerTitle => 'Period Tracker';
 
   @override
+  String get periodTrackerProfileUnavailable =>
+      'Period tracking is not available for this profile.';
+
+  @override
   String get periodTrackerCycleDetails => 'Cycle details';
 
   @override

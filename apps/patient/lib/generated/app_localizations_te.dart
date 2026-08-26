@@ -3096,6 +3096,10 @@ class AppLocalizationsTe extends AppLocalizations {
   String get periodTrackerTitle => 'పీరియడ్ ట్రాకర్';
 
   @override
+  String get periodTrackerProfileUnavailable =>
+      'ఈ ప్రొఫైల్‌కు పీరియడ్ ట్రాకింగ్ అందుబాటులో లేదు.';
+
+  @override
   String get periodTrackerCycleDetails => 'సైకిల్ వివరాలు';
 
   @override
