@@ -1798,7 +1798,14 @@ app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROU
 // with death-certification. Dark-gated in the service layer
 // (requireBirthNotificationEnabled: env BIRTH_NOTIFICATION_ENABLED AND per-tenant
 // settings.birthNotification.enabled, fail-closed, default OFF).
-app.use('/api/v1/birth-notification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('BIRTH_NOTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('BIRTH_NOTIFICATION'), birthNotificationRoutes);
+// No patientAccessGuard on THIS mount. It runs before Express has matched the
+// route, so req.params is empty; every route here is keyed on a notification
+// :id and none carries a patient identifier in the query, so the guard
+// resolved no patient and returned no_patient_context without evaluating a
+// policy — a control that could never decide. The router now guards each
+// route with a selector that resolves birth_notifications.mother_patient_uid
+// (see birthNotificationRoutes.js).
+app.use('/api/v1/birth-notification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('BIRTH_NOTIFICATION'), birthNotificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
