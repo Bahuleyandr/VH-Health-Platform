@@ -27,6 +27,20 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 
+// Re-audit M: these routers now carry per-route patientAccessGuard selectors
+// (middleware/routePatientAccessGuards.js). This suite pins the route layer's
+// error-envelope contract, not authz — neutralize the guard layer so requests
+// reach the handlers. Guard wiring and selector behavior are pinned in
+// perioperativeRouteGuards / icuDialysisRouteGuards / cathLabRouteGuards.
+jest.unstable_mockModule('../../middleware/routePatientAccessGuards.js', () => ({
+  routePatientGuard: () => (_req, _res, next) => next(),
+  selectorTenantOf: () => null,
+  positiveIntOrNull: () => null,
+  positiveBigIntTextOrNull: () => null,
+  PG_INT4_MAX: 2147483647,
+  PG_INT8_MAX: 9223372036854775807n,
+}));
+
 const { default: anesthesiaChartRoutes } = await import('../../routes/theatre/anesthesiaChartRoutes.js');
 
 const app = express();

@@ -46,8 +46,25 @@ import {
   canUseCathWorkflow,
   canViewCathReport
 } from '../../utils/roleHelpers.js';
+import {
+  cathCaseCreateGuard,
+  cathCaseGuard,
+  cathReportGuard
+} from './cathLabAccessGuards.js';
 
 const router = Router();
+
+// Re-audit M: per-route patient access guards (CLINICAL_WORKFLOW) — the mount
+// guard could never resolve a patient (empty req.params before route match);
+// see cathLabAccessGuards.js. Deliberately NOT guarded (no single patient
+// subject — role gate only): GET /report-templates,
+// POST /report-templates/:id/supersede (template governance),
+// GET /consumables/catalog, GET /consumables/catalog/:id/batches (catalog),
+// and GET /cases (day list).
+const guardCathCaseById = cathCaseGuard('id');
+const guardCathCaseByCaseId = cathCaseGuard('caseId');
+const guardCathReport = cathReportGuard();
+const guardCathCaseCreate = cathCaseCreateGuard();
 
 // NL13-P1f: scheduling strip + case booking + manual complication entries
 // (same /api/v1/cath-lab family; role guards live inside the subrouter).
@@ -165,7 +182,7 @@ router.post('/report-templates/:id/supersede', requireReportEdit, async (req, re
   }
 });
 
-router.get('/cases/:caseId/reports', requireReportRead, async (req, res) => {
+router.get('/cases/:caseId/reports', requireReportRead, guardCathCaseByCaseId, async (req, res) => {
   try {
     const reports = await listReports(
       req.params.caseId,
@@ -178,7 +195,7 @@ router.get('/cases/:caseId/reports', requireReportRead, async (req, res) => {
   }
 });
 
-router.post('/cases/:caseId/reports', requireReportEdit, async (req, res) => {
+router.post('/cases/:caseId/reports', requireReportEdit, guardCathCaseByCaseId, async (req, res) => {
   try {
     const report = await createReport(
       req.params.caseId,
@@ -191,7 +208,7 @@ router.post('/cases/:caseId/reports', requireReportEdit, async (req, res) => {
   }
 });
 
-router.get('/cases/:caseId/viewer-link', requireViewerAccess, async (req, res) => {
+router.get('/cases/:caseId/viewer-link', requireViewerAccess, guardCathCaseByCaseId, async (req, res) => {
   try {
     const result = await resolveCaseViewerLink(
       req.params.caseId,
@@ -204,7 +221,7 @@ router.get('/cases/:caseId/viewer-link', requireViewerAccess, async (req, res) =
   }
 });
 
-router.get('/reports/:id/pdf', requireReportRead, async (req, res) => {
+router.get('/reports/:id/pdf', requireReportRead, guardCathReport, async (req, res) => {
   try {
     const report = await getSignedReportForPdf(
       req.params.id,
@@ -222,7 +239,7 @@ router.get('/reports/:id/pdf', requireReportRead, async (req, res) => {
   }
 });
 
-router.get('/reports/:id', requireReportRead, async (req, res) => {
+router.get('/reports/:id', requireReportRead, guardCathReport, async (req, res) => {
   try {
     const report = await getReport(
       req.params.id,
@@ -235,7 +252,7 @@ router.get('/reports/:id', requireReportRead, async (req, res) => {
   }
 });
 
-router.patch('/reports/:id', requireReportEdit, async (req, res) => {
+router.patch('/reports/:id', requireReportEdit, guardCathReport, async (req, res) => {
   try {
     const report = await updateReport(
       req.params.id,
@@ -248,7 +265,7 @@ router.patch('/reports/:id', requireReportEdit, async (req, res) => {
   }
 });
 
-router.post('/reports/:id/preliminary', requireReportEdit, async (req, res) => {
+router.post('/reports/:id/preliminary', requireReportEdit, guardCathReport, async (req, res) => {
   try {
     const report = await markReportPreliminary(
       req.params.id,
@@ -261,7 +278,7 @@ router.post('/reports/:id/preliminary', requireReportEdit, async (req, res) => {
   }
 });
 
-router.post('/reports/:id/sign', requireReportSign, async (req, res) => {
+router.post('/reports/:id/sign', requireReportSign, guardCathReport, async (req, res) => {
   try {
     const report = await signReport(
       req.params.id,
@@ -274,7 +291,7 @@ router.post('/reports/:id/sign', requireReportSign, async (req, res) => {
   }
 });
 
-router.post('/reports/:id/addenda', requireReportSign, async (req, res) => {
+router.post('/reports/:id/addenda', requireReportSign, guardCathReport, async (req, res) => {
   try {
     const addendum = await addReportAddendum(
       req.params.id,
@@ -301,7 +318,7 @@ router.get('/cases', requireReportRead, async (req, res) => {
   }
 });
 
-router.post('/cases', requireCathWorkflow, async (req, res) => {
+router.post('/cases', requireCathWorkflow, guardCathCaseCreate, async (req, res) => {
   try {
     const cathCase = await createCase({ ...req.body, tenantId: tenantOf(req) }, contextOf(req));
     return success(res, { case: cathCase }, 'Cath-lab case created', HTTP_STATUS.CREATED);
@@ -310,7 +327,7 @@ router.post('/cases', requireCathWorkflow, async (req, res) => {
   }
 });
 
-router.get('/cases/:id', requireReportRead, async (req, res) => {
+router.get('/cases/:id', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const cathCase = await getCase(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { case: cathCase }, 'Cath-lab case');
@@ -322,6 +339,7 @@ router.get('/cases/:id', requireReportRead, async (req, res) => {
 router.get(
   '/cases/:id/consumables',
   requireReportRead,
+  guardCathCaseById,
   async (req, res) => {
     try {
       const usage = await listCaseConsumableUsage(req.params.id, { tenantId: tenantOf(req) });
@@ -335,6 +353,7 @@ router.get(
 router.post(
   '/cases/:id/consumables',
   requireCathWorkflow,
+  guardCathCaseById,
   requireIdempotencyKey({ required: true, scope: 'cath_consumable_usage' }),
   async (req, res) => {
     try {
@@ -349,7 +368,7 @@ router.post(
     }
   }
 );
-router.get('/cases/:id/quick-wins', requireReportRead, async (req, res) => {
+router.get('/cases/:id/quick-wins', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { quick_wins: quickWins }, 'Cath-lab quick wins');
@@ -358,7 +377,7 @@ router.get('/cases/:id/quick-wins', requireReportRead, async (req, res) => {
   }
 });
 
-router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const result = await refreshReadinessEvidence(
       req.params.id,
@@ -371,7 +390,7 @@ router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, async 
   }
 });
 
-router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const result = await applyCathOrderSetSlot(
       req.params.id,
@@ -385,7 +404,7 @@ router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, async (req
   }
 });
 
-router.post('/cases/:id/status', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/status', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const cathCase = await transitionCaseStatus(
       req.params.id,
@@ -398,7 +417,7 @@ router.post('/cases/:id/status', requireCathWorkflow, async (req, res) => {
   }
 });
 
-router.post('/cases/:id/readiness', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/readiness', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const readiness = await updateReadinessCheck(
       req.params.id,
@@ -411,7 +430,7 @@ router.post('/cases/:id/readiness', requireCathWorkflow, async (req, res) => {
   }
 });
 
-router.post('/cases/:id/procedure-logs', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/procedure-logs', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const procedure = await recordProcedureLog(
       req.params.id,
@@ -424,7 +443,7 @@ router.post('/cases/:id/procedure-logs', requireCathWorkflow, async (req, res) =
   }
 });
 
-router.post('/cases/:id/hemodynamics', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/hemodynamics', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const summary = await addHemodynamicSummary(
       req.params.id,
@@ -437,7 +456,7 @@ router.post('/cases/:id/hemodynamics', requireCathWorkflow, async (req, res) => 
   }
 });
 
-router.post('/cases/:id/contrast-radiation', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/contrast-radiation', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const record = await addContrastRadiationRecord(
       req.params.id,
@@ -455,7 +474,7 @@ router.post('/cases/:id/contrast-radiation', requireCathWorkflow, async (req, re
   }
 });
 
-router.post('/cases/:id/post-orders', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/post-orders', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const order = await addPostProcedureOrder(
       req.params.id,
@@ -468,7 +487,7 @@ router.post('/cases/:id/post-orders', requireCathWorkflow, async (req, res) => {
   }
 });
 
-router.post('/cases/:id/device-links', requireCathWorkflow, async (req, res) => {
+router.post('/cases/:id/device-links', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {
     const link = await addDeviceLink(
       req.params.id,

@@ -10,11 +10,28 @@ import orderRoutes from './orderRoutes.js';
 import wardIndentRoutes from './wardIndentRoutes.js';
 import counterSaleRoutes from './counterSaleRoutes.js';
 import dispenseSubstitutionWitnessRoutes from './dispenseSubstitutionWitnessRoutes.js';
+import {
+  pharmacyOrderGuard,
+  selectOrderPatient,
+  selectPatientFromBodyUid,
+} from './pharmacyOrderPatientGuards.js';
 import { dispenseSubstitutionValidator } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
 
 logger.info('✅ Enhanced pharmacyRoutes loaded');
+
+// Patient access guards live per-route (see pharmacyOrderPatientGuards.js) —
+// the mount-level guard could never resolve a path-only subject.
+// D57 dispense: the subject is the patient of the order named in the body.
+const guardDispenseByBodyOrder = pharmacyOrderGuard(
+  selectOrderPatient((req) => req.body?.order_id ?? req.body?.orderId ?? req.body?.id),
+);
+// Dispense-substitution requires body.patient_uid (the handler 400s without
+// it), so an unresolvable subject refuses instead of falling through.
+const guardSubstitutionPatient = pharmacyOrderGuard(selectPatientFromBodyUid, {
+  requirePatientContext: true,
+});
 
 function dispenseByBodyOrderId(req, res) {
   const id = req.body?.order_id ?? req.body?.orderId ?? req.body?.id;
@@ -74,8 +91,8 @@ router.use('/search', medicationRoutes);
 // the canonical counter-dispense controller.
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   post: [
-    ['/dispense', [], dispenseByBodyOrderId],
-    ['/dispense-substitution', dispenseSubstitutionValidator, pharmacyOrderController.dispenseSubstitution]
+    ['/dispense', [guardDispenseByBodyOrder], dispenseByBodyOrderId],
+    ['/dispense-substitution', [...dispenseSubstitutionValidator, guardSubstitutionPatient], pharmacyOrderController.dispenseSubstitution]
   ]
 });
 

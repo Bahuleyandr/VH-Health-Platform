@@ -23,8 +23,12 @@ jest.unstable_mockModule('../../services/clinical/icuService.js', () => ({
 }));
 
 // Namespace-imported by the route file; none of their routes are exercised.
+// VERIFIABLE_RESOURCES is additionally a named import (the NICU verify
+// selector resolves through the service's own allowlist).
 jest.unstable_mockModule('../../services/clinical/icuChartingService.js', () => ({}));
-jest.unstable_mockModule('../../services/clinical/nicuPicuChartingService.js', () => ({}));
+jest.unstable_mockModule('../../services/clinical/nicuPicuChartingService.js', () => ({
+  VERIFIABLE_RESOURCES: {},
+}));
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitIcuBoardEvent: jest.fn(),
@@ -32,6 +36,20 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+}));
+
+// Re-audit M: these routers now carry per-route patientAccessGuard selectors
+// (middleware/routePatientAccessGuards.js). This suite pins the route layer's
+// error-envelope contract, not authz — neutralize the guard layer so requests
+// reach the handlers. Guard wiring and selector behavior are pinned in
+// perioperativeRouteGuards / icuDialysisRouteGuards / cathLabRouteGuards.
+jest.unstable_mockModule('../../middleware/routePatientAccessGuards.js', () => ({
+  routePatientGuard: () => (_req, _res, next) => next(),
+  selectorTenantOf: () => null,
+  positiveIntOrNull: () => null,
+  positiveBigIntTextOrNull: () => null,
+  PG_INT4_MAX: 2147483647,
+  PG_INT8_MAX: 9223372036854775807n,
 }));
 
 const { default: icuRoutes } = await import('../../routes/clinical/icuRoutes.js');
