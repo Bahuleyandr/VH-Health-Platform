@@ -161,9 +161,17 @@ FROM ${NGINX_IMAGE} AS runner
 
 # Apply Alpine security fixes from the pinned release branch, then drop the
 # default landing-page config + content and replace it with our own.
+# Bump SECURITY_PATCH_EPOCH to force this layer to re-execute: the release
+# workflow builds with a GHA layer cache, and an unchanged RUN on an unchanged
+# base digest is a cache HIT — the upgrade then replays its original result
+# and never fetches packages published since (same trap as the backend/admin
+# Dockerfiles, where CVE-2026-14456 stuck on 2026-08-26). The echo makes the
+# epoch part of the layer's cache key.
+ARG SECURITY_PATCH_EPOCH=2026-08-26.1
 RUN apk upgrade --no-cache \
     && rm -f /etc/nginx/conf.d/default.conf \
-    && rm -rf /usr/share/nginx/html/*
+    && rm -rf /usr/share/nginx/html/* \
+    && echo "security patch epoch: ${SECURITY_PATCH_EPOCH}"
 
 COPY apps/staff/nginx-staff-web.conf /etc/nginx/conf.d/default.conf
 COPY --from=asset-prep /web /usr/share/nginx/html
