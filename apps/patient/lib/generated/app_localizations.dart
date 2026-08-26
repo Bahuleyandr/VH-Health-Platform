@@ -5816,6 +5816,12 @@ abstract class AppLocalizations {
   /// **'Period Tracker'**
   String get periodTrackerTitle;
 
+  /// Shown after the authenticated profile fails the period-tracker eligibility check. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Period tracking is not available for this profile.'**
+  String get periodTrackerProfileUnavailable;
+
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:

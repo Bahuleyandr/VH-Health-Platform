@@ -3112,6 +3112,10 @@ class AppLocalizationsMl extends AppLocalizations {
   String get periodTrackerTitle => 'പീരിയഡ് ട്രാക്കർ';
 
   @override
+  String get periodTrackerProfileUnavailable =>
+      'ഈ പ്രൊഫൈലിന് പീരിയഡ് ട്രാക്കിംഗ് ലഭ്യമല്ല.';
+
+  @override
   String get periodTrackerCycleDetails => 'സൈക്കിൾ വിവരങ്ങൾ';
 
   @override

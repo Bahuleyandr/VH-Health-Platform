@@ -141,28 +141,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   }
 
   List<AppointmentInfo> _parseAppointments(dynamic responseData) {
-    final data = responseData ?? {};
-    final List<dynamic> raw = data is List
-        ? data
-        : (data['appointments'] ?? data ?? []);
-    return raw.map((a) {
-      return AppointmentInfo(
-        id: a['id'] ?? 0,
-        doctorName: a['doctor_name'] ?? a['doctor']?['name'] ?? 'Doctor',
-        department: a['department_name'] ?? a['department'] ?? '',
-        date: a['appointment_date']?.toString().split('T').first ?? '',
-        time: a['appointment_time']?.toString() ?? '',
-        status: a['status']?.toString().toLowerCase() ?? 'scheduled',
-        reason: a['reason']?.toString(),
-        tokenNumber: a['token_number'] != null
-            ? int.tryParse(a['token_number'].toString())
-            : null,
-        confirmationNotes: a['confirmation_notes']?.toString(),
-        hasDocuments: false, // updated when documents are fetched
-        visitType:
-            a['visit_type']?.toString() ?? a['visitType']?.toString() ?? '',
-      );
-    }).toList();
+    return parseAppointmentInfos(responseData);
   }
 
   void _applyAppointments(List<AppointmentInfo> list) {

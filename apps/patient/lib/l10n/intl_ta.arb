@@ -2318,6 +2318,7 @@
   "periodTrackerSavedToast": "சுழற்சி டிராக்கர் சேமிக்கப்பட்டது",
   "periodTrackerLastPeriodStart": "கடைசி மாதவிடாய் தொடக்கம்",
   "periodTrackerTitle": "மாதவிடாய் டிராக்கர்",
+  "periodTrackerProfileUnavailable": "இந்த சுயவிவரத்திற்கு மாதவிடாய் கண்காணிப்பு கிடைக்கவில்லை.",
   "periodTrackerCycleDetails": "சுழற்சி விவரங்கள்",
   "periodTrackerCycleLength": "சுழற்சி நீளம்",
   "periodTrackerDays": "நாட்கள்",

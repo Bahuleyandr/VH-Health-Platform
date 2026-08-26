@@ -25,8 +25,8 @@ class DeepLinkService {
   /// exactly that: real screens a link dead-ended on.
   ///
   /// The inclusion rule is mechanical: a route belongs here when it renders
-  /// its intended screen FROM THE URL ALONE. Routes that redirect away without
-  /// a `state.extra` payload, session-setup routes, and redirect aliases
+  /// its intended screen from the URL alone or hydrates its guarded resource
+  /// from a stable path identifier. Session-setup routes and redirect aliases
   /// cannot, and are dispositioned in [unreachableByLinkRoutes].
   static const _allowedRoutes = <String>{
     '/home',
@@ -59,6 +59,7 @@ class DeepLinkService {
     '/portal/maternity/timeline',
     '/abdm',
     '/health-points',
+    '/period-tracker',
     '/chatbot',
     '/departments',
     '/about-us',
@@ -83,6 +84,21 @@ class DeepLinkService {
   /// pattern below is the same one `app_router.dart` redirects on.
   static const _uuidIdPrefixes = <String>['/portal/diagnostic-results/'];
 
+  /// Parameterised routes where the positive numeric identifier is not always
+  /// the final segment. These routes hydrate their authoritative resource from
+  /// the path after authentication; `state.extra` is only a warm in-process
+  /// optimization.
+  static const _appointmentHydrationRouteTemplates = <String>{
+    '/appointments/:id',
+    '/teleconsult/appointments/:appointmentId/lobby',
+    '/teleconsult/appointments/:appointmentId/consult',
+  };
+
+  static final _appointmentHydrationPatterns = <RegExp>[
+    RegExp(r'^/appointments/([1-9][0-9]*)$'),
+    RegExp(r'^/teleconsult/appointments/([1-9][0-9]*)/(?:lobby|consult)$'),
+  ];
+
   static final RegExp _numericIdPattern = RegExp(r'^[0-9]+$');
 
   static final RegExp _uuidPattern = RegExp(
@@ -95,11 +111,7 @@ class DeepLinkService {
   /// this map plus the allowlist covers the router's table exactly.
   ///
   /// A route listed here is not merely "not notified about" — it is one a link
-  /// cannot usefully reach. Three reasons occur:
-  ///   * needs-extra — the route's own `redirect` bounces it to a fallback
-  ///     unless `state.extra` carries typed args, and a URL cannot carry
-  ///     `extra`. Allowlisting one would be a destination that can never show
-  ///     what the link claims.
+  /// cannot usefully reach. Two reasons occur:
   ///   * session-setup — driven by the auth state machine, never a
   ///     notification target; `_safeReturnTo` in app_router.dart independently
   ///     refuses to return to them.
@@ -110,15 +122,6 @@ class DeepLinkService {
     '/login': 'session-setup — auth entry point',
     '/terms': 'session-setup — pre-login disclaimer',
     '/profile-setup': 'session-setup — takes the phone via state.extra',
-    '/appointments/:id':
-        'needs-extra — redirects to /appointments without TeleconsultRouteArgs',
-    '/teleconsult/appointments/:appointmentId/lobby':
-        'needs-extra — redirects to /appointments without TeleconsultRouteArgs',
-    '/teleconsult/appointments/:appointmentId/consult':
-        'needs-extra — redirects to /appointments without '
-        'TeleconsultConsultArgs',
-    '/period-tracker':
-        'needs-extra — redirects to /home unless extra[eligible] is true',
     '/records': 'alias — redirects to /health',
     '/your-health': 'alias — redirects to /health',
     '/dashboard': 'alias — redirects to /home',
@@ -136,10 +139,21 @@ class DeepLinkService {
   static List<String> get debugUuidIdPrefixes =>
       List<String>.unmodifiable(_uuidIdPrefixes);
 
+  @visibleForTesting
+  static Set<String> get debugAppointmentHydrationRouteTemplates =>
+      Set<String>.unmodifiable(_appointmentHydrationRouteTemplates);
+
   /// Returns true if [route] is on the allowlist (exact or parameterised).
   static bool _isAllowed(String route) {
     // Exact match
     if (_allowedRoutes.contains(route)) return true;
+
+    for (final pattern in _appointmentHydrationPatterns) {
+      final match = pattern.firstMatch(route);
+      if (match != null) {
+        return int.tryParse(match.group(1)!) != null;
+      }
+    }
 
     // Numeric-ID parameterised routes: /portal/bills/123 etc.
     for (final prefix in _numericIdPrefixes) {
@@ -188,7 +202,8 @@ class DeepLinkService {
     // Check for explicit route in payload — must start with '/' AND be on
     // the allowlist. Arbitrary paths are rejected to prevent open redirect
     // attacks via crafted push notifications (audit finding PAT-4).
-    final route = data['route'] as String?;
+    final rawRoute = data['route'];
+    final route = rawRoute is String ? rawRoute : null;
     if (route != null && route.startsWith('/')) {
       if (_isAllowed(route)) return route;
       if (kDebugMode) {
@@ -200,7 +215,8 @@ class DeepLinkService {
     }
 
     // Infer route from notification type
-    final type = (data['type'] as String?)?.toUpperCase();
+    final rawType = data['type'];
+    final type = rawType is String ? rawType.toUpperCase() : null;
     switch (type) {
       case 'APPOINTMENT':
       case 'APPOINTMENT_REMINDER':

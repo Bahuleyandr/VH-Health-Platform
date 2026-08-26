@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_models.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
@@ -15,11 +16,15 @@ class AppointmentDetailScreen extends StatefulWidget {
     required this.appointment,
     this.initialTeleconsultState,
     this.repository = const TeleconsultRepository(),
+    this.staleLabel,
+    this.cachedAt,
   });
 
   final AppointmentInfo appointment;
   final TeleconsultLobbyState? initialTeleconsultState;
   final TeleconsultRepository repository;
+  final String? staleLabel;
+  final DateTime? cachedAt;
 
   @override
   State<AppointmentDetailScreen> createState() =>
@@ -92,6 +97,13 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (widget.staleLabel != null || widget.cachedAt != null) ...[
+              OfflineBanner(
+                staleLabel: widget.staleLabel,
+                cachedAt: widget.cachedAt,
+              ),
+              const SizedBox(height: 12),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),

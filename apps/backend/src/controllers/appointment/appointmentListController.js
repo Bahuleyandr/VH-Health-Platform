@@ -71,7 +71,10 @@ export const getAppointmentById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const appointment = await appointmentQueryService.getAppointmentById(id);
+    const appointment = await appointmentQueryService.getAppointmentById(
+      id,
+      resolveTenantOrThrow(req)
+    );
     
     if (!appointment) {
       return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);

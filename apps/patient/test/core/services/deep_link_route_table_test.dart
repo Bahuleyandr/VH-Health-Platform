@@ -52,6 +52,8 @@ void main() {
     ...DeepLinkService.debugNumericIdPrefixes,
     ...DeepLinkService.debugUuidIdPrefixes,
   };
+  final parameterizedRoutes =
+      DeepLinkService.debugAppointmentHydrationRouteTemplates;
   final unreachable = DeepLinkService.unreachableByLinkRoutes;
 
   group('the allowlist is derived from the router table', () {
@@ -71,6 +73,7 @@ void main() {
       final unaccounted = <String>[];
       for (final path in routerPaths) {
         if (unreachable.containsKey(path)) continue;
+        if (parameterizedRoutes.contains(path)) continue;
         final prefix = _trailingParamPrefix(path);
         if (prefix == null) {
           if (!allowed.contains(path)) unaccounted.add(path);
@@ -91,6 +94,7 @@ void main() {
     test('no route is both a destination and dispositioned unreachable', () {
       for (final path in unreachable.keys) {
         expect(allowed.contains(path), isFalse, reason: path);
+        expect(parameterizedRoutes.contains(path), isFalse, reason: path);
         final prefix = _trailingParamPrefix(path);
         if (prefix != null) {
           expect(paramPrefixes.contains(prefix), isFalse, reason: path);
@@ -146,6 +150,45 @@ void main() {
   });
 
   group('the routes this lane found missing', () {
+    test('transient-state routes are now stable link destinations', () {
+      for (final route in <String>[
+        '/appointments/42',
+        '/teleconsult/appointments/42/lobby',
+        '/teleconsult/appointments/42/consult',
+        '/period-tracker',
+      ]) {
+        expect(
+          DeepLinkService.parseNotificationRoute({'route': route}),
+          route,
+          reason: route,
+        );
+      }
+
+      for (final template in <String>[
+        '/appointments/:id',
+        '/teleconsult/appointments/:appointmentId/lobby',
+        '/teleconsult/appointments/:appointmentId/consult',
+        '/period-tracker',
+      ]) {
+        expect(
+          DeepLinkService.unreachableByLinkRoutes,
+          isNot(contains(template)),
+          reason: template,
+        );
+      }
+    });
+
+    test('every appointment hydration template is a real router path', () {
+      final routerSet = routerPaths.toSet();
+      for (final route in parameterizedRoutes) {
+        expect(
+          routerSet.contains(route),
+          isTrue,
+          reason: '$route has no parameterised GoRoute behind it',
+        );
+      }
+    });
+
     test('discharge summaries resolve, list and detail', () {
       expect(
         DeepLinkService.parseNotificationRoute({
