@@ -8,15 +8,36 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const STAFF_UID = 'a6666666-6666-4666-8666-66666666fd02';
 const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const WARD_NAME = `Pharm-Indent-Ward-${RUN_SUFFIX}`;
+const CATALOG_NAME_PREFIX = `Pharm-Indent-Catalog-${RUN_SUFFIX}`;
+const INVENTORY_SKU_PREFIX = `PHARM-INDENT-${RUN_SUFFIX}`;
 
 let staffToken;
 let wardId;
+let paracetamolCatalogId;
+let salineCatalogId;
 const createdIndentIds = [];
+
+async function seedClassifiedCatalog({ name, sku, scheduleClass = null }) {
+  const catalogRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_catalog (name, is_active, tenant_id, stock_quantity, updated_at)
+     VALUES ($1, TRUE, $2::uuid, 100, NOW()) RETURNING id`,
+    name, DEFAULT_TENANT_ID,
+  );
+  const catalogId = Number(catalogRows[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO pharmacy_inventory_items
+       (tenant_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
+     VALUES ($1::uuid, $2, $3, $4, $5, FALSE)`,
+    DEFAULT_TENANT_ID, sku, name, catalogId, scheduleClass,
+  );
+  return catalogId;
+}
 
 async function cleanup() {
   if (createdIndentIds.length) {
@@ -31,6 +52,16 @@ async function cleanup() {
       wardId,
     ).catch(() => {});
   }
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_inventory_items
+      WHERE tenant_id = $1::uuid AND sku_code LIKE $2`,
+    DEFAULT_TENANT_ID, `${INVENTORY_SKU_PREFIX}-%`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog
+      WHERE tenant_id = $1::uuid AND name LIKE $2`,
+    DEFAULT_TENANT_ID, `${CATALOG_NAME_PREFIX} %`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid = $1::uuid`,
     STAFF_UID,
@@ -61,6 +92,16 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     );
     wardId = wardRows[0].id;
 
+    paracetamolCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Paracetamol 500mg`,
+      sku: `${INVENTORY_SKU_PREFIX}-PARACETAMOL`,
+      scheduleClass: 'OTC',
+    });
+    salineCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Normal Saline 500ml`,
+      sku: `${INVENTORY_SKU_PREFIX}-SALINE`,
+    });
+
     staffToken = generateTestToken('PHARMACY_STAFF', { uid: STAFF_UID });
   });
 
@@ -80,8 +121,18 @@ describe('IPD pharmacy ward-indent REST surface', () => {
         indent_type: 'pharmacy',
         notes: 'Routine ward stock replenishment',
         items: [
-          { item_name: 'Paracetamol 500mg', quantity_requested: 50, unit: 'tablets' },
-          { item_name: 'Normal Saline 500ml', quantity_requested: 10, unit: 'bottles' },
+          {
+            pharmacy_catalog_id: paracetamolCatalogId,
+            item_name: 'Paracetamol 500mg',
+            quantity_requested: 50,
+            unit: 'tablets',
+          },
+          {
+            pharmacy_catalog_id: salineCatalogId,
+            item_name: 'Normal Saline 500ml',
+            quantity_requested: 10,
+            unit: 'bottles',
+          },
         ],
       });
 
