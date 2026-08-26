@@ -154,6 +154,23 @@ CREATE TABLE IF NOT EXISTS birth_notification_serial_counter (
   next_serial INTEGER NOT NULL DEFAULT 1
 );
 
+ALTER TABLE birth_notification_serial_counter ENABLE ROW LEVEL SECURITY;
+ALTER TABLE birth_notification_serial_counter FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON birth_notification_serial_counter;
+CREATE POLICY tenant_isolation ON birth_notification_serial_counter
+  USING (
+    current_setting('app.current_tenant_id', true) IS NULL
+    OR current_setting('app.current_tenant_id', true) = ''
+    OR current_setting('app.current_tenant_id', true) = 'bypass'
+    OR tenant_id = app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id', true) IS NULL
+    OR current_setting('app.current_tenant_id', true) = ''
+    OR current_setting('app.current_tenant_id', true) = 'bypass'
+    OR tenant_id = app_current_tenant_id_uuid()
+  );
+
 COMMENT ON TABLE birth_notifications IS
   'CRS Form 1 birth-notification register — one row per institutional birth, sourced from maternity delivery/newborn records; 21-day statutory reporting window via generated reporting_due_date.';
 COMMENT ON COLUMN birth_notifications.reporting_due_date IS
