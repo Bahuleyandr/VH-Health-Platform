@@ -67,6 +67,10 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'forecast' },
   { slug: 'gamification' },
   { slug: 'gdpr' },
+  // Reaudit 2026-08-25 forward slate (G1/G2/G4).
+  { slug: 'birth-notification' },
+  { slug: 'gst-einvoice' },
+  { slug: 'public-health-register' },
   { slug: 'governance' },
   { slug: 'health' },
   { slug: 'hl7' },

@@ -35,6 +35,10 @@ import {
 } from '../notification/smsProviderConfigService.js';
 import { resolveSmsProviderContext } from '../../utils/notifications/smsProviders/index.js';
 import { isFacilityAssetsEnvEnabled } from '../facility/facilityAssetService.js';
+import { isBirthNotificationEnvEnabled } from '../clinical/birthNotificationService.js';
+import { isPublicHealthRegistersEnvEnabled } from '../publicHealth/publicHealthService.js';
+import { isGstEInvoiceEnvEnabled } from '../billing/gstEInvoiceService.js';
+import { isSiemExportSchedulerEnvEnabled } from '../security/siemExportSchedulerService.js';
 import { livekitEnabled } from '../telemedicine/teleconsultProvisioningService.js';
 import { listTenants } from '../tenant/tenantService.js';
 import {
@@ -43,6 +47,9 @@ import {
   getAmbulanceGpsTrackingSettings,
   getAnalyticsBiSettings,
   getFacilityAssetsSettings,
+  getBirthNotificationSettings,
+  getPublicHealthRegistersSettings,
+  getGstEInvoiceSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -106,6 +113,12 @@ export function integrationGateEnvFacts() {
       UHI_CONFIG.subscriberId && UHI_CONFIG.signingPrivateKey && UHI_CONFIG.signingKeyId,
     ),
     facility_assets_enabled: isFacilityAssetsEnvEnabled(),
+    // Reaudit 2026-08-25 forward slate (G1/G2/G3/G4) — env kill switches,
+    // presence booleans only. Each ANDs a per-tenant settings flag below.
+    birth_notification_enabled: isBirthNotificationEnvEnabled(),
+    public_health_registers_enabled: isPublicHealthRegistersEnvEnabled(),
+    gst_einvoice_enabled: isGstEInvoiceEnvEnabled(),
+    siem_export_scheduler_enabled: isSiemExportSchedulerEnvEnabled(),
     // Read-only env facts (operator/hardware-blocked dark stack).
     livekit_enabled: livekitEnabled(),
     file_scan_policy: resolveFileScanPolicy(),
@@ -229,6 +242,69 @@ async function facilityAssetsGate(tenantId) {
     effective,
     blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
     layers: { env: envEnabled, tenant_setting: settings.enabled === true },
+  };
+}
+
+// ── Reaudit 2026-08-25 forward slate gates (G1/G2/G3/G4) ────────────────────
+// Same two-layer contract as facility_assets: env kill switch AND per-tenant
+// settings flag, ANDed, fail-closed. Truth reused from each service's own env
+// predicate + the tenantSettingsService accessor it consults.
+
+async function birthNotificationGate(tenantId) {
+  const envEnabled = isBirthNotificationEnvEnabled();
+  const settings = await getBirthNotificationSettings(tenantId);
+  const effective = envEnabled && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
+    layers: { env: envEnabled, tenant_setting: settings.enabled === true },
+  };
+}
+
+async function publicHealthRegistersGate(tenantId) {
+  const envEnabled = isPublicHealthRegistersEnvEnabled();
+  const settings = await getPublicHealthRegistersSettings(tenantId);
+  const effective = envEnabled && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
+    layers: { env: envEnabled, tenant_setting: settings.enabled === true },
+  };
+}
+
+async function gstEInvoiceGate(tenantId) {
+  const envEnabled = isGstEInvoiceEnvEnabled();
+  const settings = await getGstEInvoiceSettings(tenantId);
+  const effective = envEnabled && settings.enabled === true;
+  return {
+    effective,
+    blocking_layer: effective ? null : (envEnabled ? 'tenant_setting' : 'env'),
+    layers: { env: envEnabled, tenant_setting: settings.enabled === true },
+  };
+}
+
+// SIEM export delivery (BES-1). The engine and its migrations (448/449/622)
+// exist; this gate covers the scheduler wiring added in the forward slate:
+// env SIEM_EXPORT_SCHEDULER_ENABLED AND a per-tenant active siem_export_targets
+// row (the register IS the per-tenant enable — the console shows no flip
+// button, like lis_listeners). The live SIEM endpoint/creds are owner-side.
+async function siemExportGate(tenantId) {
+  const envEnabled = isSiemExportSchedulerEnvEnabled();
+  const activeTargets = await knowledgeContentCount(
+    `SELECT COUNT(*)::int AS count
+       FROM siem_export_targets
+      WHERE tenant_id = $1::uuid AND status = 'active'`,
+    tenantId,
+  );
+  const contentOn = activeTargets > 0;
+  const effective = envEnabled && contentOn;
+  let blockingLayer = null;
+  if (!effective) blockingLayer = !envEnabled ? 'env' : 'provider_config';
+  return {
+    effective,
+    blocking_layer: blockingLayer,
+    layers: { env: envEnabled, provider_config: contentOn },
+    active_targets: activeTargets,
   };
 }
 
@@ -534,6 +610,14 @@ async function tenantGates(tenant) {
     drugKbGate(tenant),
     lisListenersGate(tenant),
   ]);
+  // Reaudit 2026-08-25 forward slate (G1/G2/G3/G4) — separate await so the
+  // blocks above keep their positional destructure untouched for sibling merges.
+  const [birthNotification, publicHealthRegisters, gstEInvoice, siemExport] = await Promise.all([
+    birthNotificationGate(tenantId),
+    publicHealthRegistersGate(tenantId),
+    gstEInvoiceGate(tenantId),
+    siemExportGate(tenantId),
+  ]);
   // Consistency belt: the standalone accessors and the resolver views should
   // agree; the resolver wins, but log if they ever diverge (cache skew).
   if (paymentGateway.layers.tenant_setting !== paymentSetting.enabled
@@ -562,6 +646,11 @@ async function tenantGates(tenant) {
       lis_listeners: lisListeners,
 
       analytics_bi: analyticsBi,
+      // Reaudit 2026-08-25 forward slate (G1/G2/G3/G4).
+      birth_notification: birthNotification,
+      public_health_registers: publicHealthRegisters,
+      gst_einvoice: gstEInvoice,
+      siem_export: siemExport,
     },
   };
 }
