@@ -92,7 +92,9 @@ CREATE TABLE IF NOT EXISTS birth_notifications (
   -- Statutory 21-day window: notification is due within 21 days of birth.
   -- reporting_due_date is a GENERATED column so overdue queries are trivial
   -- and the deadline can never drift from date_of_birth.
-  reporting_due_date          DATE GENERATED ALWAYS AS (date_of_birth + INTERVAL '21 days') STORED,
+  -- date + integer adds days and stays DATE-typed (date + interval would yield
+  -- a timestamp and mismatch this column's declared type).
+  reporting_due_date          DATE GENERATED ALWAYS AS (date_of_birth + 21) STORED,
   notified_to_registrar_at    TIMESTAMPTZ,
   registrar_office            VARCHAR(160),
   registrar_acknowledgement_no VARCHAR(60),
