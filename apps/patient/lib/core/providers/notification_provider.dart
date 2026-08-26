@@ -1,16 +1,30 @@
 // lib/core/providers/notification_provider.dart
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 
 typedef NotificationFeedFetcher = Future<dynamic> Function();
+typedef NotificationCachedFeedFetcher = Future<dynamic> Function();
+
+Future<dynamic> _loadCachedNotificationFeed() async {
+  return (await ApiCacheManager.load('/notifications/my'))?.data;
+}
 
 class NotificationProvider extends ChangeNotifier {
-  NotificationProvider({NotificationFeedFetcher? feedFetcher})
-    : _feedFetcher = feedFetcher;
+  factory NotificationProvider({
+    NotificationFeedFetcher? feedFetcher,
+    NotificationCachedFeedFetcher? cachedFeedFetcher,
+  }) => NotificationProvider._(
+    feedFetcher,
+    cachedFeedFetcher ?? _loadCachedNotificationFeed,
+  );
+
+  NotificationProvider._(this._feedFetcher, this._cachedFeedFetcher);
 
   final NotificationFeedFetcher? _feedFetcher;
+  final NotificationCachedFeedFetcher _cachedFeedFetcher;
   WebSocketProvider? _webSocketSource;
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
@@ -49,10 +63,28 @@ class NotificationProvider extends ChangeNotifier {
   void mergeFromWebSocket(WebSocketProvider wsProv) {
     final pending = wsProv.wsNotifications;
     if (pending.isEmpty) return;
-    _unreadCount += pending.length;
+    _setUnreadCount(_unreadCount + pending.length);
     wsProv.clearNotifications();
+  }
+
+  void _setUnreadCount(int value) {
+    final next = value < 0 ? 0 : value;
+    if (_unreadCount == next) return;
+    _unreadCount = next;
     notifyListeners();
   }
+
+  /// Reconcile the badge from a server or encrypted-cache feed envelope.
+  /// The backend's aggregate `unread_count` wins over counting the paginated
+  /// first page; list counting remains a compatibility fallback.
+  bool reconcileFromFeed(dynamic data) {
+    final count = _unreadCountFromFeed(data);
+    if (count == null) return false;
+    _setUnreadCount(count);
+    return true;
+  }
+
+  void markOneReadLocally() => _setUnreadCount(_unreadCount - 1);
 
   /// Fetch unread notifications for the authenticated user.
   ///
@@ -60,36 +92,33 @@ class NotificationProvider extends ChangeNotifier {
   /// sent to the backend — the `/my` endpoint derives the user from the JWT.
   Future<void> fetchUnreadCount(String phone) async {
     if (phone.isEmpty || phone == 'guest') {
-      _unreadCount = 0;
-      notifyListeners();
+      _setUnreadCount(0);
       return;
     }
 
     try {
       if (_feedFetcher != null) {
-        final notifications = _normalizeNotifications(await _feedFetcher());
-        _unreadCount = notifications.where((n) => n['is_read'] == false).length;
-        notifyListeners();
-        return;
+        if (reconcileFromFeed(await _feedFetcher())) return;
+      } else {
+        final response = await ApiClient.get(
+          '/notifications/my',
+          timeout: const Duration(seconds: 10),
+        );
+
+        if (response.isSuccess && reconcileFromFeed(response.data)) return;
+
+        debugPrint('❌ Failed to fetch notifications: ${response.statusCode}');
       }
-
-      final response = await ApiClient.get(
-        '/notifications/my',
-        timeout: const Duration(seconds: 10),
-      );
-
-      if (response.isSuccess) {
-        final notifications = _normalizeNotifications(response.data);
-        _unreadCount = notifications.where((n) => n['is_read'] == false).length;
-        notifyListeners();
-        return;
-      }
-
-      debugPrint('❌ Failed to fetch notifications: ${response.statusCode}');
     } catch (e) {
       debugPrint('❌ Error fetching unread notifications: $e');
-      _unreadCount = 0;
-      notifyListeners();
+    }
+
+    try {
+      reconcileFromFeed(await _cachedFeedFetcher());
+    } catch (e) {
+      // Preserve the last known badge when neither server nor encrypted cache
+      // can answer. Resetting to zero lies about unread clinical updates.
+      debugPrint('❌ Error loading cached unread notifications: $e');
     }
   }
 
@@ -104,8 +133,7 @@ class NotificationProvider extends ChangeNotifier {
       );
 
       if (response.isSuccess) {
-        _unreadCount = 0;
-        notifyListeners();
+        _setUnreadCount(0);
       } else {
         debugPrint(
           '❌ Failed to mark notifications as read: ${response.statusCode}',
@@ -122,6 +150,32 @@ class NotificationProvider extends ChangeNotifier {
   }
 
   Future<void> refreshBadgeAfterPush(String phone) => fetchUnreadCount(phone);
+
+  int? _unreadCountFromFeed(dynamic data) {
+    if (data is Map) {
+      final aggregate = data['unread_count'];
+      final parsed = aggregate is num
+          ? aggregate.toInt()
+          : int.tryParse(aggregate?.toString() ?? '');
+      if (parsed != null && parsed >= 0) return parsed;
+      if (data['notifications'] is List) {
+        return _normalizeNotifications(data).where(_isUnread).length;
+      }
+      if (data['data'] != null) return _unreadCountFromFeed(data['data']);
+      return null;
+    }
+    if (data is List) {
+      return _normalizeNotifications(data).where(_isUnread).length;
+    }
+    return null;
+  }
+
+  bool _isUnread(Map<String, dynamic> notification) {
+    if (notification.containsKey('is_read')) {
+      return notification['is_read'] == false;
+    }
+    return notification['read'] == false;
+  }
 
   List<Map<String, dynamic>> _normalizeNotifications(dynamic data) {
     final List<dynamic> notifications;

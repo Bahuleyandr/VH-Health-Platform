@@ -16,7 +16,9 @@ import {
 } from './terminalRejectionCodes.js';
 import {
   DELIVERY_CHANNELS_PAYLOAD_KEY,
+  PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
   REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
+  prePersistedFeedNotificationId,
   resolveChannelsForOutboxRow,
 } from './tenantNotificationChannels.js';
 
@@ -26,6 +28,7 @@ function payloadObject(row) {
   if (!row?.payload || typeof row.payload !== 'object' || Array.isArray(row.payload)) return {};
   const {
     [DELIVERY_CHANNELS_PAYLOAD_KEY]: _deliveryChannels,
+    [PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY]: _feedNotificationId,
     [REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY]: _replayChainStartedAt,
     ...payload
   } = row.payload;
@@ -365,6 +368,7 @@ export async function deliverNotificationOutboxRow(row) {
         data: payloadObject(row),
         type: row.type || 'general',
         providerReceiptMode: true,
+        prePersistedInAppNotificationId: prePersistedFeedNotificationId(row),
         smsContext: {
           tenantId: decision.tenantId,
           templateVersion: row.template_version || null,

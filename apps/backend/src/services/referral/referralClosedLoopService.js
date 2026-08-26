@@ -24,6 +24,10 @@ import {
   resolveCurrentHumanActorTx,
   resolvePathwayTaskOwnerTx,
 } from '../workflow/workflowHumanOwnerService.js';
+import { recordPatientFeedNotificationWithReceipt } from '../../utils/notifications/patientNotificationFeed.js';
+import {
+  PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+} from '../../utils/notifications/tenantNotificationChannels.js';
 import referralService from './referralService.js';
 import { assertReferralFacilityUsable } from './referralFacilityService.js';
 
@@ -545,12 +549,31 @@ async function queuePatientNotificationTx(tx, tenantId, referral, responseId) {
   ) return null;
 
   const patients = await tx.$queryRawUnsafe(
-    `SELECT phone FROM users
+    `SELECT id, phone FROM users
       WHERE tenant_id = $1::uuid AND uid = $2::uuid
       LIMIT 1`,
     tenantId,
     referral.patient_uid,
   );
+  const feedReceipt = await recordPatientFeedNotificationWithReceipt({
+    client: tx,
+    tenantId,
+    userId: patients[0]?.id || null,
+    uid: String(referral.patient_uid),
+    phone: patients[0]?.phone || null,
+    title: 'Referral update available',
+    body: 'Open VH Health to securely view your referral update.',
+    type: 'referral_response_ready',
+    data: {
+      referral_id: String(referral.id),
+      response_id: String(responseId),
+      route: '/portal/referrals',
+    },
+    context: 'referral-response-ready',
+  });
+  if (!feedReceipt.written) {
+    throw new Error('Referral response notification feed insert was not confirmed');
+  }
   const outbox = await tx.$queryRawUnsafe(
     `INSERT INTO notification_outbox
        (tenant_id, type, recipient_id, recipient_phone, title, body,
@@ -562,13 +585,20 @@ async function queuePatientNotificationTx(tx, tenantId, referral, responseId) {
         jsonb_build_object(
           'tenant_id', $1::text,
           'type', 'referral_response_ready',
-          'route', '/portal/referrals'
+          'route', '/portal/referrals',
+          'referral_id', $4::text,
+          'response_id', $5::text,
+          $6::text, $7::integer
         ),
         'PENDING', NOW())
      RETURNING id`,
     tenantId,
     referral.patient_uid,
     patients[0]?.phone || null,
+    String(referral.id),
+    String(responseId),
+    PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+    feedReceipt.notificationId,
   );
   await tx.$queryRawUnsafe(
     `INSERT INTO referral_patient_notifications

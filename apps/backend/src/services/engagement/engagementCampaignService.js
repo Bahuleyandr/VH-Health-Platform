@@ -4,6 +4,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import { recordPatientFeedNotificationWithReceipt } from '../../utils/notifications/patientNotificationFeed.js';
+import {
+  PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+} from '../../utils/notifications/tenantNotificationChannels.js';
 
 export const CAMPAIGN_TYPES = Object.freeze([
   'appointment_recall',
@@ -1135,50 +1139,91 @@ export async function queueDueCampaignRecipients({ tenantId, campaignId, limit =
       const variables = sanitizeTemplateVariables(row.variables || {}, campaign.allowed_variables || TEMPLATE_ALLOWED_VARIABLES);
       const title = renderTemplateString(campaign.title_template, variables).slice(0, 500);
       const body = renderTemplateString(campaign.message_template, variables).slice(0, 4000);
-      const queuedOutbox = await notificationOutbox.queue({
-        type: 'engagement_campaign',
-        recipientId: verdict.user_id,
-        recipientPhone: verdict.contact_route,
-        title,
-        body,
-        data: {
-          tenant_id: tid,
-          channels: [row.channel],
-          campaign_id: row.campaign_id,
-          campaign_recipient_id: row.id,
-          patient_uid: row.patient_uid,
-          consent_id: verdict.consent_id,
-          template_kind: campaign.campaign_type,
-        },
+      const committed = await setTenantTx(tid, async (tx) => {
+        const claimRows = await tx.$queryRawUnsafe(
+          `SELECT status
+             FROM engagement_campaign_recipients
+            WHERE tenant_id = $1::uuid
+              AND campaign_id = $2::bigint
+              AND id = $3::bigint
+            LIMIT 1
+            FOR UPDATE`,
+          tid,
+          campaignId,
+          row.id,
+        );
+        if (claimRows[0]?.status !== 'eligible') return false;
+
+        const feedReceipt = await recordPatientFeedNotificationWithReceipt({
+          client: tx,
+          tenantId: tid,
+          userId: verdict.user_id,
+          uid: String(row.patient_uid),
+          phone: verdict.contact_route,
+          title,
+          body,
+          type: 'engagement_campaign',
+          data: {
+            campaign_id: String(row.campaign_id),
+            campaign_recipient_id: String(row.id),
+            template_kind: campaign.campaign_type,
+          },
+          context: 'engagement-campaign',
+        });
+        if (!feedReceipt.written) {
+          throw new Error('Engagement campaign feed insert was not confirmed');
+        }
+
+        const queuedOutbox = await notificationOutbox.queue({
+          tenantId: tid,
+          type: 'engagement_campaign',
+          recipientId: verdict.user_id,
+          recipientPhone: verdict.contact_route,
+          title,
+          body,
+          data: {
+            tenant_id: tid,
+            channels: [row.channel],
+            campaign_id: row.campaign_id,
+            campaign_recipient_id: row.id,
+            patient_uid: row.patient_uid,
+            consent_id: verdict.consent_id,
+            template_kind: campaign.campaign_type,
+            [PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY]: feedReceipt.notificationId,
+          },
+        }, { tx, strict: true });
+
+        if (!queuedOutbox?.id) {
+          throw new Error('notification_outbox queue returned no id');
+        }
+
+        await tx.$executeRawUnsafe(
+          `UPDATE engagement_campaign_recipients
+              SET status = 'queued',
+                  outbox_id = $4::int,
+                  consent_id = $5::int,
+                  last_consent_checked_at = NOW(),
+                  queued_at = NOW(),
+                  delivery_metadata = jsonb_build_object(
+                    'outbox_type', 'engagement_campaign',
+                    'channel', $6::text,
+                    'feed_notification_id', $7::integer
+                  ),
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid
+              AND campaign_id = $2::bigint
+              AND id = $3::bigint`,
+          tid,
+          campaignId,
+          row.id,
+          queuedOutbox.id,
+          verdict.consent_id,
+          row.channel,
+          feedReceipt.notificationId,
+        );
+        return true;
       });
-
-      if (!queuedOutbox?.id) {
-        throw new Error('notification_outbox queue returned no id');
-      }
-
-      await setTenantTx(tid, (tx) => tx.$executeRawUnsafe(
-        `UPDATE engagement_campaign_recipients
-            SET status = 'queued',
-                outbox_id = $4::int,
-                consent_id = $5::int,
-                last_consent_checked_at = NOW(),
-                queued_at = NOW(),
-                delivery_metadata = jsonb_build_object(
-                  'outbox_type', 'engagement_campaign',
-                  'channel', $6::text
-                ),
-                updated_at = NOW()
-          WHERE tenant_id = $1::uuid
-            AND campaign_id = $2::bigint
-            AND id = $3::bigint`,
-        tid,
-        campaignId,
-        row.id,
-        queuedOutbox.id,
-        verdict.consent_id,
-        row.channel,
-      ));
-      queued += 1;
+      if (committed) queued += 1;
     } catch (err) {
       failed += 1;
       logger.warn('Failed to queue engagement campaign recipient', {

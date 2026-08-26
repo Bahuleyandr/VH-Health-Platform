@@ -53,7 +53,10 @@ jobs:
       - name: Staff role generated-contract drift
         run: node scripts/generate-staff-role-contract.mjs --check
 
-      # Same class and placement as the two gates above: pure-Node, no
+      - name: Patient notification generated-contract drift
+        run: node scripts/generate-patient-notification-contract.mjs --check
+
+      # Same class and placement as the generated-contract gates above: pure-Node, no
       # toolchain, and it fails on an objective fact rather than a judgement.
       # Structural key parity only — hi/ta/te must carry every key `en`
       # declares (ml is a declared-partial locale and is exempt; a short,

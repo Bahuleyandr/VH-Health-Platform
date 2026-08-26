@@ -70,6 +70,7 @@ describe('scheduled notification durable outbox handoff', () => {
       // recordPatientFeedNotification resolves the recipient's identity
       // columns before writing the in-app row.
       .mockResolvedValueOnce([{ id: 77, uid: PATIENT_UID, phone: '+919876500077' }])
+      .mockResolvedValueOnce([{ id: 7001 }])
       .mockResolvedValueOnce([{ id: 41n, status: 'queued', sent_at: null }]);
 
     const result = await processPendingScheduledNotifications({ tenantId: TENANT_ID });
@@ -101,13 +102,18 @@ describe('scheduled notification durable outbox handoff', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([dueNotification])
       .mockResolvedValueOnce([{ id: 77, uid: PATIENT_UID, phone: '+919876500077' }])
+      .mockResolvedValueOnce([{ id: 7001 }])
       .mockResolvedValueOnce([]);
 
     await processPendingScheduledNotifications({ tenantId: TENANT_ID });
 
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
-    const [sql, ...params] = executeRawUnsafeMock.mock.calls[0];
+    const feedWrite = queryRawUnsafeMock.mock.calls.find(
+      ([sql]) => String(sql).includes('INSERT INTO notifications'),
+    );
+    expect(feedWrite).toBeDefined();
+    const [sql, ...params] = feedWrite;
     expect(String(sql)).toContain('INSERT INTO notifications');
+    expect(String(sql)).toContain('RETURNING id');
     // tenant_id bound explicitly ($8), never left to the column DEFAULT — a
     // defaulted row lands on the literal default tenant and is invisible to
     // the recipient, whose inbox reader filters on tenant_id.

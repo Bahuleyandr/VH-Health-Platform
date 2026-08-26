@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth/core/config/patient_notification_contract.g.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
 /// Maps bounded external inputs to GoRouter paths for deep linking.
@@ -215,61 +216,14 @@ class DeepLinkService {
     }
 
     // Infer route from notification type
-    final rawType = data['type'];
-    final type = rawType is String ? rawType.toUpperCase() : null;
-    switch (type) {
-      case 'APPOINTMENT':
-      case 'APPOINTMENT_REMINDER':
-      case 'APPOINTMENT_CONFIRMED':
-      case 'APPOINTMENT_CANCELLED':
-        return '/appointments';
-      case 'PHARMACY_ORDER':
-      case 'PHARMACY_ORDER_UPDATE':
-      case 'ORDER_DISPATCHED':
-      case 'ORDER_DELIVERED':
-        return '/pharmacy';
-      case 'INVESTIGATION':
-      case 'INVESTIGATION_RESULT':
-      case 'INVESTIGATION_RESULT_READY':
-      case 'INVESTIGATION_BOOKING':
-      case 'COLLECTOR_DISPATCHED':
-        return '/investigations';
-      case 'LAB_RESULT_READY':
-      case 'LAB_RESULT_CORRECTED':
-      case 'RESULTS_READY':
-        return '/portal/lab-results';
-      case 'DIAGNOSTIC_RESULT_READY':
-        return '/portal/diagnostic-results';
-      case 'REFERRAL_RESPONSE_READY':
-      case 'REFERRAL_UPDATE':
-        return '/portal/referrals';
-      case 'PRESCRIPTION':
-      case 'PRESCRIPTION_READY':
-      case 'DOCUMENT_UPLOADED':
-        return '/health';
-      case 'BILLING':
-      case 'BILL_READY':
-      case 'PAYMENT_LINK':
-        return '/portal/bills';
-      case 'SECURE_MESSAGE':
-      case 'MESSAGE':
-      case 'PORTAL_MESSAGE':
-      case 'PATIENT_MESSAGE':
-        return '/portal/messages';
-      case 'SOS':
-      case 'SOS_ALERT':
-        return '/home';
-      case 'FEEDBACK':
-      case 'FEEDBACK_REPLY':
-        return '/feedback-history';
-      case 'STEP_REWARD':
-      case 'STEP_BADGE':
-        return '/steps';
-      case 'MEDICATION_REMINDER':
-        return '/reminders';
-      default:
-        if (kDebugMode) debugPrint('DeepLinkService: unknown type: $type');
-        return null;
+    final contract = patientNotificationContractFor(data['type']);
+    if (contract != null) {
+      final route = contract.resolveRoute(data);
+      if (_isAllowed(route)) return route;
     }
+    if (kDebugMode) {
+      debugPrint('DeepLinkService: unknown notification type');
+    }
+    return null;
   }
 }

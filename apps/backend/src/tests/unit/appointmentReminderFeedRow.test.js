@@ -19,13 +19,11 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '55555555-5555-4555-8555-555555555555';
 
 const queryRawUnsafeMock = jest.fn();
-const executeRawUnsafeMock = jest.fn();
 const outboxQueueMock = jest.fn();
 const getTenantSettingsMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 const prismaDouble = {
   $queryRawUnsafe: queryRawUnsafeMock,
-  $executeRawUnsafe: executeRawUnsafeMock,
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -65,25 +63,30 @@ const APPOINTMENT = Object.freeze({
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
-  executeRawUnsafeMock.mockReset();
   outboxQueueMock.mockReset();
   getTenantSettingsMock.mockReset();
   loggerMock.warn.mockReset();
-  executeRawUnsafeMock.mockResolvedValue(1);
   outboxQueueMock.mockResolvedValue({ id: 900, status: 'PENDING', duplicate: false });
   getTenantSettingsMock.mockResolvedValue({});
-  queryRawUnsafeMock.mockResolvedValue([
-    { id: 41, uid: PATIENT_UID, phone: '+919876500041' },
-  ]);
+  queryRawUnsafeMock.mockImplementation(async (sql) => (
+    /INSERT\s+INTO\s+notifications/i.test(String(sql))
+      ? [{ id: 501 }]
+      : [{ id: 41, uid: PATIENT_UID, phone: '+919876500041' }]
+  ));
 });
+
+function feedInsertCall() {
+  return queryRawUnsafeMock.mock.calls.find(
+    ([sql]) => /INSERT\s+INTO\s+notifications/i.test(String(sql)),
+  );
+}
 
 describe('appointment reminder feed row', () => {
   it('writes the in-app row the privacy-stripped reminder push points at', async () => {
     await queueAppointmentReminderPush(APPOINTMENT, 24);
 
     expect(outboxQueueMock).toHaveBeenCalledTimes(1);
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
-    const [sql, ...params] = executeRawUnsafeMock.mock.calls[0];
+    const [sql, ...params] = feedInsertCall();
     expect(String(sql)).toContain('INSERT INTO notifications');
     expect(String(sql)).toContain('$8::uuid');
     expect(params[7]).toBe(TENANT_ID);
@@ -98,7 +101,7 @@ describe('appointment reminder feed row', () => {
   it('carries the same copy the push would have carried', async () => {
     await queueAppointmentReminderPush(APPOINTMENT, 1);
 
-    const [, ...params] = executeRawUnsafeMock.mock.calls[0];
+    const [, ...params] = feedInsertCall();
     const [queued] = outboxQueueMock.mock.calls[0];
     expect(params[3]).toBe(queued.title);
     expect(params[4]).toBe(queued.body);
@@ -120,7 +123,7 @@ describe('appointment reminder feed row', () => {
     await queueAppointmentReminderPush(APPOINTMENT, 24);
 
     expect(outboxQueueMock).toHaveBeenCalledTimes(1);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(feedInsertCall()).toBeUndefined();
   });
 
   it('does not write a second row when the intent was already queued', async () => {
@@ -128,21 +131,26 @@ describe('appointment reminder feed row', () => {
 
     await queueAppointmentReminderPush(APPOINTMENT, 24);
 
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(feedInsertCall()).toBeUndefined();
   });
 
   it('does not write a row when the intent was never recorded', async () => {
     outboxQueueMock.mockResolvedValue(null);
 
     await expect(queueAppointmentReminderPush(APPOINTMENT, 24)).resolves.toBeNull();
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(feedInsertCall()).toBeUndefined();
   });
 
   // The reminder sweep treats a rejection from this function as a channel
   // failure (REMINDER_CHANNEL_RECORD_FAILED). The feed-row tail must never be
   // what causes that.
   it('still returns the outbox row when the feed-row write fails', async () => {
-    executeRawUnsafeMock.mockRejectedValue(new Error('deadlock detected'));
+    queryRawUnsafeMock.mockImplementation(async (sql) => {
+      if (/INSERT\s+INTO\s+notifications/i.test(String(sql))) {
+        throw new Error('deadlock detected');
+      }
+      return [{ id: 41, uid: PATIENT_UID, phone: '+919876500041' }];
+    });
 
     await expect(queueAppointmentReminderPush(APPOINTMENT, 24))
       .resolves.toMatchObject({ id: 900 });
@@ -155,6 +163,6 @@ describe('appointment reminder feed row', () => {
       .resolves.toMatchObject({ id: 900 });
     // Fails toward writing the row: a duplicate is cosmetic, a missing one is
     // the dead-end buzz this exists to remove.
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(feedInsertCall()).toBeDefined();
   });
 });

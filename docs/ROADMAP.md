@@ -968,121 +968,39 @@ default.
   direct them to the NPS / service-recovery surface
   (`npsService.submitNpsResponse`), which is wired end to end.
 
-## Explicitly parked (re-audit lane J, 2026-08-24 — patient notification dead-ends)
+## Remediated (FLOW-01, 2026-08-26 — patient notification dead-ends)
 
-Three patient-facing notification paths reach the patient and then stop short of
-a destination. They were found by the two source gates that now hold the line —
-`src/tests/unit/patientPushFeedRowCensus.test.js` (every mechanism that can send
-a patient a privacy-stripped push must also write the in-app row it points at)
-and `src/tests/unit/patientInboxTypeRouting.test.js` (every `notifications.type`
-written for a patient must be one `_handleNotificationTap` routes). Both gates
-carry these three as an explicit, exact baseline: a fourth cannot join silently,
-and fixing one of these fails the gate until its line is removed here and there.
-They are parked rather than queued because each needs a decision or a surface
-outside the backend lane that found them. **These entries are the park; the Jest
-tables only point at them.**
+The three previously parked patient notification dead-ends are closed behind a
+single generated cross-stack type contract:
+`apps/backend/src/config/patientNotificationTypeRegistry.js` is authoritative,
+and `scripts/generate-patient-notification-contract.mjs` produces the Flutter
+action table used by both inbox taps and push deep links. CI byte-checks the
+generated file. Every type now declares its writer, persistence obligation,
+route/hydration policy, authentication and biometric policy, priority,
+delivery receipt, acknowledgement, expiry, fallback, owner, and action. Legacy
+transport aliases are translated to canonical feed types and cannot be written
+as inbox rows.
 
-Shared background, true of all three: `sendPushNotification` replaces the FCM
-payload of every NORMAL-priority message with a generic *"You have a new update.
-Open the app to view it."* landing on `/notifications`
-(`sendPushNotification.js:36-43, :116-135`). The push deliberately carries no
-readable content and no deep link, so the inbox row **is** the message, and the
-row's `type` is the only thing that turns it back into a destination.
+- **Diagnostic result ready — closed.** The release-policy transaction now
+  writes the readable `notifications` row before the outbox intent and durable
+  diagnostic receipt. Failure to confirm any one of the three aborts the whole
+  transaction. The outbox carries an internal feed-row correlation ID; the
+  drain strips it from provider payloads and receipts the already-committed row
+  instead of inserting a duplicate.
+- **Referral response ready — closed.** The signed-response transaction uses
+  the same feed/outbox/correlation pattern before writing
+  `referral_patient_notifications`. The patient journey proves exactly one
+  routed feed row, one outbox intent, and one domain receipt across replay.
+- **Engagement campaign — closed.** Every eligible campaign recipient gets a
+  readable feed row atomically with the outbox intent and recipient status.
+  The recipient row is locked before persistence so concurrent workers cannot
+  create duplicate feed rows. Campaign content is intentionally
+  `acknowledge_only`: tapping marks it read without inventing a destination the
+  operator-authored message does not promise.
 
-- **Diagnostic result ready — the push fires, the inbox row is never written.**
-  `services/diagnostics/diagnosticResultPatientNotificationService.js` inserts
-  straight into `notification_outbox` (raw SQL, inside the transaction that also
-  writes the `diagnostic_result_patient_notifications` receipt) with
-  `type = 'diagnostic_result_ready'`, the patient's uid as `recipient_id`, and a
-  payload naming `route: '/portal/diagnostic-results'`.
-
-  *What exists.* The outbox row, the drain, the push, the receipt, and — on the
-  patient side — a real destination: `'diagnostic_result_ready'` **is** a case in
-  `_handleNotificationTap` and pushes `/portal/diagnostic-results`. The type is
-  also in `TYPE_TO_PREFERENCE_KEY` (→ `results_ready`), so a tenant that
-  configures the in-app channel for results *does* get a routed row.
-
-  *What is missing.* The default. With no tenant channel configuration,
-  `resolveChannelsForOutboxRow` falls through to `legacyChannelsForOutboxRow`,
-  which returns `['push']` for any row carrying a `recipient_id` — never
-  `['inapp']` — and the drain writes a `notifications` row **only** when the
-  resolved set contains `inapp`. The service writes none itself.
-
-  *Patient-visible symptom.* The phone buzzes with "You have a new update",
-  opens `/notifications`, and there is nothing new there. The report is sitting
-  at `/portal/diagnostic-results` and nothing tells the patient so.
-
-  *Shape of the fix.* One `recordPatientFeedNotification({ type:
-  'diagnostic_result_ready', … })` next to the outbox insert (the helper is
-  non-throwing by construction, so it cannot abort the clinical write). Parked
-  because the release policy for diagnostic results is owned by the diagnostics
-  lane — the outbox insert sits behind a `releaseDelayHours()` embargo and a
-  release-state check, and adding a second patient-visible artefact to that path
-  needs that owner's sign-off, not a drive-by edit.
-
-- **Referral response ready — same shape, and no tenant setting can fix it.**
-  `services/referral/referralClosedLoopService.js` inserts into
-  `notification_outbox` with `type = 'referral_response_ready'` and payload
-  `route: '/portal/referrals'`.
-
-  *What exists.* The outbox row, the push, and the destination:
-  `'referral_response_ready'` is a case in `_handleNotificationTap` and pushes
-  `/portal/referrals`.
-
-  *What is missing.* The row, permanently. Unlike the diagnostics case,
-  `referral_response_ready` has **no entry in `TYPE_TO_PREFERENCE_KEY`**, so
-  `preferenceKey` is null and `resolveChannelsForOutboxRow` returns the legacy
-  `['push']` unconditionally. No tenant configuration exists that would make the
-  drain write the in-app row.
-
-  *Patient-visible symptom.* Identical: a content-free buzz into an empty inbox,
-  while the referral update waits unannounced at `/portal/referrals`.
-
-  *Shape of the fix.* Either `recordPatientFeedNotification({ type:
-  'referral_response_ready', … })` beside the insert, or add the type to
-  `TYPE_TO_PREFERENCE_KEY` so tenants can configure it — the second is a
-  tenant-settings surface change (a new preference key appears in the admin
-  console) and therefore a product decision, which is why this is parked with
-  the first.
-
-- **Engagement campaign — the row IS written, and it is inert on tap.** This is
-  the other shape of dead end, and the only one of the three where the patient
-  gets something in the inbox. `services/engagement/engagementCampaignService.js`
-  queues `type = 'engagement_campaign'` with `data.channels = [row.channel]`,
-  one channel per recipient row. `'inapp'` is an accepted engagement channel
-  (`ENGAGEMENT_CHANNELS`), and `resolveChannelsForOutboxRow` has a dedicated
-  branch that returns the campaign's own payload channels verbatim — so a
-  campaign sent in-app reaches `dispatch()` with `['inapp']` and the dispatcher
-  commits a `notifications` row typed `engagement_campaign`.
-
-  *What is missing.* A `case 'engagement_campaign'` in `_handleNotificationTap`.
-  Without one the row renders with its title and body and tapping it only marks
-  it read.
-
-  *Patient-visible symptom.* A campaign message that looks like every other
-  inbox item and does nothing when tapped — worst for the recall campaigns,
-  where the message is an instruction to act (`CAMPAIGN_TYPES` covers
-  `appointment_recall`, `no_show_recall`, `feedback_nps_request`,
-  `generic_follow_up_reminder`, `rpm_enrollment_reminder`) and the tap does not
-  take the patient to the thing to act on.
-
-  *Why it is not fixed here, stated accurately.* Until 2026-08-24 both gates
-  dispositioned this as "another agent's file — the engagement module owns the
-  fix". That is **no longer true**: this same working tree adds
-  `routes/engagement/engagementListQueries.js` and three engagement GET routes.
-  The honest reason is different. There are two candidate fixes and neither
-  belongs to a backend notification lane. (a) Add the `case` in the patient app —
-  out of scope for this lane, and it needs a destination decision: a campaign is
-  arbitrary operator-authored content, so there is no single screen it is "about".
-  (b) Remap the feed-row type through `TRANSPORT_TYPE_TO_FEED_TYPE` to something
-  already routed — rejected outright, because pointing every campaign at, say,
-  `/appointments` would make the tap tell the patient something the message does
-  not say. The real question is a product one: should tapping a campaign have a
-  destination at all (deep-link off `data.template_kind`, which the queue already
-  carries), or is a campaign a read-only broadcast like the operator
-  announcements the tap handler deliberately falls through? Answering that closes
-  it; guessing at it is exactly the "operator-visible string claiming behaviour
-  the code does not have" failure this re-audit exists to stop.
+`patientPushFeedRowCensus.test.js`, `patientInboxTypeRouting.test.js`, the
+registry/generator tests, dispatcher/outbox receipt tests, and the diagnostic,
+referral, and engagement journey assertions now make a regression fail closed.
 
 ## Explicitly parked (re-audit lane J, 2026-08-24 — round 4: three decisions that were not this lane's to make)
 
@@ -1559,41 +1477,14 @@ hydration, expired or revoked access, deleted appointments, encrypted offline
 fallback, response-ID mismatch, and stale async responses after a route or
 profile change.
 
-## Explicitly parked (re-audit lane L, 2026-08-25 — the offline notification badge reads zero)
+## Remediated (FLOW-01, 2026-08-26 — offline notification badge)
 
-Found while closing the offline-read class in the patient app, adjacent to the
-lane's brief rather than in it, so it is recorded rather than guessed at.
-
-`NotificationsScreen` reads `/notifications/my` through `ApiClient.cachedGet`,
-so an offline patient opening the inbox sees their notifications from the
-encrypted on-disk cache, labelled with an `OfflineBanner` as-of time.
-`NotificationProvider.fetchUnreadCount` — which drives the bottom-nav badge —
-reads the SAME path with the plain `ApiClient.get`, and its `catch` sets
-`_unreadCount = 0`
-(`lib/core/providers/notification_provider.dart`, `fetchUnreadCount`).
-
-*Patient-visible symptom.* Offline, or during a hospital outage, the badge
-disappears and reads "nothing new" while the very rows it counts are sitting in
-the cache one tap away. Zero is not "unknown" — it is a specific claim the app
-cannot support, and it is the claim most likely to stop a patient from opening
-the screen that does have their unread results in it.
-
-*Why it is parked rather than fixed here.* Two reasons, both about not making a
-worse fix. First, the right offline value is a product decision, not a code
-one: a stale count is truthful only if the surface says what it is as-of, and
-the badge is a bare number with nowhere to say that — the alternatives are a
-stale number, a dimmed/indeterminate badge, or hiding it, and picking one is a
-design call. Second, `fetchUnreadCount` is the only remaining plain-client read
-of a path another screen caches (checked exhaustively: every other
-`ApiClient.cachedGet` path in `lib/` has no plain-`get` sibling), and it sits on
-the app's realtime badge path, which
-`test/core/providers/notification_badge_realtime_test.dart` pins — switching it
-to the caching client also pulls the encrypted cache into that widget's test
-async, which is exactly the change that must be made deliberately rather than
-in passing.
-
-*Shape of the fix.* Route `fetchUnreadCount` through the same cache entry
-(`ApiClient.cachedGet('/notifications/my')`), keep the count derived from the
-cached rows on failure instead of forcing zero, and decide how the badge
-signals "as of your last sync". The `_feedFetcher` seam already on the provider
-is where a test would inject it.
+`NotificationProvider.fetchUnreadCount` now prefers the backend's aggregate
+`unread_count` over counting a paginated first page, falls back to the encrypted
+`/notifications/my` cache when the server cannot answer, and preserves the last
+known count when neither source is available. It no longer converts unknown
+state into a false zero. Fresh/cached inbox loads and successful per-row
+mark-read actions reconcile the shared badge provider, while realtime events
+continue to merge through the existing WebSocket binding. Focused tests pin
+aggregate precedence, encrypted-cache fallback, last-known preservation,
+legacy feed compatibility, and bounded local decrements.

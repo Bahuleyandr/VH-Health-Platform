@@ -166,10 +166,9 @@ describe('in-app channel binds tenant_id explicitly', () => {
 
   // The outbox drain re-enters dispatch() with the OUTBOX ROW's type. For an
   // appointment reminder that type is the transport/template identity
-  // `appointment_reminder_24h`, which is NOT a case in the patient app's inbox
-  // tap handler — so a tenant that configured `inapp` for reminders got a row
-  // that rendered and went nowhere when tapped. The row must carry the type
-  // the handler routes.
+  // `appointment_reminder_24h`, which is a transport alias rather than a
+  // canonical action in the generated patient contract. The row must carry
+  // the canonical inbox type.
   it('writes the routed inbox type for a suffixed reminder transport type', async () => {
     mockPrisma.$queryRawUnsafe.mockResolvedValue([userRow(TENANT)]);
 
@@ -199,6 +198,63 @@ describe('in-app channel binds tenant_id explicitly', () => {
     }));
 
     expect(inAppInsertCall()[6]).toBe('lab_result_ready');
+  });
+
+  it('receipts a matching precommitted feed row without inserting a duplicate', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([userRow(TENANT)])
+      .mockResolvedValueOnce([{ id: 731 }]);
+
+    const result = await runInTenantContext(TENANT, () => dispatch({
+      userId: '41',
+      title: 'New report available',
+      body: 'Open VH Health to securely view your latest report.',
+      channels: ['inapp'],
+      type: 'diagnostic_result_ready',
+      providerReceiptMode: true,
+      prePersistedInAppNotificationId: 731,
+    }));
+
+    expect(result.inapp).toEqual({
+      outcome: 'acknowledged',
+      providerReference: 'notification:731',
+      providerCode: 'precommitted',
+      evidence: { notification_id: '731', persistence: 'precommitted' },
+    });
+    expect(inAppInsertCall()).toBeUndefined();
+    const verification = mockPrisma.$queryRawUnsafe.mock.calls[1];
+    expect(String(verification[0])).toMatch(/AND type = \$5::text[\s\S]*AND title = \$6::text[\s\S]*AND body = \$7::text/);
+    expect(verification.slice(1)).toEqual([
+      731,
+      TENANT,
+      41,
+      userRow(TENANT).uid,
+      'diagnostic_result_ready',
+      'New report available',
+      'Open VH Health to securely view your latest report.',
+    ]);
+  });
+
+  it('fails uncertain when a feed correlation does not match the intended row', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([userRow(TENANT)])
+      .mockResolvedValueOnce([]);
+
+    const result = await runInTenantContext(TENANT, () => dispatch({
+      userId: '41',
+      title: 'New report available',
+      body: 'Open VH Health to securely view your latest report.',
+      channels: ['inapp'],
+      type: 'diagnostic_result_ready',
+      providerReceiptMode: true,
+      prePersistedInAppNotificationId: 731,
+    }));
+
+    expect(result.inapp).toMatchObject({
+      outcome: 'uncertain',
+      providerCode: 'inapp_commit_failed',
+    });
+    expect(inAppInsertCall()).toBeUndefined();
   });
 });
 

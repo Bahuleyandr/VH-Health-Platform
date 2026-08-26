@@ -620,11 +620,16 @@ d('diagnostic result action pathway', () => {
       (tx) => tx.$queryRawUnsafe(
         `SELECT receipt.generation_id, receipt.notification_kind,
                 receipt.policy_version, outbox.type, outbox.title,
-                outbox.body, outbox.payload
+                outbox.body, outbox.payload,
+                feed.id AS feed_id, feed.type AS feed_type,
+                feed.data AS feed_data
            FROM diagnostic_result_patient_notifications AS receipt
            JOIN notification_outbox AS outbox
              ON outbox.tenant_id = receipt.tenant_id
             AND outbox.id = receipt.notification_outbox_id
+           JOIN notifications AS feed
+             ON feed.tenant_id = receipt.tenant_id
+            AND feed.id = (outbox.payload->>'__feed_notification_id')::integer
           WHERE receipt.tenant_id = $1::uuid
             AND receipt.generation_id = $2::uuid`,
         fixture.tenantId,
@@ -642,8 +647,18 @@ d('diagnostic result action pathway', () => {
         tenant_id: fixture.tenantId,
         type: 'diagnostic_result_ready',
         route: '/portal/diagnostic-results',
+        generation_id: corrected.diagnostic_generation.id,
+        __feed_notification_id: expect.any(Number),
+      },
+      feed_type: 'diagnostic_result_ready',
+      feed_data: {
+        generation_id: corrected.diagnostic_generation.id,
+        route: '/portal/diagnostic-results',
+        type: 'diagnostic_result_ready',
       },
     })]);
+    expect(notificationEvidence[0].payload.__feed_notification_id)
+      .toBe(notificationEvidence[0].feed_id);
   });
 
   it('uses explicit specialist classification in shadow mode without creating acknowledgement work', async () => {

@@ -141,10 +141,18 @@ beforeEach(() => {
   rescheduleInPlaceMock.mockResolvedValue(RESULT);
   sendPushNotificationMock.mockResolvedValue({ successCount: 1 });
   queueAppointmentRescheduleSmsMock.mockResolvedValue({ queued: true, outboxId: 7 });
-  queryRawUnsafeMock.mockResolvedValue([
-    { id: 41, uid: PATIENT_UID, phone: '+919876500041', device_token: 'fcm-token' },
-  ]);
+  queryRawUnsafeMock.mockImplementation(async (sql) => (
+    /INSERT\s+INTO\s+notifications/i.test(String(sql))
+      ? [{ id: 501 }]
+      : [{ id: 41, uid: PATIENT_UID, phone: '+919876500041', device_token: 'fcm-token' }]
+  ));
 });
+
+function feedInsertCall() {
+  return queryRawUnsafeMock.mock.calls.find(
+    ([sql]) => /INSERT\s+INTO\s+notifications/i.test(String(sql)),
+  );
+}
 
 // Drain any notification tail a test left pending, so its writes can never be
 // counted against the next test.
@@ -160,8 +168,7 @@ describe('staff-initiated reschedule notifies the patient durably', () => {
     await rescheduleAppointment(req, res);
     await flush();
 
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
-    const [sql, ...params] = executeRawUnsafeMock.mock.calls[0];
+    const [sql, ...params] = feedInsertCall();
     expect(String(sql)).toContain('INSERT INTO notifications');
     // tenant bound explicitly ($8) — a defaulted tenant_id is invisible to the
     // recipient's tenant-filtered inbox reader.
@@ -169,8 +176,8 @@ describe('staff-initiated reschedule notifies the patient durably', () => {
     expect(params[7]).toBe(TENANT_ID);
     expect(params[0]).toBe(PATIENT_UID);
     expect(params[1]).toBe(41);
-    // `appointment_rescheduled` is routed to /appointments by
-    // apps/patient/lib/features/notifications/screens/notifications_screen.dart.
+    // `appointment_rescheduled` is routed to /appointments by the generated
+    // patient-notification contract.
     expect(params[5]).toBe('appointment_rescheduled');
     // The body has to carry the new slot AND warn off the old one — arriving
     // at the old time is the failure this exists to prevent.
@@ -215,14 +222,16 @@ describe('staff-initiated reschedule notifies the patient durably', () => {
   });
 
   it('writes the in-app row even when the patient has no registered device', async () => {
-    queryRawUnsafeMock.mockResolvedValue([
-      { id: 41, uid: PATIENT_UID, phone: '+919876500041', device_token: null },
-    ]);
+    queryRawUnsafeMock.mockImplementation(async (sql) => (
+      /INSERT\s+INTO\s+notifications/i.test(String(sql))
+        ? [{ id: 501 }]
+        : [{ id: 41, uid: PATIENT_UID, phone: '+919876500041', device_token: null }]
+    ));
     const req = request();
     await rescheduleAppointment(req, response(req));
     await flush();
 
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(feedInsertCall()).toBeDefined();
     expect(sendPushNotificationMock).not.toHaveBeenCalled();
     expect(queueAppointmentRescheduleSmsMock).toHaveBeenCalled();
   });
@@ -250,8 +259,8 @@ describe('staff-initiated reschedule notifies the patient durably', () => {
 
     // setImmediate has not fired yet: the response is already sent.
     expect(res.statusCode).toBe(200);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(feedInsertCall()).toBeUndefined();
     await flush();
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(feedInsertCall()).toBeDefined();
   });
 });

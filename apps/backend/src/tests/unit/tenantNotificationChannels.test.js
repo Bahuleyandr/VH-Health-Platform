@@ -1,6 +1,8 @@
 import {
+  feedRowTypeForTransportType,
   legacyChannelsForOutboxRow,
   notificationPreferenceKeyForType,
+  prePersistedFeedNotificationId,
   resolveChannelsForOutboxRow,
 } from '../../utils/notifications/tenantNotificationChannels.js';
 
@@ -16,6 +18,28 @@ describe('tenant notification channel preferences', () => {
     expect(notificationPreferenceKeyForType('investigation_result_ready')).toBe('results_ready');
     expect(notificationPreferenceKeyForType('diagnostic_result_ready')).toBe('results_ready');
     expect(notificationPreferenceKeyForType('results_ready')).toBe('results_ready');
+  });
+
+  it('derives engagement routing and transport aliases from the canonical registry', () => {
+    expect(notificationPreferenceKeyForType('engagement_campaign')).toBe('engagement_campaign');
+    expect(feedRowTypeForTransportType('appointment_reminder_24h'))
+      .toBe('appointment_reminder');
+    expect(feedRowTypeForTransportType('secure_message')).toBe('patient_message');
+    expect(feedRowTypeForTransportType('staff_shift_changed')).toBe('staff_shift_changed');
+  });
+
+  it('accepts only positive safe-integer feed correlation ids', () => {
+    expect(prePersistedFeedNotificationId({
+      payload: { __feed_notification_id: 731 },
+    })).toBe(731);
+    expect(prePersistedFeedNotificationId({
+      payload: { __feed_notification_id: '731' },
+    })).toBe(731);
+    for (const value of [null, 0, -1, 1.5, 'not-an-id', Number.MAX_SAFE_INTEGER + 1]) {
+      expect(prePersistedFeedNotificationId({
+        payload: { __feed_notification_id: value },
+      })).toBeNull();
+    }
   });
 
   it('proves prefs unset keeps the legacy push choice for recipient-id rows', () => {
