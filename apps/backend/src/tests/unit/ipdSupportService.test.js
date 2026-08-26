@@ -54,6 +54,34 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
   resolveLedgerModeForTenant: async () => 'shadow',
 }));
 
+const initializeWardIndentWorkflowTxMock = jest.fn(async (_tx, { indent }) => indent);
+const findWardIndentCreateReplayTxMock = jest.fn(async () => null);
+const workflowStub = jest.fn();
+jest.unstable_mockModule('../../services/ipd/wardIndentWorkflowService.js', () => ({
+  WARD_INDENT_STATE_CONTRACT: {},
+  wardIndentCommandKey: jest.fn(),
+  findWardIndentCreateReplayTx: findWardIndentCreateReplayTxMock,
+  initializeWardIndentWorkflowTx: initializeWardIndentWorkflowTxMock,
+  reserveWardIndent: workflowStub,
+  markWardIndentShortSupply: workflowStub,
+  proposeWardIndentSubstitution: workflowStub,
+  approveWardIndentSubstitution: workflowStub,
+  rejectWardIndentSubstitution: workflowStub,
+  approveWardIndent: workflowStub,
+  rejectWardIndent: workflowStub,
+  recordWardIndentControlledHandoff: workflowStub,
+  issueWardIndent: workflowStub,
+  receiveWardIndent: workflowStub,
+  requestWardIndentReturn: workflowStub,
+  reportWardIndentDiscrepancy: workflowStub,
+  reconcileWardIndent: workflowStub,
+  cancelWardIndent: workflowStub,
+  closeWardIndent: workflowStub,
+  listWardIndents: workflowStub,
+  getWardIndent: workflowStub,
+  default: {},
+}));
+
 const ipdSupportService = (await import('../../services/ipd/ipdSupportService.js')).default;
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -71,6 +99,8 @@ beforeEach(() => {
   txWardIndentItemUpdateMock.mockReset();
   txClinicalOrderUpdateManyMock.mockReset();
   sendStaffNotificationsMock.mockReset();
+  initializeWardIndentWorkflowTxMock.mockClear();
+  findWardIndentCreateReplayTxMock.mockClear();
   sendStaffNotificationsMock.mockResolvedValue({ notification_count: 1 });
   transactionMock.mockImplementation(async (callback) => callback({
     $queryRawUnsafe: txQueryRawUnsafeMock,
@@ -214,7 +244,7 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       unit_price: 45,
     });
     expect(sendStaffNotificationsMock).toHaveBeenCalledWith(expect.objectContaining({
-      recipientRoles: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+      recipientRoles: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'],
       type: 'WARD_PHARMACY_INDENT',
       relatedId: 9001,
       data: expect.objectContaining({
@@ -321,7 +351,11 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       // Still delivered — the alert names the drug and the ward and is the only
       // system-generated pharmacy signal for an inpatient order.
       expect(payload.type).toBe('WARD_PHARMACY_INDENT');
-      expect(payload.recipientRoles).toEqual(['PHARMACY_STAFF', 'PHARMACY_INCHARGE']);
+      expect(payload.recipientRoles).toEqual([
+        'PHARMACY_STAFF',
+        'PHARMACY_INCHARGE',
+        'PHARMACIST',
+      ]);
       // ...but not as a page, and not instructing a screen that does not exist.
       expect(payload.priority).toBe('LOW');
       expect(payload.title).toBe('Ward drug indent recorded');
@@ -356,109 +390,5 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = 'TRUE';
       expect(ipdSupportService.wardIndentDispatchSurfaceEnabled()).toBe(true);
     });
-  });
-});
-
-describe('ipdSupportService.issueWardIndent controlled classification', () => {
-  const ACTOR = '11111111-1111-4111-8111-111111111111';
-
-  function approvedIndent(items) {
-    txWardIndentFindFirstMock.mockResolvedValueOnce({
-      id: 77,
-      status: 'approved',
-      items,
-    });
-  }
-
-  it('fails closed before writes when the catalog row is missing from this tenant', async () => {
-    approvedIndent([{
-      id: 91,
-      pharmacy_catalog_id: 44,
-      item_name: 'Unlinked catalog item',
-      quantity_requested: 2,
-    }]);
-    txQueryRawUnsafeMock.mockResolvedValueOnce([]);
-
-    await expect(ipdSupportService.issueWardIndent({
-      indentId: 77,
-      issuedBy: ACTOR,
-      tenantId: DEFAULT_TENANT_ID,
-    })).rejects.toMatchObject({
-      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
-      statusCode: 409,
-    });
-    const [sql, tenantId, catalogId] = txQueryRawUnsafeMock.mock.calls[0];
-    expect(sql).toContain('FROM pharmacy_catalog pc');
-    expect(sql).toContain('i.tenant_id = pc.tenant_id');
-    expect(sql).toContain('pc.tenant_id = $1::uuid');
-    expect([tenantId, catalogId]).toEqual([DEFAULT_TENANT_ID, 44]);
-    expect(txWardIndentItemUpdateMock).not.toHaveBeenCalled();
-    expect(txWardIndentUpdateMock).not.toHaveBeenCalled();
-  });
-
-  it('fails closed before writes when a same-tenant catalog row has no inventory link', async () => {
-    approvedIndent([{
-      id: 91,
-      pharmacy_catalog_id: 44,
-      item_name: 'Unlinked catalog item',
-      quantity_requested: 2,
-    }]);
-    txQueryRawUnsafeMock.mockResolvedValueOnce([{
-      catalog_id: 44,
-      linked_item_count: 0,
-      is_controlled: false,
-    }]);
-
-    await expect(ipdSupportService.issueWardIndent({
-      indentId: 77,
-      issuedBy: ACTOR,
-      tenantId: DEFAULT_TENANT_ID,
-    })).rejects.toMatchObject({
-      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
-      statusCode: 409,
-    });
-    expect(txWardIndentItemUpdateMock).not.toHaveBeenCalled();
-    expect(txWardIndentUpdateMock).not.toHaveBeenCalled();
-  });
-
-  it('blocks a positively classified controlled catalog line before writes', async () => {
-    approvedIndent([{
-      id: 91,
-      pharmacy_catalog_id: 44,
-      item_name: 'Controlled catalog item',
-      quantity_requested: 2,
-    }]);
-    txQueryRawUnsafeMock.mockResolvedValueOnce([{
-      catalog_id: 44,
-      linked_item_count: 1,
-      is_controlled: true,
-    }]);
-
-    await expect(ipdSupportService.issueWardIndent({
-      indentId: 77,
-      issuedBy: ACTOR,
-      tenantId: DEFAULT_TENANT_ID,
-    })).rejects.toMatchObject({ code: 'WARD_INDENT_CONTROLLED_ITEM_BLOCKED' });
-    expect(txWardIndentItemUpdateMock).not.toHaveBeenCalled();
-  });
-
-  it('fails closed on a positive free-text line without a catalog id', async () => {
-    approvedIndent([{
-      id: 92,
-      pharmacy_catalog_id: null,
-      item_name: 'Free-text ward supply',
-      quantity_requested: 3,
-    }]);
-    await expect(ipdSupportService.issueWardIndent({
-      indentId: 77,
-      issuedBy: ACTOR,
-      tenantId: DEFAULT_TENANT_ID,
-    })).rejects.toMatchObject({
-      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
-      statusCode: 409,
-    });
-    expect(txQueryRawUnsafeMock).not.toHaveBeenCalled();
-    expect(txWardIndentItemUpdateMock).not.toHaveBeenCalled();
-    expect(txWardIndentUpdateMock).not.toHaveBeenCalled();
   });
 });

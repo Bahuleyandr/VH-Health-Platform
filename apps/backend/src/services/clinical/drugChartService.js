@@ -194,10 +194,26 @@ function indentBelongsToOrder(indent, order) {
 function pharmacyStatusForOrder(indents, order) {
   const linked = indents.filter((indent) => indentBelongsToOrder(indent, order));
   if (!linked.length) return isActiveMedicationOrder(order) ? 'pending_indent' : 'not_applicable';
-  if (linked.some((indent) => indent.status === 'received')) return 'received_on_ward';
-  if (linked.some((indent) => indent.status === 'issued')) return 'issued_by_pharmacy';
-  if (linked.some((indent) => indent.status === 'approved')) return 'approved';
-  if (linked.some((indent) => indent.status === 'rejected')) return 'rejected';
+  const hasReceivedQuantity = linked.some((indent) => indent.items.some(
+    (item) => Number(item.quantity_received || 0) > 0,
+  ));
+  if (linked.some((indent) => ['received', 'return_pending'].includes(indent.status))) {
+    return 'received_on_ward';
+  }
+  if (hasReceivedQuantity && linked.some((indent) => [
+    'partially_received', 'reconciliation_required', 'reconciled', 'closed',
+  ].includes(indent.status))) {
+    return 'received_on_ward';
+  }
+  if (linked.some((indent) => [
+    'issued', 'partially_received', 'reconciliation_required', 'reconciled', 'closed',
+  ].includes(indent.status))) {
+    return 'issued_by_pharmacy';
+  }
+  if (linked.some((indent) => [
+    'approved', 'controlled_handoff_required',
+  ].includes(indent.status))) return 'approved';
+  if (linked.some((indent) => ['rejected', 'cancelled'].includes(indent.status))) return 'rejected';
   return 'requested';
 }
 
@@ -306,6 +322,9 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
                   'item_name', wii.item_name,
                   'quantity_requested', wii.quantity_requested,
                   'quantity_issued', wii.quantity_issued,
+                  'quantity_received', wii.quantity_received,
+                  'quantity_returned', wii.quantity_returned,
+                  'fulfilment_status', wii.fulfilment_status,
                   'unit', wii.unit,
                   'notes', wii.notes
                 ) ORDER BY wii.id) FILTER (WHERE wii.id IS NOT NULL),

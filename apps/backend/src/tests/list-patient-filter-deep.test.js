@@ -19,12 +19,14 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 // Distinct, test-only uids/phones so cleanup is surgical.
 const PATIENT_A_UID = 'b1111111-1111-4111-8111-1111111111a1';
 const PATIENT_B_UID = 'b2222222-2222-4222-8222-2222222222b2';
 const DOCTOR_UID = 'b3333333-3333-4333-8333-3333333333d3';
 const STAFF_UID = 'b4444444-4444-4444-8444-4444444444f4';
+const TENANT = '00000000-0000-4000-8000-000000000001';
 const RUN = String(Date.now() % 100000).padStart(5, '0');
 const PHONE_A = `+9198880${RUN}`;
 const PHONE_B = `+9198881${RUN}`;
@@ -32,14 +34,11 @@ const DOCTOR_PHONE = `+9198882${RUN}`;
 const STAFF_PHONE = `+9198883${RUN}`;
 const WARD_NAME = `H1-Filter-Ward-${RUN}`;
 
-// admission_id on ward_indents is a nullable INTEGER with NO FK (migration
-// 242), so we can use distinct synthetic ids without seeding admissions.
-const ADMISSION_A = 990000 + (Date.now() % 9000);
-const ADMISSION_B = ADMISSION_A + 1;
-
 let patientAId;
 let patientBId;
 let wardId;
+let admissionA;
+let admissionB;
 const indentIds = [];
 
 function doctorClient() {
@@ -59,12 +58,28 @@ function staffClient() {
 
 async function cleanup() {
   if (indentIds.length) {
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM ward_indent_events WHERE ward_indent_id = ANY($1::int[])`, indentIds,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM ward_indents WHERE id = ANY($1::int[])`, indentIds,
     ).catch(() => {});
   }
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM ward_indent_events e
+      USING ward_indents wi
+      WHERE e.ward_indent_id = wi.id
+        AND wi.patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A_UID, PATIENT_B_UID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM ward_indents WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A_UID, PATIENT_B_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid)`,
     PATIENT_A_UID, PATIENT_B_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -87,23 +102,23 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
     await cleanup();
 
     const a = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, $2, 'H1 Patient A', 'PATIENT', true, NOW()) RETURNING id`,
-      PATIENT_A_UID, PHONE_A);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'H1 Patient A', 'PATIENT', true, 'active', NOW()) RETURNING id`,
+      PATIENT_A_UID, TENANT, PHONE_A);
     patientAId = a[0].id;
     const b = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, $2, 'H1 Patient B', 'PATIENT', true, NOW()) RETURNING id`,
-      PATIENT_B_UID, PHONE_B);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'H1 Patient B', 'PATIENT', true, 'active', NOW()) RETURNING id`,
+      PATIENT_B_UID, TENANT, PHONE_B);
     patientBId = b[0].id;
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, $2, 'H1 Doctor', 'DOCTOR', true, NOW())`,
-      DOCTOR_UID, DOCTOR_PHONE);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'H1 Doctor', 'DOCTOR', true, 'active', NOW())`,
+      DOCTOR_UID, TENANT, DOCTOR_PHONE);
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, $2, 'H1 Pharmacy Staff', 'PHARMACY_STAFF', true, NOW())`,
-      STAFF_UID, STAFF_PHONE);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'H1 Pharmacy Staff', 'PHARMACY_STAFF', true, 'active', NOW())`,
+      STAFF_UID, TENANT, STAFF_PHONE);
 
     // Two investigations for A, one for B.
     await prisma.$executeRawUnsafe(
@@ -118,21 +133,67 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
 
     // A ward so the indents have a real FK target.
     const w = await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (name, total_beds, created_at, updated_at)
-       VALUES ($1, 10, NOW(), NOW()) RETURNING id`, WARD_NAME);
+      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 10, NOW(), NOW()) RETURNING id`, TENANT, WARD_NAME);
     wardId = w[0].id;
 
+    const admissions = await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, admitted_at, ward, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'admitted', NOW(), $4, NOW()),
+         ($1::uuid, $3::uuid, 'admitted', NOW(), $4, NOW())
+       RETURNING id, patient_uid, encounter_id`,
+      TENANT,
+      PATIENT_A_UID,
+      PATIENT_B_UID,
+      WARD_NAME,
+    );
+    const admissionARow = admissions.find((row) => row.patient_uid === PATIENT_A_UID);
+    const admissionBRow = admissions.find((row) => row.patient_uid === PATIENT_B_UID);
+    admissionA = Number(admissionARow.id);
+    admissionB = Number(admissionBRow.id);
+
     // Two ward indents for admission/patient A, one for admission/patient B.
-    const wi = await prisma.$queryRawUnsafe(
-      `INSERT INTO ward_indents
-         (indent_number, ward_id, status, requested_by, requested_at,
-          admission_id, patient_uid, updated_at)
-       VALUES ($1, $4, 'requested', $5::uuid, NOW(), $6, $2::uuid, NOW()),
-              ($7, $4, 'requested', $5::uuid, NOW(), $6, $2::uuid, NOW()),
-              ($8, $4, 'requested', $5::uuid, NOW(), $9, $3::uuid, NOW())
-       RETURNING id`,
-      `WI-H1-A1-${RUN}`, PATIENT_A_UID, PATIENT_B_UID, wardId, STAFF_UID,
-      ADMISSION_A, `WI-H1-A2-${RUN}`, `WI-H1-B1-${RUN}`, ADMISSION_B);
+    const wi = await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO ward_indents
+           (tenant_id, indent_number, ward_id, status, requested_by, requested_at,
+            admission_id, encounter_id, patient_uid, updated_at)
+         VALUES ($1::uuid, $2, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, NOW()),
+                ($1::uuid, $8, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, NOW()),
+                ($1::uuid, $9, $5, 'requested', $6::uuid, NOW(), $10, $12::uuid, $4::uuid, NOW())
+         RETURNING id, state_version, status, owner_role_codes`,
+        TENANT,
+        `WI-H1-A1-${RUN}`,
+        PATIENT_A_UID,
+        PATIENT_B_UID,
+        wardId,
+        STAFF_UID,
+        admissionA,
+        `WI-H1-A2-${RUN}`,
+        `WI-H1-B1-${RUN}`,
+        admissionB,
+        admissionARow.encounter_id,
+        admissionBRow.encounter_id,
+      );
+      for (const row of rows) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO ward_indent_events
+             (tenant_id, ward_indent_id, state_version, action, to_status,
+              actor_uid, owner_role_codes, details)
+           VALUES ($1::uuid, $2::int, $3::int, 'list_filter_fixture', $4,
+                   $5::uuid, $6::text[], '{"test_fixture":true}'::jsonb)`,
+          TENANT,
+          Number(row.id),
+          Number(row.state_version),
+          row.status,
+          STAFF_UID,
+          row.owner_role_codes,
+        );
+      }
+      return rows;
+    });
     wi.forEach((r) => indentIds.push(r.id));
   });
 
@@ -183,13 +244,13 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
   describe('GET /api/v1/pharmacy-orders/ward-indents', () => {
     it('returns ONLY admission A indents when filtered by admission_id (no bleed)', async () => {
       const res = await staff.get(
-        `/api/v1/pharmacy-orders/ward-indents?admission_id=${ADMISSION_A}&limit=50`);
+        `/api/v1/pharmacy-orders/ward-indents?admission_id=${admissionA}&limit=50`);
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
       const rows = res.body.data;
       expect(rows.length).toBe(2);
-      rows.forEach((r) => expect(r.admission_id).toBe(ADMISSION_A));
-      expect(rows.some((r) => r.admission_id === ADMISSION_B)).toBe(false);
+      rows.forEach((r) => expect(r.admission_id).toBe(admissionA));
+      expect(rows.some((r) => r.admission_id === admissionB)).toBe(false);
     });
 
     it('returns ONLY patient A indents when filtered by patient_uid (no bleed)', async () => {
@@ -204,12 +265,12 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
 
     it('returns ONLY admission B indent when filtered by admission B', async () => {
       const res = await staff.get(
-        `/api/v1/pharmacy-orders/ward-indents?admission_id=${ADMISSION_B}&limit=50`);
+        `/api/v1/pharmacy-orders/ward-indents?admission_id=${admissionB}&limit=50`);
       expect(res.statusCode).toBe(200);
       const rows = res.body.data;
       expect(rows.length).toBe(1);
-      expect(rows[0].admission_id).toBe(ADMISSION_B);
-      expect(rows.some((r) => r.admission_id === ADMISSION_A)).toBe(false);
+      expect(rows[0].admission_id).toBe(admissionB);
+      expect(rows.some((r) => r.admission_id === admissionA)).toBe(false);
     });
 
     it('rejects a malformed patient_uid with 400 (service boundary)', async () => {

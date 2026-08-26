@@ -52,6 +52,7 @@ const CONTROLLED_BATCH_POLICY_BY_MOVEMENT = Object.freeze({
 });
 const CONTROLLED_MOVEMENT_BATCH_CONTRACT =
   'controlled_movement_exact_batch_policy_v1';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Schedule H / H1 / X are the register-tracked controlled classes (migration
 // 150); Schedule X and any narcotic-flagged item additionally demand a witness
@@ -296,6 +297,32 @@ async function recordControlledMovementTx(tx, params, item) {
   }
 
   const decreasing = CONTROLLED_DECREASING_MOVEMENTS.has(movement_kind);
+  let patient = null;
+  if (params.patient_uid != null && params.patient_uid !== '') {
+    if (!UUID_RE.test(String(params.patient_uid))) {
+      throw AppError.badRequest(
+        'patient_uid must be a UUID',
+        'CONTROLLED_MOVEMENT_PATIENT_UID_INVALID',
+      );
+    }
+    const patients = await tx.$queryRawUnsafe(
+      `SELECT uid, name, phone
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        LIMIT 1`,
+      tenantId,
+      String(params.patient_uid),
+    );
+    patient = patients[0] ?? null;
+    if (!patient) {
+      throw AppError.notFound(
+        'Controlled-movement patient was not found in this tenant',
+        'CONTROLLED_MOVEMENT_PATIENT_NOT_FOUND',
+      );
+    }
+  }
   const controlledBatchId = decreasing
     ? requireControlledMovementBatchId(params.inventory_batch_id)
     : null;
@@ -356,10 +383,12 @@ async function recordControlledMovementTx(tx, params, item) {
     `INSERT INTO pharmacy_schedule_register
        (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
         movement_kind, quantity, unit_label, running_balance,
+        patient_uid, patient_name, patient_phone,
         performed_by, performed_by_name, witness_uid, witness_name,
         reference_movement_id, notes)
      VALUES ($1::uuid, $2::int, $3, $4, $5, $6::numeric, $7, $8::numeric,
-             $9::uuid, $10, $11::uuid, $12, $13::int, $14)
+             $9::uuid, $10, $11,
+             $12::uuid, $13, $14::uuid, $15, $16::int, $17)
      RETURNING *`,
     tenantId,
     Number(params.inventory_item_id),
@@ -369,6 +398,9 @@ async function recordControlledMovementTx(tx, params, item) {
     Math.abs(Number(quantity)),
     item.unit_label,
     Number(balance[0].bal),
+    patient?.uid || null,
+    patient?.name || null,
+    patient?.phone || null,
     String(performed_by),
     params.performed_by_name || null,
     witness?.uid || null,

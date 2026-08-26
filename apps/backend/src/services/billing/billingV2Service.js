@@ -679,6 +679,18 @@ const VALID_SOURCE_REF_TYPES = new Set([
 const SOURCE_REF_ID_OPTIONAL = new Set(['manual', 'package', 'admission_package']);
 
 const TENANT_PATIENT_SOURCE_REF_SQL = Object.freeze({
+  ward_indent: `SELECT wi.id
+    FROM ward_indents wi
+    LEFT JOIN admissions a
+      ON a.id = wi.admission_id
+     AND a.tenant_id = wi.tenant_id
+   WHERE wi.id = $1::bigint
+     AND wi.tenant_id = $2::uuid
+     AND (
+       (wi.patient_uid = $3::uuid AND (a.id IS NULL OR a.patient_uid = wi.patient_uid))
+       OR (wi.patient_uid IS NULL AND a.patient_uid = $3::uuid)
+     )
+   LIMIT 1`,
   dialysis_session: `SELECT s.id
     FROM dialysis_sessions s
     JOIN dialysis_patients p
@@ -2343,26 +2355,28 @@ export async function dailyCollection({ date, mode, shift, collected_by } = {}) 
 
 const ITEMIZER_DEFAULT_GST = 0; // healthcare services exempt from GST in India
 
-async function fetchExistingSourceKeys(invoiceId) {
+async function fetchExistingSourceLines(invoiceId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT source_ref_type, source_ref_id
+    `SELECT id, source_ref_type, source_ref_id, description, category, quantity,
+            unit_price, gst_rate, line_subtotal, line_total, notes, tenant_id
        FROM billing_invoice_items
       WHERE invoice_id = $1::int
-        AND source_ref_type IS NOT NULL`,
+        AND source_ref_type IS NOT NULL
+        AND source_ref_active = TRUE`,
     Number(invoiceId),
   );
-  const keys = new Set();
+  const lines = new Map();
   for (const r of rows) {
-    keys.add(`${r.source_ref_type}:${r.source_ref_id ?? 'NULL'}`);
+    lines.set(`${r.source_ref_type}:${r.source_ref_id ?? 'NULL'}`, r);
   }
-  return keys;
+  return lines;
 }
 
 async function fetchAdmissionForItemizing(admissionId, tenantId = null) {
   const params = [Number(admissionId)];
   const tenantSql = appendTenantPredicate(params, tenantId, 'a.tenant_id');
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT a.id, a.patient_uid, a.encounter_id, a.admitted_at, a.discharged_at,
+    `SELECT a.id, a.tenant_id, a.patient_uid, a.encounter_id, a.admitted_at, a.discharged_at,
             a.ward, a.bed_id, a.package_id, a.package_code,
             a.package_estimated_cost_minor,
             p.fixed_price_minor AS package_price_minor,
@@ -2411,12 +2425,14 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   const endTs = admission.discharged_at || null;
   const startDate = new Date(startTs).toISOString().slice(0, 10);
   const endDate = endTs ? new Date(endTs).toISOString().slice(0, 10) : null;
-  const existingKeys = await fetchExistingSourceKeys(invId);
+  const existingLines = await fetchExistingSourceLines(invId);
+  const itemizerTenantId = requireTenantId(admission.tenant_id);
 
   const summary = {
     package: 0,
     pharmacy: 0,
     ward_indents: 0,
+    ward_indents_updated: 0,
     lab: 0,
     consults: 0,
     theatre: 0,
@@ -2427,13 +2443,94 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   const addLine = async ({
     description, category, unit_price, quantity = 1, notes,
     source_ref_type, source_ref_id, tpa_decision, tpa_non_payable_reason,
+    sync_existing = false,
   }) => {
     const key = `${source_ref_type}:${source_ref_id ?? 'NULL'}`;
-    if (existingKeys.has(key)) {
+    const existing = existingLines.get(key);
+    if (existing && !sync_existing) {
       summary.skipped_existing += 1;
       return null;
     }
-    existingKeys.add(key);
+    if (existing) {
+      const desiredQuantity = Number(quantity) || 1;
+      const desiredPrice = Number(unit_price);
+      const desiredRate = Number(ITEMIZER_DEFAULT_GST);
+      const desiredSubtotal = toFixed2(desiredQuantity * desiredPrice);
+      const desiredNotes = notes || null;
+      const unchanged = (
+        existing.description === description
+        && (existing.category || null) === (category || null)
+        && Number(existing.quantity) === desiredQuantity
+        && Number(existing.unit_price) === desiredPrice
+        && Number(existing.gst_rate || 0) === desiredRate
+        && Number(existing.line_subtotal) === desiredSubtotal
+        && Number(existing.line_total) === desiredSubtotal
+        && (existing.notes || null) === desiredNotes
+      );
+      if (unchanged) {
+        summary.skipped_existing += 1;
+        return null;
+      }
+      const updated = await setTenantTx(itemizerTenantId, async (tx) => {
+        const invoice = await lockBillingInvoice(
+          tx,
+          invId,
+          itemizerTenantId,
+          'status, admission_id',
+        );
+        if (!invoice) throw AppError.notFound('Invoice not found');
+        if (invoice.status !== 'DRAFT') {
+          throw AppError.conflict(
+            'Ward-indent charges can only be synchronized on a DRAFT invoice',
+            'WARD_INDENT_BILLING_INVOICE_NOT_DRAFT',
+          );
+        }
+        await assertAdmissionBillingOpen(invoice.admission_id, tx);
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE billing_invoice_items
+              SET description = $1,
+                  category = $2,
+                  quantity = $3::numeric,
+                  unit_price = $4::numeric,
+                  gst_rate = $5::numeric,
+                  line_subtotal = $6::numeric,
+                  cgst_amount = 0,
+                  sgst_amount = 0,
+                  igst_amount = 0,
+                  line_total = $6::numeric,
+                  notes = $7
+            WHERE id = $8::int
+              AND invoice_id = $9::int
+              AND tenant_id = $10::uuid
+              AND source_ref_type = $11
+              AND source_ref_id = $12::bigint
+              AND source_ref_active = TRUE
+          RETURNING *`,
+          description,
+          category || null,
+          desiredQuantity,
+          desiredPrice,
+          desiredRate,
+          desiredSubtotal,
+          desiredNotes,
+          Number(existing.id),
+          invId,
+          itemizerTenantId,
+          source_ref_type,
+          normalizeSourceRefId(source_ref_id),
+        );
+        if (!rows[0]) {
+          throw AppError.conflict(
+            'Ward-indent billing line changed before it could be synchronized',
+            'WARD_INDENT_BILLING_LINE_CHANGED',
+          );
+        }
+        await recomputeInvoiceTotals(invId, tx, { emitTpaAlert: false });
+        return normalizeBillingItemForResponse(rows[0]);
+      });
+      existingLines.set(key, updated);
+      return { action: 'updated', row: updated };
+    }
     const row = await addInvoiceItem(invId, {
       description,
       category,
@@ -2445,6 +2542,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
       source_ref_id,
       tenantId,
     });
+    existingLines.set(key, row);
     // Stamp the TPA decision on the newly-created line. addInvoiceItem
     // returns the row; we patch the four migration-213 columns in a
     // single UPDATE that the cashier can later override via the
@@ -2456,14 +2554,16 @@ export async function itemizeAdmissionInvoice(invoiceId, {
                 tpa_non_payable_reason = $2,
                 tpa_decided_at = NOW(),
                 tpa_decided_by = $3::uuid
-          WHERE id = $4::int`,
+          WHERE id = $4::int
+            AND tenant_id = $5::uuid`,
         tpa_decision,
         tpa_non_payable_reason || null,
         decided_by ? String(decided_by) : null,
         Number(row.id),
+        itemizerTenantId,
       );
     }
-    return row;
+    return { action: 'created', row };
   };
 
   // 1. Package line (if admission is package-bundled).
@@ -2471,7 +2571,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     const fixed = admission.package_estimated_cost_minor ?? admission.package_price_minor ?? null;
     if (fixed != null) {
       const price = Math.round(Number(fixed)) / 100; // paise → rupees
-      await addLine({
+      const created = await addLine({
         description: `Package: ${admission.package_name || admission.package_code}`,
         unit_price: price,
         quantity: 1,
@@ -2480,7 +2580,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_id: admission.id,
         tpa_decision: 'payable',
       });
-      summary.package += 1;
+      if (created?.action === 'created') summary.package += 1;
     }
   }
 
@@ -2509,7 +2609,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_id: o.id,
         tpa_decision: 'pending',
       });
-      if (created) summary.pharmacy += 1;
+      if (created?.action === 'created') summary.pharmacy += 1;
     }
   }
 
@@ -2524,21 +2624,36 @@ export async function itemizeAdmissionInvoice(invoiceId, {
               wi.ward_name,
               COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) AS billable_at,
               COALESCE(SUM(
-                GREATEST(COALESCE(wii.quantity_issued, wii.quantity_requested, 0), 0)
+                GREATEST(
+                  COALESCE(wii.quantity_issued, wii.quantity_requested, 0)
+                    - COALESCE(wii.quantity_returned, 0),
+                  0
+                )
                 * COALESCE(wii.unit_price, pc.unit_price, pc.price, 0)
               ), 0)::numeric AS total_amount,
               STRING_AGG(
                 CONCAT(
                   wii.item_name,
                   ' x ',
-                  GREATEST(COALESCE(wii.quantity_issued, wii.quantity_requested, 0), 0)::text
+                  GREATEST(
+                    COALESCE(wii.quantity_issued, wii.quantity_requested, 0)
+                      - COALESCE(wii.quantity_returned, 0),
+                    0
+                  )::text
                 ),
                 ', ' ORDER BY wii.id
               ) AS item_summary
          FROM ward_indents wi
-         JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
-         LEFT JOIN pharmacy_catalog pc ON pc.id = wii.pharmacy_catalog_id
-        WHERE wi.status IN ('issued', 'received')
+         JOIN ward_indent_items wii
+           ON wii.tenant_id = wi.tenant_id
+          AND wii.ward_indent_id = wi.id
+         LEFT JOIN pharmacy_catalog pc
+           ON pc.tenant_id = wii.tenant_id
+          AND pc.id = wii.pharmacy_catalog_id
+        WHERE wi.status IN (
+          'issued', 'partially_received', 'received', 'return_pending',
+          'reconciliation_required', 'reconciled', 'closed'
+        )
           AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) >= $2::timestamptz
           AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) <= COALESCE($3::timestamptz, NOW())
           AND (
@@ -2549,16 +2664,18 @@ export async function itemizeAdmissionInvoice(invoiceId, {
               AND ($5::uuid IS NULL OR wi.encounter_id = $5::uuid)
             )
           )
+          AND wi.tenant_id = $6::uuid
         GROUP BY wi.id, wi.indent_number, wi.ward_name, billable_at
         ORDER BY billable_at, wi.id`,
       Number(admission.id),
       startTs, endTs,
       String(admission.patient_uid),
       admission.encounter_id ?? null,
+      itemizerTenantId,
     );
     for (const wi of indents) {
       const price = Number(wi.total_amount ?? 0);
-      if (price <= 0) continue;
+      if (!Number.isFinite(price) || price < 0) continue;
       const created = await addLine({
         description: `Pharmacy ward indent: ${wi.indent_number || wi.id}`,
         category: 'pharmacy',
@@ -2568,8 +2685,10 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_type: 'ward_indent',
         source_ref_id: wi.id,
         tpa_decision: 'pending',
+        sync_existing: true,
       });
-      if (created) summary.ward_indents += 1;
+      if (created?.action === 'created') summary.ward_indents += 1;
+      if (created?.action === 'updated') summary.ward_indents_updated += 1;
     }
   }
 
@@ -2597,7 +2716,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_id: t.id,
         tpa_decision: 'pending',
       });
-      if (created) summary.lab += 1;
+      if (created?.action === 'created') summary.lab += 1;
     }
   }
 
@@ -2623,7 +2742,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_id: c.id,
         tpa_decision: 'pending',
       });
-      if (created) summary.consults += 1;
+      if (created?.action === 'created') summary.consults += 1;
     }
   }
 
@@ -2655,7 +2774,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         source_ref_id: cs.id,
         tpa_decision: 'pending',
       });
-      if (created) summary.theatre += 1;
+      if (created?.action === 'created') summary.theatre += 1;
     }
   }
 

@@ -48126,6 +48126,889 @@
           }
         }
       },
+      "WardIndent": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "indent_number",
+          "status",
+          "state_version",
+          "items"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "indent_number": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "reserved",
+              "short_supply",
+              "substitution_pending",
+              "controlled_handoff_required",
+              "approved",
+              "issued",
+              "partially_received",
+              "received",
+              "return_pending",
+              "reconciliation_required",
+              "reconciled",
+              "rejected",
+              "cancelled",
+              "closed"
+            ]
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "ward_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "owner_role_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardIndentItem"
+            }
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/WardIndentWorkflow"
+          }
+        }
+      },
+      "WardIndentControlledEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "movement_id",
+          "register_id"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "movement_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "register_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "WardIndentControlledHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_evidence"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "item_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentControlledEvidence"
+            }
+          }
+        }
+      },
+      "WardIndentCreateItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quantity_requested"
+        ],
+        "properties": {
+          "pharmacy_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "clinical_order_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "item_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity_requested": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_price": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "pharmacy_catalog_id"
+            ]
+          },
+          {
+            "required": [
+              "item_name"
+            ]
+          }
+        ]
+      },
+      "WardIndentCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "ward_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "indent_type": {
+            "type": "string",
+            "enum": [
+              "pharmacy",
+              "consumables",
+              "linen",
+              "sterile_supplies"
+            ],
+            "default": "pharmacy"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentCreateItem"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "WardIndentIssueRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "item_quantities_issued": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentQuantityIssuedEntry"
+            }
+          }
+        }
+      },
+      "WardIndentItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "ward_indent_id",
+          "item_name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ward_indent_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "pharmacy_catalog_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "clinical_order_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "fulfilment_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "substitution_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "controlled_reference_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "controlled_movement_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "controlled_register_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "controlled_return_movement_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "controlled_return_register_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "quantity_requested": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          },
+          "quantity_reserved": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          },
+          "quantity_approved": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          },
+          "quantity_issued": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01,
+            "nullable": true
+          },
+          "quantity_received": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          },
+          "quantity_variance_resolved": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          },
+          "quantity_return_requested": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          },
+          "quantity_returned": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardIndent"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "WardIndentNamedListPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "indents"
+        ],
+        "properties": {
+          "indents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardIndent"
+            }
+          }
+        }
+      },
+      "WardIndentNamedListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WardIndentNamedListPayload"
+          }
+        }
+      },
+      "WardIndentNamedPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "indent"
+        ],
+        "properties": {
+          "indent": {
+            "$ref": "#/components/schemas/WardIndent"
+          }
+        }
+      },
+      "WardIndentNamedResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WardIndentNamedPayload"
+          }
+        }
+      },
+      "WardIndentQuantityIssuedEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_issued"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_issued": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentQuantityReceivedEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_received"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_received": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentQuantityReservedEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_reserved"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_reserved": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentQuantityReturnedEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_returned"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_returned": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentReasonRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "WardIndentReceiveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "item_quantities_received": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentQuantityReceivedEntry"
+            }
+          }
+        }
+      },
+      "WardIndentReconcileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "controlled_return_evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardIndentControlledEvidence"
+            }
+          },
+          "item_reconciliations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardIndentReconciliationItem"
+            }
+          }
+        }
+      },
+      "WardIndentReconciliationItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_variance_resolved",
+          "disposition",
+          "note"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_variance_resolved": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "transit_shortage",
+              "ward_count_variance",
+              "damaged_in_transit",
+              "documented_exception"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "WardIndentReserveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "item_quantities_reserved": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentQuantityReservedEntry"
+            }
+          }
+        }
+      },
+      "WardIndentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WardIndent"
+          }
+        }
+      },
+      "WardIndentReturnRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "item_quantities_returned": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentQuantityReturnedEntry"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "item_quantities_returned",
+          "reason"
+        ]
+      },
+      "WardIndentShortSupplyEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_available"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity_available": {
+            "type": "number",
+            "minimum": 0,
+            "multipleOf": 0.01
+          }
+        }
+      },
+      "WardIndentShortSupplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "item_quantities_available"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "item_quantities_available": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentShortSupplyEntry"
+            }
+          }
+        }
+      },
+      "WardIndentSubstitutionProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "substitute_catalog_id",
+          "reason"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "substitute_catalog_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0.01,
+            "multipleOf": 0.01
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "WardIndentSubstitutionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "substitutions"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          },
+          "substitutions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WardIndentSubstitutionProposal"
+            }
+          }
+        }
+      },
+      "WardIndentVersionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic state version last read by the caller."
+          },
+          "state_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Backward-compatible alias for expected_version."
+          }
+        }
+      },
+      "WardIndentWorkflow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "owner_role_codes",
+          "active_slas"
+        ],
+        "properties": {
+          "owner_role_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active_slas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "controlled_handoff_references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "item_id",
+                "reference_id"
+              ],
+              "properties": {
+                "item_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "reference_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
       "WardOption": {
         "type": "object",
         "additionalProperties": true,
@@ -119095,19 +119978,67 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedListResponse"
                 }
               }
             }
           }
         },
+        "description": "Lists the tenant-scoped ward-indent workflow for one admission after admission-level patient-access authorization.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "reserved",
+                "short_supply",
+                "substitution_pending",
+                "controlled_handoff_required",
+                "approved",
+                "issued",
+                "partially_received",
+                "received",
+                "return_pending",
+                "reconciliation_required",
+                "reconciled",
+                "rejected",
+                "cancelled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "overdue_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         ]
@@ -119185,12 +120116,85 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedListResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Lists tenant-scoped ward indents with patient-access filtering and active owner/SLA projections.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ward_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "reserved",
+                "short_supply",
+                "substitution_pending",
+                "controlled_handoff_required",
+                "approved",
+                "issued",
+                "partially_received",
+                "received",
+                "return_pending",
+                "reconciliation_required",
+                "reconciled",
+                "rejected",
+                "cancelled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "admission_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "overdue_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_ipd_ward_indents",
@@ -119198,13 +120202,43 @@
           "ipd"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
+              }
+            }
+          }
+        },
+        "description": "Creates a tenant-scoped ward indent with catalog snapshots, an append-only requested event, canonical timeline/audit evidence, and the pharmacy response SLA in one transaction.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentCreateRequest"
               }
             }
           }
@@ -119223,19 +120257,36 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
               }
             }
           }
         },
+        "description": "Returns one tenant-scoped ward indent with ordered lines, active SLA ownership, controlled-handoff references, and append-only transition history.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "indentId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "event_limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         ]
@@ -119253,22 +120304,287 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
               }
             }
           }
         },
+        "description": "Approves reserved supply; controlled lines stop at the mandatory controlled-handoff evidence gate.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "indentId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_cancel",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancels an eligible pre-issue request with a durable reason, audit event, timeline event, and SLA closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/close": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_close",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes only a fully received or reconciled request after all quantities and controlled evidence balance.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/controlled-handoff": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_controlled_handoff",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Binds every controlled line to its sanctioned inventory movement and statutory register entry before issue.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentControlledHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/discrepancies": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_discrepancies",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records a receipt or count discrepancy and moves the request into exact-quantity reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/ipd/ward-indents/{indentId}/issue": {
@@ -119283,22 +120599,51 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
               }
             }
           }
         },
+        "description": "Issues approved quantities, decrements non-controlled stock atomically, and transfers the receipt obligation to the ward.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "indentId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentIssueRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/ipd/ward-indents/{indentId}/receive": {
@@ -119313,22 +120658,110 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
               }
             }
           }
         },
+        "description": "Records an independent ward receipt, supports partial receipt, and prevents the issuing actor from self-acknowledging.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "indentId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReceiveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_reconcile",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves every outstanding receipt variance and return, including controlled return movement/register evidence, before closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReconcileRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/ipd/ward-indents/{indentId}/reject": {
@@ -119343,22 +120776,405 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
                 }
               }
             }
           }
         },
+        "description": "Rejects the request as a terminal, reasoned pharmacy decision and closes its active SLA.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "indentId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/reserve": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_reserve",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reserves exact per-line quantities against locked same-tenant catalog rows and advances the durable owner/SLA state.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReserveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/returns": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_returns",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests return of received quantities and opens reconciliation; controlled returns require sanctioned evidence at reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReturnRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/short-supply": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_short_supply",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records an evidenced stock shortfall and keeps the pharmacy response obligation open for substitution or rejection.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentShortSupplyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/substitutions": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_substitutions",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Proposes same-tenant catalog substitutions for short-supply lines and transfers ownership to the prescriber decision role.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentSubstitutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/substitutions/approve": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_substitutions_approve",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Authorizes pending substitutions as the prescribing clinician, preserving original and replacement catalog identity.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ipd/ward-indents/{indentId}/substitutions/reject": {
+      "post": {
+        "operationId": "post_api_v1_ipd_ward_indents_by_indentId_substitutions_reject",
+        "tags": [
+          "ipd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNamedResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rejects pending substitutions as the prescribing clinician and records the reason in the append-only workflow evidence.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "indentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/lab/alerts/critical": {
@@ -131279,12 +133095,85 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentListResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Lists tenant-scoped ward indents with patient-access filtering and active owner/SLA projections.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ward_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "reserved",
+                "short_supply",
+                "substitution_pending",
+                "controlled_handoff_required",
+                "approved",
+                "issued",
+                "partially_received",
+                "received",
+                "return_pending",
+                "reconciliation_required",
+                "reconciled",
+                "rejected",
+                "cancelled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "admission_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "overdue_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_ward_indents",
@@ -131292,13 +133181,43 @@
           "pharmacy"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
+              }
+            }
+          }
+        },
+        "description": "Creates a tenant-scoped ward indent with catalog snapshots, an append-only requested event, canonical timeline/audit evidence, and the pharmacy response SLA in one transaction.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentCreateRequest"
               }
             }
           }
@@ -131317,19 +133236,36 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Returns one tenant-scoped ward indent with ordered lines, active SLA ownership, controlled-handoff references, and append-only transition history.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "event_limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         ]
@@ -131347,22 +133283,287 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Approves reserved supply; controlled lines stop at the mandatory controlled-handoff evidence gate.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_cancel",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancels an eligible pre-issue request with a durable reason, audit event, timeline event, and SLA closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/close": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_close",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes only a fully received or reconciled request after all quantities and controlled evidence balance.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/controlled-handoff": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_controlled_handoff",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Binds every controlled line to its sanctioned inventory movement and statutory register entry before issue.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentControlledHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/discrepancies": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_discrepancies",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records a receipt or count discrepancy and moves the request into exact-quantity reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-orders/ward-indents/{id}/issue": {
@@ -131377,22 +133578,51 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Issues approved quantities, decrements non-controlled stock atomically, and transfers the receipt obligation to the ward.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentIssueRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-orders/ward-indents/{id}/receive": {
@@ -131407,22 +133637,110 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Records an independent ward receipt, supports partial receipt, and prevents the issuing actor from self-acknowledging.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReceiveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_reconcile",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves every outstanding receipt variance and return, including controlled return movement/register evidence, before closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReconcileRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-orders/ward-indents/{id}/reject": {
@@ -131437,22 +133755,405 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Rejects the request as a terminal, reasoned pharmacy decision and closes its active SLA.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/reserve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_reserve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reserves exact per-line quantities against locked same-tenant catalog rows and advances the durable owner/SLA state.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReserveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/returns": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_returns",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests return of received quantities and opens reconciliation; controlled returns require sanctioned evidence at reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReturnRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/short-supply": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_short_supply",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records an evidenced stock shortfall and keeps the pharmacy response obligation open for substitution or rejection.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentShortSupplyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/substitutions": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_substitutions",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Proposes same-tenant catalog substitutions for short-supply lines and transfers ownership to the prescriber decision role.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentSubstitutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/substitutions/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_substitutions_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Authorizes pending substitutions as the prescribing clinician, preserving original and replacement catalog identity.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/substitutions/reject": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_substitutions_reject",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rejects pending substitutions as the prescribing clinician and records the reason in the append-only workflow evidence.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy-supply/batches": {
@@ -135447,12 +138148,85 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentListResponse"
                 }
               }
             }
           }
-        }
+        },
+        "description": "Lists tenant-scoped ward indents with patient-access filtering and active owner/SLA projections.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ward_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "reserved",
+                "short_supply",
+                "substitution_pending",
+                "controlled_handoff_required",
+                "approved",
+                "issued",
+                "partially_received",
+                "received",
+                "return_pending",
+                "reconciliation_required",
+                "reconciled",
+                "rejected",
+                "cancelled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "admission_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "patient_uid",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "overdue_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_pharmacy_ward_indents",
@@ -135460,13 +138234,43 @@
           "pharmacy"
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
+              }
+            }
+          }
+        },
+        "description": "Creates a tenant-scoped ward indent with catalog snapshots, an append-only requested event, canonical timeline/audit evidence, and the pharmacy response SLA in one transaction.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentCreateRequest"
               }
             }
           }
@@ -135485,19 +138289,36 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Returns one tenant-scoped ward indent with ordered lines, active SLA ownership, controlled-handoff references, and append-only transition history.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "event_limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         ]
@@ -135515,22 +138336,287 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Approves reserved supply; controlled lines stop at the mandatory controlled-handoff evidence gate.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_cancel",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancels an eligible pre-issue request with a durable reason, audit event, timeline event, and SLA closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/close": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_close",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes only a fully received or reconciled request after all quantities and controlled evidence balance.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/controlled-handoff": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_controlled_handoff",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Binds every controlled line to its sanctioned inventory movement and statutory register entry before issue.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentControlledHandoffRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/discrepancies": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_discrepancies",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records a receipt or count discrepancy and moves the request into exact-quantity reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/ward-indents/{id}/issue": {
@@ -135545,22 +138631,51 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Issues approved quantities, decrements non-controlled stock atomically, and transfers the receipt obligation to the ward.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentIssueRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/ward-indents/{id}/receive": {
@@ -135575,22 +138690,110 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Records an independent ward receipt, supports partial receipt, and prevents the issuing actor from self-acknowledging.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReceiveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_reconcile",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves every outstanding receipt variance and return, including controlled return movement/register evidence, before closure.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReconcileRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/pharmacy/ward-indents/{id}/reject": {
@@ -135605,22 +138808,405 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WardIndentResponse"
                 }
               }
             }
           }
         },
+        "description": "Rejects the request as a terminal, reasoned pharmacy decision and closes its active SLA.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/reserve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_reserve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reserves exact per-line quantities against locked same-tenant catalog rows and advances the durable owner/SLA state.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReserveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/returns": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_returns",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests return of received quantities and opens reconciliation; controlled returns require sanctioned evidence at reconciliation.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReturnRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/short-supply": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_short_supply",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records an evidenced stock shortfall and keeps the pharmacy response obligation open for substitution or rejection.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentShortSupplyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/substitutions": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_substitutions",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Proposes same-tenant catalog substitutions for short-supply lines and transfers ownership to the prescriber decision role.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentSubstitutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/substitutions/approve": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_substitutions_approve",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Authorizes pending substitutions as the prescribing clinician, preserving original and replacement catalog identity.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentVersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/substitutions/reject": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_by_id_substitutions_reject",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rejects pending substitutions as the prescribing clinician and records the reason in the append-only workflow evidence.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/physio/admin/progress": {

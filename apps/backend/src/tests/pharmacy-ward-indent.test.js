@@ -2,22 +2,25 @@
 //
 // Finding: 2026-05-08-inpatient-admission-pharmacy-no-ipd-ward-indent.
 // The service layer already existed in ipdSupportService.js; this suite
-// asserts the routes are mounted and the requested → approved → issued →
-// received workflow round-trips through HTTP.
+// asserts the authoritative requested → reserved → approved → issued →
+// received → closed workflow round-trips through HTTP.
 
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const STAFF_UID = 'a6666666-6666-4666-8666-66666666fd02';
+const NURSE_UID = 'a6666666-6666-4666-8666-66666666fd03';
 const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const WARD_NAME = `Pharm-Indent-Ward-${RUN_SUFFIX}`;
 const CATALOG_NAME_PREFIX = `Pharm-Indent-Catalog-${RUN_SUFFIX}`;
 const INVENTORY_SKU_PREFIX = `PHARM-INDENT-${RUN_SUFFIX}`;
 
 let staffToken;
+let nurseToken;
 let wardId;
 let paracetamolCatalogId;
 let salineCatalogId;
@@ -41,6 +44,17 @@ async function seedClassifiedCatalog({ name, sku, scheduleClass = null }) {
 
 async function cleanup() {
   if (createdIndentIds.length) {
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM ward_indent_events WHERE ward_indent_id = ANY($1::int[])`,
+      createdIndentIds,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE source_table = 'ward_indents'
+          AND source_id LIKE ANY($1::text[])`,
+      createdIndentIds.map((id) => `ward-indent:${id}:%`),
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM ward_indents WHERE id = ANY($1::int[])`,
       createdIndentIds,
@@ -63,8 +77,9 @@ async function cleanup() {
     DEFAULT_TENANT_ID, `${CATALOG_NAME_PREFIX} %`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid = $1::uuid`,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
     STAFF_UID,
+    NURSE_UID,
   ).catch(() => {});
 }
 
@@ -81,6 +96,14 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       STAFF_UID,
       `+9199998${RUN_SUFFIX}`,
       `Ward-Indent Pharmacy-${RUN_SUFFIX}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2, $3, 'NURSING_INCHARGE', true, NOW())
+       ON CONFLICT (uid) DO UPDATE SET role = EXCLUDED.role, is_active = true`,
+      NURSE_UID,
+      `+9199997${RUN_SUFFIX}`,
+      `Ward-Indent Nurse-${RUN_SUFFIX}`,
     );
 
     // Seed a ward so the indent has a real FK target.
@@ -103,6 +126,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     });
 
     staffToken = generateTestToken('PHARMACY_STAFF', { uid: STAFF_UID });
+    nurseToken = generateTestToken('NURSING_INCHARGE', { uid: NURSE_UID });
   });
 
   afterAll(async () => {
@@ -110,12 +134,13 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     await prisma.$disconnect();
   });
 
-  it('round-trips a ward indent through requested → approved → issued → received', async () => {
+  it('round-trips requested → reserved → approved → issued → received → closed', async () => {
     // 1. Create
     const createRes = await request(app)
       .post('/api/v1/pharmacy/ward-indents')
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-create-${RUN_SUFFIX}`)
       .send({
         ward_id: wardId,
         indent_type: 'pharmacy',
@@ -166,22 +191,34 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     expect(getRes.statusCode).toBe(200);
     expect(getRes.body.data.id).toBe(indentId);
 
-    // 4. Approve
+    // 4. Reserve
+    const reserveRes = await request(app)
+      .post(`/api/v1/pharmacy/ward-indents/${indentId}/reserve`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-reserve-${RUN_SUFFIX}`)
+      .send({ expected_version: 1 });
+    expect(reserveRes.statusCode).toBe(200);
+    expect(reserveRes.body.data.status).toBe('reserved');
+
+    // 5. Approve
     const approveRes = await request(app)
       .post(`/api/v1/pharmacy/ward-indents/${indentId}/approve`)
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
-      .send({});
+      .set('idempotency-key', `ward-indent-approve-${RUN_SUFFIX}`)
+      .send({ expected_version: 2 });
     expect(approveRes.statusCode).toBe(200);
     expect(approveRes.body.data.status).toBe('approved');
     expect(approveRes.body.data.approved_by).toBe(STAFF_UID);
 
-    // 5. Issue (no per-item quantities → default to quantity_requested)
+    // 6. Issue (no per-item quantities → default to approved quantity)
     const issueRes = await request(app)
       .post(`/api/v1/pharmacy/ward-indents/${indentId}/issue`)
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
-      .send({});
+      .set('idempotency-key', `ward-indent-issue-${RUN_SUFFIX}`)
+      .send({ expected_version: 3 });
     expect(issueRes.statusCode).toBe(200);
     expect(issueRes.body.data.status).toBe('issued');
     expect(issueRes.body.data.issued_by).toBe(STAFF_UID);
@@ -190,15 +227,31 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       expect(Number(it.quantity_issued)).toBe(Number(it.quantity_requested));
     });
 
-    // 6. Receive
+    // 7. Receive by the ward — the issuer cannot self-acknowledge custody.
     const receiveRes = await request(app)
       .post(`/api/v1/pharmacy/ward-indents/${indentId}/receive`)
       .set('x-api-key', API_KEY)
-      .set('Authorization', `Bearer ${staffToken}`)
-      .send({});
+      .set('Authorization', `Bearer ${nurseToken}`)
+      .set('idempotency-key', `ward-indent-receive-${RUN_SUFFIX}`)
+      .send({ expected_version: 4 });
     expect(receiveRes.statusCode).toBe(200);
     expect(receiveRes.body.data.status).toBe('received');
-    expect(receiveRes.body.data.received_by).toBe(STAFF_UID);
+    expect(receiveRes.body.data.received_by).toBe(NURSE_UID);
+
+    // 8. Close only after every issued unit is accounted for.
+    const closeRes = await request(app)
+      .post(`/api/v1/pharmacy/ward-indents/${indentId}/close`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${nurseToken}`)
+      .set('idempotency-key', `ward-indent-close-${RUN_SUFFIX}`)
+      .send({ expected_version: 5, reason: 'Ward receipt complete' });
+    expect(closeRes.statusCode).toBe(200);
+    expect(closeRes.body.data).toMatchObject({
+      status: 'closed',
+      closed_by: NURSE_UID,
+      closure_outcome: 'fulfilled',
+    });
+    expect(closeRes.body.data.workflow.events).toHaveLength(6);
   });
 
   it('rejects an indent with a reason and refuses to issue it afterwards', async () => {
@@ -206,6 +259,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .post('/api/v1/pharmacy/ward-indents')
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-reject-create-${RUN_SUFFIX}`)
       .send({
         ward_id: wardId,
         items: [{ item_name: 'Ibuprofen 400mg', quantity_requested: 100 }],
@@ -218,6 +272,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .post(`/api/v1/pharmacy/ward-indents/${indentId}/reject`)
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-reject-${RUN_SUFFIX}`)
       .send({ reason: 'Out of stock — see PO #2026-04' });
     expect(rejectRes.statusCode).toBe(200);
     expect(rejectRes.body.data.status).toBe('rejected');
@@ -228,6 +283,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .post(`/api/v1/pharmacy/ward-indents/${indentId}/issue`)
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-rejected-issue-${RUN_SUFFIX}`)
       .send({});
     expect(issueRes.statusCode).toBeGreaterThanOrEqual(400);
   });
@@ -237,6 +293,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .post('/api/v1/pharmacy/ward-indents')
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-invalid-${RUN_SUFFIX}`)
       .send({ ward_id: wardId, items: [] });
     expect(res.statusCode).toBe(400);
   });
