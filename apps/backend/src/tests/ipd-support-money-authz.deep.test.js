@@ -36,10 +36,14 @@ const PHARMACY_UID = randomUUID();
 const ADMISSION_OFFICER_UID = randomUUID();
 
 const WARD_NAME = `BM-WARD-${SUFFIX}`;
+const INVENTORY_SKU_PREFIX = `BM-INV-${SUFFIX}`;
+const CATALOG_NAME_PREFIX = `BM-CATALOG-${SUFFIX}`;
 
 let wardId;
 let admissionId;
-let stockCatalogId;
+let gauzeCatalogId;
+let ceftriaxoneCatalogId;
+let bedsheetCatalogId;
 
 function phone() {
   return `9${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`;
@@ -72,6 +76,22 @@ async function seedDeposit(amount) {
     collectedBy: BILLING_UID,
     tenantId: TENANT,
   });
+}
+
+async function seedClassifiedCatalog({ name, sku, scheduleClass = null }) {
+  const catalogRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_catalog (name, is_active, tenant_id, stock_quantity, updated_at)
+     VALUES ($1, TRUE, $2::uuid, 100, NOW()) RETURNING id`,
+    name, TENANT,
+  );
+  const catalogId = Number(catalogRows[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO pharmacy_inventory_items
+       (tenant_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
+     VALUES ($1::uuid, $2, $3, $4, $5, FALSE)`,
+    TENANT, sku, name, catalogId, scheduleClass,
+  );
+  return catalogId;
 }
 
 async function cleanup() {
@@ -111,12 +131,14 @@ async function cleanup() {
     `DELETE FROM wards WHERE name = $1`, WARD_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM pharmacy_inventory_items WHERE tenant_id = $1::uuid AND sku_code = $2`,
-    TENANT, `BM-INV-${SUFFIX}`,
+    `DELETE FROM pharmacy_inventory_items
+      WHERE tenant_id = $1::uuid AND sku_code LIKE $2`,
+    TENANT, `${INVENTORY_SKU_PREFIX}-%`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
-    TENANT, `BM-CATALOG-${SUFFIX}`,
+    `DELETE FROM pharmacy_catalog
+      WHERE tenant_id = $1::uuid AND name LIKE $2`,
+    TENANT, `${CATALOG_NAME_PREFIX} %`,
   ).catch(() => {});
   for (const uid of [
     PATIENT_UID, BILLING_UID, RECEPTIONIST_UID, NURSE_UID, PHARMACY_UID, ADMISSION_OFFICER_UID,
@@ -149,24 +171,20 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     );
     admissionId = admissionRows[0].id;
 
-    // Post-BC-M3 (commit b5640292 / 0b628e64) issueWardIndent fails closed on
-    // any positive indent line whose controlled-drug classification it cannot
-    // resolve: free-text lines, and catalog lines with no same-facility
-    // inventory-v2 item, are rejected 409. Seed one non-controlled catalog row
-    // linked to a same-tenant inventory-v2 item so the ward-indent issues below
-    // classify cleanly (OTC, non-narcotic) and reach the 'issued' path.
-    const catalogRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog (name, is_active, tenant_id, stock_quantity, updated_at)
-       VALUES ($1, TRUE, $2::uuid, 500, NOW()) RETURNING id`,
-      `BM-CATALOG-${SUFFIX}`, TENANT,
-    );
-    stockCatalogId = Number(catalogRows[0].id);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2, $2, $3, 'OTC', FALSE)`,
-      TENANT, `BM-INV-${SUFFIX}`, stockCatalogId,
-    );
+    // Every positive line must have a same-tenant inventory classification.
+    gauzeCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Gauze roll`,
+      sku: `${INVENTORY_SKU_PREFIX}-GAUZE`,
+    });
+    ceftriaxoneCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Ceftriaxone 1g`,
+      sku: `${INVENTORY_SKU_PREFIX}-CEFTRIAXONE`,
+      scheduleClass: 'H',
+    });
+    bedsheetCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Bedsheet`,
+      sku: `${INVENTORY_SKU_PREFIX}-BEDSHEET`,
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -284,7 +302,11 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     const indent = await ipdSupportService.createWardIndent({
       wardId,
       indentType: 'pharmacy',
-      items: [{ item_name: 'Gauze roll', quantity_requested: 5, pharmacy_catalog_id: stockCatalogId }],
+      items: [{
+        item_name: 'Gauze roll',
+        quantity_requested: 5,
+        pharmacy_catalog_id: gauzeCatalogId,
+      }],
       requestedBy: NURSE_UID,
       tenantId: TENANT,
     });
@@ -352,7 +374,7 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       items: [{
         item_name: 'Ceftriaxone 1g',
         quantity_requested: 2,
-        pharmacy_catalog_id: stockCatalogId,
+        pharmacy_catalog_id: ceftriaxoneCatalogId,
         notes: `clinical_order_id:${clinicalOrderId}; order_number:ORD-BM5-${SUFFIX}`,
       }],
       requestedBy: NURSE_UID,
@@ -402,7 +424,11 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     const indent = await ipdSupportService.createWardIndent({
       wardId,
       indentType: 'consumables',
-      items: [{ item_name: 'Bedsheet', quantity_requested: 10, pharmacy_catalog_id: stockCatalogId }],
+      items: [{
+        item_name: 'Bedsheet',
+        quantity_requested: 10,
+        pharmacy_catalog_id: bedsheetCatalogId,
+      }],
       requestedBy: NURSE_UID,
       tenantId: TENANT,
     });
