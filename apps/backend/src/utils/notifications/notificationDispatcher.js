@@ -89,6 +89,9 @@ function resolveInAppTenantId(user) {
  *   provenance ({ tenantId, templateVersion, outboxId }) forwarded to the
  *   provider seam so the adapter can resolve tenant config + DLT template
  *   registration. Only set on the providerReceiptMode outbox-drain path.
+ * @param {number|null} [options.prePersistedInAppNotificationId] - Feed row
+ *   committed atomically with the outbox intent. The in-app channel verifies
+ *   and receipts that row instead of inserting a duplicate.
  */
 export async function dispatch({
   userId,
@@ -99,6 +102,7 @@ export async function dispatch({
   type = 'general',
   voiceLanguage = null,
   providerReceiptMode = false,
+  prePersistedInAppNotificationId = null,
   smsContext = null,
 }) {
   const results = {};
@@ -221,32 +225,70 @@ export async function dispatch({
   if (channels.includes('inapp')) {
     try {
       const inAppTenantId = resolveInAppTenantId(user);
-      // The row's `type` is what the patient app's inbox tap handler switches
-      // on, so it must be a type that handler routes — not the transport /
-      // template identity the outbox row happens to carry. The drain re-enters
+      // The row's `type` selects an action in the generated patient contract,
+      // so it must be a canonical inbox type — not the transport/template
+      // identity the outbox row happens to carry. The drain re-enters
       // dispatch() with the outbox row's type verbatim, which is how a tenant
       // that configured `inapp` for appointment reminders got rows typed
-      // `appointment_reminder_24h`: they rendered and went nowhere on tap.
+      // `appointment_reminder_24h`: they rendered but had no safe action.
       // feedRowTypeForTransportType returns its input unchanged for every type
       // that needs no translation, so staff types are unaffected.
       const feedRowType = feedRowTypeForTransportType(type);
-      const stored = await prisma.$queryRawUnsafe(
-        // tenant_id is bound explicitly ($7) rather than left to the column
-        // DEFAULT — see resolveInAppTenantId above for why the DEFAULT is not
-        // enough on the paths this dispatcher runs on.
-        `INSERT INTO notifications (tenant_id, user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
-         VALUES ($7::uuid, $1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
-         RETURNING id`,
-        user.id, user.uid, user.phone, title, body, feedRowType, inAppTenantId
-      );
-      results.inapp = providerReceiptMode
-        ? {
-            outcome: 'acknowledged',
-            providerReference: `notification:${stored[0].id}`,
-            providerCode: 'committed',
-            evidence: { notification_id: String(stored[0].id) },
-          }
-        : 'stored';
+      const prePersistedId = Number(prePersistedInAppNotificationId);
+      if (Number.isSafeInteger(prePersistedId) && prePersistedId > 0) {
+        const existing = await prisma.$queryRawUnsafe(
+          `SELECT id
+             FROM notifications
+            WHERE id = $1::integer
+              AND tenant_id = $2::uuid
+              AND (user_id = $3::integer OR uid = $4::uuid)
+              AND type = $5::text
+              AND title = $6::text
+              AND body = $7::text
+            LIMIT 1`,
+          prePersistedId,
+          inAppTenantId,
+          user.id,
+          user.uid,
+          feedRowType,
+          title,
+          body,
+        );
+        if (!existing[0]) {
+          const error = new Error('Pre-persisted patient feed row was not found');
+          error.code = 'prepersisted_feed_row_missing';
+          throw error;
+        }
+        results.inapp = providerReceiptMode
+          ? {
+              outcome: 'acknowledged',
+              providerReference: `notification:${prePersistedId}`,
+              providerCode: 'precommitted',
+              evidence: {
+                notification_id: String(prePersistedId),
+                persistence: 'precommitted',
+              },
+            }
+          : 'stored';
+      } else {
+        const stored = await prisma.$queryRawUnsafe(
+          // tenant_id is bound explicitly ($7) rather than left to the column
+          // DEFAULT — see resolveInAppTenantId above for why the DEFAULT is not
+          // enough on the paths this dispatcher runs on.
+          `INSERT INTO notifications (tenant_id, user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
+           VALUES ($7::uuid, $1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)
+           RETURNING id`,
+          user.id, user.uid, user.phone, title, body, feedRowType, inAppTenantId
+        );
+        results.inapp = providerReceiptMode
+          ? {
+              outcome: 'acknowledged',
+              providerReference: `notification:${stored[0].id}`,
+              providerCode: 'committed',
+              evidence: { notification_id: String(stored[0].id) },
+            }
+          : 'stored';
+      }
     } catch (err) {
       logger.error(`Notification dispatch [inapp] failed for ${userId}: ${err.message}`);
       // A tenant mismatch is terminal — a retry re-derives the same two tenants,

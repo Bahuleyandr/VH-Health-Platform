@@ -41,6 +41,10 @@ async function cleanup() {
         AND payload->>'tenant_id' = $1`,
     TENANT_ID,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM notifications WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM engagement_campaign_recipients WHERE tenant_id = $1::uuid`, TENANT_ID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM engagement_suppression_events WHERE tenant_id = $1::uuid`, TENANT_ID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM engagement_audience_snapshots WHERE tenant_id = $1::uuid`, TENANT_ID).catch(() => {});
@@ -302,7 +306,7 @@ d('NL9-P1 engagement campaigns consent gates', () => {
     expect(queued).toEqual({ claimed: 1, queued: 1, suppressed: 0, failed: 0 });
 
     const recipientRows = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid::text, status, suppression_reason, outbox_id
+      `SELECT id, patient_uid::text, status, suppression_reason, outbox_id
          FROM engagement_campaign_recipients
         WHERE tenant_id = $1::uuid
           AND campaign_id = $2::bigint
@@ -325,5 +329,43 @@ d('NL9-P1 engagement campaigns consent gates', () => {
     expect(outboxRows[0].type).toBe('engagement_campaign');
     expect(outboxRows[0].payload.channels).toEqual(['sms']);
     expect(outboxRows[0].body).toContain('tomorrow morning');
+
+    const feedRows = await prisma.$queryRawUnsafe(
+      `SELECT id, type, title, body, data
+         FROM notifications
+        WHERE tenant_id = $1::uuid
+          AND data->>'campaign_id' = $2
+        ORDER BY id`,
+      TENANT_ID,
+      String(campaign.id),
+    );
+    expect(feedRows).toHaveLength(1);
+    expect(feedRows[0]).toEqual(expect.objectContaining({
+      type: 'engagement_campaign',
+      title: 'Visit reminder',
+      body: expect.stringContaining('tomorrow morning'),
+      data: expect.objectContaining({
+        campaign_id: String(campaign.id),
+        campaign_recipient_id: String(eligible.id),
+        type: 'engagement_campaign',
+      }),
+    }));
+    expect(outboxRows[0].payload.__feed_notification_id).toBe(feedRows[0].id);
+
+    await expect(queueDueCampaignRecipients({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      limit: 10,
+    })).resolves.toEqual({ claimed: 0, queued: 0, suppressed: 0, failed: 0 });
+    const replayCounts = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM notifications
+           WHERE tenant_id = $1::uuid AND data->>'campaign_id' = $2) AS feed_count,
+         (SELECT COUNT(*)::int FROM notification_outbox
+           WHERE tenant_id = $1::uuid AND payload->>'campaign_id' = $2) AS outbox_count`,
+      TENANT_ID,
+      String(campaign.id),
+    );
+    expect(replayCounts[0]).toEqual({ feed_count: 1, outbox_count: 1 });
   });
 });

@@ -26,34 +26,59 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '44444444-4444-4444-8444-444444444444';
 
 const queryRawUnsafeMock = jest.fn();
-const executeRawUnsafeMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryRawUnsafeMock,
-    $executeRawUnsafe: executeRawUnsafeMock,
   },
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 
-const { recordPatientFeedNotification } = await import(
+const {
+  recordPatientFeedNotification,
+  recordPatientFeedNotificationWithReceipt,
+} = await import(
   '../../utils/notifications/patientNotificationFeed.js'
 );
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
-  executeRawUnsafeMock.mockReset();
   loggerMock.warn.mockReset();
-  executeRawUnsafeMock.mockResolvedValue(1);
+  queryRawUnsafeMock.mockImplementation(async (sql) => (
+    /INSERT\s+INTO\s+notifications/i.test(String(sql)) ? [{ id: 501 }] : []
+  ));
 });
 
 function insertCall() {
-  const [sql, ...params] = executeRawUnsafeMock.mock.calls[0];
+  const [sql, ...params] = queryRawUnsafeMock.mock.calls.find(
+    ([text]) => /INSERT\s+INTO\s+notifications/i.test(String(text)),
+  );
   return { sql: String(sql), params };
 }
 
 describe('recordPatientFeedNotification', () => {
+  it('uses the supplied transaction client and returns the committed row id', async () => {
+    const transactionQuery = jest.fn(async (sql) => (
+      /INSERT\s+INTO\s+notifications/i.test(String(sql)) ? [{ id: 731 }] : []
+    ));
+
+    await expect(recordPatientFeedNotificationWithReceipt({
+      client: { $queryRawUnsafe: transactionQuery },
+      tenantId: TENANT_ID,
+      userId: 41,
+      uid: PATIENT_UID,
+      phone: '+919876500041',
+      title: 'New report available',
+      body: 'Open VH Health to securely view your latest report.',
+      type: 'diagnostic_result_ready',
+      data: { generation_id: '731' },
+    })).resolves.toEqual({ written: true, notificationId: 731 });
+
+    expect(transactionQuery).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('binds tenant_id explicitly rather than leaving it to the column DEFAULT', async () => {
     const written = await recordPatientFeedNotification({
       tenantId: TENANT_ID,
@@ -93,7 +118,7 @@ describe('recordPatientFeedNotification', () => {
     expect(params[1]).toBe(41);
     expect(params[2]).toBe('+919876500041');
     // No recipient lookup was needed — everything was supplied.
-    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('resolves uid and phone from users when the caller only holds an id', async () => {
@@ -155,7 +180,7 @@ describe('recordPatientFeedNotification', () => {
 
   // ── Contract 1: never throws ────────────────────────────────────────────
   it('swallows an insert failure and reports false', async () => {
-    executeRawUnsafeMock.mockRejectedValueOnce(new Error('deadlock detected'));
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('deadlock detected'));
 
     await expect(recordPatientFeedNotification({
       tenantId: TENANT_ID,
@@ -183,7 +208,9 @@ describe('recordPatientFeedNotification', () => {
       body: 'B',
       type: 'appointment_reminder',
     })).resolves.toBe(false);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock.mock.calls.some(
+      ([sql]) => /INSERT\s+INTO\s+notifications/i.test(String(sql)),
+    )).toBe(false);
   });
 
   it('refuses to write an unreachable row when the recipient does not exist', async () => {
@@ -196,7 +223,9 @@ describe('recordPatientFeedNotification', () => {
       body: 'B',
       type: 'appointment_reminder',
     })).resolves.toBe(false);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock.mock.calls.some(
+      ([sql]) => /INSERT\s+INTO\s+notifications/i.test(String(sql)),
+    )).toBe(false);
   });
 
   it('refuses to write without a tenant rather than defaulting one', async () => {
@@ -208,6 +237,21 @@ describe('recordPatientFeedNotification', () => {
       body: 'B',
       type: 'appointment_reminder',
     })).resolves.toBe(false);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses unregistered or transport-alias types', async () => {
+    for (const type of ['invented_patient_event', 'secure_message']) {
+      await expect(recordPatientFeedNotification({
+        tenantId: TENANT_ID,
+        userId: 41,
+        uid: PATIENT_UID,
+        phone: '+919876500041',
+        title: 'T',
+        body: 'B',
+        type,
+      })).resolves.toBe(false);
+    }
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 });

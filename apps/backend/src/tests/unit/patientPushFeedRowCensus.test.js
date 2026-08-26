@@ -158,13 +158,6 @@ import {
  *                    patientInboxTypeRouting.test.js
  *  patient-readable  patient intent on a channel that carries its own text
  *                    (sms / print), so there is no stripped-envelope problem
- *  patient-open-no-row
- *                    KNOWN OPEN: patient intent that writes no feed row.
- *                    Parked in docs/ROADMAP.md, not fixed here.
- *  patient-open-unrouted-type
- *                    KNOWN OPEN: patient intent that DOES get a feed row (the
- *                    dispatcher writes it) but typed with something the inbox
- *                    does not route. Parked in docs/ROADMAP.md.
  */
 const EMITTERS = Object.freeze({
   // ── infrastructure ────────────────────────────────────────────────────
@@ -268,26 +261,15 @@ const EMITTERS = Object.freeze({
   // `prisma.notifications.create` with no push anywhere in the file.
   'services/investigation/orderService.js': { orm: ['patient-row-only', 'patient-row-only'] },
 
-  // ── patient-facing, KNOWN OPEN — parked in docs/ROADMAP.md ────────────
-  // Both bypass notificationOutbox.queue() with a raw INSERT, both carry a
-  // patient recipient, and neither writes a `notifications` row. Their types
-  // ARE routed by the inbox handler, so the fix is the missing row alone.
-  // Full park entry — what exists, what is missing, patient-visible symptom —
-  // is in docs/ROADMAP.md under "re-audit lane J, 2026-08-24 — patient
-  // notification dead-ends".
+  // These three emitters now persist the readable patient feed row in the
+  // same tenant transaction as their outbox intent. The outbox carries the
+  // committed row id so an `inapp` delivery receipts it rather than inserting
+  // a duplicate.
   'services/diagnostics/diagnosticResultPatientNotificationService.js': {
-    raw: ['patient-open-no-row'],
+    raw: ['patient'],
   },
-  'services/referral/referralClosedLoopService.js': { raw: ['patient-open-no-row'] },
-  // engagementCampaignService queues type 'engagement_campaign' with the
-  // campaign's own channel list; `inapp` is an accepted campaign channel
-  // (ENGAGEMENT_CHANNELS), and 'engagement_campaign' is not a case in the
-  // inbox tap handler — so a tenant that picks the in-app channel gets a row
-  // that renders and goes nowhere on tap. Parked in docs/ROADMAP.md with the
-  // other two; this gate previously called it "another agent's file", which is
-  // no longer true (this same working tree adds
-  // routes/engagement/engagementListQueries.js and three engagement GETs).
-  'services/engagement/engagementCampaignService.js': { queue: ['patient-open-unrouted-type'] },
+  'services/referral/referralClosedLoopService.js': { raw: ['patient'] },
+  'services/engagement/engagementCampaignService.js': { queue: ['patient'] },
 });
 
 /**
@@ -343,6 +325,7 @@ const MECHANISMS = Object.freeze([...COUNTED_MECHANISMS, 'dispatch']);
  */
 function countFeedRowWrites(source) {
   return (source.match(/recordPatientFeedNotification\s*\(/g) || []).length
+    + (source.match(/recordPatientFeedNotificationWithReceipt\s*\(/g) || []).length
     + (source.match(MECHANISM_PATTERNS.rowInsert) || []).length
     + ormRowCreations(source).length;
 }
@@ -409,7 +392,6 @@ describe('patient notification emission census', () => {
     const allowed = new Set([
       'definition', 'infrastructure', 'transport-retry', 'staff',
       'patient', 'patient-inapp', 'patient-row-only', 'patient-readable',
-      'patient-open-no-row', 'patient-open-unrouted-type',
     ]);
     const used = new Set(
       Object.values(EMITTERS)
@@ -457,27 +439,9 @@ describe('patient notification emission census', () => {
     },
   );
 
-  it('has exactly the known-open patient emitters, and no more', () => {
-    // A baseline, not an exemption. All three are parked in docs/ROADMAP.md
-    // ("re-audit lane J, 2026-08-24 — patient notification dead-ends") with
-    // what exists, what is missing, and the patient-visible symptom. A fourth
-    // cannot join them silently, and fixing one of these also fails here so
-    // the baseline shrinks rather than lingering.
-    expect(filesWith('patient-open-no-row').sort()).toEqual([
-      'services/diagnostics/diagnosticResultPatientNotificationService.js',
-      'services/referral/referralClosedLoopService.js',
-    ]);
-    // These two write no row at all — that is what makes them open.
-    for (const file of filesWith('patient-open-no-row')) {
-      expect(countFeedRowWrites(readSource(file))).toBe(0);
-    }
-    // This one is the other shape of open: the row gets written (by the
-    // dispatcher, when a tenant configures the in-app channel) but carries a
-    // type the inbox does not route. patientInboxTypeRouting.test.js holds the
-    // matching baseline for the type itself.
-    expect(filesWith('patient-open-unrouted-type').sort()).toEqual([
-      'services/engagement/engagementCampaignService.js',
-    ]);
+  it('has no patient notification dead-end disposition', () => {
+    expect(filesWith('patient-open-no-row')).toEqual([]);
+    expect(filesWith('patient-open-unrouted-type')).toEqual([]);
   });
 
   it('classifies every Prisma call it finds on the notifications model', () => {

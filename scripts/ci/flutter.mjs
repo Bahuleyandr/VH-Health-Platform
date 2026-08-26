@@ -13,6 +13,7 @@ export function runFlutterStage() {
   run(process.execPath, ['scripts/check-docs-plugin-versions.mjs']);
   run(process.execPath, ['scripts/generate-vital-bounds.mjs', '--check']);
   run(process.execPath, ['scripts/generate-staff-role-contract.mjs', '--check']);
+  run(process.execPath, ['scripts/generate-patient-notification-contract.mjs', '--check']);
   // Staff i18n structural key parity (hi/ta/te vs en; ml is declared-partial
   // and exempt). Node-only, same cheap-gate-first placement as the drift
   // checks above. This is the Forgejo/canonical half of the "Staff i18n

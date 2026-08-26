@@ -58,5 +58,81 @@ void main() {
       expect(provider.unreadCount, 2);
       expect(notifyCount, 1);
     });
+
+    test('server aggregate wins over a paginated first-page count', () async {
+      provider = NotificationProvider(
+        feedFetcher: () async => {
+          'unread_count': 17,
+          'notifications': [
+            {'is_read': false},
+            {'is_read': true},
+          ],
+        },
+      );
+
+      await provider.fetchUnreadCount('+919876543210');
+
+      expect(provider.unreadCount, 17);
+    });
+
+    test(
+      'falls back to the encrypted cached feed when the server fails',
+      () async {
+        provider = NotificationProvider(
+          feedFetcher: () async => throw StateError('network unavailable'),
+          cachedFeedFetcher: () async => {
+            'unread_count': '4',
+            'notifications': const [],
+          },
+        );
+
+        await provider.fetchUnreadCount('+919876543210');
+
+        expect(provider.unreadCount, 4);
+      },
+    );
+
+    test(
+      'preserves the last known badge when server and cache both fail',
+      () async {
+        var failServer = false;
+        provider = NotificationProvider(
+          feedFetcher: () async {
+            if (failServer) throw StateError('network unavailable');
+            return {'unread_count': 3};
+          },
+          cachedFeedFetcher: () async => throw StateError('cache unavailable'),
+        );
+        await provider.fetchUnreadCount('+919876543210');
+        failServer = true;
+
+        await provider.fetchUnreadCount('+919876543210');
+
+        expect(provider.unreadCount, 3);
+      },
+    );
+
+    test('local mark-read reconciliation is bounded at zero', () {
+      expect(provider.reconcileFromFeed({'unread_count': 1}), isTrue);
+
+      provider.markOneReadLocally();
+      provider.markOneReadLocally();
+
+      expect(provider.unreadCount, 0);
+    });
+
+    test('supports legacy cached read fields without treating unknown rows as unread', () {
+      expect(
+        provider.reconcileFromFeed({
+          'notifications': [
+            {'read': false},
+            {'read': true},
+            {'title': 'missing read state'},
+          ],
+        }),
+        isTrue,
+      );
+      expect(provider.unreadCount, 1);
+    });
   });
 }

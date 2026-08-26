@@ -7,6 +7,10 @@ import {
 import { CARE_PATHWAY_KEYS, PATHWAY_MODES } from '../pathways/pathwayMode.js';
 import { resolvePathwayModeTx } from '../pathways/pathwayRuntimePersistence.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { recordPatientFeedNotificationWithReceipt } from '../../utils/notifications/patientNotificationFeed.js';
+import {
+  PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+} from '../../utils/notifications/tenantNotificationChannels.js';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -144,6 +148,24 @@ async function queueGenerationNotification(tenantId, generationId) {
     const generation = rows[0] || null;
     if (!generation) return Object.freeze({ queued: false, outcome: 'not_eligible' });
 
+    const feedReceipt = await recordPatientFeedNotificationWithReceipt({
+      client: tx,
+      tenantId,
+      uid: String(generation.patient_uid),
+      phone: generation.phone || null,
+      title: 'New report available',
+      body: 'Open VH Health to securely view your latest report.',
+      type: 'diagnostic_result_ready',
+      data: {
+        generation_id: String(generation.id),
+        route: '/portal/diagnostic-results',
+      },
+      context: 'structured-diagnostic-result-ready',
+    });
+    if (!feedReceipt.written) {
+      throw new Error('Diagnostic result notification feed insert was not confirmed');
+    }
+
     const outboxRows = await tx.$queryRawUnsafe(
       `INSERT INTO notification_outbox
          (tenant_id, type, recipient_id, recipient_phone, title, body,
@@ -155,13 +177,18 @@ async function queueGenerationNotification(tenantId, generationId) {
           jsonb_build_object(
             'tenant_id', $1::text,
             'type', 'diagnostic_result_ready',
-            'route', '/portal/diagnostic-results'
+            'route', '/portal/diagnostic-results',
+            'generation_id', $6::text,
+            $4::text, $5::integer
           ),
           'PENDING', NOW())
        RETURNING id`,
       tenantId,
       String(generation.patient_uid),
       generation.phone || null,
+      PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+      feedReceipt.notificationId,
+      String(generation.id),
     );
     const outboxId = Number(outboxRows[0]?.id);
     if (!Number.isSafeInteger(outboxId) || outboxId <= 0) {

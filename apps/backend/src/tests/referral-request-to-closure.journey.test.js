@@ -51,6 +51,7 @@ function actor(uid, role) {
 async function cleanup() {
   await withAuditBypass(prisma, async (tx) => {
     await tx.$executeRawUnsafe(`DELETE FROM referral_patient_notifications WHERE tenant_id = $1::uuid`, TENANT_ID);
+    await tx.$executeRawUnsafe(`DELETE FROM notification_outbox WHERE tenant_id = $1::uuid`, TENANT_ID);
     await tx.$executeRawUnsafe(`DELETE FROM clinical_document_signatures WHERE tenant_id = $1::uuid AND document_type = 'referral_response'`, TENANT_ID);
     await tx.$executeRawUnsafe(`DELETE FROM referral_responses WHERE tenant_id = $1::uuid`, TENANT_ID);
     await tx.$executeRawUnsafe(`DELETE FROM referral_transition_events WHERE tenant_id = $1::uuid`, TENANT_ID);
@@ -75,7 +76,7 @@ d('Referral request-to-closure journey', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name, settings)
        VALUES ($1::uuid, $2::text, 'Referral Journey Tenant',
-               '{"care_pathways":{"referral_request_to_closure":"active"}}'::jsonb)`,
+               '{"care_pathways":{"referral_request_to_closure":"active","referral_notifications":"enabled"}}'::jsonb)`,
       TENANT_ID,
       `referral-journey-${TENANT_ID.slice(0, 8)}`,
     );
@@ -223,6 +224,8 @@ d('Referral request-to-closure journey', () => {
     );
     expect(response).toMatchObject({ status: 'completed', closure_status: 'open' });
     expect(response.signature.id).toBeTruthy();
+    const responseId = response.response.id;
+    expect(responseId).toMatch(/^[0-9a-f-]{36}$/i);
     const responseTaskAfterSign = await prisma.$queryRawUnsafe(
       `SELECT status
          FROM tasks
@@ -254,6 +257,41 @@ d('Referral request-to-closure journey', () => {
       actor(RECEIVER_UID, 'DOCTOR'),
     );
     expect(responseReplay).toMatchObject({ status: 'completed', replayed: true });
+    const patientNotificationRows = await prisma.$queryRawUnsafe(
+      `SELECT receipt.notification_outbox_id AS outbox_id,
+              outbox.type AS outbox_type, outbox.payload,
+              feed.id AS feed_id, feed.type AS feed_type, feed.data AS feed_data
+         FROM referral_patient_notifications AS receipt
+         JOIN notification_outbox AS outbox
+           ON outbox.tenant_id = receipt.tenant_id
+          AND outbox.id = receipt.notification_outbox_id
+         JOIN notifications AS feed
+           ON feed.tenant_id = receipt.tenant_id
+          AND feed.id = (outbox.payload->>'__feed_notification_id')::integer
+        WHERE receipt.tenant_id = $1::uuid
+          AND receipt.response_id = $2::uuid
+          AND receipt.notification_kind = 'referral_response_ready'`,
+      TENANT_ID,
+      responseId,
+    );
+    expect(patientNotificationRows).toHaveLength(1);
+    expect(patientNotificationRows[0]).toMatchObject({
+      outbox_type: 'referral_response_ready',
+      feed_type: 'referral_response_ready',
+      payload: expect.objectContaining({
+        referral_id: String(created.id),
+        response_id: String(responseId),
+        route: '/portal/referrals',
+      }),
+      feed_data: expect.objectContaining({
+        referral_id: String(created.id),
+        response_id: String(responseId),
+        route: '/portal/referrals',
+        type: 'referral_response_ready',
+      }),
+    });
+    expect(patientNotificationRows[0].payload.__feed_notification_id)
+      .toBe(patientNotificationRows[0].feed_id);
     await prisma.$executeRawUnsafe(
       `UPDATE tenants
           SET settings = jsonb_set(

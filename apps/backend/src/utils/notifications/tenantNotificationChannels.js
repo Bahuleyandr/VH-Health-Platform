@@ -1,3 +1,8 @@
+import {
+  PATIENT_NOTIFICATION_TYPE_CONTRACTS,
+  patientNotificationPreferenceKeyForType,
+} from '../../config/patientNotificationTypeRegistry.js';
+
 const SUPPORTED_CHANNELS = new Set([
   'push',
   'email',
@@ -9,16 +14,10 @@ const SUPPORTED_CHANNELS = new Set([
 ]);
 
 const TYPE_TO_PREFERENCE_KEY = new Map([
-  ['appointment_reminder', 'appointment_reminder'],
-  ['appointment_reminder_24h', 'appointment_reminder'],
-  ['appointment_reminder_1h', 'appointment_reminder'],
-  ['reminder', 'appointment_reminder'],
-  ['engagement_campaign', 'engagement_campaign'],
-  ['lab_result_ready', 'results_ready'],
-  ['investigation_result_ready', 'results_ready'],
-  ['diagnostic_result_ready', 'results_ready'],
-  ['result_ready', 'results_ready'],
-  ['results_ready', 'results_ready'],
+  ...PATIENT_NOTIFICATION_TYPE_CONTRACTS
+    .filter(contract => contract.preferenceKey)
+    .map(contract => [contract.type, contract.preferenceKey]),
+  // Staff-only in-app payslip delivery is outside the patient registry.
   ['payslip_ready', 'payslip_ready'],
 ]);
 
@@ -27,25 +26,23 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
 // When a resolved channel set contains `inapp`, the outbox drain routes
 // through `dispatch()`, whose inapp branch writes a `notifications` row typed
 // with the OUTBOX ROW's type (notificationDispatcher.js). Some outbox types
-// are transport / template identity only and are NOT among the `case` labels
-// the patient app's inbox tap handler switches on
-// (apps/patient/lib/features/notifications/screens/notifications_screen.dart
-// `_handleNotificationTap`) — a row typed with one of those renders in the
-// inbox and goes nowhere when tapped, which is the same defect as no row at
-// all. Translate those before the row is written.
+// are transport / template identity only and are aliases rather than
+// inbox-supported entries in the canonical patient-notification registry. A
+// row typed with one of those renders but has no safe action, which is the same
+// defect as no row at all. Translate those before the row is written.
 //
 // Only add an entry here when the transport type and the routed inbox type
 // genuinely differ. Types already routed by the handler must NOT appear.
-const TRANSPORT_TYPE_TO_FEED_TYPE = new Map([
-  ['appointment_reminder_24h', 'appointment_reminder'],
-  ['appointment_reminder_1h', 'appointment_reminder'],
-  ['reminder', 'appointment_reminder'],
-]);
+const TRANSPORT_TYPE_TO_FEED_TYPE = new Map(
+  PATIENT_NOTIFICATION_TYPE_CONTRACTS
+    .filter(contract => contract.feedType !== contract.type)
+    .map(contract => [contract.type, contract.feedType]),
+);
 
 /**
  * The `notifications.type` an in-app row should carry for a given outbox /
  * dispatch transport type. Returns the input unchanged when no translation is
- * registered, so staff types and already-routed patient types pass through
+ * registered, so staff types and canonical patient types pass through
  * untouched.
  */
 export function feedRowTypeForTransportType(type) {
@@ -55,6 +52,13 @@ export function feedRowTypeForTransportType(type) {
 
 export const DELIVERY_CHANNELS_PAYLOAD_KEY = '__delivery_channels';
 export const REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY = '__replay_chain_started_at_ms';
+export const PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY = '__feed_notification_id';
+
+export function prePersistedFeedNotificationId(row = {}) {
+  const value = row?.payload?.[PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY];
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
 
 export function normalizeChannelList(value) {
   if (!Array.isArray(value)) return [];
@@ -71,7 +75,10 @@ export function normalizeChannelList(value) {
 }
 
 export function notificationPreferenceKeyForType(type) {
-  return TYPE_TO_PREFERENCE_KEY.get(String(type || '').trim().toLowerCase()) || null;
+  const key = String(type || '').trim().toLowerCase();
+  return TYPE_TO_PREFERENCE_KEY.get(key)
+    || patientNotificationPreferenceKeyForType(key)
+    || null;
 }
 
 export function legacyChannelsForOutboxRow(row = {}) {

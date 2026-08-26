@@ -10,3 +10,4 @@
 # guarded by a `--check` byte-compare needs a line here too.
 packages/vhhealth_core/lib/clinical/vital_plausibility_bounds.g.dart text eol=lf
 apps/staff/lib/core/config/staff_role_contract.g.dart text eol=lf
+apps/patient/lib/core/config/patient_notification_contract.g.dart text eol=lf

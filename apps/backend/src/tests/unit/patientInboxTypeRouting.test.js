@@ -5,16 +5,15 @@
 // behind it is privacy-stripped to a generic "You have a new update" landing
 // on /notifications (sendPushNotification.js:36-43, :116-135), so the inbox
 // row is the whole message — and the only thing that turns it back into a
-// destination is `_handleNotificationTap` in
-// apps/patient/lib/features/notifications/screens/notifications_screen.dart,
-// which switches on `notification['type']` and falls through to "mark as read,
-// do not navigate" for anything it has no `case` for.
+// destination is the generated patient notification contract consumed by
+// `_handleNotificationTap` in notifications_screen.dart. An unknown type is
+// deliberately non-actionable.
 //
 // `ePrescriptionController` wrote type 'prescription' and was reviewed as
-// already-compliant on the strength of writing a row at all: it had no case in
-// that switch, so the row was inert. This gate is the durable form of that
-// review — the routed set is PARSED out of the Dart source rather than
-// transcribed, so it cannot drift.
+// already-compliant on the strength of writing a row at all: it had no route,
+// so the row was inert. This gate is the durable form of that review — the
+// routed set comes from the same backend registry that generates the Dart
+// action table, so the two stacks cannot silently drift.
 //
 // ── THE COMPLETENESS CONTRACT ─────────────────────────────────────────────
 //
@@ -112,38 +111,19 @@ import {
   feedRowTypeForTransportType,
   __testing__,
 } from '../../utils/notifications/tenantNotificationChannels.js';
+import {
+  PATIENT_INBOX_NOTIFICATION_TYPES,
+} from '../../config/patientNotificationTypeRegistry.js';
 
 const INBOX_SCREEN = path.resolve(
   SRC_DIR, '..', '..', 'patient',
   'lib', 'features', 'notifications', 'screens', 'notifications_screen.dart',
 );
 
-// ── the routed set, parsed from the Flutter handler ───────────────────────
+// ── the routed set, generated into Flutter from the backend registry ──────
 
-/** Extract the `case '…':` labels of `_handleNotificationTap`'s switch. */
-function parseRoutedTypes(dartSource) {
-  const method = dartSource.indexOf('_handleNotificationTap(');
-  if (method < 0) throw new Error('inbox tap handler not found — did the screen move?');
-  const switchAt = dartSource.indexOf('switch (type) {', method);
-  if (switchAt < 0) throw new Error('inbox tap handler no longer switches on type');
-  const open = dartSource.indexOf('{', switchAt);
-  let depth = 0;
-  let close = -1;
-  for (let i = open; i < dartSource.length; i += 1) {
-    if (dartSource[i] === '{') depth += 1;
-    else if (dartSource[i] === '}') {
-      depth -= 1;
-      if (depth === 0) { close = i; break; }
-    }
-  }
-  if (close < 0) throw new Error('unbalanced switch body in inbox tap handler');
-  const body = dartSource.slice(open, close);
-  return new Set(
-    [...body.matchAll(/case\s+'([^']+)'\s*:/g)].map((match) => match[1]),
-  );
-}
-
-const ROUTED_TYPES = parseRoutedTypes(fs.readFileSync(INBOX_SCREEN, 'utf8'));
+const INBOX_SOURCE = fs.readFileSync(INBOX_SCREEN, 'utf8');
+const ROUTED_TYPES = new Set(PATIENT_INBOX_NOTIFICATION_TYPES);
 
 /**
  * Assert that every string a call site's `type:` properties can carry is a
@@ -171,8 +151,13 @@ function expectRoutedTypes(label, text) {
 function helperCallSites() {
   const sites = [];
   walkSources((file, source) => {
-    for (const openParen of callSites(source, 'recordPatientFeedNotification')) {
-      sites.push({ file, text: callArgumentText(source, openParen) });
+    for (const name of [
+      'recordPatientFeedNotification',
+      'recordPatientFeedNotificationWithReceipt',
+    ]) {
+      for (const openParen of callSites(source, name)) {
+        sites.push({ file, text: callArgumentText(source, openParen) });
+      }
     }
   });
   return sites;
@@ -187,8 +172,8 @@ function helperCallSites() {
  *   staff      recipient is staff; the staff app reads these, not the patient
  *   operator   operator-authored broadcast/announcement whose BODY is the whole
  *              message; there is no feature destination to route to, and the
- *              types are uppercased free text that the patient switch (all
- *              lowercase cases) deliberately falls through
+ *              types are uppercased free text that the patient contract
+ *              deliberately treats as non-actionable
  *   infra      the shared writers themselves — the type is a parameter, and
  *              the callers that supply it are scanned by mechanism 1 (the feed
  *              helper) and mechanism 3 (the dispatcher)
@@ -411,33 +396,20 @@ const NON_PATIENT_INBOX_OUTBOX_TYPES = Object.freeze({
   // resolveChannelsForOutboxRow returns ['inapp'] for this unconditionally,
   // but the recipient is a staff uid and the staff app has its own inbox.
   payslip_ready: 'staff — payslipService queues these to staff_uid',
-  // Patient-facing and NOT routed by the inbox handler: a tenant that puts the
-  // engagement campaign on the in-app channel (ENGAGEMENT_CHANNELS includes
-  // 'inapp') gets rows the tap handler falls through. Previously dispositioned
-  // "another agent's file", which this working tree makes untrue — it adds
-  // routes/engagement/engagementListQueries.js and three engagement GETs. The
-  // accurate statement is that the fix is a product call about where an
-  // engagement campaign should land plus a patient-app `case`, and the patient
-  // app is out of scope for this lane. Parked: docs/ROADMAP.md, "re-audit
-  // lane J, 2026-08-24 — patient notification dead-ends".
-  engagement_campaign: 'KNOWN OPEN — parked in docs/ROADMAP.md',
-  // Aliases with no producer: no service queues an outbox row of either type
-  // (the produced result types are lab_/investigation_/diagnostic_result_ready),
-  // so nothing can reach dispatch() carrying them.
-  result_ready: 'no producer — defensive alias in the preference map',
-  results_ready: 'no producer — defensive alias in the preference map',
 });
 
 // ── assertions ────────────────────────────────────────────────────────────
 
 describe('patient inbox tap handler', () => {
-  it('parses to a non-empty routed set', () => {
+  it('uses the generated action contract as its only routing vocabulary', () => {
     expect(ROUTED_TYPES.size).toBeGreaterThan(10);
-    // Anchors: if the parse silently returned the wrong region of the file,
-    // these would not be present.
+    expect(INBOX_SOURCE).toContain('patient_notification_contract.g.dart');
+    expect(INBOX_SOURCE).toContain('patientNotificationContractFor(type)');
+    expect(INBOX_SOURCE).not.toContain('switch (type)');
     expect(ROUTED_TYPES.has('lab_result_ready')).toBe(true);
     expect(ROUTED_TYPES.has('appointment_reminder')).toBe(true);
     expect(ROUTED_TYPES.has('patient_message')).toBe(true);
+    expect(ROUTED_TYPES.has('engagement_campaign')).toBe(true);
   });
 
   it('does not route the transport-only reminder types', () => {
@@ -613,10 +585,7 @@ describe('outbox types that the drain can turn into an in-app row', () => {
 
   it('keeps the non-patient exception list from growing silently', () => {
     expect(Object.keys(NON_PATIENT_INBOX_OUTBOX_TYPES).sort()).toEqual([
-      'engagement_campaign',
       'payslip_ready',
-      'result_ready',
-      'results_ready',
     ]);
     // Every exception must still be a real key of the map it excepts from.
     for (const type of Object.keys(NON_PATIENT_INBOX_OUTBOX_TYPES)) {

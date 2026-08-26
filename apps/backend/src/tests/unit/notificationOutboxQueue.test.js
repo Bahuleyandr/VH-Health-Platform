@@ -137,6 +137,21 @@ describe('notificationOutbox durable intent identity', () => {
     expect(routed.renderedIntentHash).toBe(unrouted.renderedIntentHash);
   });
 
+  it('stores a validated feed correlation id without changing provider-intent identity', () => {
+    const correlated = __testing__.buildIntent(notification({
+      data: { result_id: 9, __feed_notification_id: 731 },
+    }));
+    const uncorrelated = __testing__.buildIntent(notification({ data: { result_id: 9 } }));
+    const invalid = __testing__.buildIntent(notification({
+      data: { result_id: 9, __feed_notification_id: 'not-an-id' },
+    }));
+
+    expect(correlated.data).toEqual({ result_id: 9, __feed_notification_id: 731 });
+    expect(correlated.renderedIntentHash).toBe(uncorrelated.renderedIntentHash);
+    expect(invalid.data).toEqual({ result_id: 9 });
+    expect(invalid.renderedIntentHash).toBe(uncorrelated.renderedIntentHash);
+  });
+
   it('preserves integer, uuid, bigint, and blank recipient identifiers as text or null', () => {
     expect(__testing__.buildIntent(notification({ recipientId: 42 })).recipientId).toBe('42');
     expect(__testing__.buildIntent(notification({ recipientId: RECIPIENT_UID })).recipientId)

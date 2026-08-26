@@ -26,10 +26,11 @@
 //
 // ── Two contracts callers depend on ────────────────────────────────────────
 //
-// 1. NEVER THROWS. Every call site is a post-commit, fire-and-forget tail on
-//    a clinical, scheduling, or result-delivery write whose primary effect is
-//    already durable. A feed-row failure is logged and swallowed here so it
-//    can never become a new failing path on a write that must not fail.
+// 1. NEVER THROWS. Compatibility callers use the boolean helper after their
+//    primary write and may safely ignore a feed-row failure. Transaction-owning
+//    callers use the receipt helper inside their transaction and deliberately
+//    abort that transaction when `written` is false. The helper reports failure
+//    without choosing either caller's durability policy for it.
 //
 // 2. tenant_id is ALWAYS bound explicitly. `notifications.tenant_id` DEFAULTs
 //    to a GUC-reading expression that falls back to the LITERAL default tenant
@@ -39,17 +40,16 @@
 //    invisible to its own recipient. Lane I swept every INSERT INTO
 //    notifications to carry tenant_id explicitly; this module preserves that.
 //
-// The `type` string must be one the patient app's inbox actually routes —
-// apps/patient/lib/features/notifications/screens/notifications_screen.dart
-// `_handleNotificationTap`. A row with an unrouted type is not better than no
-// row in any way that matters: it renders, and tapping it only marks it read.
-// It must also be a LITERAL at the call site —
-// src/tests/unit/patientInboxTypeRouting.test.js parses the routed set out of
-// that Dart switch and checks every `type:` literal passed to this function
-// against it, which it cannot do for a variable.
+// The `type` string must be registered as an inbox-supported patient type in
+// config/patientNotificationTypeRegistry.js. The same registry generates the
+// Flutter action table used by both inbox taps and push deep links. A row with
+// an unregistered type is not better than no row: it renders but has no safe,
+// deterministic action. patientInboxTypeRouting.test.js checks every literal
+// passed to this helper against that canonical registry.
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { patientNotificationContractForType } from '../../config/patientNotificationTypeRegistry.js';
 import { normalizePhone } from '../phoneUtils.js';
 import { resolveChannelsForOutboxRow } from './tenantNotificationChannels.js';
 
@@ -79,7 +79,7 @@ function phoneColumnValue(phone) {
  * Returns null when the recipient cannot be resolved at all — the caller then
  * skips the insert rather than writing an unreachable row.
  */
-async function resolveRecipient({ tenantId, userId, uid, phone }) {
+async function resolveRecipient({ client, tenantId, userId, uid, phone }) {
   const haveUid = typeof uid === 'string' && uid.trim() !== '';
   const haveUserId = userId !== null && userId !== undefined && String(userId).trim() !== '';
   if (haveUid && haveUserId && phone) {
@@ -88,7 +88,7 @@ async function resolveRecipient({ tenantId, userId, uid, phone }) {
   if (!haveUid && !haveUserId) return null;
 
   const identifier = haveUserId ? String(userId) : String(uid).trim();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await client.$queryRawUnsafe(
     `SELECT id, uid::text AS uid, phone
        FROM users
       WHERE tenant_id = $1::uuid
@@ -119,10 +119,11 @@ async function resolveRecipient({ tenantId, userId, uid, phone }) {
  * @param {Object} [options.data]           JSON payload for the row.
  * @param {string} [options.priority]       notifications.priority. Default NORMAL.
  * @param {string} [options.context]        Label used in the failure log line.
- * @returns {Promise<boolean>} true when a row was written; false otherwise.
- *   Never rejects.
+ * @returns {Promise<{written: boolean, notificationId: number|null}>}
+ *   Confirmation and row id; never rejects.
  */
-export async function recordPatientFeedNotification({
+async function writePatientFeedNotification({
+  client = prisma,
   tenantId,
   userId = null,
   uid = null,
@@ -138,37 +139,67 @@ export async function recordPatientFeedNotification({
     const tid = String(tenantId || '').trim();
     if (!tid) {
       logger.warn(`[patient inbox] ${context}: no tenant — in-app row NOT written`);
-      return false;
+      return Object.freeze({ written: false, notificationId: null });
     }
-    const recipient = await resolveRecipient({ tenantId: tid, userId, uid, phone });
+    const notificationContract = patientNotificationContractForType(type);
+    if (!notificationContract?.inboxSupported) {
+      logger.warn(
+        `[patient inbox] ${context}: unregistered patient type — in-app row NOT written`,
+      );
+      return Object.freeze({ written: false, notificationId: null });
+    }
+    const recipient = await resolveRecipient({ client, tenantId: tid, userId, uid, phone });
     if (!recipient) {
       logger.warn(`[patient inbox] ${context}: recipient not resolvable — in-app row NOT written`);
-      return false;
+      return Object.freeze({ written: false, notificationId: null });
     }
 
-    await prisma.$executeRawUnsafe(
+    const stored = await client.$queryRawUnsafe(
       // tenant_id bound explicitly ($8) — never left to the column DEFAULT.
       `INSERT INTO notifications
          (tenant_id, uid, user_id, phone, title, body, type, priority,
           data, is_read, created_at, updated_at)
        VALUES ($8::uuid, $1::uuid, $2::int, $3, $4, $5, $6,
-               $7, $9::jsonb, false, NOW(), NOW())`,
+               $7, $9::jsonb, false, NOW(), NOW())
+       RETURNING id`,
       recipient.uid,
       recipient.id,
       phoneColumnValue(recipient.phone),
       String(title || '').slice(0, 255),
       String(body || ''),
-      String(type || 'general'),
-      String(priority || 'NORMAL').toUpperCase(),
+      notificationContract.feedType,
+      String(priority || notificationContract.priority).toUpperCase(),
       tid,
-      JSON.stringify(data && typeof data === 'object' ? data : {}),
+      JSON.stringify({
+        ...(data && typeof data === 'object' ? data : {}),
+        type: notificationContract.feedType,
+      }),
     );
-    return true;
+    const notificationId = Number(stored[0]?.id);
+    if (!Number.isSafeInteger(notificationId) || notificationId <= 0) {
+      logger.warn(`[patient inbox] ${context}: insert returned no id — in-app row NOT confirmed`);
+      return Object.freeze({ written: false, notificationId: null });
+    }
+    return Object.freeze({ written: true, notificationId });
   } catch (err) {
-    // Contract 1: this tail can never fail the write that triggered it.
+    // Contract 1: report failure; the caller owns the surrounding durability policy.
     logger.warn(`[patient inbox] ${context}: in-app row insert failed — ${err.message}`);
-    return false;
+    return Object.freeze({ written: false, notificationId: null });
   }
+}
+
+/**
+ * Write a patient feed row and return its committed row id when the caller
+ * needs to correlate an outbox intent with that already-persisted row. Like
+ * the legacy boolean helper, this never rejects; a transaction owner can
+ * choose to abort its transaction when `written` is false.
+ */
+export async function recordPatientFeedNotificationWithReceipt(options = {}) {
+  return writePatientFeedNotification(options);
+}
+
+export async function recordPatientFeedNotification(options = {}) {
+  return (await writePatientFeedNotification(options)).written;
 }
 
 /**

@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth/core/config/patient_notification_contract.g.dart';
 import 'package:vhhealth/core/navigation/route_reachability.dart';
+import 'package:vhhealth/core/services/deep_link_service.dart';
 
 Set<String> _matches(String source, RegExp pattern) =>
     pattern.allMatches(source).map((match) => match.group(1)!).toSet();
@@ -37,6 +39,14 @@ void main() {
     RegExp(r"path:\s*'([^']+)'"),
   ).where((route) => route.startsWith('/')).toSet();
   final navigableRoutes = <String>{...patientDashboardCareRoutes};
+  navigableRoutes.addAll(
+    patientNotificationContracts.values
+        .where(
+          (contract) =>
+              contract.action == PatientNotificationActionKind.navigate,
+        )
+        .expand((contract) => [contract.targetUri, contract.fallbackUri]),
+  );
 
   final navigationPatterns = <RegExp>[
     RegExp(r"(?:push|go)(?:<[^>]+>)?\s*\(\s*'(/[^']+)'"),
@@ -100,12 +110,11 @@ void main() {
   });
 
   test('medication notifications open the restored reminder surface', () {
-    final source = File('lib/core/services/deep_link_service.dart')
-        .readAsStringSync();
     expect(
-      RegExp(r"case 'MEDICATION_REMINDER':\s*return '/reminders';")
-          .hasMatch(source),
-      isTrue,
+      DeepLinkService.parseNotificationRoute(const {
+        'type': 'MEDICATION_REMINDER',
+      }),
+      '/reminders',
     );
   });
 }

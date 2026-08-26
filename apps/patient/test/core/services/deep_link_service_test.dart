@@ -149,6 +149,17 @@ void main() {
         DeepLinkService.parseNotificationRoute({'type': 'secure_message'}),
         '/portal/messages',
       );
+      expect(
+        DeepLinkService.parseNotificationRoute({
+          'type': 'patient_message',
+          'thread_id': 73,
+        }),
+        '/portal/messages/73',
+      );
+      expect(
+        DeepLinkService.parseNotificationRoute({'type': 'engagement_campaign'}),
+        '/notifications',
+      );
     });
 
     test('allows numeric detail routes but rejects malformed IDs', () {

@@ -10,6 +10,8 @@ import {
 import {
   DELIVERY_CHANNELS_PAYLOAD_KEY,
   normalizeChannelList,
+  PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
+  prePersistedFeedNotificationId,
   REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
 } from './tenantNotificationChannels.js';
 
@@ -147,6 +149,7 @@ function buildIntent(notification) {
     ? Object.fromEntries(
       Object.entries(rawData).filter(([key]) => ![
         DELIVERY_CHANNELS_PAYLOAD_KEY,
+        PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
         REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY,
       ].includes(key)),
     )
@@ -159,6 +162,10 @@ function buildIntent(notification) {
   }
   if (Number.isSafeInteger(replayChainStartedAtMs) && replayChainStartedAtMs > 0) {
     internalData[REPLAY_CHAIN_STARTED_AT_PAYLOAD_KEY] = replayChainStartedAtMs;
+  }
+  const feedNotificationId = prePersistedFeedNotificationId({ payload: rawData });
+  if (feedNotificationId) {
+    internalData[PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY] = feedNotificationId;
   }
   const storedData = Object.keys(internalData).length > 0
     && data && typeof data === 'object' && !Array.isArray(data)

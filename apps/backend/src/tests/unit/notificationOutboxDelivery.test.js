@@ -260,6 +260,40 @@ describe('notification outbox durable provider delivery', () => {
     }));
   });
 
+  test('passes feed correlation only to the in-app persistence seam', async () => {
+    getTenantSettingsMock.mockResolvedValue({
+      notificationChannels: { results_ready: ['inapp'] },
+    });
+    beginProviderAttemptsMock.mockResolvedValue([attempt('inapp')]);
+    dispatchMock.mockResolvedValue({
+      inapp: {
+        outcome: 'acknowledged',
+        providerReference: 'notification:731',
+        providerCode: 'precommitted',
+        evidence: { notification_id: '731' },
+      },
+    });
+
+    await deliverNotificationOutboxRow(row({
+      payload: {
+        tenant_id: TENANT_ID,
+        booking_id: 17,
+        __feed_notification_id: 731,
+      },
+    }));
+
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      channels: ['inapp'],
+      data: { tenant_id: TENANT_ID, booking_id: 17 },
+      prePersistedInAppNotificationId: 731,
+    }));
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'inapp',
+      outcome: 'acknowledged',
+      providerCode: 'precommitted',
+    }));
+  });
+
   test('treats the legacy SMS dry-run as provider rejection, never local success', async () => {
     getTenantSettingsMock.mockResolvedValue({});
     beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);

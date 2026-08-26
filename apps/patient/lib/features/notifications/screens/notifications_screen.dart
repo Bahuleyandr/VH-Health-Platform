@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/config/patient_notification_contract.g.dart';
+import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -74,6 +76,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           notifications = list;
           loading = false;
         });
+        context.read<NotificationProvider>().reconcileFromFeed(data);
       } else {
         setState(() {
           _error = result.failureMessage('Failed to fetch notifications');
@@ -100,6 +103,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               _cachedAt = cached?.cachedAt;
               notifications = list;
             });
+            context.read<NotificationProvider>().reconcileFromFeed(data);
           }
         }),
       );
@@ -112,7 +116,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  void _handleNotificationTap(Map<String, dynamic> notification) {
+  bool _handleNotificationTap(Map<String, dynamic> notification) {
     // Extract type from top-level or nested data
     final type =
         notification['type']?.toString() ??
@@ -121,61 +125,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             : null) ??
         '';
     final data = notification['data'] is Map
-        ? notification['data'] as Map<String, dynamic>
+        ? Map<String, dynamic>.from(notification['data'] as Map)
         : <String, dynamic>{};
-
-    switch (type) {
-      case 'appointment_confirmed':
-      case 'appointment_cancelled':
-      case 'appointment_reminder':
-      case 'appointment_rescheduled':
-        context.push('/appointments');
-        break;
-      case 'investigation_result':
-      case 'investigation_result_ready':
-      case 'investigation_confirmed':
-      case 'investigation_booking':
-      case 'collector_dispatched':
-        context.push('/investigations');
-        break;
-      case 'diagnostic_result_ready':
-        context.push('/portal/diagnostic-results');
-        break;
-      // The single most common clinical notification dead-ended here until
-      // 2026-08-23: pushes are privacy-stripped to the inbox, and the inbox
-      // row's type had no case — tapping only marked it read.
-      case 'lab_result_ready':
-      case 'lab_result_corrected':
-        context.push('/portal/lab-results');
-        break;
-      case 'patient_message':
-        final threadId = data['thread_id']?.toString();
-        context.push(
-          threadId != null && threadId.isNotEmpty
-              ? '/portal/messages/$threadId'
-              : '/portal/messages',
-        );
-        break;
-      case 'referral_response_ready':
-      case 'referral_update':
-        context.push('/portal/referrals');
-        break;
-      case 'pharmacy_confirmed':
-      case 'pharmacy_dispatched':
-      case 'pharmacy_delivered':
-      case 'pharmacy_order':
-        context.push('/pharmacy');
-        break;
-      case 'document_uploaded':
-        context.push('/health', extra: {'tab': 1});
-        break;
-      case 'feedback_request':
-        context.push('/ask-a-doubt');
-        break;
-      default:
-        // No navigation — just mark as read
-        break;
+    final contract = patientNotificationContractFor(type);
+    if (contract == null || !contract.inboxSupported) return false;
+    if (contract.action == PatientNotificationActionKind.acknowledgeOnly) {
+      return true;
     }
+    context.push(
+      contract.resolveRoute(data),
+      extra: contract.extra.isEmpty ? null : contract.extra,
+    );
+    return true;
   }
 
   Future<bool> _markAsRead(int id) async {
@@ -218,16 +179,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   itemCount: notifications.length,
                   separatorBuilder: (_, _) => const Divider(),
                   itemBuilder: (_, index) {
-                    final notif = notifications[index];
+                    final notif = Map<String, dynamic>.from(
+                      notifications[index] as Map,
+                    );
                     final created =
                         DateTime.tryParse(notif['created_at'] ?? '') ??
                         DateTime.now();
-                    final isRead = notif['read'] == true;
+                    final isRead =
+                        notif['is_read'] == true || notif['read'] == true;
 
                     return Dismissible(
                       key: Key('${notif['id']}'),
                       direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) => _markAsRead(notif['id']),
+                      confirmDismiss: (_) async {
+                        final marked = await _markAsRead(notif['id']);
+                        if (!context.mounted) return false;
+                        if (marked && !isRead) {
+                          context
+                              .read<NotificationProvider>()
+                              .markOneReadLocally();
+                        }
+                        return marked;
+                      },
                       background: Container(
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -249,7 +222,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(notif['body'] ?? ''),
+                            Text(
+                              (notif['message'] ?? notif['body'] ?? '')
+                                  .toString(),
+                            ),
                             const SizedBox(height: 4),
                             Text(
                               DateFormat('dd-MM-yyyy hh:mm a')
@@ -269,11 +245,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 size: 10,
                               ),
                         onTap: () async {
-                          await _markAsRead(notif['id']);
-                          if (!mounted) return;
-                          setState(() {
-                            notifications[index]['read'] = true;
-                          });
+                          final marked = await _markAsRead(notif['id']);
+                          if (!context.mounted) return;
+                          if (marked) {
+                            setState(() {
+                              notifications[index]['is_read'] = true;
+                            });
+                            if (!isRead) {
+                              context
+                                  .read<NotificationProvider>()
+                                  .markOneReadLocally();
+                            }
+                          }
                           _handleNotificationTap(notif);
                         },
                         tileColor: isRead ? null : colors.primary.withAlpha(20),
