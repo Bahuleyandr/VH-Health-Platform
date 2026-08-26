@@ -339,6 +339,29 @@ an unresolved head; it is only for clearing a stale pause after the ledger shows
 a terminal rejection, acknowledged delivery, suppression, or audited superseding
 replay. Enter an incident-specific reason and never clear the cursor with SQL.
 
+## SAFE-01 deploy-day cutover (lab threshold governance)
+
+Deploying the SAFE-01 slice retires the legacy `lab_critical_thresholds` /
+`lab_reference_ranges` evaluation outright — there is no fallback to the old
+tables. From the first request after rollout, a facility with no ACTIVE signed
+policy bundle raises **no critical lab alerts**: every result records with
+`criticality_status = 'threshold_unavailable'` and opens a high-severity owned
+exception, task, and staff notification instead. That window is by design
+(absence must be loud, and unsigned legacy content must not be laundered into
+governed policy), but its length is an operator decision:
+
+1. Before syncing production, have the founding facility's catalogue and
+   bundle DRAFTED with the pathologist so activation can follow the deploy
+   within the same working session, not days later.
+2. Deploy, then immediately author → submit → approve → activate that bundle
+   through `/api/v1/lab/governance/*` (four distinct identities are required:
+   author, submitter, pathologist approver, SUPER_ADMIN activator).
+3. Expect the exception queue to fill during the window and drain via the
+   reconciliation CronJob once the bundle is active. Do not treat the interim
+   exception volume as an incident, and never close exceptions to quiet it.
+4. Until step 2 completes, the ward relies on manual critical-value review of
+   incoming results — staff the lab bench accordingly.
+
 ## LabThresholdReconciliationCronJobStale / LabThresholdReconciliationCronJobFailing
 
 The facility policy control plane leaves every unclassified laboratory result
