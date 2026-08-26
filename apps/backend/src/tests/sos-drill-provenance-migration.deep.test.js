@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { Client } from 'pg';
 
 import { executeCiMigrationFile } from '../../scripts/lib/ciMigrationExecutor.mjs';
+import { migrationChecksum } from '../../scripts/lib/migrationChecksum.mjs';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -17,9 +18,7 @@ const migration709 = readFileSync(
   new URL(`../migrations/${migration709Name}`, import.meta.url),
   'utf8',
 );
-const migration692Sha256 = createHash('sha256')
-  .update(migration692.replaceAll('\r\n', '\n'))
-  .digest('hex');
+const migration692Sha256 = migrationChecksum(migration692);
 
 const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
 const upgradeSchema = `sos_709_upgrade_${suffix}`;
@@ -52,6 +51,7 @@ describeIfDb('migration 709 SOS drill authorization upgrade', () => {
     await client.query(`
       CREATE TABLE _migrations (
         name VARCHAR(255) PRIMARY KEY,
+        checksum TEXT NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
         executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -82,7 +82,10 @@ describeIfDb('migration 709 SOS drill authorization upgrade', () => {
     await client.connect();
 
     await createHarnessSchema(upgradeSchema, { old692: true });
-    await client.query('INSERT INTO _migrations (name) VALUES ($1)', [migration692Name]);
+    await client.query(
+      'INSERT INTO _migrations (name, checksum) VALUES ($1, $2)',
+      [migration692Name, migration692Sha256],
+    );
     await client.query(`
       INSERT INTO sos_alerts (is_test_alert)
       VALUES (TRUE), (FALSE)

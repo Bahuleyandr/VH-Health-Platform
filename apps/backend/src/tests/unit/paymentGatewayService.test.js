@@ -21,7 +21,6 @@ const txQueryRawUnsafe = jest.fn();
 const txExecuteRawUnsafe = jest.fn(async () => 1);
 const tx = { $queryRawUnsafe: txQueryRawUnsafe, $executeRawUnsafe: txExecuteRawUnsafe };
 const setTenantTx = jest.fn(async (_tenant, fn) => fn(tx));
-const setSystemJobTx = jest.fn(async (fn) => fn(tx));
 
 const collectPayment = jest.fn(async () => ({ id: 77, amount: 500, mode: 'UPI' }));
 const markGatewayRefundPaid = jest.fn(async () => ({ id: 9 }));
@@ -35,7 +34,6 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   prismaReadOnly: { $queryRawUnsafe: queryRawUnsafe },
   setTenant: jest.fn(),
   setTenantTx,
-  setSystemJobTx,
 }));
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectPayment,
@@ -62,6 +60,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const gateway = await import('../../services/billing/paymentGatewayService.js');
+const { getCurrentTenantId } = await import('../../lib/tenantContext.js');
 
 const enabledConfig = {
   id: 3, tenant_id: TENANT, provider: 'dry_run', environment: 'sandbox',
@@ -141,6 +140,50 @@ describe('config gate — DEFAULT OFF, all three legs required', () => {
     expect(await gateway.getPublicGatewayViewForLink({ tenantId: TENANT, paymentLinkId: 1 })).toEqual({
       enabled: false, provider: null, keyId: null, providerOrderId: null,
     });
+  });
+
+  it('preserves tenant context across the public provider-config and order lookups', async () => {
+    const observed = [];
+    queryRawUnsafe
+      .mockImplementationOnce(async (sql) => {
+        observed.push(['config', getCurrentTenantId(), sql]);
+        return [enabledConfig];
+      })
+      .mockImplementationOnce(async (sql) => {
+        observed.push(['order', getCurrentTenantId(), sql]);
+        return [{ provider_order_id: 'order_dry_public_1' }];
+      });
+
+    await expect(gateway.getPublicGatewayViewForLink({
+      tenantId: TENANT,
+      paymentLinkId: 41,
+    })).resolves.toEqual({
+      enabled: true,
+      provider: 'dry_run',
+      keyId: null,
+      providerOrderId: 'order_dry_public_1',
+    });
+    expect(observed.map(([stage, tenant]) => [stage, tenant])).toEqual([
+      ['config', TENANT],
+      ['order', TENANT],
+    ]);
+    expect(observed[0][2]).toContain('payment_gateway_provider_configs');
+    expect(observed[1][2]).toContain('payment_gateway_orders');
+    expect(getCurrentTenantId()).toBeNull();
+  });
+});
+
+describe('bounded gateway-order expiry sweep', () => {
+  it('invokes only the parameterless owner routine and preserves the count contract', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{ expired: 3 }]);
+
+    await expect(gateway.expireStaleGatewayOrders()).resolves.toEqual({ expired: 3 });
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      'SELECT public.sweep_expired_payment_gateway_orders() AS expired',
+    );
+    expect(executeRawUnsafe).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
   });
 });
 

@@ -7,6 +7,7 @@ import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
 import '../config/api_config.dart';
 import '../config/role_config.dart';
+import '../config/specialty_gate_mode_snapshot.dart';
 import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
 import '../providers/clinical_inbox_provider.dart';
@@ -83,15 +84,11 @@ class _MainScaffoldState extends State<MainScaffold> {
     try {
       final policy = await ClinicalPlatformApiService.getRolePolicySnapshot();
       // The server's effective specialty gate modes ride the same snapshot.
-      // Apply + persist them before the feature narrowing so the tile/rail
-      // filter reflects the server's actual posture (enforce vs report)
-      // even when this role has no policy feature list.
+      // Null is an authoritative replacement too: a newer server that omits
+      // the field must clear an older persisted enforce verdict.
       final gateModes = policy.specialtyGateModes;
-      if (gateModes != null) {
-        RoleFeatures.setSpecialtyGateModes(gateModes);
-        unawaited(ApiConfig.saveSpecialtyGateModes(gateModes));
-        if (mounted) setState(() {});
-      }
+      await replaceSpecialtyGateModeSnapshot(gateModes);
+      if (mounted) setState(() {});
       final normalized = rawRole.trim().toUpperCase();
       final featureIds =
           policy.featuresByRole[normalized] ??

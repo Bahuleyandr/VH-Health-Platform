@@ -20,6 +20,18 @@ import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js
 
 const router = Router();
 export const pharmacyInventoryWitnessApprovalRoutes = Router({ mergeParams: true });
+export const pharmacyInventoryMovementWitnessApprovalRoutes = Router({ mergeParams: true });
+const INVENTORY_V2_CANONICAL_PATH = '/api/v1/pharmacy-orders/inventory/v2';
+
+function inventoryV2IdempotencyPath(suffix) {
+  return `${INVENTORY_V2_CANONICAL_PATH}${suffix}`;
+}
+
+function inventoryV2ApprovalIdempotencyPath(suffix) {
+  return (req) => `${inventoryV2IdempotencyPath(suffix)}/${encodeURIComponent(
+    String(req.params.id),
+  )}/approve`;
+}
 
 export const PHARMACY_INVENTORY_READ_ROLES = [
   ADMIN,
@@ -150,6 +162,18 @@ function witnessApprovalIdempotencyBody(req) {
   };
 }
 
+function movementWitnessApprovalIdempotencyBody(req) {
+  const body = req.body || {};
+  const usesStaffPassword = Object.hasOwn(body, 'employeeId') || Object.hasOwn(body, 'password');
+  return {
+    credentialMode: usesStaffPassword ? 'staff_password' : 'bearer',
+    employeeId: usesStaffPassword
+      ? String(body.employeeId || '').trim().toUpperCase() || null
+      : null,
+    movement: body.movement || {},
+  };
+}
+
 // ── Drug master / items ───────────────────────────────────────────────
 router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   tenantId: inv.tenantOf(req),
@@ -174,18 +198,42 @@ router.get('/batches', requireInventoryRead, wrap(async (req) => inv.listBatches
 })));
 
 // ── Stock movements ───────────────────────────────────────────────────
-router.post('/movements', requireInventoryMaintain, wrap(async (req) => inv.recordMovement({
-  ...req.body,
-  tenantId: inv.tenantOf(req),
-  performed_by: req.user?.uid,
-})));
+router.post('/movements', requireInventoryMaintain,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_movement',
+    retainOnServerError: true,
+    requestPathForIdempotency: inventoryV2IdempotencyPath('/movements'),
+  }),
+  wrap(async (req) => inv.recordMovement({
+    ...req.body,
+    tenantId: inv.tenantOf(req),
+    performed_by: req.user?.uid,
+    performed_by_name: req.user?.name || null,
+  })));
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
+router.post('/movements/witness-approvals', requireInventoryMaintain,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_movement_witness_request',
+    retainOnServerError: true,
+    requestPathForIdempotency: inventoryV2IdempotencyPath('/movements/witness-approvals'),
+  }),
+  wrap(async (req) => inv.requestControlledMovementWitnessApproval({
+    ...req.body,
+    tenantId: inv.tenantOf(req),
+    requested_by: req.user?.uid,
+  })));
+
 router.post('/controlled-dispense/witness-approvals', requireControlledDispense,
   requireIdempotencyKey({
     required: true,
     scope: 'pharmacy_inventory_witness_request',
     retainOnServerError: true,
+    requestPathForIdempotency: inventoryV2IdempotencyPath(
+      '/controlled-dispense/witness-approvals',
+    ),
   }),
   wrap(async (req) => inv.requestControlledDispenseWitnessApproval({
     ...req.body,
@@ -200,6 +248,9 @@ pharmacyInventoryWitnessApprovalRoutes.post('/',
     scope: 'pharmacy_inventory_witness_approval',
     retainOnServerError: true,
     requestBodyForIdempotency: witnessApprovalIdempotencyBody,
+    requestPathForIdempotency: inventoryV2ApprovalIdempotencyPath(
+      '/controlled-dispense/witness-approvals',
+    ),
   }),
   wrap(async (req) => {
     const tenantId = inv.tenantOf(req);
@@ -212,12 +263,41 @@ pharmacyInventoryWitnessApprovalRoutes.post('/',
     });
   }));
 
-router.post('/controlled-dispense', requireControlledDispense, wrap(async (req) => inv.dispenseControlled({
-  ...req.body,
-  tenantId: inv.tenantOf(req),
-  performed_by: req.user?.uid,
-  performed_by_name: req.body.performed_by_name || req.user?.name || null,
-})));
+pharmacyInventoryMovementWitnessApprovalRoutes.post('/',
+  requireControlledDispenseApprovalHost,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_movement_witness_approval',
+    retainOnServerError: true,
+    requestBodyForIdempotency: movementWitnessApprovalIdempotencyBody,
+    requestPathForIdempotency: inventoryV2ApprovalIdempotencyPath(
+      '/movements/witness-approvals',
+    ),
+  }),
+  wrap(async (req) => {
+    const tenantId = inv.tenantOf(req);
+    const actor = await resolveWitnessActor(req, tenantId);
+    return inv.approveInventoryMovementWitnessApproval({
+      tenantId,
+      approvalId: req.params.id,
+      ...actor,
+      movement: req.body.movement || {},
+    });
+  }));
+
+router.post('/controlled-dispense', requireControlledDispense,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_controlled_dispense',
+    retainOnServerError: true,
+    requestPathForIdempotency: inventoryV2IdempotencyPath('/controlled-dispense'),
+  }),
+  wrap(async (req) => inv.dispenseControlled({
+    ...req.body,
+    tenantId: inv.tenantOf(req),
+    performed_by: req.user?.uid,
+    performed_by_name: req.user?.name || null,
+  })));
 
 router.get('/schedule-register', requireInventoryRead, wrap(async (req) => inv.listScheduleRegister({
   tenantId: inv.tenantOf(req),

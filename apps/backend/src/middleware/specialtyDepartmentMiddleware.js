@@ -167,6 +167,7 @@ export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = ca
           ip: req.ip,
           path: req.originalUrl,
           method: req.method,
+          statusCode: 403,
           reason: `Department resolution failed for ${specialtyKey} (mode=enforce): ${err.message}`,
         });
         return error(res, 'Access to this specialty module is restricted to its department', 403, {
@@ -189,6 +190,7 @@ export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = ca
       ip: req.ip,
       path: req.originalUrl,
       method: req.method,
+      statusCode: 403,
       reason: `Caller has no ${specialtyKey} department (${resolvedCount} department signal(s) resolved; mode=${mode})`,
     });
 

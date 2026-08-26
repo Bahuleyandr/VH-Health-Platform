@@ -13,7 +13,9 @@
 //      and populated `_migrations` with one row per file.
 //   3. Run `ci-setup-db.mjs` a second time. Assert it reported zero applies
 //      (everything skipped via the tracker).
-//   4. Recreate the DB with only `000_baseline.sql`, then empty its tracker.
+//   4. Corrupt one recorded checksum and assert setup exits nonzero before
+//      applying a migration, seeding data, or provisioning roles.
+//   5. Recreate the DB with only `000_baseline.sql`, then empty its tracker.
 //      Assert `ci-setup-db.mjs` exits nonzero before applying a migration,
 //      seeding data, provisioning roles, or inferring migration history.
 //
@@ -111,12 +113,40 @@ function runCiSetup() {
   return (result.stdout || '') + (result.stderr || '');
 }
 
+async function trackerRows() {
+  const c = new pg.Client({ connectionString: smokeUrl });
+  await c.connect();
+  try {
+    const { rows } = await c.query('SELECT name, checksum FROM _migrations ORDER BY name');
+    return rows;
+  } finally {
+    await c.end();
+  }
+}
+
 async function trackerNames() {
   const c = new pg.Client({ connectionString: smokeUrl });
   await c.connect();
   try {
     const { rows } = await c.query('SELECT name FROM _migrations ORDER BY name');
-    return rows.map((r) => r.name);
+    return rows.map(({ name }) => name);
+  } finally {
+    await c.end();
+  }
+}
+
+async function corruptOneTrackerChecksum() {
+  const c = new pg.Client({ connectionString: smokeUrl });
+  await c.connect();
+  try {
+    const { rows } = await c.query(
+      `UPDATE public._migrations
+          SET checksum = $1
+        WHERE name = (SELECT name FROM public._migrations ORDER BY name LIMIT 1)
+      RETURNING name`,
+      ['0'.repeat(64)],
+    );
+    return rows[0]?.name;
   } finally {
     await c.end();
   }
@@ -145,12 +175,18 @@ async function main() {
   // Step 1: fresh DB → first run
   await recreateSmokeDb();
   const out1 = runCiSetup();
-  const tracker1 = await trackerNames();
+  const tracker1 = await trackerRows();
   if (tracker1.length < sqlFiles.length) {
     fatal(
       `first run: expected ≥${sqlFiles.length} tracker rows, got ${tracker1.length}.\n` +
       `ci-setup-db.mjs output follows:\n${out1}`,
     );
+  }
+  const invalidChecksums = tracker1.filter(
+    ({ checksum }) => !/^[0-9a-f]{64}$/.test(String(checksum || '')),
+  );
+  if (invalidChecksums.length > 0) {
+    fatal(`first run recorded invalid checksums: ${JSON.stringify(invalidChecksums)}`);
   }
   log(`first run OK — ${tracker1.length} tracker row(s)`);
 
@@ -166,24 +202,39 @@ async function main() {
   }
   log(`second run OK — 0 applied in ${ms2}ms`);
 
-  // Step 3: baseline schema with missing history must fail before mutation.
-  await createUntrackedBaselineDb();
+  // Step 3: established checksum drift must fail before setup can continue.
+  const corrupted = await corruptOneTrackerChecksum();
   const result3 = invokeCiSetup();
   const out3 = (result3.stdout || '') + (result3.stderr || '');
-  const tracker3 = await trackerNames();
   if (result3.status === 0) {
-    fatal(`third run accepted a canonical schema with missing migration history:\n${out3}`);
+    fatal(`third run accepted checksum drift for ${corrupted}:\n${out3}`);
   }
-  if (!out3.includes('canonical baseline schema exists but _migrations does not record')) {
-    fatal(`third run did not report the missing tracker invariant:\n${out3}`);
-  }
-  if (tracker3.length !== 0) {
-    fatal(`third run mutated the migration tracker: ${JSON.stringify(tracker3)}`);
+  if (!out3.includes('MIGRATION_CHECKSUM_DRIFT') && !out3.includes('checksum mismatches')) {
+    fatal(`third run did not report checksum drift for ${corrupted}:\n${out3}`);
   }
   if (/\s✓\s.+\.sql|→ Seeding|RLS test roles provisioned/.test(out3)) {
-    fatal(`third run performed setup work after the tracker preflight failed:\n${out3}`);
+    fatal(`third run performed setup work after checksum verification failed:\n${out3}`);
   }
-  log('third run OK — missing tracker rejected before migration or seed mutation');
+  log('third run OK — checksum drift rejected before migration or seed mutation');
+
+  // Step 4: baseline schema with missing history must fail before mutation.
+  await createUntrackedBaselineDb();
+  const result4 = invokeCiSetup();
+  const out4 = (result4.stdout || '') + (result4.stderr || '');
+  const tracker4 = await trackerNames();
+  if (result4.status === 0) {
+    fatal(`fourth run accepted a canonical schema with missing migration history:\n${out4}`);
+  }
+  if (!out4.includes('canonical baseline schema exists but _migrations does not record')) {
+    fatal(`fourth run did not report the missing tracker invariant:\n${out4}`);
+  }
+  if (tracker4.length !== 0) {
+    fatal(`fourth run mutated the migration tracker: ${JSON.stringify(tracker4)}`);
+  }
+  if (/\s✓\s.+\.sql|→ Seeding|RLS test roles provisioned/.test(out4)) {
+    fatal(`fourth run performed setup work after the tracker preflight failed:\n${out4}`);
+  }
+  log('fourth run OK — missing tracker rejected before migration or seed mutation');
 
   log('SMOKE PASSED');
 }

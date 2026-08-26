@@ -30,6 +30,7 @@ import { markRouterDomain } from '../../config/openapiDomain.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
 import { setAuthenticatedCallbackAuditContext } from '../../utils/authenticatedCallbackAudit.js';
+import { runInTenantContext } from '../../lib/tenantContext.js';
 
 const router = markRouterDomain(Router(), 'payment-gateway');
 
@@ -49,124 +50,129 @@ router.post('/:webhookToken', async (req, res) => {
     if (!config) return error(res, 'Not found', 404);
     tenantId = String(config.tenant_id);
 
-    // 2. Signature over the RAW bytes. Absence of the captured raw body means
-    //    the app.js verify-hook list is out of sync — fail closed loudly.
-    const rawBody = req.paymentGatewayRawBody;
-    if (!rawBody || !rawBody.length) {
-      logger.error('payment gateway webhook missing raw body capture — check app.js verify hook');
-      return error(res, 'Unable to verify webhook signature', 400);
-    }
-    const secrets = gateway.decryptedWebhookSecrets(config);
-    if (!secrets.length) {
-      logger.warn('payment gateway webhook rejected: no webhook secret configured');
-      return error(res, 'Webhook signature verification unavailable', 401);
-    }
-    const adapter = resolveAdapter(config.provider);
-    const signature = req.get(SIGNATURE_HEADER);
-    const matchedCredential = secrets.find(({ secret }) => (
-      adapter.verifyWebhookSignature(rawBody, signature, secret)
-    ));
-    if (!matchedCredential) {
-      logger.warn('payment gateway webhook rejected: invalid signature', {
-        provider: config.provider,
-      });
-      return error(res, 'Invalid webhook signature', 401);
-    }
-    setAuthenticatedCallbackAuditContext(req, {
-      tenantId,
-      provider: config.provider,
-      externalActorId: config.provider,
-    });
-
-    const lateCredential = config.enabled !== true || matchedCredential.current !== true;
-    if (lateCredential && !(await gateway.hasBoundNonterminalWebhookIntent({
-      config,
-      payload: req.body || {},
-      credential: matchedCredential,
-    }))) {
-      logger.warn('payment gateway late webhook rejected: no exact nonterminal intent binding', {
-        provider: config.provider,
-        disabled_config: config.enabled !== true,
-        rotated_credential: matchedCredential.current !== true,
-      });
-      return error(res, 'Not found', 404);
-    }
-
-    const providerEventId = req.get(EVENT_ID_HEADER);
-    if (!providerEventId) {
-      return error(res, 'Missing provider event id header', 400);
-    }
-    const payload = req.body || {};
-    const eventType = payload.event || 'unknown';
-
-    // 3a. Durable cross-replica replay claim (fresh window). A claimed
-    //     replay falls through to the event-table duplicate handling below
-    //     rather than 401ing — provider redelivery is legitimate traffic.
-    let freshReplay = false;
-    try {
-      await assertSharedReplayOnce({
-        replayNamespace: 'payment-gateway-webhook',
-        requestId: `${tenantId}:${config.provider}:${providerEventId}`,
-        // The provider's event creation instant keeps the claim key stable
-        // across redeliveries of the same event.
-        timestamp: payload.created_at || Math.floor(Date.now() / 1000),
-        signature,
-        context: 'Payment gateway webhook',
-        codePrefix: 'PAYMENT_GATEWAY_WEBHOOK',
-      });
-    } catch (err) {
-      if (err?.code === 'PAYMENT_GATEWAY_WEBHOOK_REPLAY') {
-        freshReplay = true;
-      } else {
-        // Replay store unavailable → fail closed (503): we cannot prove
-        // non-replay and the provider will redeliver.
-        throw err;
+    // The public mount runs before tenantRlsMiddleware. Once the opaque token
+    // has resolved a tenant, preserve that context through signature-verified
+    // dispatch so every handler query is auto-scoped under FORCE RLS.
+    return await runInTenantContext(tenantId, async () => {
+      // 2. Signature over the RAW bytes. Absence of the captured raw body means
+      //    the app.js verify-hook list is out of sync — fail closed loudly.
+      const rawBody = req.paymentGatewayRawBody;
+      if (!rawBody || !rawBody.length) {
+        logger.error('payment gateway webhook missing raw body capture — check app.js verify hook');
+        return error(res, 'Unable to verify webhook signature', 400);
       }
-    }
+      const secrets = gateway.decryptedWebhookSecrets(config);
+      if (!secrets.length) {
+        logger.warn('payment gateway webhook rejected: no webhook secret configured');
+        return error(res, 'Webhook signature verification unavailable', 401);
+      }
+      const adapter = resolveAdapter(config.provider);
+      const signature = req.get(SIGNATURE_HEADER);
+      const matchedCredential = secrets.find(({ secret }) => (
+        adapter.verifyWebhookSignature(rawBody, signature, secret)
+      ));
+      if (!matchedCredential) {
+        logger.warn('payment gateway webhook rejected: invalid signature', {
+          provider: config.provider,
+        });
+        return error(res, 'Invalid webhook signature', 401);
+      }
+      setAuthenticatedCallbackAuditContext(req, {
+        tenantId,
+        provider: config.provider,
+        externalActorId: config.provider,
+      });
 
-    // 3b. Durable intake: INSERT before processing; UNIQUE
-    //     (tenant_id, provider, provider_event_id) collapses redeliveries.
-    const intake = await gateway.recordWebhookEvent({
-      tenantId,
-      provider: config.provider,
-      environment: config.environment,
-      providerEventId,
-      eventType,
-      payload,
-      rawBody,
-    });
-    eventRow = intake.event;
-    if (!eventRow) {
-      // Duplicate reported but row unreadable — never process blind.
-      return error(res, 'Webhook intake unavailable', 503);
-    }
-    if ((intake.duplicate || freshReplay) && TERMINAL_EVENT_STATUSES.has(eventRow.status)) {
-      return success(res, { received: true, replay: true }, 'Event already processed');
-    }
+      const lateCredential = config.enabled !== true || matchedCredential.current !== true;
+      if (lateCredential && !(await gateway.hasBoundNonterminalWebhookIntent({
+        config,
+        payload: req.body || {},
+        credential: matchedCredential,
+      }))) {
+        logger.warn('payment gateway late webhook rejected: no exact nonterminal intent binding', {
+          provider: config.provider,
+          disabled_config: config.enabled !== true,
+          rotated_credential: matchedCredential.current !== true,
+        });
+        return error(res, 'Not found', 404);
+      }
 
-    // 4. Process first delivery or resume a pending/failed row. Handlers turn
-    // validated terminal business outcomes into explicit return values
-    // (ignored, requires_reconciliation, failed_recorded, ...). A throw is
-    // never terminally acknowledged here; provider redelivery is the recovery
-    // mechanism for ledger/config/database failures and unexpected AppErrors.
-    const outcome = await gateway.processWebhookEvent({
-      tenantId,
-      config,
-      event: eventRow,
-      payload,
-    });
+      const providerEventId = req.get(EVENT_ID_HEADER);
+      if (!providerEventId) {
+        return error(res, 'Missing provider event id header', 400);
+      }
+      const payload = req.body || {};
+      const eventType = payload.event || 'unknown';
 
-    const eventStatus = outcome.outcome === 'ignored' ? 'ignored' : 'processed';
-    await gateway.markWebhookEvent({
-      tenantId,
-      eventId: eventRow.id,
-      status: eventStatus,
-      gatewayOrderId: outcome.orderId ?? null,
-      note: outcome.outcome === 'requires_reconciliation'
-        ? `requires_reconciliation: ${outcome.reason || ''}`.slice(0, 500)
-        : (outcome.reason || null),
+      // 3a. Durable cross-replica replay claim (fresh window). A claimed
+      //     replay falls through to the event-table duplicate handling below
+      //     rather than 401ing — provider redelivery is legitimate traffic.
+      let freshReplay = false;
+      try {
+        await assertSharedReplayOnce({
+          replayNamespace: 'payment-gateway-webhook',
+          requestId: `${tenantId}:${config.provider}:${providerEventId}`,
+          // The provider's event creation instant keeps the claim key stable
+          // across redeliveries of the same event.
+          timestamp: payload.created_at || Math.floor(Date.now() / 1000),
+          signature,
+          context: 'Payment gateway webhook',
+          codePrefix: 'PAYMENT_GATEWAY_WEBHOOK',
+        });
+      } catch (err) {
+        if (err?.code === 'PAYMENT_GATEWAY_WEBHOOK_REPLAY') {
+          freshReplay = true;
+        } else {
+          // Replay store unavailable → fail closed (503): we cannot prove
+          // non-replay and the provider will redeliver.
+          throw err;
+        }
+      }
+
+      // 3b. Durable intake: INSERT before processing; UNIQUE
+      //     (tenant_id, provider, provider_event_id) collapses redeliveries.
+      const intake = await gateway.recordWebhookEvent({
+        tenantId,
+        provider: config.provider,
+        environment: config.environment,
+        providerEventId,
+        eventType,
+        payload,
+        rawBody,
+      });
+      eventRow = intake.event;
+      if (!eventRow) {
+        // Duplicate reported but row unreadable — never process blind.
+        return error(res, 'Webhook intake unavailable', 503);
+      }
+      if ((intake.duplicate || freshReplay) && TERMINAL_EVENT_STATUSES.has(eventRow.status)) {
+        return success(res, { received: true, replay: true }, 'Event already processed');
+      }
+
+      // 4. Process first delivery or resume a pending/failed row. Handlers turn
+      // validated terminal business outcomes into explicit return values
+      // (ignored, requires_reconciliation, failed_recorded, ...). A throw is
+      // never terminally acknowledged here; provider redelivery is the recovery
+      // mechanism for ledger/config/database failures and unexpected AppErrors.
+      const outcome = await gateway.processWebhookEvent({
+        tenantId,
+        config,
+        event: eventRow,
+        payload,
+      });
+
+      const eventStatus = outcome.outcome === 'ignored' ? 'ignored' : 'processed';
+      await gateway.markWebhookEvent({
+        tenantId,
+        eventId: eventRow.id,
+        status: eventStatus,
+        gatewayOrderId: outcome.orderId ?? null,
+        note: outcome.outcome === 'requires_reconciliation'
+          ? `requires_reconciliation: ${outcome.reason || ''}`.slice(0, 500)
+          : (outcome.reason || null),
+      });
+      return success(res, { received: true, outcome: outcome.outcome });
     });
-    return success(res, { received: true, outcome: outcome.outcome });
   } catch (err) {
     if (err?.code === 'PAYMENT_GATEWAY_WEBHOOK_REPLAY_STORE_UNAVAILABLE') {
       return error(res, 'Replay store unavailable', 503);

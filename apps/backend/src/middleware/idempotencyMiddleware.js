@@ -40,6 +40,21 @@ import logger from '../logging/logger.js';
 
 const HEADER = 'idempotency-key';
 
+function resolveIdempotencyRequestPath(req, requestPathForIdempotency) {
+  const candidate = typeof requestPathForIdempotency === 'function'
+    ? requestPathForIdempotency(req)
+    : requestPathForIdempotency;
+  const rawPath = candidate == null ? req.originalUrl : candidate;
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    throw new TypeError('Idempotency request path must resolve to a non-empty string');
+  }
+  const requestPath = rawPath.trim().split('?')[0];
+  if (!requestPath.startsWith('/') || requestPath.length > 255) {
+    throw new TypeError('Idempotency request path must be an absolute path of at most 255 characters');
+  }
+  return requestPath;
+}
+
 export function requireIdempotencyKey({
   required = true,
   scope = 'generic',
@@ -48,6 +63,9 @@ export function requireIdempotencyKey({
   // Secret-bearing routes project only non-secret action identity fields here;
   // the persisted request hash must never become a credential verifier.
   requestBodyForIdempotency = null,
+  // Alias-mounted mutations can provide one stable public path (or derive one
+  // from route params) so equivalent URLs share the same durable claim.
+  requestPathForIdempotency = null,
   // ★ Set on any route whose handler can emit a 5xx AFTER it has already
   // committed irreversible effects (stock movements, money, statutory
   // registers). The default (false) releases the claim on a 5xx so a client
@@ -78,12 +96,13 @@ export function requireIdempotencyKey({
     );
     let claim;
     try {
+      const requestPath = resolveIdempotencyRequestPath(req, requestPathForIdempotency);
       claim = await claimIdempotencyKey({
         tenantId: req.tenantId || null,
         userUid: req.user?.uid || null,
         requestKey: headerValue,
         requestMethod: req.method,
-        requestPath: req.originalUrl.split('?')[0],
+        requestPath,
         requestBodyHash,
       });
     } catch (err) {

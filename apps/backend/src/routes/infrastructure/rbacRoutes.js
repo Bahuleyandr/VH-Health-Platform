@@ -5,6 +5,7 @@ import * as rbacController from '../../controllers/infrastructure/rbacController
 import authenticatedTenantContext from '../../middleware/authenticatedTenantContext.js';
 import { requireProductionInfrastructureAdmin } from '../../middleware/infrastructureAccessMiddleware.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { requireSuperAdminStepUp } from '../../middleware/rbacMiddleware.js';
 import { ADMIN } from '../../utils/roles.js';
 import { 
   roleAssignmentValidator,
@@ -82,10 +83,10 @@ wrapAutoRBAC(
     // key posture in dev/test/staging.
     post: [
       // 👤 Assign Role to User
-      ['/assign-role', requireProductionInfrastructureAdmin, roleAssignmentValidator, rbacController.assignRole],
+      ['/assign-role', requireProductionInfrastructureAdmin, requireSuperAdminStepUp, roleAssignmentValidator, rbacController.assignRole],
 
       // 🔄 Bulk Role Assignment
-      ['/bulk-assign', requireProductionInfrastructureAdmin, bulkAssignmentValidator, rbacController.bulkAssignRoles]
+      ['/bulk-assign', requireProductionInfrastructureAdmin, requireSuperAdminStepUp, bulkAssignmentValidator, rbacController.bulkAssignRoles]
     ]
   },
   {
@@ -118,7 +119,7 @@ wrapRoutes(
       ['/admin/toggle-user-status', toggleUserStatusValidator, rbacController.toggleUserStatus],
       
       // 🔄 Mass Role Update
-      ['/admin/mass-role-update', massRoleUpdateValidator, rbacController.massRoleUpdate]
+      ['/admin/mass-role-update', requireSuperAdminStepUp, massRoleUpdateValidator, rbacController.massRoleUpdate]
     ]
   },
   {

@@ -87,7 +87,7 @@ export const schemas = {
       },
       lis_listeners_configured: {
         type: 'integer',
-        description: 'Count of listener profiles in the backend mirror of DEVICE_GATEWAY_LIS_LISTENERS (config shape only, never ports/hosts/token names).',
+        description: 'Count of structurally validated listener profiles from the authoritative device-gateway ConfigMap (never ports, hosts, analyzer identities, or token env names).',
       },
     },
   },

@@ -7,8 +7,9 @@
 // controlled-dispense register bypass. These tests prove, against a real DB:
 //   - a controlled ISSUE is refused (409) and steered to /controlled-dispense;
 //     stock is untouched and no register row is written;
-//   - a Schedule X decrement WITHOUT a witness is refused (400); stock untouched;
-//   - a Schedule X dispose WITH a witness decrements the batch AND writes one
+//   - caller-provided witness text cannot authorize a Schedule X decrement;
+//   - a Schedule X dispose with an independently approved one-time witness
+//     decrements the batch AND writes one
 //     pharmacy_schedule_register 'dispose' row in the same tx;
 //   - a Schedule H1 receipt writes a 'receive' register row (no witness) — BC-M1;
 //   - a non-controlled issue decrements with NO register row (unchanged).
@@ -16,7 +17,11 @@
 // Seeds/connects as the jest.setup superuser (RLS bypassed); the service's own
 // explicit tenant filters still apply.
 import prisma from '../lib/prisma.js';
-import { recordMovement } from '../services/pharmacy/inventoryV2Service.js';
+import {
+  approveInventoryMovementWitnessApproval,
+  recordMovement,
+  requestControlledMovementWitnessApproval,
+} from '../services/pharmacy/inventoryV2Service.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -36,6 +41,9 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
       `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid`,
       `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'CMOV-%'`,
       `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'CMOV-%'`,
+      `DELETE FROM approvals WHERE tenant_id=$1::uuid AND subject_resource_type='inventory_controlled_movement'`,
+      `DELETE FROM staff WHERE tenant_id=$1::uuid AND employee_id LIKE 'CMOV-%'`,
+      `DELETE FROM users WHERE tenant_id=$1::uuid AND uid IN ('${ACTOR}'::uuid, '${WITNESS}'::uuid)`,
     ]) await prisma.$executeRawUnsafe(sql, TENANT).catch(() => {});
   }
 
@@ -63,6 +71,21 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
        VALUES ($1::uuid,'cmov-test','CMOV','IN','active',NOW(),NOW()) ON CONFLICT (id) DO NOTHING`,
       TENANT,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, name, role, tenant_id, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, 'Movement Pharmacist', 'PHARMACY_INCHARGE', $3::uuid, true, 'active', NOW()),
+         ($2::uuid, 'Movement Witness', 'PHARMACY_STAFF', $3::uuid, true, 'active', NOW())
+       ON CONFLICT (uid) DO NOTHING`,
+      ACTOR, WITNESS, TENANT,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO staff (user_id, employee_id, name, is_active, archived, tenant_id, updated_at)
+       VALUES
+         ($1::uuid, 'CMOV-ACTOR', 'Roster Movement Pharmacist', true, false, $3::uuid, NOW()),
+         ($2::uuid, 'CMOV-WITNESS', 'Roster Movement Witness', true, false, $3::uuid, NOW())`,
+      ACTOR, WITNESS, TENANT,
+    );
     ({ id: xItemId, batchId: xBatchId } = await seedItem('CMOV-X', 'Morphine 10mg', { schedule_class: 'X', is_narcotic: true }));
     ({ id: h1ItemId, batchId: h1BatchId } = await seedItem('CMOV-H1', 'Alprazolam 0.5mg', { schedule_class: 'H1' }));
     ({ id: otcItemId, batchId: otcBatchId } = await seedItem('CMOV-OTC', 'Paracetamol 500mg', { schedule_class: 'OTC' }));
@@ -78,7 +101,7 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
     return Number(r[0].remaining_quantity);
   };
   const registerRows = async (itemId) => prisma.$queryRawUnsafe(
-    `SELECT movement_kind, quantity, schedule_class, witness_uid FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid AND inventory_item_id=$2 ORDER BY id`,
+    `SELECT movement_kind, quantity, schedule_class, witness_uid, witness_name FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid AND inventory_item_id=$2 ORDER BY id`,
     TENANT, itemId,
   );
 
@@ -91,27 +114,45 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
     expect(await registerRows(xItemId)).toHaveLength(0);
   });
 
-  test('Schedule X decrement without a witness is refused; stock untouched', async () => {
+  test('caller-provided witness identity cannot authorize a Schedule X decrement', async () => {
     await expect(recordMovement({
       tenantId: TENANT, inventory_item_id: xItemId, inventory_batch_id: xBatchId,
       movement_kind: 'adjust_decrease', quantity: 5, performed_by: ACTOR,
-    })).rejects.toMatchObject({ code: 'CONTROLLED_MOVEMENT_WITNESS_REQUIRED' });
+      witness_uid: WITNESS, witness_name: 'Caller Supplied',
+    })).rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID' });
     expect(await remaining(xBatchId)).toBe(100);
     expect(await registerRows(xItemId)).toHaveLength(0);
   });
 
-  test('Schedule X dispose WITH a witness decrements and writes one register dispose row (same tx)', async () => {
-    const res = await recordMovement({
+  test('Schedule X dispose consumes an independent one-time approval and canonical witness', async () => {
+    const movement = {
       tenantId: TENANT, inventory_item_id: xItemId, inventory_batch_id: xBatchId,
       movement_kind: 'dispose', quantity: 4, performed_by: ACTOR,
-      witness_uid: WITNESS, witness_name: 'Witness Nurse',
+      notes: 'Destroyed under custody',
+    };
+    const approval = await requestControlledMovementWitnessApproval({
+      ...movement,
+      requested_by: ACTOR,
     });
+    await approveInventoryMovementWitnessApproval({
+      tenantId: TENANT,
+      approvalId: approval.id,
+      actorUid: WITNESS,
+      requesterUid: ACTOR,
+      movement,
+    });
+    const res = await recordMovement({ ...movement, witness_approval_id: approval.id });
     expect(res.register_entry).toBeTruthy();
     expect(await remaining(xBatchId)).toBe(96);
     const reg = await registerRows(xItemId);
     expect(reg).toHaveLength(1);
     expect(reg[0].movement_kind).toBe('dispose');
     expect(reg[0].witness_uid).toBe(WITNESS);
+    expect(reg[0].witness_name).toBe('Roster Movement Witness');
+
+    await expect(recordMovement({ ...movement, witness_approval_id: approval.id }))
+      .rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_CONSUMED' });
+    expect(await remaining(xBatchId)).toBe(96);
   });
 
   test('Schedule H1 receipt writes a receive register row without a witness (BC-M1)', async () => {

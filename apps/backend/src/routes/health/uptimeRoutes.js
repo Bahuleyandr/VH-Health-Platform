@@ -110,7 +110,11 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
         expected_tip: migrationState.expectedTip,
         database_tip: migrationState.executedTip,
         pending_count: migrationState.pending.length,
-        message: 'Required migrations are pending',
+        missing_checksum_count: migrationState.missingChecksums?.length || 0,
+        checksum_drift_count: migrationState.checksumDrift?.length || 0,
+        message: migrationState.checksumCurrent === false
+          ? 'Migration tracker checksums do not match the application image'
+          : 'Required migrations are pending',
       };
   } catch (err) {
     checks.database = { status: 'error', message: 'Database check failed' };

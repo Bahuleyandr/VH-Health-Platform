@@ -4,6 +4,12 @@ metadata:
   name: device-gateway-config
   namespace: vhhealth
 data:
+  # Authoritative LIS listener profile source for both the gateway and the
+  # backend's read-only integration-gate summary. Ships dark; activation must
+  # replace this with validated tenant/analyzer profiles and matching
+  # LIS_*_TOKEN keys in device-gateway-secret. Never copy credential values
+  # into this ConfigMap or the backend's configuration.
+  DEVICE_GATEWAY_LIS_LISTENERS: "[]"
   DEVICE_GATEWAY_LISTENERS: |
     [
       {

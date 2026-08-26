@@ -117,10 +117,14 @@ class ApiConfig {
   }
 
   /// Server-reported specialty gate modes (feature id ->
-  /// 'off' | 'report' | 'enforce'), persisted from the last
-  /// GET /rbac/policy fetch so an 'enforce' verdict survives restarts.
-  /// Null until the first policy fetch of a session succeeds.
-  static Future<void> saveSpecialtyGateModes(Map<String, String> modes) async {
+  /// 'off' | 'report' | 'enforce'), persisted from the last successful
+  /// GET /rbac/policy fetch. A null snapshot is authoritative and deletes an
+  /// older value so a retired enforce mode cannot survive a server downgrade.
+  static Future<void> saveSpecialtyGateModes(Map<String, String>? modes) async {
+    if (modes == null) {
+      await _storage.delete(key: 'specialty_gate_modes');
+      return;
+    }
     await _storage.write(key: 'specialty_gate_modes', value: jsonEncode(modes));
   }
 

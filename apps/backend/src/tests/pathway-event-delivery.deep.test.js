@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Client } from 'pg';
 
+import { migrationChecksum } from '../../scripts/lib/migrationChecksum.mjs';
 import prisma from '../lib/prisma.js';
 import { runInTenantContext, runWithSuperAdmin } from '../lib/tenantContext.js';
 import {
@@ -570,10 +571,10 @@ describeIfDb('pathway projector event delivery (deep)', () => {
       transactionOpen = true;
       await client.query(migrationSql);
       await client.query(
-        `INSERT INTO _migrations (name)
-         VALUES ($1)
+        `INSERT INTO _migrations (name, checksum)
+         VALUES ($1, $2)
          ON CONFLICT (name) DO NOTHING`,
-        [trackerProbe],
+        [trackerProbe, migrationChecksum(migrationSql)],
       );
       expect((await client.query(
         'SELECT name FROM _migrations WHERE name = $1',

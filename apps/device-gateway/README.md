@@ -34,19 +34,30 @@ is fully dark (no open ports, no timers):
 
 ```bash
 DEVICE_GATEWAY_LIS_LISTENERS='[
-  {"name":"chem1","port":3101,"protocol":"astm-e1394","analyzer_code":"BS-240",
+  {"name":"chem1","port":3101,"protocol":"astm-e1394","tenant_slug":"vh-main","analyzer_code":"BS-240",
    "token_env":"LIS_CHEM1_TOKEN","allowed_source_ips":["10.20.0.41"]},
-  {"name":"hema1","port":3102,"protocol":"mllp-hl7v2","analyzer_code":"XN-1000",
+  {"name":"hema1","port":3102,"protocol":"mllp-hl7v2","tenant_slug":"vh-main","analyzer_code":"XN-1000",
    "token_env":"LIS_HEMA1_TOKEN"}
 ]'
 LIS_CHEM1_TOKEN=<tenant-bound machine JWT with a lab-interface ingest role>
 LIS_HEMA1_TOKEN=<same, may differ per analyzer>
 ```
 
+In Kubernetes, add every named `LIS_*_TOKEN` key to the operator-managed
+`device-gateway-secret` (use the adjacent SealedSecret example). The Deployment
+projects those dynamic keys into the gateway container, while retaining the
+explicit `backend-token` and `api-key` mappings. The Secret is loaded before
+`device-gateway-config`, so a Secret key cannot replace the authoritative
+non-secret listener profiles. With the committed `[]` profile list, no LIS
+listener opens even when token keys exist.
+
 Per-listener fields: `name` (unique), `port`, optional `host` (default
-`0.0.0.0`), `protocol`, `analyzer_code` (the backend `lab_analyzers` code),
+`0.0.0.0`), `protocol`, `tenant_slug` (non-secret deployment metadata used
+only to correlate the admin gate; never trusted for authorization),
+`analyzer_code` (the backend `lab_analyzers` code),
 `token_env` (the NAME of the env var holding that analyzer's backend bearer
-token, so the JSON never contains credential material), optional
+token, matching `^LIS_[A-Z][A-Z0-9_]*_TOKEN$`, so the JSON never contains
+credential material or aliases a global gateway credential), optional
 `allowed_source_ips`, optional `max_message_bytes` (default 1 MiB). The
 bearer token is a tenant-bound machine JWT (role `DEVICE_GATEWAY` /
 `WEBHOOK_CLIENT` or a lab staff role) — the backend derives tenant identity

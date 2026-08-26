@@ -3,6 +3,11 @@
 
 import { jest } from '@jest/globals';
 
+const logSecurityEvent = jest.fn();
+jest.unstable_mockModule('../../utils/securityAuditLogger.js', () => ({
+  logSecurityEvent,
+}));
+
 const {
   SPECIALTY_DEPARTMENT_ALIASES,
   normalizeDepartment,
@@ -85,6 +90,7 @@ describe('specialtyGateModesByFeature', () => {
 describe('middleware state machine (resolver injected)', () => {
   const saved = process.env.SPECIALTY_DEPARTMENT_GATE_MODE;
   afterEach(() => {
+    logSecurityEvent.mockClear();
     if (saved === undefined) delete process.env.SPECIALTY_DEPARTMENT_GATE_MODE;
     else process.env.SPECIALTY_DEPARTMENT_GATE_MODE = saved;
   });
@@ -109,6 +115,10 @@ describe('middleware state machine (resolver injected)', () => {
     });
     const { nexted } = await run(guard);
     expect(nexted).toBe(true);
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({ statusCode: 403 }),
+    );
   });
 
   it('enforce mode denies a mismatch with the structured code', async () => {
@@ -120,6 +130,10 @@ describe('middleware state machine (resolver injected)', () => {
     expect(nexted).toBe(false);
     expect(res.statusCode).toBe(403);
     expect(JSON.stringify(res.body)).toContain('SPECIALTY_DEPARTMENT_REQUIRED');
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({ statusCode: 403 }),
+    );
   });
 
   it('enforce mode admits a department match', async () => {
@@ -153,6 +167,13 @@ describe('middleware state machine (resolver injected)', () => {
     // deliberate and must read as an access decision to the client.
     expect(out.res.statusCode).toBe(403);
     expect(JSON.stringify(out.res.body)).toContain('SPECIALTY_DEPARTMENT_UNRESOLVED');
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({
+        statusCode: 403,
+        reason: expect.stringContaining('Department resolution failed'),
+      }),
+    );
   });
 
   it('off mode is inert', async () => {

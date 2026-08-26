@@ -60,6 +60,19 @@ export const ORDER_SET_STUDIO_ROLES = [
   "PHARMACY_INCHARGE",
 ];
 
+// Exact backend `staffAdminRoutes` allowlist. Shift Management must use raw
+// role identity rather than a portal-rank approximation: HR/HR_MANAGER are not
+// admitted server-side, while housekeeping and clinical leadership are.
+export const SHIFT_MANAGEMENT_ROLES = [
+  "SUPER_ADMIN",
+  "ADMIN",
+  "HR_STAFF",
+  "HOUSEKEEPING_INCHARGE",
+  "CMO",
+  "CNO",
+  "MEDICAL_SUPERINTENDENT",
+];
+
 export interface RoutePolicy {
   /** Minimum ROLE_RANK value required (ignored when `roles` is set). */
   minRank?: number;
@@ -88,11 +101,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "my-payslips": { minRank: STAFF },
   "my-replacements": { minRank: STAFF },
   "upload-prescription": { minRank: STAFF },
-  // Shift Management is an HR console: its API (/api/v1/staff/admin/shifts*)
-  // is wrapAutoRBAC('staffAdminRoutes') — HR_STAFF/leadership/ADMIN — so a
-  // STAFF-rank nav entry only produced 403s (ADM-1 residual, closed with the
-  // #918/#922 siblings).
-  shifts: { minRank: HR_PLUS },
+  // Exact raw-role parity with wrapAutoRBAC('staffAdminRoutes').
+  shifts: { roles: SHIFT_MANAGEMENT_ROLES },
 
   // ── Clinical services (nurses + clinical staff + up) ─────────────────────
   radiology: { minRank: STAFF },

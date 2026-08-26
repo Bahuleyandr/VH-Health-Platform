@@ -153,12 +153,24 @@ export async function validateDocumentCodes({
     logger.warn(
       `codingEnforcement validation unavailable for ${surface} (level ${level}); degrading to unchecked: ${err.message}`,
     );
+    const invalid = results.filter((r) => !r.valid);
+    const warnings = invalid.map(
+      (r) => `${systemKey} code '${r.code}' failed validation (${r.reason || 'invalid'})`,
+    );
+    if (invalid.length > 0) {
+      await recordEnforcementAudit({
+        db, tenantId, surface, systemKey, level, blocked: false, invalid, actorUid,
+      });
+    }
     return {
       level,
       checked: false,
-      valid: true,
+      valid: invalid.length === 0,
       results,
-      warnings: [`${systemKey} code validation unavailable (terminology lookup failed)`],
+      warnings: [
+        ...warnings,
+        `${systemKey} code validation unavailable (terminology lookup failed)`,
+      ],
     };
   }
 

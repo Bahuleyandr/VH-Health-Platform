@@ -10,6 +10,8 @@ const recordMovementMock = jest.fn(async (input) => input);
 const dispenseControlledMock = jest.fn(async (input) => input);
 const requestWitnessApprovalMock = jest.fn(async (input) => input);
 const approveWitnessApprovalMock = jest.fn(async (input) => input);
+const requestMovementWitnessApprovalMock = jest.fn(async (input) => input);
+const approveMovementWitnessApprovalMock = jest.fn(async (input) => input);
 const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
   uid: WITNESS,
   tenantId,
@@ -20,6 +22,7 @@ let actorRole = 'PHARMACY_STAFF';
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
   CONTROLLED_DISPENSE_WITNESS_ROLES: ['PHARMACY_STAFF', 'DOCTOR'],
   approveInventoryDispenseWitnessApproval: approveWitnessApprovalMock,
+  approveInventoryMovementWitnessApproval: approveMovementWitnessApprovalMock,
   createItem: jest.fn(),
   dispenseControlled: dispenseControlledMock,
   listBatches: jest.fn(),
@@ -28,6 +31,7 @@ jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => 
   listScheduleRegister: jest.fn(),
   recordMovement: recordMovementMock,
   requestControlledDispenseWitnessApproval: requestWitnessApprovalMock,
+  requestControlledMovementWitnessApproval: requestMovementWitnessApprovalMock,
   runExpiryScan: jest.fn(),
   tenantOf: () => TENANT,
 }));
@@ -45,6 +49,7 @@ jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
 
 const {
   default: inventoryRoutes,
+  pharmacyInventoryMovementWitnessApprovalRoutes,
   pharmacyInventoryWitnessApprovalRoutes,
 } = await import(
   '../../routes/pharmacy/inventoryV2Routes.js'
@@ -60,6 +65,10 @@ app.use(
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/:id/approve',
   pharmacyInventoryWitnessApprovalRoutes,
 );
+app.use(
+  '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/:id/approve',
+  pharmacyInventoryMovementWitnessApprovalRoutes,
+);
 app.use('/api/v1/pharmacy/inventory/v2', inventoryRoutes);
 
 beforeEach(() => {
@@ -68,10 +77,60 @@ beforeEach(() => {
   dispenseControlledMock.mockClear();
   requestWitnessApprovalMock.mockClear();
   approveWitnessApprovalMock.mockClear();
+  requestMovementWitnessApprovalMock.mockClear();
+  approveMovementWitnessApprovalMock.mockClear();
   authenticateWitnessMock.mockClear();
 });
 
 describe('pharmacy inventory route tenant boundary', () => {
+  test('canonicalizes every idempotent mutation across inventory aliases', () => {
+    const byScope = (scope) => idempotencyScopes.find((options) => options.scope === scope);
+    expect(byScope('pharmacy_inventory_movement').requestPathForIdempotency)
+      .toBe('/api/v1/pharmacy-orders/inventory/v2/movements');
+    expect(byScope('pharmacy_inventory_movement_witness_request').requestPathForIdempotency)
+      .toBe('/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals');
+    expect(byScope('pharmacy_inventory_witness_request').requestPathForIdempotency)
+      .toBe('/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals');
+    expect(byScope('pharmacy_inventory_controlled_dispense').requestPathForIdempotency)
+      .toBe('/api/v1/pharmacy-orders/inventory/v2/controlled-dispense');
+
+    const controlledApprovalPath = byScope(
+      'pharmacy_inventory_witness_approval',
+    ).requestPathForIdempotency;
+    const movementApprovalPath = byScope(
+      'pharmacy_inventory_movement_witness_approval',
+    ).requestPathForIdempotency;
+    expect(controlledApprovalPath({ params: { id: '71' } })).toBe(
+      '/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/71/approve',
+    );
+    expect(movementApprovalPath({ params: { id: '91' } })).toBe(
+      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/91/approve',
+    );
+    expect(movementApprovalPath({ params: { id: '92' } }))
+      .not.toBe(movementApprovalPath({ params: { id: '91' } }));
+  });
+
+  test.each([
+    ['pharmacy_inventory_witness_approval', 'dispense'],
+    ['pharmacy_inventory_movement_witness_approval', 'movement'],
+  ])('canonical approval path preserves the non-secret %s body projection', (scope, intentKey) => {
+    const options = idempotencyScopes.find((candidate) => candidate.scope === scope);
+    const intent = { inventory_item_id: 17, inventory_batch_id: 29, quantity: 1 };
+    const project = (overrides = {}) => options.requestBodyForIdempotency({
+      body: {
+        employeeId: 'NURSE-002',
+        password: 'first-secret',
+        [intentKey]: intent,
+        ...overrides,
+      },
+    });
+
+    expect(project({ password: 'changed-secret' })).toEqual(project());
+    expect(project({ employeeId: 'NURSE-003' })).not.toEqual(project());
+    expect(project({ [intentKey]: { ...intent, quantity: 2 } })).not.toEqual(project());
+    expect(JSON.stringify(project())).not.toContain('first-secret');
+  });
+
   test('pins stock movements to the authenticated tenant', async () => {
     const response = await request(app)
       .post('/api/v1/pharmacy/inventory/v2/movements')
@@ -86,7 +145,15 @@ describe('pharmacy inventory route tenant boundary', () => {
     expect(recordMovementMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT,
       performed_by: ACTOR,
+      performed_by_name: 'Pharmacist',
     }));
+    expect(idempotencyScopes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_movement',
+        retainOnServerError: true,
+      }),
+    ]));
   });
 
   test('pins controlled dispensing to the authenticated tenant', async () => {
@@ -94,8 +161,9 @@ describe('pharmacy inventory route tenant boundary', () => {
       .post('/api/v1/pharmacy/inventory/v2/controlled-dispense')
       .send({
         tenantId: OTHER_TENANT,
-        inventory_item_id: 17,
-        quantity: 1,
+      inventory_item_id: 17,
+      quantity: 1,
+      performed_by_name: 'Caller Supplied',
       });
 
     expect(response.statusCode).toBe(200);
@@ -104,6 +172,86 @@ describe('pharmacy inventory route tenant boundary', () => {
       performed_by: ACTOR,
       performed_by_name: 'Pharmacist',
     }));
+    expect(idempotencyScopes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_controlled_dispense',
+        retainOnServerError: true,
+      }),
+    ]));
+  });
+
+  test('binds generic movement witness creation and decision to authenticated identities', async () => {
+    expect(idempotencyScopes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_movement_witness_request',
+        retainOnServerError: true,
+      }),
+      expect.objectContaining({
+        required: true,
+        scope: 'pharmacy_inventory_movement_witness_approval',
+        retainOnServerError: true,
+      }),
+    ]));
+    const approvalIdempotency = idempotencyScopes.find(
+      ({ scope }) => scope === 'pharmacy_inventory_movement_witness_approval',
+    );
+    const projectedApproval = approvalIdempotency.requestBodyForIdempotency({
+      body: {
+        employeeId: ' nurse-002 ',
+        password: 'witness-secret',
+        movement: { inventory_item_id: 17, movement_kind: 'dispose', quantity: 1 },
+      },
+    });
+    expect(projectedApproval).toEqual({
+      credentialMode: 'staff_password',
+      employeeId: 'NURSE-002',
+      movement: { inventory_item_id: 17, movement_kind: 'dispose', quantity: 1 },
+    });
+    expect(JSON.stringify(projectedApproval)).not.toContain('witness-secret');
+
+    const requestResponse = await request(app)
+      .post('/api/v1/pharmacy/inventory/v2/movements/witness-approvals')
+      .send({
+        tenantId: OTHER_TENANT,
+        requested_by: 'caller-selected',
+        inventory_item_id: 17,
+        inventory_batch_id: 29,
+        movement_kind: 'dispose',
+        quantity: 1,
+      });
+    expect(requestResponse.statusCode).toBe(200);
+    expect(requestMovementWitnessApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      requested_by: ACTOR,
+    }));
+
+    const approvalResponse = await request(app)
+      .post('/api/v1/pharmacy/inventory/v2/movements/witness-approvals/91/approve')
+      .send({
+        employeeId: 'NURSE-002',
+        password: 'witness-secret',
+        movement: {
+          inventory_item_id: 17,
+          inventory_batch_id: 29,
+          movement_kind: 'dispose',
+          quantity: 1,
+        },
+      });
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approveMovementWitnessApprovalMock).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      approvalId: '91',
+      actorUid: WITNESS,
+      requesterUid: ACTOR,
+      movement: {
+        inventory_item_id: 17,
+        inventory_batch_id: 29,
+        movement_kind: 'dispose',
+        quantity: 1,
+      },
+    });
   });
 
   test('binds witness approval creation and decision to authenticated identities', async () => {

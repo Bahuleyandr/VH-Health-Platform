@@ -50,6 +50,7 @@ const { default: router } = await import('../../routes/billing/paymentGatewayWeb
 const { getAuthenticatedCallbackAuditContext } = await import(
   '../../utils/authenticatedCallbackAudit.js'
 );
+const { getCurrentTenantId } = await import('../../lib/tenantContext.js');
 
 let observedAuditContext = null;
 
@@ -125,6 +126,34 @@ describe('tenant resolution (fail-closed, pre-RLS mount)', () => {
     const res = await signedPost(payload);
     expect(res.status).toBe(401);
     expect(recordWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('preserves the resolved tenant through intake, dispatch, and terminal marking', async () => {
+    const observed = [];
+    recordWebhookEvent.mockImplementationOnce(async () => {
+      observed.push(['intake', getCurrentTenantId()]);
+      return {
+        duplicate: false,
+        event: { id: 10, status: 'pending', event_type: 'payment.captured' },
+      };
+    });
+    processWebhookEvent.mockImplementationOnce(async () => {
+      observed.push(['dispatch', getCurrentTenantId()]);
+      return { outcome: 'captured', orderId: 5 };
+    });
+    markWebhookEvent.mockImplementationOnce(async () => {
+      observed.push(['terminal_mark', getCurrentTenantId()]);
+    });
+
+    const res = await signedPost(payload);
+
+    expect(res.status).toBe(200);
+    expect(observed).toEqual([
+      ['intake', TENANT],
+      ['dispatch', TENANT],
+      ['terminal_mark', TENANT],
+    ]);
+    expect(getCurrentTenantId()).toBeNull();
   });
 });
 

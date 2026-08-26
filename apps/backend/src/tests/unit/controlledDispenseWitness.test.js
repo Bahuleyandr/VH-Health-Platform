@@ -56,16 +56,19 @@ const PAYLOAD = {
   patient_id_proof_last4: null,
 };
 
-function approvalRow(overrides = {}) {
+function approvalRow(overrides = {}, {
+  scope = CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+  payload = PAYLOAD,
+} = {}) {
   const payloadHash = controlledDispenseApprovalFingerprint({
-    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
-    payload: PAYLOAD,
+    scope,
+    payload,
     requestedBy: DISPENSER,
   });
   return {
     id: 71,
     approval_kind: 'controlled_dispense_witness',
-    subject_resource_type: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+    subject_resource_type: scope,
     subject_resource_id: payloadHash,
     status: 'approved',
     approved_by: [{ uid: WITNESS, at: new Date().toISOString() }],
@@ -76,7 +79,7 @@ function approvalRow(overrides = {}) {
     decided_at: new Date(),
     metadata: {
       contract: 'controlled_dispense_witness_v1',
-      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      scope,
       payload_hash: payloadHash,
       requested_by: DISPENSER,
     },
@@ -242,6 +245,43 @@ describe('independent witness approval', () => {
     });
     expect(evidence).toMatchObject({ uid: WITNESS, name: 'Canonical Witness' });
     expect(queryRawUnsafeMock.mock.calls[2][0]).toContain("'consumed_at'");
+  });
+
+  test('generic movements use a distinct approval scope that cannot be replayed as a dispense', async () => {
+    const movementPayload = {
+      inventory_item_id: 5,
+      inventory_batch_id: 9,
+      movement_kind: 'dispose',
+      quantity: 1,
+      batch_safety_contract: 'controlled_movement_exact_batch_policy_v1',
+      batch_policy: 'disposable',
+    };
+    expect(CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryMovement)
+      .toBe('inventory_controlled_movement');
+    expect(controlledDispenseApprovalFingerprint({
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryMovement,
+      payload: movementPayload,
+      requestedBy: DISPENSER,
+    })).not.toBe(controlledDispenseApprovalFingerprint({
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      payload: movementPayload,
+      requestedBy: DISPENSER,
+    }));
+
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      approvalRow({}, {
+        scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryMovement,
+        payload: movementPayload,
+      }),
+    ]);
+    await expect(consumeControlledDispenseWitnessApproval({
+      tx: txMock,
+      tenantId: TENANT,
+      approvalId: 71,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      payload: movementPayload,
+      requestedBy: DISPENSER,
+    })).rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH' });
   });
 });
 

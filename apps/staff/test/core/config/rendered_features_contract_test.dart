@@ -217,6 +217,20 @@ void main() {
       expect(dentist, contains('dental_charting'));
     });
 
+    test('a newer null/report/off snapshot replaces stale enforce state', () {
+      RoleFeatures.setSpecialtyGateModes(enforceAllSpecialtyModes);
+      expect(renderedIds('DOCTOR').intersection(specialtyIds), isEmpty);
+
+      RoleFeatures.setSpecialtyGateModes(null);
+      expect(renderedIds('DOCTOR'), containsAll(specialtyIds));
+
+      RoleFeatures.setSpecialtyGateModes(const {
+        'dental_charting': 'report',
+        'oncology': 'off',
+      });
+      expect(renderedIds('DOCTOR'), containsAll(specialtyIds));
+    });
+
     test('leadership bypass holds under enforce with no department', () {
       RoleFeatures.setSpecialtyGateModes(enforceAllSpecialtyModes);
       final ids = renderedIds('MEDICAL_SUPERINTENDENT');

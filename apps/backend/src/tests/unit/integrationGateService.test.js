@@ -27,6 +27,7 @@ const getPaymentGatewaySettings = jest.fn();
 const getSmsSettings = jest.fn();
 const getUhiSettings = jest.fn();
 const isFacilityAssetsEnvEnabled = jest.fn();
+const queryRawUnsafe = jest.fn();
 
 const ABDM_CONFIG = {
   enabled: false, environment: 'sandbox', clientId: '', clientSecret: '',
@@ -75,6 +76,10 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getSmsSettings,
   getUhiSettings,
 }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  prisma: { $queryRawUnsafe: queryRawUnsafe },
+  default: { $queryRawUnsafe: queryRawUnsafe },
+}));
 
 const { listIntegrationGates, integrationGateEnvFacts } =
   await import('../../services/integrations/integrationGateService.js');
@@ -120,6 +125,7 @@ function primeDefaults() {
   getPaymentGatewaySettings.mockResolvedValue({ enabled: false });
   getSmsSettings.mockResolvedValue({ enabled: false });
   getUhiSettings.mockResolvedValue({ enabled: false, environment: 'sandbox' });
+  queryRawUnsafe.mockResolvedValue([{ count: 0 }]);
 }
 
 beforeEach(() => {
@@ -175,28 +181,69 @@ describe('effective-state assembly', () => {
     });
   });
 
-  it('lis_listeners: env layer parses the listener JSON; analyzers gate the tenant side', async () => {
-    // A parseable listener array lights the env layer; with no active
-    // interface analyzers the provider_config layer still holds it dark.
+  it('lis_listeners: only a validated tenant profile lights the env layer', async () => {
     process.env.DEVICE_GATEWAY_LIS_LISTENERS =
-      '[{"name": "chem-1", "port": 4001, "protocol": "astm-e1394"}]';
+      '[{"name":"chem-1","port":4001,"protocol":"astm-e1394","tenant_slug":"vh-main","analyzer_code":"BS-240","token_env":"LIS_CHEM1_TOKEN"}]';
     let report = await listIntegrationGates();
     expect(report.tenants[0].gates.lis_listeners).toMatchObject({
       effective: false,
       blocking_layer: 'provider_config',
-      reason: 'no_active_interface_analyzers',
+      reason: 'no_matching_active_interface_analyzers',
       layers: { env: true, provider_config: false },
       listeners_configured: 1,
     });
 
-    // Set-but-unparseable reads as dark with its own reason, never as open.
-    process.env.DEVICE_GATEWAY_LIS_LISTENERS = 'not json';
+    // Parseable-but-invalid is still invalid; an arbitrary JSON object cannot
+    // claim that a gateway listener is configured.
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name":"chem-1","port":4001,"protocol":"astm-e1394"}]';
     report = await listIntegrationGates();
     expect(report.tenants[0].gates.lis_listeners).toMatchObject({
       effective: false,
       blocking_layer: 'env',
       reason: 'listeners_env_invalid',
       listeners_configured: 0,
+    });
+  });
+
+  it('lis_listeners: other-tenant and wrong-analyzer profiles cannot open the gate', async () => {
+    queryRawUnsafe.mockImplementation(async (sql, _tenantId, analyzerCodes) => {
+      if (sql.includes('FROM lab_analyzers') && analyzerCodes?.includes('BS-240')) {
+        return [{ count: 1 }];
+      }
+      return [{ count: 0 }];
+    });
+
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name":"chem-1","port":4001,"protocol":"astm-e1394","tenant_slug":"other","analyzer_code":"BS-240","token_env":"LIS_CHEM1_TOKEN"}]';
+    let gate = (await listIntegrationGates()).tenants[0].gates.lis_listeners;
+    expect(gate).toMatchObject({
+      effective: false,
+      reason: 'no_tenant_listener_profiles',
+      blocking_layer: 'env',
+      listeners_configured: 0,
+    });
+
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name":"chem-1","port":4001,"protocol":"astm-e1394","tenant_slug":"vh-main","analyzer_code":"WRONG","token_env":"LIS_CHEM1_TOKEN"}]';
+    gate = (await listIntegrationGates()).tenants[0].gates.lis_listeners;
+    expect(gate).toMatchObject({
+      effective: false,
+      reason: 'no_matching_active_interface_analyzers',
+      blocking_layer: 'provider_config',
+      listeners_configured: 1,
+    });
+
+    process.env.DEVICE_GATEWAY_LIS_LISTENERS =
+      '[{"name":"chem-1","port":4001,"protocol":"astm-e1394","tenant_slug":"vh-main","analyzer_code":"BS-240","token_env":"LIS_CHEM1_TOKEN"}]';
+    gate = (await listIntegrationGates()).tenants[0].gates.lis_listeners;
+    expect(gate).toMatchObject({
+      effective: true,
+      reason: null,
+      blocking_layer: null,
+      layers: { env: true, provider_config: true },
+      listeners_configured: 1,
+      active_interface_analyzers: 1,
     });
   });
 
@@ -270,12 +317,13 @@ describe('effective-state assembly', () => {
   it('env facts surface the LIS listener count, never the listener config', async () => {
     expect(integrationGateEnvFacts()).toMatchObject({ lis_listeners_configured: 0 });
     process.env.DEVICE_GATEWAY_LIS_LISTENERS =
-      '[{"name": "chem-1", "host": "10.0.0.5", "port": 4001}, {"name": "haem-1", "port": 4002}]';
+      '[{"name":"chem-1","host":"10.0.0.5","port":4001,"protocol":"astm-e1394","tenant_slug":"vh-main","analyzer_code":"BS-240","token_env":"LIS_CHEM1_TOKEN"},{"name":"haem-1","port":4002,"protocol":"mllp-hl7v2","tenant_slug":"vh-main","analyzer_code":"XN-1000","token_env":"LIS_HAEM1_TOKEN"}]';
     const facts = integrationGateEnvFacts();
     expect(facts.lis_listeners_configured).toBe(2);
     const serialized = JSON.stringify(facts);
     expect(serialized).not.toContain('chem-1');
     expect(serialized).not.toContain('10.0.0.5');
+    expect(serialized).not.toContain('LIS_CHEM1_TOKEN');
   });
 
   it('payment gateway: effective comes from resolveGatewayContext, layers from the admin view', async () => {

@@ -239,8 +239,15 @@ test('fresh-cluster proof is required in GitHub CI and static proof remains cano
 test('held device-gateway tree is wired to the real backend Service and validated by CI', () => {
   const backendService = readRepo('infra/kubernetes/apps/backend/service.yaml');
   const backendPolicy = readRepo('infra/kubernetes/apps/backend/network-policy.yaml');
+  const backendConfig = readRepo('infra/kubernetes/apps/backend/configmap.yaml');
+  const backendDeployment = readRepo('infra/kubernetes/apps/backend/deployment.yaml');
   const gatewayDeployment = readRepo('infra/kubernetes/base/device-gateway/deployment.yaml');
+  const gatewayConfig = readRepo('infra/kubernetes/base/device-gateway/configmap.yaml');
+  const gatewaySecretExample = readRepo(
+    'infra/kubernetes/base/device-gateway/secret.sealed-secret.yaml.example',
+  );
   const gatewayPolicy = readRepo('infra/kubernetes/base/device-gateway/networkpolicy.yaml');
+  const gatewayReadme = readRepo('apps/device-gateway/README.md');
   const validator = readRepo('scripts/validate-kubernetes-manifests.mjs');
 
   // The Service the gateway must call: vhhealth-backend, port 80 → pod port
@@ -278,8 +285,36 @@ test('held device-gateway tree is wired to the real backend Service and validate
     'device-gateway must be admitted in the ingress section',
   );
 
+  // The required gateway Secret projects operator-supplied LIS_*_TOKEN keys
+  // before the ConfigMap, so non-secret listener profiles stay authoritative.
+  // Explicit fixed-key mappings remain the source for the shared backend JWT
+  // and API key even though the Secret is also projected dynamically.
+  assert.match(gatewayConfig, /^\s{2}DEVICE_GATEWAY_LIS_LISTENERS:\s*"\[\]"\s*$/m);
+  assert.doesNotMatch(gatewayConfig, /^\s{2}LIS_[A-Z][A-Z0-9_]*_TOKEN:/m);
+  assert.match(
+    gatewayDeployment,
+    /envFrom:\s*\n(?:\s*#.*\n)*\s*- secretRef:\s*\n\s+name:\s*device-gateway-secret\s*\n\s*- configMapRef:\s*\n\s+name:\s*device-gateway-config/,
+  );
+  assert.match(
+    gatewayDeployment,
+    /name:\s*DEVICE_GATEWAY_BACKEND_TOKEN[\s\S]*?secretKeyRef:[\s\S]*?name:\s*device-gateway-secret[\s\S]*?key:\s*backend-token/,
+  );
+  assert.match(
+    gatewayDeployment,
+    /name:\s*DEVICE_GATEWAY_API_KEY[\s\S]*?secretKeyRef:[\s\S]*?name:\s*device-gateway-secret[\s\S]*?key:\s*api-key/,
+  );
+  assert.match(gatewaySecretExample, /^\s{4}LIS_CHEM1_TOKEN:\s+REPLACE_WITH_SEALED_/m);
+  assert.match(gatewayReadme, /matching `\^LIS_\[A-Z\]\[A-Z0-9_\]\*_TOKEN\$`/);
+  assert.match(
+    backendDeployment,
+    /name:\s*DEVICE_GATEWAY_LIS_LISTENERS[\s\S]*?configMapKeyRef:[\s\S]*?name:\s*device-gateway-config[\s\S]*?key:\s*DEVICE_GATEWAY_LIS_LISTENERS[\s\S]*?optional:\s*true/,
+  );
+  assert.doesNotMatch(backendConfig, /^\s{2}DEVICE_GATEWAY_LIS_LISTENERS:/m);
+  assert.doesNotMatch(backendDeployment, /device-gateway-secret|LIS_[A-Z][A-Z0-9_]*_TOKEN/);
+
   // The held tree is a validated kustomize root, closing the rot vector.
   assert.match(validator, /^\s*'infra\/kubernetes\/base\/device-gateway',\s*$/m);
+  assert.match(validator, /function requireDeviceGatewayContract\(/);
 });
 
 test('Dalek deploy workflow is strict and verifies the deployed commit', () => {

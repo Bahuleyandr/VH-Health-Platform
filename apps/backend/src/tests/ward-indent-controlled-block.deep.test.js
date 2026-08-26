@@ -8,7 +8,8 @@
 // items that link back to the catalog row (catalog_id) and blocks the whole
 // issue before any decrement, steering the controlled lines to the witnessed
 // inventory-v2 flow. Schedule H is left issuable (register-recommended, not
-// mandatory) so routine ward stock is unaffected.
+// mandatory) when it has a same-tenant inventory classification. Positive
+// free-text and unlinked catalog lines fail closed as unresolved.
 import prisma from '../lib/prisma.js';
 import { issueWardIndent } from '../services/ipd/ipdSupportService.js';
 
@@ -19,8 +20,8 @@ const TENANT = '00000000-0000-4000-8000-0000c07b10c3';
 const ACTOR = 'c07b0000-0000-4000-8000-0000000000b1';
 
 describeIfDb('issueWardIndent controlled-item block', () => {
-  let ctrlCatalogId; let plainCatalogId;
-  let ctrlIndentId; let plainIndentId;
+  let ctrlCatalogId; let plainCatalogId; let unlinkedCatalogId;
+  let ctrlIndentId; let plainIndentId; let unlinkedIndentId; let freeTextIndentId;
 
   async function cleanup() {
     await prisma.$executeRawUnsafe(`DELETE FROM ward_indent_items WHERE tenant_id=$1::uuid`, TENANT).catch(() => {});
@@ -71,10 +72,16 @@ describeIfDb('issueWardIndent controlled-item block', () => {
     );
     ctrlCatalogId = await seedCatalog('WINDTEST Morphine');
     plainCatalogId = await seedCatalog('WINDTEST Paracetamol');
+    unlinkedCatalogId = await seedCatalog('WINDTEST Unclassified');
     await linkInventoryItem('WIND-X', ctrlCatalogId, { schedule_class: 'X', is_narcotic: true });
     await linkInventoryItem('WIND-OTC', plainCatalogId, { schedule_class: 'OTC' });
     ({ indentId: ctrlIndentId } = await seedApprovedIndent('WIND-CTRL-1', ctrlCatalogId));
     ({ indentId: plainIndentId } = await seedApprovedIndent('WIND-PLAIN-1', plainCatalogId));
+    ({ indentId: unlinkedIndentId } = await seedApprovedIndent(
+      'WIND-UNLINKED-1',
+      unlinkedCatalogId,
+    ));
+    ({ indentId: freeTextIndentId } = await seedApprovedIndent('WIND-FREE-1', null));
   });
 
   afterAll(async () => {
@@ -103,5 +110,28 @@ describeIfDb('issueWardIndent controlled-item block', () => {
     expect(issued.status).toBe('issued');
     expect(await catalogStock(plainCatalogId)).toBe(95); // 100 - 5
     expect(await indentStatus(plainIndentId)).toBe('issued');
+  });
+
+  test('an unclassified catalog item fails closed; stock + status remain unchanged', async () => {
+    await expect(issueWardIndent({
+      indentId: unlinkedIndentId,
+      issuedBy: ACTOR,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
+    });
+    expect(await catalogStock(unlinkedCatalogId)).toBe(100);
+    expect(await indentStatus(unlinkedIndentId)).toBe('approved');
+  });
+
+  test('a positive free-text line fails closed before the indent is mutated', async () => {
+    await expect(issueWardIndent({
+      indentId: freeTextIndentId,
+      issuedBy: ACTOR,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
+    });
+    expect(await indentStatus(freeTextIndentId)).toBe('approved');
   });
 });

@@ -380,8 +380,9 @@ jobs:
         run: npm run db:ensure-pgvector
 
       # Cache a MIGRATED-but-UNSEEDED template so each shard restores the schema
-      # instead of replaying the whole migration chain. Keyed on the migrations
-      # dir + the applier, so any migration change is a cache miss (fresh apply).
+      # instead of replaying the whole migration chain. Keyed on the migrations,
+      # applier/helper roots, runtime dependencies, and database/runtime versions
+      # so any execution-semantic change is a cache miss (fresh apply).
       # Seeds are NEVER cached — they use NOW() and date-relative tests exist —
       # so seeding always runs fresh below. pg_dump/pg_restore run from the
       # postgres service image for client/server version parity (the runner's
@@ -398,13 +399,15 @@ jobs:
       #      to the fresh build path — the job never dies on a corrupt cache;
       #   3. exactly ONE shard saves, only after building a validated dump, and
       #      the dump is written atomically (temp file -> mv) so a save can
-      #      never capture a half-written archive.
+      #      never capture a half-written archive;
+      #   4. key v3 hashes the applier's complete semantic dependency roots,
+      #      package lock, Node runtime, and Postgres image.
       - name: Restore migrated DB template
         id: db-template
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: apps/backend/.db-template/template.dump
-          key: db-template-v2-${{ inputs.postgres_image }}-${{ hashFiles('apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs') }}
+          key: db-template-v3-${{ runner.os }}-node-26.5.0-${{ inputs.postgres_image }}-${{ hashFiles('.github/workflows/_reusable-backend-lint-test.yml', 'apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs', 'apps/backend/scripts/ensure-pgvector-extension.mjs', 'apps/backend/scripts/lib/**', 'apps/backend/src/utils/migrations/**', 'apps/backend/src/logging/**', 'apps/backend/src/utils/logMasking.js', 'apps/backend/src/utils/urlRedaction.js', 'apps/backend/package.json', 'apps/backend/package-lock.json') }}
 
       # Self-heal: only trust a cached dump that exists, is non-trivially sized,
       # and parses as a valid custom-format archive. A failing check is demoted
@@ -479,9 +482,9 @@ jobs:
         run: npm run seed:test-data
 
       # T-M1: runtime-role (NOBYPASSRLS) regression for the pre-tenant webhook /
-      # ABDM / sweep paths under migration 726's fail-closed RLS. Runs once
-      # (shard 1) against the migrated DB; fails loudly if migration 732's
-      # resolver or 733's system-job sweep predicate regress.
+      # ABDM / bounded-sweep paths under migration 726's fail-closed RLS. Runs
+      # once (shard 1) against the migrated DB; fails loudly if migration 732's
+      # resolver or migration 736's parameterless owner capabilities regress.
       - name: Runtime-role webhook/ABDM RLS regression (T-M1)
         if: matrix.shard == 1
         run: node --experimental-vm-modules node_modules/jest/bin/jest.js src/tests/deep/runtimeRoleWebhookRls.deep.test.js --runInBand --forceExit

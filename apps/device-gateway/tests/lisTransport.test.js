@@ -13,6 +13,7 @@ import {
   lisListenerConfigFromEnv,
   startLisListeners,
   validateLisListener,
+  validateLisListenerProfile,
 } from '../src/lisTransport.js';
 
 const ANALYZER_TOKEN = 'analyzer-bearer-token-fixture';
@@ -22,6 +23,7 @@ const listenerConfig = (overrides = {}) => Object.freeze({
   port: 3001,
   host: '127.0.0.1',
   protocol: 'astm-e1394',
+  tenant_slug: 'vh-main',
   analyzer_code: 'BS-240',
   token: ANALYZER_TOKEN,
   allowed_source_ips: Object.freeze([]),
@@ -96,7 +98,7 @@ describe('LIS listener configuration', () => {
     const env = {
       DEVICE_GATEWAY_LIS_LISTENERS: JSON.stringify([{
         name: 'chem1', port: 3001, protocol: 'astm-e1394',
-        analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
+        tenant_slug: 'vh-main', analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
       }]),
       LIS_CHEM1_TOKEN: ANALYZER_TOKEN,
     };
@@ -106,6 +108,7 @@ describe('LIS listener configuration', () => {
       port: 3001,
       host: '0.0.0.0',
       protocol: 'astm-e1394',
+      tenant_slug: 'vh-main',
       analyzer_code: 'BS-240',
       token: ANALYZER_TOKEN,
     });
@@ -114,19 +117,42 @@ describe('LIS listener configuration', () => {
   it('fails closed on unknown fields, bad protocol, and a missing token env var', () => {
     const base = {
       name: 'chem1', port: 3001, protocol: 'astm-e1394',
-      analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
+      tenant_slug: 'vh-main', analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
     };
     const env = { LIS_CHEM1_TOKEN: ANALYZER_TOKEN };
     expect(() => validateLisListener({ ...base, extra: true }, env)).toThrow(/unknown fields/);
     expect(() => validateLisListener({ ...base, protocol: 'serial' }, env)).toThrow(/protocol/);
     expect(() => validateLisListener(base, {})).toThrow(/LIS_CHEM1_TOKEN is not set/);
     expect(() => validateLisListener({ ...base, analyzer_code: '' }, env)).toThrow(/analyzer_code/);
+    expect(() => validateLisListener({ ...base, tenant_slug: '' }, env)).toThrow(/tenant_slug/);
+    expect(() => validateLisListener({
+      ...base, token_env: 'DEVICE_GATEWAY_BACKEND_TOKEN',
+    }, env)).toThrow(/token_env must match/);
+    expect(() => validateLisListener({
+      ...base, token_env: 'lis_chem1_token',
+    }, env)).toThrow(/token_env must match/);
+    expect(() => validateLisListener({
+      ...base, token_env: 'LIS_1CHEM_TOKEN',
+    }, env)).toThrow(/token_env must match/);
+  });
+
+  it('normalizes non-secret tenant correlation metadata without resolving a token', () => {
+    const profile = validateLisListenerProfile({
+      name: 'chem1', port: 3001, protocol: 'astm-e1394',
+      tenant_slug: ' VH-Main ', analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
+    });
+    expect(profile).toMatchObject({
+      tenant_slug: 'vh-main',
+      analyzer_code: 'BS-240',
+      token_env: 'LIS_CHEM1_TOKEN',
+    });
+    expect(profile).not.toHaveProperty('token');
   });
 
   it('rejects duplicate listener names', () => {
     const entry = {
       name: 'chem1', port: 3001, protocol: 'astm-e1394',
-      analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
+      tenant_slug: 'vh-main', analyzer_code: 'BS-240', token_env: 'LIS_CHEM1_TOKEN',
     };
     expect(() => lisListenerConfigFromEnv({
       DEVICE_GATEWAY_LIS_LISTENERS: JSON.stringify([entry, { ...entry, port: 3002 }]),

@@ -118,9 +118,8 @@ export interface IntegrationGateEnvFacts {
   drug_kb_deterministic_matching?: boolean;
   lab_loinc_mapping_enabled?: boolean;
   /**
-   * Count of listener profiles in the backend mirror of
-   * DEVICE_GATEWAY_LIS_LISTENERS (the gateway deployment holds the
-   * authoritative copy).
+   * Count of structurally validated listener profiles from the authoritative
+   * device-gateway ConfigMap. Profile details and token env names are omitted.
    */
   lis_listeners_configured?: number;
   /** Embedded BI (wt/bi-app): METABASE_URL + METABASE_EMBED_SECRET present. */

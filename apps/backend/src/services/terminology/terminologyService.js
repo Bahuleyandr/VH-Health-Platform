@@ -215,7 +215,7 @@ async function conceptCountForSystem(systemKey) {
   return Number(rows[0]?.concept_count) || 0;
 }
 
-// A system's catalogue is authoritative only when a real (non-dry-run)
+// A system's catalogue is authoritative only when a real (non-dry-run) full
 // concept import batch COMPLETED for it. concept_count alone cannot carry
 // that meaning: WHO ICD-11 API caching, migration starter seeds, and an
 // aborted terminology-import.mjs run all leave concept_count > 0 over a
@@ -231,11 +231,18 @@ async function hasCompletedConceptImport(systemKey) {
   if (hit && hit.expiresAt > Date.now()) return hit.complete;
   const rows = await prismaReadOnly.$queryRawUnsafe(
     `SELECT 1 AS found
-       FROM terminology_import_batches
-      WHERE system_key = $1
-        AND status = 'completed'
-        AND rows_inserted > 0
-        AND COALESCE((metadata->>'dry_run')::boolean, false) = false
+       FROM terminology_import_batches b
+      WHERE b.system_key = $1
+        AND b.status = 'completed'
+        AND COALESCE((b.metadata->>'dry_run')::boolean, false) = false
+        AND COALESCE((b.metadata->>'full')::boolean, false) = true
+        AND EXISTS (
+          SELECT 1
+            FROM terminology_concepts c
+           WHERE c.system_key = b.system_key
+             AND c.last_import_batch_id = b.id
+             AND c.last_seen_release IS NOT DISTINCT FROM b.release_label
+        )
       LIMIT 1`,
     systemKey,
   );
@@ -469,9 +476,9 @@ export async function getConcept(system, code) {
  * Validate a code against the imported catalogue.
  *
  * Modes:
- *   'catalog'    — a COMPLETED import backs the system; verdict is
+ *   'catalog'    — a COMPLETED full import backs the system; verdict is
  *                  authoritative (the only mode 'block' enforcement acts on).
- *   'partial'    — concepts exist but no completed import batch backs them
+ *   'partial'    — concepts exist but no completed full import backs them
  *                  (WHO API cache, migration seed, aborted import); a miss
  *                  is advisory, never blockable.
  *   'structural' — LOINC only, catalogue not (completely) imported: falls

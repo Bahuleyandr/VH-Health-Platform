@@ -39,9 +39,10 @@ import {
 
 const LIS_LISTENER_KEYS = new Set([
   'name', 'port', 'host', 'protocol', 'analyzer_code', 'token_env',
-  'allowed_source_ips', 'max_message_bytes',
+  'tenant_slug', 'allowed_source_ips', 'max_message_bytes',
 ]);
 export const LIS_PROTOCOLS = new Set(['astm-e1394', 'mllp-hl7v2']);
+const LIS_TOKEN_ENV_PATTERN = /^LIS_[A-Z][A-Z0-9_]*_TOKEN$/;
 const DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024;
 
 function normalizeIp(value) {
@@ -54,7 +55,7 @@ function positiveInteger(value, label) {
   return parsed;
 }
 
-export function validateLisListener(value, env = process.env) {
+export function validateLisListenerProfile(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('LIS listener must be an object');
   }
@@ -70,9 +71,13 @@ export function validateLisListener(value, env = process.env) {
   const analyzerCode = String(value.analyzer_code || '').trim();
   if (!analyzerCode) throw new Error('LIS listener analyzer_code is required');
   const tokenEnv = String(value.token_env || '').trim();
-  if (!tokenEnv) throw new Error('LIS listener token_env is required');
-  const token = String(env[tokenEnv] || '').trim();
-  if (!token) throw new Error(`LIS listener token_env ${tokenEnv} is not set`);
+  if (!LIS_TOKEN_ENV_PATTERN.test(tokenEnv)) {
+    throw new Error('LIS listener token_env must match LIS_[A-Z][A-Z0-9_]*_TOKEN');
+  }
+  const tenantSlug = String(value.tenant_slug || '').trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(tenantSlug)) {
+    throw new Error('LIS listener tenant_slug must be a valid tenant slug');
+  }
   const port = positiveInteger(value.port, 'LIS listener port');
   if (port > 65535) throw new Error('LIS listener port must be a TCP port number');
   const allowedSourceIps = Array.isArray(value.allowed_source_ips)
@@ -84,12 +89,21 @@ export function validateLisListener(value, env = process.env) {
     host: String(value.host || '0.0.0.0'),
     protocol: value.protocol,
     analyzer_code: analyzerCode,
-    token,
+    token_env: tokenEnv,
+    tenant_slug: tenantSlug,
     allowed_source_ips: Object.freeze(allowedSourceIps),
     max_message_bytes: value.max_message_bytes === undefined
       ? DEFAULT_MAX_MESSAGE_BYTES
       : positiveInteger(value.max_message_bytes, 'LIS listener max_message_bytes'),
   });
+}
+
+export function validateLisListener(value, env = process.env) {
+  const profile = validateLisListenerProfile(value);
+  const token = String(env[profile.token_env] || '').trim();
+  if (!token) throw new Error(`LIS listener token_env ${profile.token_env} is not set`);
+  const { token_env: _tokenEnv, ...listener } = profile;
+  return Object.freeze({ ...listener, token });
 }
 
 // Off by default: the LIS transport starts only when the operator sets

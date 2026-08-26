@@ -20,6 +20,8 @@
 
 import request from 'supertest';
 import app from '../app.js';
+import rbacConfig from '../config/rbacConfig.js';
+import staffRouter from '../routes/staff/index.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -48,6 +50,32 @@ const post = (path, token, body = {}) => request(app)
 // the request got PAST the mount-level rbac ceiling, which is what this pins.
 const isBareRbacForbidden = (res) =>
   res.status === 403 && res.body?.error === 'Forbidden' && res.body?.code === undefined;
+
+function directRouteGuard(method, path) {
+  const routeLayer = (staffRouter.stack ?? []).find(
+    (layer) => layer.route?.path === path && layer.route?.methods?.[method],
+  );
+  return routeLayer?.route?.stack?.[0]?.handle;
+}
+
+function runRoleGuard(guard, role) {
+  const req = {
+    user: { role },
+    headers: {},
+    ip: '127.0.0.1',
+    method: 'GET',
+    originalUrl: '/api/v1/staff/replacements/my',
+  };
+  const res = {
+    statusCode: null,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  let nexted = false;
+  guard(req, res, () => { nexted = true; });
+  return { nexted, res };
+}
 
 describe('staff namespace prefix-gate scope', () => {
   // Roles the phone-self-service capability group EXCLUDES but the staff
@@ -90,7 +118,7 @@ describe('staff namespace prefix-gate scope', () => {
   // wrapAutoRBAC key — #906 removed the prefix ceiling that had implicitly gated
   // them, letting any authenticated principal incl. PATIENT write staff
   // replacement rows (2026-08-25 reaudit AZ-1). They now carry an explicit
-  // requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES). The static
+  // requireRole(...rbacConfig.staffHRRoutes), matching the canonical routes. The static
   // route-role-coverage gate cannot see barrel routes, so these behavioral pins
   // are the regression catch.
   it('PATIENT is refused POST /staff/replacements (AZ-1 write regression)', async () => {
@@ -106,11 +134,34 @@ describe('staff namespace prefix-gate scope', () => {
     expect(isBareRbacForbidden(res)).toBe(true);
   });
 
-  it('a phone-self-service staff role passes the replacements gate', async () => {
-    // NURSING_STAFF is in STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES; without a DB row
+  it('a canonical staff-HR role passes the replacements gate', async () => {
+    // NURSING_STAFF is in rbacConfig.staffHRRoutes; without a DB row
     // the handler may 404/500, but it must not be rbac-denied at the gate.
     const res = await get('/api/v1/staff/replacements/my', tokenFor('NURSING_STAFF', 8500));
     expect(isBareRbacForbidden(res)).toBe(false);
+  });
+
+  it.each([
+    ['get', '/replacements/my'],
+    ['post', '/replacements'],
+  ])('%s %s has exact role parity with the canonical staff-HR policy', (method, path) => {
+    const guard = directRouteGuard(method, path);
+    expect(guard).toEqual(expect.any(Function));
+
+    for (const role of rbacConfig.staffHRRoutes) {
+      const out = runRoleGuard(guard, role);
+      expect({ method, path, role, nexted: out.nexted }).toEqual({
+        method,
+        path,
+        role,
+        nexted: true,
+      });
+    }
+
+    const patient = runRoleGuard(guard, 'PATIENT');
+    expect(patient.nexted).toBe(false);
+    expect(patient.res.statusCode).toBe(403);
+    expect(patient.res.body).toEqual({ success: false, error: 'Forbidden' });
   });
 
   it('a phone-list role passes the scoped gate on /staff/phone/home', async () => {

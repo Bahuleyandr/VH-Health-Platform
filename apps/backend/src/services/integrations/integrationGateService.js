@@ -53,6 +53,7 @@ import {
 // before and after those packages merge.
 import * as tenantSettingsAccessors from '../tenant/tenantSettingsService.js';
 import { isWhoIcdConfigured } from '../terminology/whoIcdClient.js';
+import { lisListenerConfigSummaryFromEnv } from './lisListenerConfig.js';
 
 // Map each resolver's blocking reason onto the gate layer it names, so the
 // console can say WHICH layer holds a dark feature dark.
@@ -115,11 +116,9 @@ export function integrationGateEnvFacts() {
     terminology_coding_enforcement: normalizeCodingEnforcementEnv(),
     drug_kb_deterministic_matching: knowledgeEnvFlagEnabled('DRUG_KB_DETERMINISTIC_MATCHING'),
     lab_loinc_mapping_enabled: knowledgeEnvFlagEnabled('LAB_LOINC_MAPPING_ENABLED'),
-    // Device-gateway LIS ingress (#891 deferral): count of listener profiles
-    // in the backend's mirror of DEVICE_GATEWAY_LIS_LISTENERS (the gateway
-    // deployment holds the authoritative copy; config shape only, never
-    // ports/hosts/token names).
-    lis_listeners_configured: lisListenersEnvSummary().count,
+    // Validated non-secret profiles from the same ConfigMap key the gateway
+    // consumes. Only the count leaves this service.
+    lis_listeners_configured: lisListenerConfigSummaryFromEnv().count,
 
     // Embedded BI (slate C2): presence booleans/counts only, never URLs or
     // secrets. metabase_dashboards_configured counts METABASE_DASH_* env
@@ -437,50 +436,45 @@ async function drugKbGate(tenant) {
 // ── lis_listeners (device-gateway LIS analyzer transport; #891 deferral) ────
 // Surfaces the dark LIS ingress in the console. Two AND-ed layers mirroring
 // the path's real gates:
-//   env             — DEVICE_GATEWAY_LIS_LISTENERS parses to >=1 listener
-//                     profile. The variable is authoritative on the DEVICE
-//                     GATEWAY deployment (which opens the ports); operators
-//                     mirror it into the backend configmap so this console
-//                     can report it. Unset here reads as dark.
-//   provider_config — active interface analyzers registered for the tenant
-//                     (lab_analyzers, interface_kind astm/hl7): the
-//                     trusted-sender registry the ASTM/ORU ingest requires
-//                     before any analyzer message can land.
+//   env             — at least one structurally valid listener profile from
+//                     the gateway's authoritative ConfigMap is correlated to
+//                     this exact tenant slug.
+//   provider_config — an active tenant analyzer matches a configured profile's
+//                     exact analyzer_code, as required by the ingest path.
 // There is no tenants.settings boolean for LIS — per-tenant enablement IS
 // the analyzer registry, so the console shows no flip button for this row.
-function lisListenersEnvSummary(env = process.env) {
-  const raw = String(env.DEVICE_GATEWAY_LIS_LISTENERS || '').trim();
-  if (!raw) return { count: 0, invalid: false };
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return { count: 0, invalid: true };
-    return { count: parsed.length, invalid: false };
-  } catch {
-    return { count: 0, invalid: true };
-  }
-}
-
 async function lisListenersGate(tenant) {
-  const listeners = lisListenersEnvSummary();
-  const analyzerCount = await knowledgeContentCount(
-    `SELECT COUNT(*)::int AS count
-       FROM lab_analyzers
-      WHERE tenant_id = $1::uuid
-        AND status = 'active'
-        AND interface_kind IN ('astm', 'hl7')`,
-    tenant.id,
+  const listeners = lisListenerConfigSummaryFromEnv();
+  const tenantSlug = String(tenant.slug || '').trim().toLowerCase();
+  const tenantProfiles = listeners.profiles.filter(
+    profile => profile.tenant_slug === tenantSlug,
   );
-  const envOn = listeners.count > 0;
+  const analyzerCodes = [...new Set(tenantProfiles.map(profile => profile.analyzer_code))];
+  const analyzerCount = analyzerCodes.length === 0
+    ? 0
+    : await knowledgeContentCount(
+      `SELECT COUNT(*)::int AS count
+         FROM lab_analyzers
+        WHERE tenant_id = $1::uuid
+          AND status = 'active'
+          AND interface_kind IN ('astm', 'hl7')
+          AND analyzer_code = ANY($2::text[])`,
+      tenant.id,
+      analyzerCodes,
+    );
+  const envOn = tenantProfiles.length > 0;
   const contentOn = analyzerCount > 0;
   const effective = envOn && contentOn;
   let reason = null;
   let blockingLayer = null;
   if (!effective) {
     if (!envOn) {
-      reason = listeners.invalid ? 'listeners_env_invalid' : 'no_listeners_configured';
+      if (listeners.invalid) reason = 'listeners_env_invalid';
+      else if (listeners.count === 0) reason = 'no_listeners_configured';
+      else reason = 'no_tenant_listener_profiles';
       blockingLayer = 'env';
     } else {
-      reason = 'no_active_interface_analyzers';
+      reason = 'no_matching_active_interface_analyzers';
       blockingLayer = 'provider_config';
     }
   }
@@ -489,7 +483,7 @@ async function lisListenersGate(tenant) {
     reason,
     blocking_layer: blockingLayer,
     layers: { env: envOn, provider_config: contentOn },
-    listeners_configured: listeners.count,
+    listeners_configured: tenantProfiles.length,
     active_interface_analyzers: analyzerCount,
   };
 }

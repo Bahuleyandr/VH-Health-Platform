@@ -69,6 +69,7 @@ void main() {
           'employee_id': 'EMP-1001',
           'staff_role': 'NURSE',
           'staff_phone': '9999999999',
+          'specialty_gate_modes': '{"oncology":"enforce"}',
           'offline_queue_aes_key': 'queue-key',
           'device_token': 'registered-device',
         });
@@ -85,8 +86,25 @@ void main() {
         expect(await storage.read(key: 'employee_id'), isNull);
         expect(await storage.read(key: 'staff_role'), isNull);
         expect(await storage.read(key: 'staff_phone'), isNull);
+        expect(await storage.read(key: 'specialty_gate_modes'), isNull);
         expect(await storage.read(key: 'offline_queue_aes_key'), 'queue-key');
         expect(await storage.read(key: 'device_token'), 'registered-device');
+      },
+    );
+
+    test(
+      'a null specialty gate snapshot deletes stale enforce state',
+      () async {
+        await ApiConfig.saveSpecialtyGateModes(const {'oncology': 'enforce'});
+        expect(await ApiConfig.getSpecialtyGateModes(), {
+          'oncology': 'enforce',
+        });
+
+        await ApiConfig.saveSpecialtyGateModes(null);
+
+        expect(await ApiConfig.getSpecialtyGateModes(), isNull);
+        const storage = FlutterSecureStorage();
+        expect(await storage.read(key: 'specialty_gate_modes'), isNull);
       },
     );
   });

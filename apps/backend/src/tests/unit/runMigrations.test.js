@@ -23,6 +23,11 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  buildMigrationChecksumManifest,
+  evaluateMigrationChecksums,
+  migrationChecksum,
+} from '../../../scripts/lib/migrationChecksum.mjs';
 import { splitStatements } from '../../utils/migrations/splitStatements.js';
 
 // ---------- splitStatements unit tests ---------------------------------------
@@ -138,6 +143,40 @@ describe('splitStatements', () => {
       'BEGIN',
       'CREATE TABLE x (id int)',
       'COMMIT',
+    ]);
+  });
+});
+
+describe('migration checksums', () => {
+  it('normalizes CRLF while detecting semantic content drift', () => {
+    expect(migrationChecksum('SELECT 1;\r\nSELECT 2;\r\n'))
+      .toBe(migrationChecksum('SELECT 1;\nSELECT 2;\n'));
+    expect(migrationChecksum('SELECT 1;\n')).not.toBe(migrationChecksum('SELECT 2;\n'));
+  });
+
+  it('classifies missing and mismatched tracker checksums', () => {
+    const sqlByName = new Map([
+      ['001_first.sql', 'SELECT 1;'],
+      ['002_second.sql', 'SELECT 2;'],
+    ]);
+    const manifest = buildMigrationChecksumManifest(
+      [...sqlByName.keys()],
+      (name) => sqlByName.get(name),
+    );
+    const state = evaluateMigrationChecksums(manifest, [
+      { name: '001_first.sql', checksum: null },
+      { name: '002_second.sql', checksum: '0'.repeat(64) },
+    ]);
+
+    expect(state.missing).toEqual([
+      { name: '001_first.sql', expected: migrationChecksum('SELECT 1;') },
+    ]);
+    expect(state.drift).toEqual([
+      {
+        name: '002_second.sql',
+        recorded: '0'.repeat(64),
+        expected: migrationChecksum('SELECT 2;'),
+      },
     ]);
   });
 });
@@ -286,10 +325,11 @@ SELECT _test_f();`,
 
   it('skips files already in the _migrations tracker', async () => {
     const file = '999_test_skip.sql';
-    fs.writeFileSync(path.join(tmpDir, file), 'CREATE TABLE _test_skip (id int);');
+    const sql = 'CREATE TABLE _test_skip (id int);';
+    fs.writeFileSync(path.join(tmpDir, file), sql);
 
     queryRawUnsafeMock.mockReset();
-    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file, checksum: migrationChecksum(sql) }]);
 
     await runMigrations({ migrationsDir: tmpDir });
 
@@ -445,8 +485,9 @@ CREATE TABLE _test_safe (id int);`,
 describe('production migration-tip verification', () => {
   it('classifies an exact tracker match without mutating the database', async () => {
     const file = '999_current.sql';
-    fs.writeFileSync(path.join(tmpDir, file), 'SELECT 1;');
-    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file }]);
+    const sql = 'SELECT 1;';
+    fs.writeFileSync(path.join(tmpDir, file), sql);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file, checksum: migrationChecksum(sql) }]);
 
     const state = await verifyMigrationsCurrent({ migrationsDir: tmpDir });
 
@@ -462,15 +503,50 @@ describe('production migration-tip verification', () => {
   });
 
   it('fails closed when the image contains a pending migration', async () => {
-    fs.writeFileSync(path.join(tmpDir, '998_applied.sql'), 'SELECT 1;');
+    const appliedSql = 'SELECT 1;';
+    fs.writeFileSync(path.join(tmpDir, '998_applied.sql'), appliedSql);
     fs.writeFileSync(path.join(tmpDir, '999_pending.sql'), 'SELECT 2;');
-    queryRawUnsafeMock.mockResolvedValueOnce([{ name: '998_applied.sql' }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      name: '998_applied.sql',
+      checksum: migrationChecksum(appliedSql),
+    }]);
 
     await expect(verifyMigrationsCurrent({ migrationsDir: tmpDir })).rejects.toMatchObject({
       code: 'MIGRATION_TIP_MISMATCH',
       migrationState: expect.objectContaining({ pending: ['999_pending.sql'] }),
     });
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without mutation when an applied row has no checksum', async () => {
+    const file = '999_missing_checksum.sql';
+    fs.writeFileSync(path.join(tmpDir, file), 'SELECT 1;');
+    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file, checksum: null }]);
+
+    await expect(verifyMigrationsCurrent({ migrationsDir: tmpDir })).rejects.toMatchObject({
+      code: 'MIGRATION_CHECKSUM_MISSING',
+      migrationState: expect.objectContaining({ missingChecksums: [file] }),
+    });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without mutation when applied migration content drifts', async () => {
+    const file = '999_drifted.sql';
+    fs.writeFileSync(path.join(tmpDir, file), 'SELECT 2;');
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      name: file,
+      checksum: migrationChecksum('SELECT 1;'),
+    }]);
+
+    await expect(verifyMigrationsCurrent({ migrationsDir: tmpDir })).rejects.toMatchObject({
+      code: 'MIGRATION_CHECKSUM_DRIFT',
+      migrationState: expect.objectContaining({
+        checksumDrift: [expect.objectContaining({ name: file })],
+      }),
+    });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
   it('treats tracker rows absent from the immutable image as drift', () => {

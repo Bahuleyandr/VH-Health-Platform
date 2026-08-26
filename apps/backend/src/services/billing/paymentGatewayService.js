@@ -22,7 +22,7 @@
 //   * Provider secrets are encryptField() ciphertext, write-only.
 
 import { randomBytes } from 'node:crypto';
-import prisma, { setTenantTx, setSystemJobTx } from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
@@ -39,6 +39,7 @@ import { postPaymentEntry } from './ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 import { resolveAdapter, GATEWAY_PROVIDERS } from './gatewayProviders/index.js';
 import { sha256Hex } from './gatewayProviders/webhookSignature.js';
+import { runInTenantContext } from '../../lib/tenantContext.js';
 
 export const PAYMENT_GATEWAY_DISABLED = 'PAYMENT_GATEWAY_DISABLED';
 
@@ -799,17 +800,14 @@ export async function resolveGatewayOrderReconciliation({ tenantId, id, note, re
 
 /**
  * Cron sweep: expire created/attempted orders past expires_at. Idempotent.
- * Cross-tenant; runs under the scheduler's job lock via setSystemJobTx so it
- * satisfies migration 733's system-job predicate on payment_gateway_orders
- * (726's restrictive policy otherwise rejects the plain/'bypass' connection).
+ * The scheduler may invoke only migration 736's parameterless owner routine;
+ * runtime SQL cannot choose a tenant, predicate, state, timestamp, or payload.
  */
 export async function expireStaleGatewayOrders() {
-  const expired = await setSystemJobTx((tx) => tx.$executeRawUnsafe(
-    `UPDATE payment_gateway_orders
-        SET status = 'expired', updated_at = NOW()
-      WHERE status IN ('created', 'attempted')
-        AND expires_at IS NOT NULL AND expires_at < NOW()`,
-  ));
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT public.sweep_expired_payment_gateway_orders() AS expired',
+  );
+  const expired = Number(rows[0]?.expired ?? 0);
   return { expired };
 }
 
@@ -2125,23 +2123,26 @@ export async function getPublicGatewayViewForLink({ tenantId, paymentLinkId }) {
   const disabled = { enabled: false, provider: null, keyId: null, providerOrderId: null };
   try {
     if (!tenantId || !paymentLinkId) return disabled;
-    const context = await resolveGatewayContext(tenantId);
-    if (!context.enabled) return disabled;
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT provider_order_id
-         FROM payment_gateway_orders
-        WHERE tenant_id = $1::uuid AND payment_link_id = $2::int
-          AND status IN ('created', 'attempted')
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1`,
-      requireTenantId(tenantId), Number(paymentLinkId),
-    );
-    return {
-      enabled: true,
-      provider: context.config.provider,
-      keyId: context.config.key_id || null,
-      providerOrderId: rows[0]?.provider_order_id || null,
-    };
+    const tenant = requireTenantId(tenantId);
+    return await runInTenantContext(tenant, async () => {
+      const context = await resolveGatewayContext(tenant);
+      if (!context.enabled) return disabled;
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT provider_order_id
+           FROM payment_gateway_orders
+          WHERE tenant_id = $1::uuid AND payment_link_id = $2::int
+            AND status IN ('created', 'attempted')
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1`,
+        tenant, Number(paymentLinkId),
+      );
+      return {
+        enabled: true,
+        provider: context.config.provider,
+        keyId: context.config.key_id || null,
+        providerOrderId: rows[0]?.provider_order_id || null,
+      };
+    });
   } catch (err) {
     logger.warn('public gateway view resolution failed — rendering disabled marker', {
       error: err?.message,

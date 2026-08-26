@@ -40,6 +40,18 @@ const VALID_MOVEMENTS = [
   'receive', 'issue', 'transfer_out', 'transfer_in', 'return',
   'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
 ];
+const CONTROLLED_DECREASING_MOVEMENTS = new Set([
+  'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
+]);
+const CONTROLLED_BATCH_POLICY_BY_MOVEMENT = Object.freeze({
+  transfer_out: 'usable',
+  adjust_decrease: 'usable',
+  dispose: 'disposable',
+  expire: 'expired',
+  recall: 'recallable',
+});
+const CONTROLLED_MOVEMENT_BATCH_CONTRACT =
+  'controlled_movement_exact_batch_policy_v1';
 
 // Schedule H / H1 / X are the register-tracked controlled classes (migration
 // 150); Schedule X and any narcotic-flagged item additionally demand a witness
@@ -237,7 +249,7 @@ export async function recordMovement(params) {
     if (item && isControlledItem(item)) {
       return recordControlledMovementTx(tx, params, item);
     }
-    return recordMovementTx(tx, params);
+    return recordMovementTx(tx, { ...params, controlled_batch_policy: null });
   });
 }
 
@@ -246,8 +258,10 @@ export async function recordMovement(params) {
  * the stock movement AND appends a same-tx pharmacy_schedule_register row for
  * every custody event. Enforces the dispense/witness discipline the statutory
  * register demands — a controlled 'issue' is refused (it is a patient dispense
- * and must use /controlled-dispense), and a Schedule X / narcotic decrement
- * requires a named witness. Never called for non-controlled items.
+ * and must use /controlled-dispense), every decrement is tied to an exact
+ * server-validated batch, and Schedule X / narcotic decrements consume an
+ * independently authenticated witness approval. Never called for
+ * non-controlled items.
  */
 async function recordControlledMovementTx(tx, params, item) {
   const { tenantId, movement_kind, quantity, performed_by } = params;
@@ -281,23 +295,51 @@ async function recordControlledMovementTx(tx, params, item) {
     );
   }
 
-  const decreasing = ['transfer_out', 'dispose', 'expire', 'recall', 'adjust_decrease'].includes(movement_kind);
+  const decreasing = CONTROLLED_DECREASING_MOVEMENTS.has(movement_kind);
+  const controlledBatchId = decreasing
+    ? requireControlledMovementBatchId(params.inventory_batch_id)
+    : null;
+  const movementPayload = decreasing
+    ? controlledMovementWitnessPayload({
+      ...params,
+      inventory_batch_id: controlledBatchId,
+    })
+    : null;
   // Schedule X / narcotic decrements (disposal, recall, downward adjustment,
-  // expiry write-off, transfer out) demand a named witness exactly as a dispense
-  // does — an unwitnessed narcotic decrement is the same diversion hole as issue.
+  // expiry write-off, transfer out) consume the same independently
+  // authenticated, one-time approval lifecycle as a controlled dispense.
   const needsWitness = decreasing && (item.schedule_class === 'X' || item.is_narcotic === true);
-  const witnessUid = params.witness_uid ? String(params.witness_uid) : null;
-  const witnessName = params.witness_name ? String(params.witness_name).trim() : null;
-  if (needsWitness && (!witnessUid || !witnessName)) {
-    throw AppError.badRequest(
-      'A witness (witness_uid + witness_name) is required to move Schedule X / narcotic stock',
-      'CONTROLLED_MOVEMENT_WITNESS_REQUIRED',
-    );
+  let witness = null;
+  if (needsWitness) {
+    witness = await consumeControlledDispenseWitnessApproval({
+      tx,
+      tenantId,
+      approvalId: params.witness_approval_id,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryMovement,
+      payload: movementPayload,
+      requestedBy: performed_by,
+    });
   }
 
   const { movement, increasing, decreasing: didDecrease } = await recordMovementTx(tx, {
     ...params,
-    require_usable_batch: params.require_usable_batch ?? decreasing,
+    inventory_batch_id: controlledBatchId || params.inventory_batch_id,
+    reference_type: movementPayload ? movementPayload.reference_type : params.reference_type,
+    reference_id: movementPayload ? movementPayload.reference_id : params.reference_id,
+    notes: movementPayload ? movementPayload.notes : params.notes,
+    expected_batch_number: movementPayload
+      ? movementPayload.expected_batch_number
+      : params.expected_batch_number,
+    expected_lot_number: movementPayload
+      ? movementPayload.expected_lot_number
+      : params.expected_lot_number,
+    expected_expiry_date: movementPayload
+      ? movementPayload.expected_expiry_date
+      : params.expected_expiry_date,
+    require_usable_batch: false,
+    controlled_batch_policy: decreasing
+      ? CONTROLLED_BATCH_POLICY_BY_MOVEMENT[movement_kind]
+      : null,
   });
 
   // Running balance read inside the same tx so it reflects the movement above
@@ -321,7 +363,7 @@ async function recordControlledMovementTx(tx, params, item) {
      RETURNING *`,
     tenantId,
     Number(params.inventory_item_id),
-    params.inventory_batch_id ? Number(params.inventory_batch_id) : null,
+    controlledBatchId || (params.inventory_batch_id ? Number(params.inventory_batch_id) : null),
     item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
     registerKind,
     Math.abs(Number(quantity)),
@@ -329,10 +371,10 @@ async function recordControlledMovementTx(tx, params, item) {
     Number(balance[0].bal),
     String(performed_by),
     params.performed_by_name || null,
-    witnessUid,
-    witnessName,
+    witness?.uid || null,
+    witness?.name || null,
     movement.id,
-    params.notes || null,
+    movementPayload?.notes || params.notes || null,
   );
 
   return { movement, increasing, decreasing: didDecrease, register_entry: reg[0] };
@@ -356,6 +398,7 @@ export async function recordMovementTx(tx, {
   tenantId, inventory_item_id, inventory_batch_id, movement_kind,
   quantity, reference_type, reference_id, notes, performed_by,
   require_usable_batch = false,
+  controlled_batch_policy = null,
   expected_batch_number = null,
   expected_lot_number = null,
   expected_expiry_date = null,
@@ -364,13 +407,21 @@ export async function recordMovementTx(tx, {
     throw AppError.badRequest(`Invalid movement_kind. Allowed: ${VALID_MOVEMENTS.join(', ')}`);
   }
   if (!inventory_item_id) throw AppError.badRequest('inventory_item_id is required');
-  if (!quantity || Number(quantity) <= 0) throw AppError.badRequest('quantity must be > 0');
+  if (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0) {
+    throw AppError.badRequest('quantity must be > 0');
+  }
 
   const decreasing = ['issue', 'transfer_out', 'dispose', 'expire', 'recall', 'adjust_decrease'].includes(movement_kind);
   const increasing = ['receive', 'transfer_in', 'return', 'adjust_increase'].includes(movement_kind);
   const delta = decreasing ? -Math.abs(Number(quantity)) : Math.abs(Number(quantity));
   const inventoryItemId = Number(inventory_item_id);
   const inventoryBatchId = inventory_batch_id ? Number(inventory_batch_id) : null;
+  if (controlled_batch_policy && !inventoryBatchId) {
+    throw AppError.badRequest(
+      'inventory_batch_id is required for controlled stock decrements',
+      'INVENTORY_BATCH_REQUIRED',
+    );
+  }
   const cathUsageReplay = reference_type === 'cath_consumable_usage'
     && reference_id !== null
     && reference_id !== undefined
@@ -441,6 +492,9 @@ export async function recordMovementTx(tx, {
           'Inventory batch is expired and cannot be issued',
           'INVENTORY_BATCH_EXPIRED',
         );
+      }
+      if (controlled_batch_policy && decreasing) {
+        assertControlledMovementBatchState(batch, controlled_batch_policy);
       }
       if (decreasing && Number(batch.remaining_quantity) + delta < 0) {
         throw AppError.badRequest(
@@ -535,6 +589,148 @@ function requireControlledBatchId(value) {
     );
   }
   return id;
+}
+
+function requireControlledMovementBatchId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest(
+      'inventory_batch_id is required for controlled stock decrements',
+      'INVENTORY_BATCH_REQUIRED',
+    );
+  }
+  return id;
+}
+
+function assertControlledMovementBatchState(batch, policy) {
+  const status = String(batch.status || '');
+  if (policy === 'usable') {
+    if (status !== 'in_stock') {
+      throw AppError.badRequest(
+        `Inventory batch is not available for movement (status: ${status})`,
+        'INVENTORY_BATCH_UNAVAILABLE',
+      );
+    }
+    if (batch.is_expired) {
+      throw AppError.badRequest(
+        'Inventory batch is expired and cannot be transferred or adjusted as usable stock',
+        'INVENTORY_BATCH_EXPIRED',
+      );
+    }
+    return;
+  }
+  if (policy === 'expired') {
+    if (!['in_stock', 'expired'].includes(status)) {
+      throw AppError.badRequest(
+        `Inventory batch is not available for expiry write-off (status: ${status})`,
+        'INVENTORY_BATCH_UNAVAILABLE',
+      );
+    }
+    if (!batch.is_expired) {
+      throw AppError.badRequest(
+        'Inventory batch has not expired and cannot be written off as expired',
+        'INVENTORY_BATCH_NOT_EXPIRED',
+      );
+    }
+    return;
+  }
+  if (policy === 'recallable') {
+    if (!['in_stock', 'recalled'].includes(status)) {
+      throw AppError.badRequest(
+        `Inventory batch is not available for recall (status: ${status})`,
+        'INVENTORY_BATCH_UNAVAILABLE',
+      );
+    }
+    return;
+  }
+  if (policy === 'disposable') {
+    if (!['in_stock', 'expired', 'recalled', 'quarantined'].includes(status)) {
+      throw AppError.badRequest(
+        `Inventory batch is not available for disposal (status: ${status})`,
+        'INVENTORY_BATCH_UNAVAILABLE',
+      );
+    }
+    return;
+  }
+  throw AppError.internal(
+    'Unsupported controlled movement batch policy',
+    'CONTROLLED_MOVEMENT_BATCH_POLICY_INVALID',
+  );
+}
+
+function controlledMovementQuantity(value) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw AppError.badRequest('quantity must be > 0');
+  }
+  return quantity;
+}
+
+function controlledMovementItemId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest('inventory_item_id is required');
+  }
+  return id;
+}
+
+function exactTextOrNull(value) {
+  return value == null || value === '' ? null : String(value);
+}
+
+function normalizedDateOrNull(value) {
+  if (!value) return null;
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+}
+
+export function controlledMovementWitnessPayload(params = {}) {
+  const movementKind = String(params.movement_kind || '');
+  if (!CONTROLLED_DECREASING_MOVEMENTS.has(movementKind)) {
+    throw AppError.badRequest(
+      'A witness approval is only available for controlled stock decrements',
+      'CONTROLLED_MOVEMENT_WITNESS_NOT_REQUIRED',
+    );
+  }
+  return {
+    inventory_item_id: controlledMovementItemId(params.inventory_item_id),
+    inventory_batch_id: requireControlledMovementBatchId(params.inventory_batch_id),
+    movement_kind: movementKind,
+    quantity: controlledMovementQuantity(params.quantity),
+    batch_safety_contract: CONTROLLED_MOVEMENT_BATCH_CONTRACT,
+    batch_policy: CONTROLLED_BATCH_POLICY_BY_MOVEMENT[movementKind],
+    reference_type: exactTextOrNull(params.reference_type),
+    reference_id: exactTextOrNull(params.reference_id),
+    notes: exactTextOrNull(params.notes),
+    expected_batch_number: exactTextOrNull(params.expected_batch_number)?.trim() || null,
+    expected_lot_number: exactTextOrNull(params.expected_lot_number)?.trim() || null,
+    expected_expiry_date: normalizedDateOrNull(params.expected_expiry_date),
+  };
+}
+
+async function requireControlledMovementBatch(db, params) {
+  const payload = controlledMovementWitnessPayload(params);
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, status, remaining_quantity,
+            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id = $1::uuid
+        AND inventory_item_id = $2::int
+        AND id = $3::int`,
+    params.tenantId,
+    payload.inventory_item_id,
+    payload.inventory_batch_id,
+  );
+  if (!rows[0]) throw AppError.notFound('Batch not found');
+  assertControlledMovementBatchState(rows[0], payload.batch_policy);
+  if (Number(rows[0].remaining_quantity) < payload.quantity) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${rows[0].remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  return rows[0];
 }
 
 async function requireUsableControlledBatch(db, {
@@ -658,6 +854,39 @@ export async function approveInventoryDispenseWitnessApproval(params) {
     approvalId: params.approvalId,
     actorUid: params.actorUid,
     payload: controlledDispenseWitnessPayload(params.dispense),
+    requesterUid: params.requesterUid,
+  });
+}
+
+export async function requestControlledMovementWitnessApproval(params) {
+  controlledMovementWitnessPayload(params);
+  const item = await loadMovementItem(
+    prisma,
+    params.tenantId,
+    params.inventory_item_id,
+  );
+  if (!item) throw AppError.notFound('Inventory item not found');
+  if (item.schedule_class !== 'X' && item.is_narcotic !== true) {
+    throw AppError.badRequest(
+      'A witness approval is only available for Schedule X / narcotic stock decrements',
+      'CONTROLLED_MOVEMENT_WITNESS_NOT_REQUIRED',
+    );
+  }
+  await requireControlledMovementBatch(prisma, params);
+  return createControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryMovement,
+    payload: controlledMovementWitnessPayload(params),
+    requestedBy: params.requested_by,
+  });
+}
+
+export async function approveInventoryMovementWitnessApproval(params) {
+  return approveControlledDispenseWitnessApproval({
+    tenantId: params.tenantId,
+    approvalId: params.approvalId,
+    actorUid: params.actorUid,
+    payload: controlledMovementWitnessPayload(params.movement),
     requesterUid: params.requesterUid,
   });
 }
