@@ -23043,6 +23043,21 @@
           }
         }
       },
+      "EngagementCampaignApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Required audit reason for this approval, after trimming."
+          }
+        }
+      },
       "EnhancementClaimRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -110147,6 +110162,7 @@
             }
           }
         },
+        "description": "Moves a pending campaign to scheduled only when the authenticated caller holds the campaign's governed approval role, has a stable user identity distinct from the immutable submitter, and supplies a non-empty audit reason. The status change and audit evidence commit atomically; a concurrent status change is rejected rather than reported as a successful approval.",
         "parameters": [
           {
             "name": "campaignId",
@@ -110156,7 +110172,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngagementCampaignApprovalRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/engagement/campaigns/{campaignId}/dry-run": {

@@ -61,13 +61,11 @@ router.put('/settings', async (req, res, next) => {
 // Added because this router could not list what it created: with only POST
 // verbs, a campaign left in `pending_approval` was reachable only from the
 // browser session that submitted it, so nobody else could open it to approve
-// it. These are pure tenant-scoped reads (see ./engagementListQueries.js) —
-// the approval and queue-due paths are untouched.
+// it. These are pure tenant-scoped reads (see ./engagementListQueries.js).
 //
-// They do not add a requester/approver separation and must not be described as
-// one: `approveCampaign` gates on the caller's role only and never compares the
-// approver with `submitted_by`, so the submitter may approve their own campaign
-// (see ./engagementListQueries.js, "WHAT THIS FILE DOES NOT CLAIM").
+// The approval service binds the transition to the immutable `submitted_by`
+// identity, rejects self-approval, and requires a reason. These reads make that
+// second-person review operable from a separate session.
 //
 // Envelope + pagination follow the neighbouring admin list convention
 // (controllers/gamification/gamificationController.js#getHistory):
