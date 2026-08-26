@@ -913,6 +913,22 @@ void main() {
   });
 
   group('RoleFeatures workbench role gates', () {
+    // The department tile filter only engages for modules the server reports
+    // as 'enforce' (GET /rbac/policy specialty_gate_modes). These rail pins
+    // assert the enforce-mode semantics, so declare it explicitly; the
+    // report/unknown-mode behavior is pinned in
+    // rendered_features_contract_test.dart.
+    setUp(() {
+      RoleFeatures.setSpecialtyGateModes(const {
+        'dental_charting': 'enforce',
+        'oncology': 'enforce',
+        'radiation_oncology': 'enforce',
+        'ophthalmology': 'enforce',
+        'transplant_program': 'enforce',
+      });
+    });
+    tearDown(() => RoleFeatures.setSpecialtyGateModes(null));
+
     test('front office, billing, and clinical access are distinct', () {
       expect(
         RoleFeatures.hasFrontOfficeWorkbench(StaffRole.receptionist),

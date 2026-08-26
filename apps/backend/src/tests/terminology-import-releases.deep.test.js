@@ -14,6 +14,7 @@ const RELEASE_V2 = 'NL5P1_V2';
 const RELEASE_LOINC = 'NL5P1_LOINC';
 const RELEASE_SNOMED = 'NL5P1_SNOMED';
 const RELEASE_MAPS = 'NL5P1_MAPS';
+const RELEASE_FAILED = 'NL5P1_FAILED';
 const MARKER = 'NL5P1';
 
 let tmpDir;
@@ -25,8 +26,8 @@ function writeFixture(name, body) {
   return filePath;
 }
 
-function runImporter(args) {
-  const result = spawnSync(process.execPath, ['scripts/terminology-import.mjs', ...args], {
+function invokeImporter(args) {
+  return spawnSync(process.execPath, ['scripts/terminology-import.mjs', ...args], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -34,6 +35,10 @@ function runImporter(args) {
     },
     encoding: 'utf8',
   });
+}
+
+function runImporter(args) {
+  const result = invokeImporter(args);
   if (result.status !== 0) {
     throw new Error(`terminology-import failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   }
@@ -132,7 +137,7 @@ d('terminology-import release versioning and map ingestion (NL-5 P1)', () => {
       RELEASE_DRY,
     );
     expect(batches[0]).toMatchObject({ status: 'completed', rows_processed: 1, rows_inserted: 0 });
-    expect(batches[0].metadata.dry_run).toBe(true);
+    expect(batches[0].metadata).toMatchObject({ dry_run: true, full: true });
 
     const concepts = await prisma.$queryRawUnsafe(
       `SELECT code FROM terminology_concepts WHERE system_key = 'ICD10' AND code = 'NL5P1.DRY'`,
@@ -172,6 +177,16 @@ d('terminology-import release versioning and map ingestion (NL-5 P1)', () => {
     const retired = rows.find((r) => r.code === 'NL5P1.OLD');
     expect(imported).toMatchObject({ status: 'active', last_seen_release: RELEASE_V1 });
     expect(imported.last_import_batch_id).toBeTruthy();
+    const batches = await prisma.$queryRawUnsafe(
+      `SELECT status, metadata
+         FROM terminology_import_batches
+        WHERE id = $1::bigint`,
+      imported.last_import_batch_id,
+    );
+    expect(batches[0]).toMatchObject({
+      status: 'completed',
+      metadata: expect.objectContaining({ full: true, concepts_written: 1 }),
+    });
     expect(retired).toMatchObject({ status: 'inactive', last_seen_release: 'NL5P1_OLD' });
 
     const verdict = await validateCode('ICD10', 'NL5P1.OLD');
@@ -196,6 +211,64 @@ d('terminology-import release versioning and map ingestion (NL-5 P1)', () => {
     );
     expect(rows.find((r) => r.code === 'NL5P1.A')).toMatchObject({ status: 'active', last_seen_release: RELEASE_V1 });
     expect(rows.find((r) => r.code === 'NL5P1.B')).toMatchObject({ status: 'active', last_seen_release: RELEASE_V2 });
+
+    const batches = await prisma.$queryRawUnsafe(
+      `SELECT id::text AS id, status, metadata
+         FROM terminology_import_batches
+        WHERE release_label = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      RELEASE_V2,
+    );
+    expect(batches[0]).toMatchObject({
+      status: 'completed',
+      metadata: expect.objectContaining({ full: false, concepts_written: 1 }),
+    });
+    const linkedConcepts = await prisma.$queryRawUnsafe(
+      `SELECT code
+         FROM terminology_concepts
+        WHERE last_import_batch_id = $1::bigint`,
+      batches[0].id,
+    );
+    expect(linkedConcepts).toEqual([
+      expect.objectContaining({ code: 'NL5P1.B' }),
+    ]);
+  });
+
+  test('a late map-input failure rolls back concept rows and persists only failed provenance', async () => {
+    const csv = writeFixture(
+      'nl5p1-failed.csv',
+      'code,display,category\nNL5P1.FAIL,NL5P1 Rolled Back Diagnosis,diagnosis\n',
+    );
+    const missingMap = path.join(tmpDir, 'missing-map.csv');
+
+    const result = invokeImporter([
+      '--system', 'ICD10',
+      '--csv', csv,
+      '--map-csv', missingMap,
+      '--version', RELEASE_FAILED,
+    ]);
+
+    expect(result.status).not.toBe(0);
+    const batches = await prisma.$queryRawUnsafe(
+      `SELECT id::text AS id, status, error_detail
+         FROM terminology_import_batches
+        WHERE release_label = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      RELEASE_FAILED,
+    );
+    expect(batches[0]).toMatchObject({ status: 'failed' });
+    expect(batches[0].error_detail).toBeTruthy();
+
+    const concepts = await prisma.$queryRawUnsafe(
+      `SELECT code
+         FROM terminology_concepts
+        WHERE code = 'NL5P1.FAIL'
+           OR last_import_batch_id = $1::bigint`,
+      batches[0].id,
+    );
+    expect(concepts).toHaveLength(0);
   });
 
   test('LOINC and RF2 concept fixtures stamp releases through their native import paths', async () => {
@@ -273,5 +346,25 @@ d('terminology-import release versioning and map ingestion (NL-5 P1)', () => {
         context: 'generic_map_csv',
       }),
     ]));
+
+    const batches = await prisma.$queryRawUnsafe(
+      `SELECT id::text AS id, status, metadata
+         FROM terminology_import_batches
+        WHERE release_label = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      RELEASE_MAPS,
+    );
+    expect(batches[0]).toMatchObject({
+      status: 'completed',
+      metadata: expect.objectContaining({ full: false, concepts_written: 0, maps_written: 2 }),
+    });
+    const linkedConcepts = await prisma.$queryRawUnsafe(
+      `SELECT code
+         FROM terminology_concepts
+        WHERE last_import_batch_id = $1::bigint`,
+      batches[0].id,
+    );
+    expect(linkedConcepts).toHaveLength(0);
   });
 });

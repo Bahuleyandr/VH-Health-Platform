@@ -20,6 +20,10 @@ const migrationJobSource = readFileSync(
   new URL('../../../../../infra/kubernetes/apps/backend/migration-job.yaml', import.meta.url),
   'utf8',
 );
+const backendWorkflowSource = readFileSync(
+  new URL('../../../../../.github/workflows/_reusable-backend-lint-test.yml', import.meta.url),
+  'utf8',
+);
 
 const directSeedSources = [
   'seed-clinical-ai-preflight-reviewers.mjs',
@@ -168,6 +172,30 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(failureBreak).toBeGreaterThan(errorIncrement);
   });
 
+  test('adopts legacy checksums before apply and verifies the exact tracker before seeds', () => {
+    const trackerGuard = runnerSource.indexOf('await assertMigrationTrackerReady({');
+    const checksumColumn = runnerSource.indexOf(
+      'await client.query(ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL)',
+      trackerGuard,
+    );
+    const adoption = runnerSource.indexOf(
+      'await reconcileExistingTrackerChecksums()',
+      checksumColumn,
+    );
+    const migrationLoop = runnerSource.indexOf('for (const file of files)', adoption);
+    const finalVerification = runnerSource.indexOf(
+      'await assertTrackerChecksumsCurrent()',
+      migrationLoop,
+    );
+    const seedBoundary = runnerSource.indexOf('// Seed minimal lookup data', finalVerification);
+
+    expect(checksumColumn).toBeGreaterThan(trackerGuard);
+    expect(adoption).toBeGreaterThan(checksumColumn);
+    expect(migrationLoop).toBeGreaterThan(adoption);
+    expect(finalVerification).toBeGreaterThan(migrationLoop);
+    expect(seedBoundary).toBeGreaterThan(finalVerification);
+  });
+
   test('the migration smoke rejects a baseline schema with missing history without mutation', () => {
     const smokeSource = readFileSync(
       new URL('../../../scripts/smoke-migration-runner.mjs', import.meta.url),
@@ -181,6 +209,31 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(smokeSource).toContain(
       'missing tracker rejected before migration or seed mutation',
     );
+  });
+});
+
+describe('migrated-template cache integrity', () => {
+  test('hashes every migration-execution semantic dependency root', () => {
+    const keyLine = backendWorkflowSource
+      .split('\n')
+      .find((line) => line.includes('key: db-template-v3-'));
+
+    expect(keyLine).toContain('${{ runner.os }}-node-26.5.0-${{ inputs.postgres_image }}');
+    for (const input of [
+      '.github/workflows/_reusable-backend-lint-test.yml',
+      'apps/backend/src/migrations/**',
+      'apps/backend/scripts/ci-setup-db.mjs',
+      'apps/backend/scripts/ensure-pgvector-extension.mjs',
+      'apps/backend/scripts/lib/**',
+      'apps/backend/src/utils/migrations/**',
+      'apps/backend/src/logging/**',
+      'apps/backend/src/utils/logMasking.js',
+      'apps/backend/src/utils/urlRedaction.js',
+      'apps/backend/package.json',
+      'apps/backend/package-lock.json',
+    ]) {
+      expect(keyLine).toContain(`'${input}'`);
+    }
   });
 });
 

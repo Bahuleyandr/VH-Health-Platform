@@ -3,9 +3,12 @@ import {
   parseMigrationDirectives,
   safeMigrationStatementTimeout,
 } from './migrationDirectives.mjs';
+import { migrationChecksum } from './migrationChecksum.mjs';
 
 const TRACK_MIGRATION_SQL =
-  'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING';
+  'INSERT INTO _migrations (name, checksum) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING';
+const ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL =
+  'ALTER TABLE public._migrations ADD COLUMN IF NOT EXISTS checksum TEXT';
 
 function stripLeadingComments(statement) {
   let remaining = String(statement || '');
@@ -24,8 +27,8 @@ function isTransactionBoundaryStatement(statement) {
     || /^ROLLBACK( WORK)?$/.test(normalized);
 }
 
-async function trackMigration(client, file) {
-  await client.query(TRACK_MIGRATION_SQL, [file]);
+async function trackMigration(client, file, sql) {
+  await client.query(TRACK_MIGRATION_SQL, [file, migrationChecksum(sql)]);
 }
 
 async function rollbackBestEffort(client) {
@@ -64,7 +67,7 @@ export async function executeCiMigrationFile({
           throw err;
         }
       }
-      await trackMigration(client, file);
+      await trackMigration(client, file, sql);
     } finally {
       await client.query("SET statement_timeout = '120s'").catch(() => {});
       await client.query("SET lock_timeout = '15s'").catch(() => {});
@@ -75,7 +78,10 @@ export async function executeCiMigrationFile({
   if (baseline || selfManaged) {
     try {
       await client.query(sql);
-      await trackMigration(client, file);
+      if (baseline) {
+        await client.query(ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL);
+      }
+      await trackMigration(client, file, sql);
     } catch (err) {
       await rollbackBestEffort(client);
       throw err;
@@ -88,7 +94,7 @@ export async function executeCiMigrationFile({
     await client.query("SET LOCAL lock_timeout = '15s'");
     await client.query(`SET LOCAL statement_timeout = '${timeout}'`);
     await client.query(sql);
-    await trackMigration(client, file);
+    await trackMigration(client, file, sql);
     await client.query('COMMIT');
   } catch (err) {
     await rollbackBestEffort(client);
@@ -97,4 +103,4 @@ export async function executeCiMigrationFile({
   return { mode: 'transactional', directives };
 }
 
-export { TRACK_MIGRATION_SQL };
+export { ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL, TRACK_MIGRATION_SQL };

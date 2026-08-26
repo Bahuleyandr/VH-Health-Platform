@@ -28,8 +28,21 @@ const specialtyIds = {
   'transplant_program',
 };
 
+const enforceAllSpecialtyModes = {
+  'dental_charting': 'enforce',
+  'oncology': 'enforce',
+  'radiation_oncology': 'enforce',
+  'ophthalmology': 'enforce',
+  'transplant_program': 'enforce',
+};
+
 void main() {
   group('rendered (contract-intersected) features', () {
+    // The department filter engages only for modules the server reports as
+    // 'enforce'; these tests pin the enforce-mode semantics. Report/off/
+    // unknown-mode behavior is pinned in its own group below.
+    setUp(() => RoleFeatures.setSpecialtyGateModes(enforceAllSpecialtyModes));
+    tearDown(() => RoleFeatures.setSpecialtyGateModes(null));
     test('a doctor renders maternity and calculators', () {
       final ids = renderedIds('DOCTOR');
       expect(ids, contains('maternity'));
@@ -150,6 +163,82 @@ void main() {
             'featureRoleSources in scripts/generate-staff-role-contract.mjs '
             'and regenerate.',
       );
+    });
+  });
+
+  // ─── specialty gate modes (2026-08-25 reaudit FE-M1) ──────────────────────
+  //
+  // Production servers run the specialty department gate in 'report' mode
+  // until the mismatch ledger has driven the department-data cleanup. The
+  // client filter must mirror the server's ACTUAL posture: hiding tiles
+  // while the server would serve the route is silent privilege loss AND
+  // starves the report-mode ledger of exactly the mismatches it exists to
+  // find. Enforcement is therefore keyed on the server-reported per-module
+  // mode, fail-closed only under 'enforce'.
+  group('specialty gate modes', () {
+    tearDown(() => RoleFeatures.setSpecialtyGateModes(null));
+
+    test('with no mode signal (offline start / pre-update server) specialty '
+        'tiles stay visible regardless of department', () {
+      RoleFeatures.setSpecialtyGateModes(null);
+      final ids = renderedIds('DOCTOR');
+      expect(ids, containsAll(specialtyIds));
+      final unclean = renderedIds('DOCTOR', department: 'Onco Dept');
+      expect(unclean, containsAll(specialtyIds));
+    });
+
+    test("server 'report' and 'off' modes never hide a tile — the request "
+        'must reach the server so its mismatch ledger sees it', () {
+      RoleFeatures.setSpecialtyGateModes(const {
+        'dental_charting': 'report',
+        'oncology': 'report',
+        'radiation_oncology': 'off',
+        'ophthalmology': 'report',
+        'transplant_program': 'report',
+      });
+      final ids = renderedIds('DOCTOR');
+      expect(ids, containsAll(specialtyIds));
+    });
+
+    test("server 'enforce' fails closed per module: missing/unmatched "
+        'department loses the tile, a matching department keeps it', () {
+      RoleFeatures.setSpecialtyGateModes(const {
+        'dental_charting': 'enforce',
+        'oncology': 'report',
+        'radiation_oncology': 'report',
+        'ophthalmology': 'report',
+        'transplant_program': 'report',
+      });
+      final noDept = renderedIds('DOCTOR');
+      expect(noDept.contains('dental_charting'), isFalse);
+      // Only the enforced module is filtered; report-mode ones survive.
+      expect(noDept, containsAll(specialtyIds.difference({'dental_charting'})));
+      final dentist = renderedIds('DOCTOR', department: 'Dentistry');
+      expect(dentist, contains('dental_charting'));
+    });
+
+    test('a newer null/report/off snapshot replaces stale enforce state', () {
+      RoleFeatures.setSpecialtyGateModes(enforceAllSpecialtyModes);
+      expect(renderedIds('DOCTOR').intersection(specialtyIds), isEmpty);
+
+      RoleFeatures.setSpecialtyGateModes(null);
+      expect(renderedIds('DOCTOR'), containsAll(specialtyIds));
+
+      RoleFeatures.setSpecialtyGateModes(const {
+        'dental_charting': 'report',
+        'oncology': 'off',
+      });
+      expect(renderedIds('DOCTOR'), containsAll(specialtyIds));
+    });
+
+    test('leadership bypass holds under enforce with no department', () {
+      RoleFeatures.setSpecialtyGateModes(enforceAllSpecialtyModes);
+      final ids = renderedIds('MEDICAL_SUPERINTENDENT');
+      final withDept = renderedIds(
+        'MEDICAL_SUPERINTENDENT',
+        department: 'Medical Administration',
+      );
+      expect(ids, withDept);
     });
   });
 

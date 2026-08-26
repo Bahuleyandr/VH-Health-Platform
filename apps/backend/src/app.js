@@ -188,6 +188,7 @@ import {
   pharmacySubstitutionWitnessApprovalRoutes,
 } from './routes/pharmacy/dispenseSubstitutionWitnessRoutes.js';
 import pharmacyInventoryV2Routes, {
+  pharmacyInventoryMovementWitnessApprovalRoutes,
   pharmacyInventoryWitnessApprovalRoutes,
   PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
 } from './routes/pharmacy/inventoryV2Routes.js';
@@ -1124,6 +1125,18 @@ app.use(
   patientRateLimiter,
   requireRole(...PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES),
   pharmacyInventoryWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES),
+  pharmacyInventoryMovementWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES),
+  pharmacyInventoryMovementWitnessApprovalRoutes,
 );
 app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);

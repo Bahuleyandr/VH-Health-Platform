@@ -257,13 +257,122 @@ export const schemas = {
         description:
           'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.',
       },
-      performed_by_name: {
-        type: 'string',
-        nullable: true,
-        description: 'Optional display-name fallback; performed_by is always the authenticated bearer UID.',
-      },
       notes: { type: 'string', nullable: true },
       reference_id: { type: 'string', nullable: true },
+    },
+  },
+
+  PharmacyInventoryMovementRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inventory_item_id', 'movement_kind', 'quantity'],
+    properties: {
+      inventory_item_id: { type: 'integer', minimum: 1 },
+      inventory_batch_id: {
+        type: 'integer',
+        minimum: 1,
+        nullable: true,
+        description:
+          'Required for every controlled-stock decrement and validated against the authenticated tenant and item.',
+      },
+      movement_kind: {
+        type: 'string',
+        enum: [
+          'receive', 'issue', 'transfer_out', 'transfer_in', 'return',
+          'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
+        ],
+      },
+      quantity: { type: 'number', minimum: 0.0001 },
+      reference_type: { type: 'string', nullable: true },
+      reference_id: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      expected_batch_number: { type: 'string', nullable: true },
+      expected_lot_number: { type: 'string', nullable: true },
+      expected_expiry_date: { type: 'string', format: 'date', nullable: true },
+      witness_approval_id: {
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
+        nullable: true,
+        description:
+          'Approved, unexpired one-time approval bound to this exact movement. Required for Schedule X / narcotic decrements; witness_uid and witness_name are never accepted.',
+      },
+    },
+  },
+
+  PharmacyInventoryMovementWitnessApprovalRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inventory_item_id', 'inventory_batch_id', 'movement_kind', 'quantity'],
+    properties: {
+      inventory_item_id: { type: 'integer', minimum: 1 },
+      inventory_batch_id: { type: 'integer', minimum: 1 },
+      movement_kind: {
+        type: 'string',
+        enum: ['transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall'],
+      },
+      quantity: { type: 'number', minimum: 0.0001 },
+      reference_type: { type: 'string', nullable: true },
+      reference_id: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      expected_batch_number: { type: 'string', nullable: true },
+      expected_lot_number: { type: 'string', nullable: true },
+      expected_expiry_date: { type: 'string', format: 'date', nullable: true },
+    },
+    description:
+      'Exact prospective Schedule X / narcotic decrement bound to a distinct generic-movement approval scope. Caller-selected witness identity and witness_approval_id are not accepted.',
+  },
+
+  PharmacyInventoryMovementWitnessApprovalDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['movement'],
+    properties: {
+      movement: {
+        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest',
+      },
+      employeeId: {
+        type: 'string',
+        pattern: '^[A-Z0-9-]{3,20}$',
+        description:
+          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.',
+      },
+      password: {
+        type: 'string',
+        format: 'password',
+        minLength: 6,
+        maxLength: 100,
+        writeOnly: true,
+        description:
+          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.',
+      },
+    },
+    oneOf: [
+      { required: ['employeeId', 'password'] },
+      {
+        not: {
+          anyOf: [
+            { required: ['employeeId'] },
+            { required: ['password'] },
+          ],
+        },
+      },
+    ],
+  },
+
+  PharmacyInventoryMovementResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['movement'],
+    properties: {
+      movement: { type: 'object', additionalProperties: true },
+      register_entry: {
+        type: 'object',
+        additionalProperties: true,
+        nullable: true,
+        description: 'Present for controlled-stock custody movements.',
+      },
+      increasing: { type: 'boolean' },
+      decreasing: { type: 'boolean' },
     },
   },
 
@@ -446,6 +555,7 @@ export const schemas = {
   PharmacyCounterSaleWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryControlledDispenseResponse: envelope('PharmacyInventoryControlledDispenseResult'),
+  PharmacyInventoryMovementResponse: envelope('PharmacyInventoryMovementResult'),
 };
 
 const DESCRIPTIONS = {
@@ -502,7 +612,36 @@ function ops(prefix) {
       request: 'PharmacyInventoryControlledDispenseRequest',
       response: 'PharmacyInventoryControlledDispenseResponse',
       security: bearerSecurity,
-      additionalResponses: witnessErrorResponses(),
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
+    },
+    [`POST ${prefix}/inventory/v2/movements`]: {
+      description:
+        'Records one inventory movement with a server-derived performer and required idempotency. Controlled decrements require an exact batch under movement-specific server policy; Schedule X / narcotic decrements additionally require a matching one-time generic-movement witness approval. Controlled issue remains restricted to controlled-dispense.',
+      request: 'PharmacyInventoryMovementRequest',
+      response: 'PharmacyInventoryMovementResponse',
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
+    },
+    [`POST ${prefix}/inventory/v2/movements/witness-approvals`]: {
+      description:
+        'Inventory staff creates a short-lived pending approval bound to the authenticated performer, exact batch, movement policy, and unchanged Schedule X / narcotic decrement payload.',
+      request: 'PharmacyInventoryMovementWitnessApprovalRequest',
+      response: 'PharmacyInventoryWitnessApprovalResponse',
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
+    },
+    [`POST ${prefix}/inventory/v2/movements/witness-approvals/{id}/approve`]: {
+      description:
+        'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged generic controlled-stock decrement; self-witness, tenant mismatch, expiry, replay, scope mismatch, and payload changes fail closed.',
+      request: 'PharmacyInventoryMovementWitnessApprovalDecisionRequest',
+      response: 'PharmacyInventoryWitnessApprovalResponse',
+      security: bearerSecurity,
+      pathParameters: { id: approvalIdPathSchema },
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true }),
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals`]: {
       description:

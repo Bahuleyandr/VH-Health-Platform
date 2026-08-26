@@ -10,6 +10,11 @@ import {
   safeMigrationStatementTimeout,
 } from '../../../scripts/lib/migrationDirectives.mjs';
 import {
+  buildMigrationChecksumManifest,
+  evaluateMigrationChecksums,
+  migrationChecksum,
+} from '../../../scripts/lib/migrationChecksum.mjs';
+import {
   applyNoTransactionStatements,
   isTransactionBoundaryStatement,
   statementPreview,
@@ -28,6 +33,57 @@ function canSkipOptionalPgvectorMigration() {
   return process.env.NODE_ENV !== 'production' && process.env.REQUIRE_PGVECTOR !== 'true';
 }
 
+/**
+ * Content-integrity verify + first-run seed for the `_migrations` tracker.
+ *
+ * The tracker was name-only, so an in-place edit of an already-applied migration
+ * was undetectable by machinery (the migration-669 episode of PR #902 — a
+ * semantically-neutral SET CONSTRAINTS addition, applied to some DBs and not
+ * others with zero signal). We now record a sha256 per newly-applied file and
+ * check it on every boot.
+ *
+ * Rows with a NULL checksum (applied before this column existed, 669 included)
+ * are SEEDED from current on-disk content on first run — so seeding adopts the
+ * current bytes and cannot retroactively flag the historical 669 edit; it only
+ * establishes the baseline that FUTURE in-place edits are measured against.
+ * Rows whose recorded checksum differs from on-disk are fatal. Once a row has
+ * a checksum, continuing on a different migration body would knowingly boot
+ * against schema state that this image cannot prove.
+ */
+async function reconcileMigrationChecksums({ checksumManifest, executedRows }) {
+  const state = evaluateMigrationChecksums(checksumManifest, executedRows);
+
+  if (state.drift.length > 0) {
+    for (const entry of state.drift) {
+      logger.error(
+        `⚠️ Migration content drift: ${entry.name} was edited in place after it was applied `
+        + `(recorded ${entry.recorded.slice(0, 12)}…, on-disk ${entry.expected.slice(0, 12)}…). `
+        + 'An already-applied migration changed on disk; this DB still holds the old effect.',
+      );
+    }
+    const err = new Error(
+      `Migration checksum drift on ${state.drift.length} already-applied migration(s): `
+      + `${state.drift.map((entry) => entry.name).join(', ')}`,
+    );
+    err.code = 'MIGRATION_CHECKSUM_DRIFT';
+    err.migrationChecksumDrift = state.drift;
+    throw err;
+  }
+
+  for (const entry of state.missing) {
+    await prisma.$executeRawUnsafe(
+      'UPDATE _migrations SET checksum = $1 WHERE name = $2 AND checksum IS NULL',
+      entry.expected, entry.name,
+    );
+  }
+  if (state.missing.length > 0) {
+    logger.info(
+      `Seeded checksums for ${state.missing.length} pre-existing migration(s) from on-disk content.`,
+    );
+  }
+  return { seeded: state.missing.length, drift: [] };
+}
+
 function migrationFiles(migrationsDir) {
   if (!fs.existsSync(migrationsDir)) {
     const err = new Error(`Migrations directory not found: ${migrationsDir}`);
@@ -41,7 +97,14 @@ function migrationFiles(migrationsDir) {
     .sort();
 }
 
-export function evaluateMigrationState(files, executedRows) {
+function migrationChecksumManifest(migrationsDir, files) {
+  return buildMigrationChecksumManifest(
+    files,
+    (file) => fs.readFileSync(path.join(migrationsDir, file), 'utf-8'),
+  );
+}
+
+export function evaluateMigrationState(files, executedRows, checksumManifest = null) {
   const expected = [...files].sort();
   const executed = new Set(
     (Array.isArray(executedRows) ? executedRows : executedRows?.rows ?? [])
@@ -50,16 +113,22 @@ export function evaluateMigrationState(files, executedRows) {
   );
   const pending = expected.filter((file) => !executed.has(file));
   const unexpected = [...executed].filter((file) => !expected.includes(file)).sort();
+  const checksumState = checksumManifest
+    ? evaluateMigrationChecksums(checksumManifest, executedRows)
+    : { current: true, missing: [], drift: [] };
 
   return {
-    current: pending.length === 0 && unexpected.length === 0,
-    requiredCurrent: pending.length === 0,
+    current: pending.length === 0 && unexpected.length === 0 && checksumState.current,
+    requiredCurrent: pending.length === 0 && checksumState.current,
     expectedCount: expected.length,
     executedCount: executed.size,
     expectedTip: expected.at(-1) ?? null,
     executedTip: [...executed].sort().at(-1) ?? null,
     pending,
     unexpected,
+    checksumCurrent: checksumState.current,
+    missingChecksums: checksumState.missing.map((entry) => entry.name),
+    checksumDrift: checksumState.drift,
   };
 }
 
@@ -92,9 +161,15 @@ export async function verifyMigrationsCurrent({
     const err = new Error(
       `Database migration tracker does not match this image `
       + `(expected tip ${state.expectedTip || 'none'}, database tip ${state.executedTip || 'none'}, `
-      + `${state.pending.length} pending, ${state.unexpected.length} unexpected)`,
+      + `${state.pending.length} pending, ${state.unexpected.length} unexpected, `
+      + `${state.missingChecksums.length} missing checksums, `
+      + `${state.checksumDrift.length} checksum mismatches)`,
     );
-    err.code = 'MIGRATION_TIP_MISMATCH';
+    err.code = state.checksumDrift.length > 0
+      ? 'MIGRATION_CHECKSUM_DRIFT'
+      : state.missingChecksums.length > 0
+        ? 'MIGRATION_CHECKSUM_MISSING'
+        : 'MIGRATION_TIP_MISMATCH';
     err.migrationState = state;
     throw err;
   }
@@ -111,8 +186,14 @@ export async function readMigrationState({
     files = files.filter((file) => file !== OPTIONAL_PGVECTOR_MIGRATION);
   }
 
-  const executed = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
-  return evaluateMigrationState(files, executed);
+  const executed = await prisma.$queryRawUnsafe(
+    'SELECT name, checksum FROM _migrations ORDER BY name',
+  );
+  return evaluateMigrationState(
+    files,
+    executed,
+    migrationChecksumManifest(migrationsDir, files),
+  );
 }
 
 // A Postgres time/interval value we are willing to inject into SET. Files are
@@ -157,6 +238,7 @@ async function executeMigrationFile(
   statements,
   directives = {},
   noTransactionClientFactory = createNoTransactionClient,
+  checksum = null,
 ) {
   const timeout = safeStatementTimeout(directives.statementTimeout);
 
@@ -173,7 +255,7 @@ async function executeMigrationFile(
     const client = await noTransactionClientFactory();
     try {
       await applyNoTransactionStatements(client, statements, { statementTimeout: timeout });
-      await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file]);
+      await client.query('INSERT INTO _migrations (name, checksum) VALUES ($1, $2)', [file, checksum]);
     } finally {
       await client.end().catch(() => {});
     }
@@ -184,7 +266,7 @@ async function executeMigrationFile(
     await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '15s'");
     await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${timeout}'`);
     await runStatements(tx, statements);
-    await tx.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+    await tx.$executeRawUnsafe('INSERT INTO _migrations (name, checksum) VALUES ($1, $2)', file, checksum);
   }, MIGRATION_TRANSACTION_OPTIONS);
 }
 
@@ -225,14 +307,21 @@ export async function runMigrations({
       executed_at TIMESTAMP DEFAULT NOW()
     )
   `);
+  // Content-integrity column (added 2026-08-25). Nullable + IF NOT EXISTS so
+  // existing trackers upgrade in place; pre-existing rows are back-seeded below.
+  await prisma.$executeRawUnsafe('ALTER TABLE _migrations ADD COLUMN IF NOT EXISTS checksum TEXT');
 
-  // Get already-run migrations.
-  const executed = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
-  const executedNames = new Set(
-    (Array.isArray(executed) ? executed : executed?.rows ?? []).map((r) => r.name),
-  );
+  // Get already-run migrations (name + recorded checksum).
+  const executed = await prisma.$queryRawUnsafe('SELECT name, checksum FROM _migrations ORDER BY name');
+  const executedRows = (Array.isArray(executed) ? executed : executed?.rows ?? []);
+  const executedNames = new Set(executedRows.map((r) => r.name));
 
   const files = migrationFiles(migrationsDir);
+  const checksumManifest = migrationChecksumManifest(migrationsDir, files);
+
+  // Verify already-applied migrations still match their on-disk bytes; seed
+  // checksums for pre-existing rows, then fail closed on any established drift.
+  await reconcileMigrationChecksums({ checksumManifest, executedRows });
 
   let ran = 0;
   let skippedOptional = 0;
@@ -250,12 +339,13 @@ export async function runMigrations({
     }
 
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+    const checksum = migrationChecksum(sql);
     const statements = splitStatements(sql);
     const directives = parseMigrationDirectives(sql);
 
     if (statements.length === 0) {
       logger.warn(`Migration ${file} contained no executable statements (comments-only file?). Recording as applied.`);
-      await prisma.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+      await prisma.$executeRawUnsafe('INSERT INTO _migrations (name, checksum) VALUES ($1, $2)', file, checksum);
       continue;
     }
 
@@ -269,6 +359,7 @@ export async function runMigrations({
         statements,
         directives,
         noTransactionClientFactory,
+        checksum,
       );
       ran += 1;
       logger.info(`✅ Migration completed: ${file}`);

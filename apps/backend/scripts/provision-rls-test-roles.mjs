@@ -52,6 +52,9 @@ export async function provisionRlsTestRoles({ connectionString, grantToRole } = 
       await client.query(`GRANT USAGE ON SCHEMA public TO ${role}`);
       await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`);
       await client.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role}`);
+      await client.query(`REVOKE ALL PRIVILEGES ON TABLE public._migrations FROM ${role}`);
+      await client.query(`GRANT SELECT ON TABLE public._migrations TO ${role}`);
+      await client.query(`REVOKE ALL PRIVILEGES ON SEQUENCE public._migrations_id_seq FROM ${role}`);
       // Tolerant: vector-typed function signatures throw 58P01 on clusters
       // without pgvector; the RLS suites don't need EXECUTE anyway.
       await client

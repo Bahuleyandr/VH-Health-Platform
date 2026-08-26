@@ -624,7 +624,12 @@ function pickTenantClient({ readOnly = false } = {}) {
  *     237/238/239/272/304) covers owned tables, and the runtime role is
  *     belt-and-braces for any future unforced table.
  */
-function runTenantScopedTransaction(client, gucValue, fn, transactionOptions = undefined) {
+function runTenantScopedTransaction(
+  client,
+  gucValue,
+  fn,
+  transactionOptions = undefined,
+) {
   const testRole = tenantRlsRuntimeRole();
   const transaction = async (tx) => {
     if (testRole) {
@@ -1451,6 +1456,23 @@ BEGIN
       END IF;
     EXCEPTION WHEN insufficient_privilege OR undefined_function THEN
       RAISE NOTICE 'I03 recovery function revokes for ${role} skipped';
+    END;
+    BEGIN
+      IF pg_catalog.to_regclass('public._migrations') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON TABLE public._migrations
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public._migrations
+          TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public._migrations_id_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public._migrations_id_seq
+          FROM ${role};
+      END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'migration tracker read-only fence for ${role} skipped (insufficient privilege)';
     END;
     BEGIN
       REVOKE CREATE ON SCHEMA public FROM PUBLIC;

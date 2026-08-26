@@ -160,6 +160,53 @@ function requireObjectStoreContract(target, rendered) {
   ]);
 }
 
+function requireDeviceGatewayContract(target, rendered) {
+  if (target !== 'infra/kubernetes/base/device-gateway') return;
+
+  const documents = renderedDocuments(rendered);
+  const deployments = documents.filter(
+    document => /^kind:\s+Deployment\s*$/m.test(document) &&
+      /^\s{2}name:\s+device-gateway\s*$/m.test(document),
+  );
+  const configMaps = documents.filter(
+    document => /^kind:\s+ConfigMap\s*$/m.test(document) &&
+      /^\s{2}name:\s+device-gateway-config\s*$/m.test(document),
+  );
+
+  if (deployments.length !== 1 || configMaps.length !== 1) {
+    throw new Error(
+      `${target} must render exactly one device-gateway Deployment and ConfigMap.`,
+    );
+  }
+
+  requireInRendered(target, deployments[0], [
+    {
+      label: 'required dynamic LIS token Secret before authoritative ConfigMap',
+      pattern: /envFrom:\s*\n(?:\s*#.*\n)*\s*- secretRef:\s*\n\s+name:\s+device-gateway-secret\s*\n\s*- configMapRef:\s*\n\s+name:\s+device-gateway-config/,
+    },
+    {
+      label: 'explicit device-gateway backend-token mapping',
+      pattern: /name:\s+DEVICE_GATEWAY_BACKEND_TOKEN[\s\S]*?secretKeyRef:\s*\n\s+key:\s+backend-token\s*\n\s+name:\s+device-gateway-secret/,
+    },
+    {
+      label: 'explicit device-gateway api-key mapping',
+      pattern: /name:\s+DEVICE_GATEWAY_API_KEY[\s\S]*?secretKeyRef:\s*\n\s+key:\s+api-key\s*\n\s+name:\s+device-gateway-secret/,
+    },
+  ]);
+  requireInRendered(target, configMaps[0], [
+    {
+      label: 'dark-by-default LIS listener profiles',
+      pattern: /^\s{2}DEVICE_GATEWAY_LIS_LISTENERS:\s+['"]\[\]['"]\s*$/m,
+    },
+  ]);
+  rejectInRendered(target, configMaps[0], [
+    {
+      label: 'LIS bearer token stored in the non-secret ConfigMap',
+      pattern: /^\s{2}LIS_[A-Z][A-Z0-9_]*_TOKEN:/m,
+    },
+  ]);
+}
+
 function validateTarget(kustomize, kubeconform, target, tmpDir) {
   const rendered = run(kustomize, ['build', target]).stdout;
   const outputFile = join(tmpDir, `${target.replace(/[\\/]/g, '__')}.yaml`);
@@ -173,6 +220,7 @@ function validateTarget(kustomize, kubeconform, target, tmpDir) {
   ]);
   assertNoIngressClassParameters(rendered, target);
   requireObjectStoreContract(target, rendered);
+  requireDeviceGatewayContract(target, rendered);
 
   if (target === 'infra/kubernetes/apps') {
     requireInRendered(target, rendered, [

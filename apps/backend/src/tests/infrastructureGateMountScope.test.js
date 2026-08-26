@@ -24,12 +24,29 @@ import { requireProductionInfrastructureAdmin } from '../middleware/infrastructu
 import { generateToken } from '../utils/jwtUtils.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const TEST_TENANT_ID = 'aaaaaaaa-0000-4000-8000-000000000001';
 
-const doctorToken = generateToken({
-  uid: '55555555-5555-4555-8555-555555555555',
-  id: 5,
-  role: 'DOCTOR',
+const tokenFor = (role, id, claims = {}) => generateToken({
+  uid: `55555555-5555-4555-8555-${String(id).padStart(12, '0')}`,
+  id,
+  role,
+  tenant_id: TEST_TENANT_ID,
+  ...claims,
 });
+
+const doctorToken = tokenFor('DOCTOR', 5);
+
+const postWithToken = (path, token) => request(app)
+  .post(path)
+  .set('x-api-key', API_KEY)
+  .set('x-forwarded-proto', 'https')
+  .set('Authorization', `Bearer ${token}`)
+  .send({});
+
+const roleAssignmentPaths = [
+  '/api/v1/rbac/assign-role',
+  '/api/v1/rbac/bulk-assign',
+];
 
 function stackOf(routerLike) {
   const r = routerLike?.stack ? routerLike : (routerLike?.router ?? routerLike?._router);
@@ -130,6 +147,69 @@ describe('infrastructure admin gate mount scope', () => {
         status: 403,
         error: 'Forbidden',
       });
+    });
+
+    it.each(roleAssignmentPaths)('keeps HR_STAFF below the production role-mutation ceiling on %s', async (path) => {
+      const res = await postWithToken(path, tokenFor('HR_STAFF', 6100));
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ success: false, error: 'Forbidden' });
+    });
+
+    it.each(roleAssignmentPaths)('lets ADMIN reach validation without requiring a SUPER_ADMIN MFA claim on %s', async (path) => {
+      const res = await postWithToken(path, tokenFor('ADMIN', 6200));
+      expect(res.status).toBe(400);
+      expect(res.body.code).not.toBe('SUPER_ADMIN_MFA_REQUIRED');
+    });
+
+    it.each([
+      ['missing', {}],
+      ['false', { mfa: false }],
+    ])('denies a SUPER_ADMIN with an %s MFA claim on both role-assignment routes', async (_label, claims) => {
+      const token = tokenFor('SUPER_ADMIN', 6300, claims);
+      for (const path of roleAssignmentPaths) {
+        const res = await postWithToken(path, token);
+        expect({ path, status: res.status, code: res.body?.code }).toEqual({
+          path,
+          status: 403,
+          code: 'SUPER_ADMIN_MFA_REQUIRED',
+        });
+      }
+    });
+
+    it.each(roleAssignmentPaths)('lets a stepped-up SUPER_ADMIN reach validation on %s', async (path) => {
+      const res = await postWithToken(path, tokenFor('SUPER_ADMIN', 6400, { mfa: true }));
+      expect(res.status).toBe(400);
+      expect(res.body.code).not.toBe('SUPER_ADMIN_MFA_REQUIRED');
+    });
+
+    it('applies the same SUPER_ADMIN step-up boundary to mass role mutation', async () => {
+      const path = '/api/v1/rbac/admin/mass-role-update';
+      const blocked = await postWithToken(path, tokenFor('SUPER_ADMIN', 6500, { mfa: false }));
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe('SUPER_ADMIN_MFA_REQUIRED');
+
+      const steppedUp = await postWithToken(path, tokenFor('SUPER_ADMIN', 6501, { mfa: true }));
+      expect(steppedUp.status).toBe(400);
+      expect(steppedUp.body.code).not.toBe('SUPER_ADMIN_MFA_REQUIRED');
+    });
+  });
+
+  describe('behavior outside production', () => {
+    const savedNodeEnv = process.env.NODE_ENV;
+
+    beforeAll(() => {
+      process.env.NODE_ENV = 'test';
+    });
+
+    afterAll(() => {
+      if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = savedNodeEnv;
+    });
+
+    it.each(roleAssignmentPaths)('preserves the lower-environment HR_STAFF assignment path on %s', async (path) => {
+      const res = await postWithToken(path, tokenFor('HR_STAFF', 6600));
+      expect(res.status).toBe(400);
+      expect(res.body.code).not.toBe('SUPER_ADMIN_MFA_REQUIRED');
     });
   });
 });

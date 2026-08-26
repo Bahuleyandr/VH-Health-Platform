@@ -64,3 +64,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO vhhealth_runtime;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO vhhealth_runtime;
+
+-- `_migrations` is owner-written bookkeeping. Reapply this fence after the
+-- broad grants above so the application roles can verify readiness but cannot
+-- forge, rewrite, delete, or allocate migration tracker rows.
+REVOKE ALL PRIVILEGES ON TABLE public._migrations FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON TABLE public._migrations FROM vhhealth_app, vhhealth_runtime;
+GRANT SELECT ON TABLE public._migrations TO vhhealth_app, vhhealth_runtime;
+REVOKE ALL PRIVILEGES ON SEQUENCE public._migrations_id_seq FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON SEQUENCE public._migrations_id_seq FROM vhhealth_app, vhhealth_runtime;

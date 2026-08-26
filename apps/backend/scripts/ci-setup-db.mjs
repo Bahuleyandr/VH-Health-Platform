@@ -34,7 +34,14 @@ import {
   assertMigrationBatchSucceeded,
   assertMigrationTrackerReady,
 } from './lib/migrationBatchGuard.mjs';
-import { executeCiMigrationFile } from './lib/ciMigrationExecutor.mjs';
+import {
+  ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL,
+  executeCiMigrationFile,
+} from './lib/ciMigrationExecutor.mjs';
+import {
+  buildMigrationChecksumManifest,
+  evaluateMigrationChecksums,
+} from './lib/migrationChecksum.mjs';
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
 import { assertCiSetupSeedPolicy } from './lib/testDataSeedGuard.mjs';
 
@@ -69,6 +76,97 @@ await client.connect();
 if (!existsSync(MIGRATIONS_DIR)) {
   logger.error(`Migration directory not found: ${MIGRATIONS_DIR}`);
   process.exit(1);
+}
+
+const files = readdirSync(MIGRATIONS_DIR)
+  .filter(f => f.endsWith('.sql'))
+  .sort();
+
+if (files.length === 0) {
+  logger.error(`No SQL migrations found in: ${MIGRATIONS_DIR}`);
+  process.exit(1);
+}
+
+const checksumManifest = buildMigrationChecksumManifest(
+  files,
+  (file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
+);
+const expectedMigrationNames = new Set(checksumManifest.map(({ name }) => name));
+
+function trackerIntegrityState(rows) {
+  const executedNames = new Set(rows.map(({ name }) => name).filter(Boolean));
+  return {
+    pending: files.filter((file) => !executedNames.has(file)),
+    unexpected: [...executedNames].filter((file) => !expectedMigrationNames.has(file)).sort(),
+    ...evaluateMigrationChecksums(checksumManifest, rows),
+  };
+}
+
+function trackerIntegrityError(state, phase) {
+  const err = new Error(
+    `Migration tracker integrity failed during ${phase}: `
+      + `${state.pending.length} pending, ${state.unexpected.length} unexpected, `
+      + `${state.missing.length} missing checksums, ${state.drift.length} checksum mismatches`,
+  );
+  err.code = state.drift.length > 0
+    ? 'MIGRATION_CHECKSUM_DRIFT'
+    : state.missing.length > 0
+      ? 'MIGRATION_CHECKSUM_MISSING'
+      : 'MIGRATION_TIP_MISMATCH';
+  err.migrationState = state;
+  return err;
+}
+
+async function reconcileExistingTrackerChecksums() {
+  await client.query('BEGIN');
+  try {
+    await client.query('LOCK TABLE public._migrations IN SHARE ROW EXCLUSIVE MODE');
+    const { rows } = await client.query(
+      'SELECT name, checksum FROM public._migrations ORDER BY name',
+    );
+    const state = trackerIntegrityState(rows);
+    if (state.unexpected.length > 0 || state.drift.length > 0) {
+      throw trackerIntegrityError(state, 'pre-apply verification');
+    }
+    for (const entry of state.missing) {
+      await client.query(
+        `UPDATE public._migrations
+            SET checksum = $1
+          WHERE name = $2 AND checksum IS NULL`,
+        [entry.expected, entry.name],
+      );
+    }
+    await client.query('COMMIT');
+    if (state.missing.length > 0) {
+      logger.info(
+        `→ Adopted checksums for ${state.missing.length} legacy migration tracker row(s).`,
+      );
+    }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error(err.message);
+    await client.end().catch(() => {});
+    throw err;
+  }
+}
+
+async function assertTrackerChecksumsCurrent() {
+  const { rows } = await client.query(
+    'SELECT name, checksum FROM public._migrations ORDER BY name',
+  );
+  const state = trackerIntegrityState(rows);
+  if (
+    state.pending.length > 0
+    || state.unexpected.length > 0
+    || state.missing.length > 0
+    || state.drift.length > 0
+  ) {
+    const err = trackerIntegrityError(state, 'post-apply verification');
+    logger.error(err.message);
+    await client.end().catch(() => {});
+    throw err;
+  }
+  logger.info(`→ Migration checksum verification: ${rows.length} row(s) current.\n`);
 }
 
 async function trackerTableExists() {
@@ -109,6 +207,11 @@ await assertMigrationTrackerReady({
   logger,
 });
 
+if (trackerPresent) {
+  await client.query(ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL);
+  await reconcileExistingTrackerChecksums();
+}
+
 // Detect whether a file opens its own top-level transaction. The simple state
 // machine skips leading whitespace, line comments, and block comments, then
 // checks for the BEGIN keyword. Files such as `000_baseline.sql` contain
@@ -135,15 +238,6 @@ function fileStartsWithBegin(sql) {
 }
 
 logger.info('→ Applying raw src/migrations/*.sql …');
-const files = readdirSync(MIGRATIONS_DIR)
-  .filter(f => f.endsWith('.sql'))
-  .sort();
-
-if (files.length === 0) {
-  logger.error(`No SQL migrations found in: ${MIGRATIONS_DIR}`);
-  process.exit(1);
-}
-
 let appliedCount = 0;
 let alreadyApplied = 0;
 let knownBadSkipped = 0;
@@ -197,6 +291,7 @@ logger.info(
 );
 
 await assertMigrationBatchSucceeded({ errors, client, logger });
+await assertTrackerChecksumsCurrent();
 
 // Seed minimal lookup data the tests rely on. Skippable (--skip-seeds /
 // CI_DB_SKIP_SEEDS=1) for targets that must hold REPLICATED truth only —

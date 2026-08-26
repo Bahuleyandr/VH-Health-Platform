@@ -60,6 +60,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const gateway = await import('../../services/billing/paymentGatewayService.js');
+const { getCurrentTenantId } = await import('../../lib/tenantContext.js');
 
 const enabledConfig = {
   id: 3, tenant_id: TENANT, provider: 'dry_run', environment: 'sandbox',
@@ -72,6 +73,15 @@ const ISSUED_INVOICE = { id: 12, patient_uid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeee
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks() clears call records but does NOT drain queued
+  // mockResolvedValueOnce values; without an explicit reset an unconsumed
+  // once-value from one test leaks into the shared raw-query queue and is
+  // returned to the next test. Reset the raw-query mocks and re-apply the
+  // executeRawUnsafe defaults so every test starts from a clean queue.
+  queryRawUnsafe.mockReset();
+  txQueryRawUnsafe.mockReset();
+  executeRawUnsafe.mockReset().mockImplementation(async () => 1);
+  txExecuteRawUnsafe.mockReset().mockImplementation(async () => 1);
   process.env.PAYMENT_GATEWAY_ENABLED = 'true';
   getPaymentGatewaySettings.mockResolvedValue({ enabled: true });
   resolveLedgerWiring.mockResolvedValue({ mode: 'shadow', sameTx: false, postCommit: true, skip: false });
@@ -131,6 +141,50 @@ describe('config gate — DEFAULT OFF, all three legs required', () => {
       enabled: false, provider: null, keyId: null, providerOrderId: null,
     });
   });
+
+  it('preserves tenant context across the public provider-config and order lookups', async () => {
+    const observed = [];
+    queryRawUnsafe
+      .mockImplementationOnce(async (sql) => {
+        observed.push(['config', getCurrentTenantId(), sql]);
+        return [enabledConfig];
+      })
+      .mockImplementationOnce(async (sql) => {
+        observed.push(['order', getCurrentTenantId(), sql]);
+        return [{ provider_order_id: 'order_dry_public_1' }];
+      });
+
+    await expect(gateway.getPublicGatewayViewForLink({
+      tenantId: TENANT,
+      paymentLinkId: 41,
+    })).resolves.toEqual({
+      enabled: true,
+      provider: 'dry_run',
+      keyId: null,
+      providerOrderId: 'order_dry_public_1',
+    });
+    expect(observed.map(([stage, tenant]) => [stage, tenant])).toEqual([
+      ['config', TENANT],
+      ['order', TENANT],
+    ]);
+    expect(observed[0][2]).toContain('payment_gateway_provider_configs');
+    expect(observed[1][2]).toContain('payment_gateway_orders');
+    expect(getCurrentTenantId()).toBeNull();
+  });
+});
+
+describe('bounded gateway-order expiry sweep', () => {
+  it('invokes only the parameterless owner routine and preserves the count contract', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{ expired: 3 }]);
+
+    await expect(gateway.expireStaleGatewayOrders()).resolves.toEqual({ expired: 3 });
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      'SELECT public.sweep_expired_payment_gateway_orders() AS expired',
+    );
+    expect(executeRawUnsafe).not.toHaveBeenCalled();
+    expect(setTenantTx).not.toHaveBeenCalled();
+  });
 });
 
 describe('webhook credential rotation', () => {
@@ -171,7 +225,7 @@ describe('webhook credential rotation', () => {
 
 describe('late webhook intent binding', () => {
   it('binds a refund callback to the exact config, payment, billing refund, and nonterminal state', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
+    txQueryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
     const allowed = await gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: false },
       payload: { payload: { refund: { entity: {
@@ -181,7 +235,7 @@ describe('late webhook intent binding', () => {
       } } } },
     });
     expect(allowed).toBe(true);
-    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    const [sql, ...params] = txQueryRawUnsafe.mock.calls[0];
     expect(sql).toContain('o.provider_config_id = $4::int');
     expect(sql).toContain("r.status IN ('initiated', 'pending', 'requires_reconciliation')");
     expect(params).toEqual([
@@ -190,7 +244,7 @@ describe('late webhook intent binding', () => {
   });
 
   it('binds a retired secret only to the exact pre-rotation credential version', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
+    txQueryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]);
     const retiredAt = new Date('2026-08-17T07:00:00.000Z');
     const allowed = await gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: true, webhook_credential_version: 4 },
@@ -198,7 +252,7 @@ describe('late webhook intent binding', () => {
       payload: { payload: { payment: { entity: { order_id: 'order_bound' } } } },
     });
     expect(allowed).toBe(true);
-    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    const [sql, ...params] = txQueryRawUnsafe.mock.calls[0];
     expect(sql).toContain('webhook_credential_version = $6::int');
     expect(sql).toContain('created_at <= $7::timestamptz');
     expect(params).toEqual([
@@ -207,7 +261,7 @@ describe('late webhook intent binding', () => {
   });
 
   it('rejects an uncorrelated payment callback', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([]);
+    txQueryRawUnsafe.mockResolvedValueOnce([]);
     await expect(gateway.hasBoundNonterminalWebhookIntent({
       config: { ...enabledConfig, enabled: false },
       payload: { payload: { payment: { entity: { order_id: 'order_unknown' } } } },

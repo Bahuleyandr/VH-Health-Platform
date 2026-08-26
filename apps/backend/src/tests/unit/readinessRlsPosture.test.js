@@ -151,6 +151,28 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
     });
   });
 
+  it('returns 503 when an image migration checksum does not match the tracker', async () => {
+    readMigrationStateMock.mockResolvedValueOnce({
+      requiredCurrent: false,
+      checksumCurrent: false,
+      expectedTip: '735_current.sql',
+      executedTip: '735_current.sql',
+      pending: [],
+      unexpected: [],
+      missingChecksums: [],
+      checksumDrift: [{ name: '734_changed.sql' }],
+    });
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(503);
+    expect(res.body.checks.migrations).toMatchObject({
+      status: 'error',
+      checksum_drift_count: 1,
+      message: 'Migration tracker checksums do not match the application image',
+    });
+  });
+
   it('keeps an old pod ready when an additive rolling deployment moves the database ahead', async () => {
     readMigrationStateMock.mockResolvedValueOnce({
       requiredCurrent: true,

@@ -12,6 +12,7 @@ import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import { markRouterDomain } from '../../config/openapiDomain.js';
+import rbacConfig from '../../config/rbacConfig.js';
 import { OP_FLOW_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -141,8 +142,16 @@ router.use('/admin', staffAdminRoutes);  // Staff admin operations
 // under /staff/hr/replacement/* (see hrRoutes.js); these aliases keep that
 // canonical mount untouched while supporting the admin page's API config
 // (apps/admin/src/lib/api-config.ts → myWork.replacements.*).
-router.get('/replacements/my', replacementController.getPendingReplacements);
-router.post('/replacements', replacementController.requestReplacement);
+//
+// These two routes live on the barrel itself, so they are NOT covered by any
+// sub-router's wrapAutoRBAC key. #906 removed the /api/v1/staff prefix-mount
+// requireRole ceiling that had implicitly gated them, leaving them reachable by
+// every authenticated principal incl. PATIENT — an unauthorized write into the
+// staff shift-replacement workflow (2026-08-25 reaudit AZ-1). Apply the same
+// role policy as the canonical /staff/hr/replacement/* handlers so the aliases
+// neither admit patients nor lock out staff roles the canonical workflow serves.
+router.get('/replacements/my', requireRole(...rbacConfig.staffHRRoutes), replacementController.getPendingReplacements);
+router.post('/replacements', requireRole(...rbacConfig.staffHRRoutes), replacementController.requestReplacement);
 
 // Admin upload-prescription page compatibility. The documents are stored in
 // appointment_documents, but the page owns a staff-scoped URL contract.

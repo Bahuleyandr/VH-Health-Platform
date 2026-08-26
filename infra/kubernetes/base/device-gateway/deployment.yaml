@@ -45,6 +45,11 @@ spec:
             - name: metrics
               containerPort: 9108
           envFrom:
+            # Project operator-sealed per-analyzer LIS tokens by their dynamic
+            # token_env names. Keep this before the ConfigMap so non-secret
+            # configuration remains authoritative on any accidental collision.
+            - secretRef:
+                name: device-gateway-secret
             - configMapRef:
                 name: device-gateway-config
           env:

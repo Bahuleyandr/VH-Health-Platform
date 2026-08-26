@@ -117,6 +117,105 @@ describe('requireIdempotencyKey', () => {
     expect(res.statusCode).toBe(422);
   });
 
+  it.each([
+    {
+      name: 'replay',
+      row: {
+        id: 1,
+        status: 'complete',
+        response_status: 201,
+        response_body: { ok: true },
+        request_body_hash: hashRequestBody({ x: 1 }),
+        is_expired: false,
+      },
+      statusCode: 201,
+      body: { ok: true },
+    },
+    {
+      name: 'in-flight rejection',
+      row: {
+        id: 1,
+        status: 'in_flight',
+        request_body_hash: hashRequestBody({ x: 1 }),
+        is_expired: false,
+      },
+      statusCode: 409,
+    },
+    {
+      name: 'body mismatch',
+      row: {
+        id: 1,
+        status: 'complete',
+        response_status: 201,
+        response_body: { ok: true },
+        request_body_hash: hashRequestBody({ x: 2 }),
+        is_expired: false,
+      },
+      statusCode: 422,
+    },
+  ])('collapses an alias onto one canonical claim for $name', async ({ row, statusCode, body }) => {
+    queryUnsafeMock
+      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+      .mockResolvedValueOnce([row]);
+    const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/movements';
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_movement',
+      requestPathForIdempotency: canonicalPath,
+    });
+    const { req, res } = makeReqRes({
+      originalUrl: '/api/v1/pharmacy/inventory/v2/movements?source=alias',
+      headers: { 'idempotency-key': 'cross-alias-key' },
+      body: { x: 1 },
+    });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(statusCode);
+    if (body) expect(res.body).toEqual(body);
+    expect(queryUnsafeMock.mock.calls[0][5]).toBe(canonicalPath);
+    expect(queryUnsafeMock.mock.calls[1][4]).toBe(canonicalPath);
+  });
+
+  it('derives canonical approval paths without conflating distinct approval ids', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 71, status: 'in_flight' }])
+      .mockResolvedValueOnce([{ id: 72, status: 'in_flight' }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_movement_witness_approval',
+      requestPathForIdempotency: (req) => (
+        `/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/${req.params.id}/approve`
+      ),
+    });
+    const first = makeReqRes({
+      originalUrl: '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/71/approve',
+      params: { id: '71' },
+      headers: { 'idempotency-key': 'approval-key' },
+    });
+    const second = makeReqRes({
+      originalUrl: '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+      params: { id: '72' },
+      headers: { 'idempotency-key': 'approval-key' },
+    });
+    const firstNext = jest.fn();
+    const secondNext = jest.fn();
+
+    await mw(first.req, first.res, firstNext);
+    await mw(second.req, second.res, secondNext);
+
+    expect(firstNext).toHaveBeenCalledTimes(1);
+    expect(secondNext).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][5]).toBe(
+      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/71/approve',
+    );
+    expect(queryUnsafeMock.mock.calls[1][5]).toBe(
+      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+    );
+  });
+
   it('proceeds to handler on first claim, captures response, persists complete', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 99, status: 'in_flight' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 99, status: 'complete' }]);

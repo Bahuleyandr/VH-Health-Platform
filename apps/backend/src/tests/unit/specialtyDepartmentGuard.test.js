@@ -3,6 +3,11 @@
 
 import { jest } from '@jest/globals';
 
+const logSecurityEvent = jest.fn();
+jest.unstable_mockModule('../../utils/securityAuditLogger.js', () => ({
+  logSecurityEvent,
+}));
+
 const {
   SPECIALTY_DEPARTMENT_ALIASES,
   normalizeDepartment,
@@ -11,7 +16,11 @@ const {
   specialtyDepartmentGuard,
   cacheDepartmentResolver,
 } = await import('../../middleware/specialtyDepartmentMiddleware.js');
-const { SPECIALTY_FEATURE_KEYS, SPECIALTY_DEPARTMENT_MODULES } = await import(
+const {
+  SPECIALTY_FEATURE_KEYS,
+  SPECIALTY_DEPARTMENT_MODULES,
+  specialtyGateModesByFeature,
+} = await import(
   '../../config/specialtyDepartmentPolicy.js'
 );
 
@@ -57,9 +66,31 @@ describe('specialtyGateMode', () => {
   });
 });
 
+describe('specialtyGateModesByFeature', () => {
+  it('covers every gated feature id and resolves per-module overrides', () => {
+    const modes = specialtyGateModesByFeature({
+      SPECIALTY_DEPARTMENT_GATE_MODE_DENTAL: 'enforce',
+    });
+    expect(Object.keys(modes).sort()).toEqual(
+      Object.keys(SPECIALTY_FEATURE_KEYS).sort(),
+    );
+    expect(modes.dental_charting).toBe('enforce');
+    for (const [featureId, mode] of Object.entries(modes)) {
+      if (featureId === 'dental_charting') continue;
+      expect({ featureId, mode }).toEqual({ featureId, mode: 'report' });
+    }
+  });
+
+  it('defaults every module to report with no env knobs set', () => {
+    const modes = specialtyGateModesByFeature({});
+    for (const mode of Object.values(modes)) expect(mode).toBe('report');
+  });
+});
+
 describe('middleware state machine (resolver injected)', () => {
   const saved = process.env.SPECIALTY_DEPARTMENT_GATE_MODE;
   afterEach(() => {
+    logSecurityEvent.mockClear();
     if (saved === undefined) delete process.env.SPECIALTY_DEPARTMENT_GATE_MODE;
     else process.env.SPECIALTY_DEPARTMENT_GATE_MODE = saved;
   });
@@ -84,6 +115,10 @@ describe('middleware state machine (resolver injected)', () => {
     });
     const { nexted } = await run(guard);
     expect(nexted).toBe(true);
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({ statusCode: 403 }),
+    );
   });
 
   it('enforce mode denies a mismatch with the structured code', async () => {
@@ -95,6 +130,10 @@ describe('middleware state machine (resolver injected)', () => {
     expect(nexted).toBe(false);
     expect(res.statusCode).toBe(403);
     expect(JSON.stringify(res.body)).toContain('SPECIALTY_DEPARTMENT_REQUIRED');
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({ statusCode: 403 }),
+    );
   });
 
   it('enforce mode admits a department match', async () => {
@@ -124,7 +163,17 @@ describe('middleware state machine (resolver injected)', () => {
     process.env.SPECIALTY_DEPARTMENT_GATE_MODE = 'enforce';
     out = await run(specialtyDepartmentGuard('dental', { resolveDepartments: boom }));
     expect(out.nexted).toBe(false);
-    expect(out.res.statusCode).toBe(500);
+    // Fail-closed as a TYPED 403, not a leaked 500 (AZ-4): the denial is
+    // deliberate and must read as an access decision to the client.
+    expect(out.res.statusCode).toBe(403);
+    expect(JSON.stringify(out.res.body)).toContain('SPECIALTY_DEPARTMENT_UNRESOLVED');
+    expect(logSecurityEvent).toHaveBeenCalledWith(
+      'SPECIALTY_DEPARTMENT_MISMATCH',
+      expect.objectContaining({
+        statusCode: 403,
+        reason: expect.stringContaining('Department resolution failed'),
+      }),
+    );
   });
 
   it('off mode is inert', async () => {

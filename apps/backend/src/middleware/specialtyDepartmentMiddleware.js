@@ -157,7 +157,22 @@ export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = ca
           specialty: specialtyKey,
           error: err.message,
         });
-        return error(res, 'Specialty access check failed', 500);
+        // Still fail-closed, but as a typed 403 rather than a leaked 500,
+        // and with a ledger entry — a resolution fault that denies access
+        // must be visible in the same mismatch ledger the rollout reviews
+        // (2026-08-25 reaudit, AZ-4).
+        logSecurityEvent('SPECIALTY_DEPARTMENT_MISMATCH', {
+          userId: req.user?.uid || req.user?.id,
+          userRole: role,
+          ip: req.ip,
+          path: req.originalUrl,
+          method: req.method,
+          statusCode: 403,
+          reason: `Department resolution failed for ${specialtyKey} (mode=enforce): ${err.message}`,
+        });
+        return error(res, 'Access to this specialty module is restricted to its department', 403, {
+          topLevel: { code: 'SPECIALTY_DEPARTMENT_UNRESOLVED', specialty: specialtyKey },
+        });
       }
       // Shadow mode never breaks traffic on a resolution error — it reports.
       logger.warn('Specialty department gate (report mode) resolution error', {
@@ -175,6 +190,7 @@ export function specialtyDepartmentGuard(specialtyKey, { resolveDepartments = ca
       ip: req.ip,
       path: req.originalUrl,
       method: req.method,
+      statusCode: 403,
       reason: `Caller has no ${specialtyKey} department (${resolvedCount} department signal(s) resolved; mode=${mode})`,
     });
 

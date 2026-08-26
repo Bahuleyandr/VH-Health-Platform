@@ -40,7 +40,6 @@ import { getAbdmEnrolmentSettings } from '../tenant/tenantSettingsService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import abdmGateway from './abdmGateway.js';
 
-const LIVE_STATUSES = ['initiated', 'otp_sent', 'otp_verifying', 'otp_verified'];
 const MAX_OTP_ATTEMPTS = 3;
 const MAX_OTP_RESENDS = 3;
 const OTP_TTL_MINUTES = 10;
@@ -893,8 +892,8 @@ export async function resendEnrolmentOtp({
  *
  * WHAT COUNTS AS CANCELLABLE. Every status the one-live-session partial
  * unique index counts as live — and since migration 707 that index is
- * `status IN ('initiated','otp_sent','otp_verifying','otp_verified')`, the
- * same list as LIVE_STATUSES. 'otp_verifying' used to be missing here, so a
+ * `status IN ('initiated','otp_sent','otp_verifying','otp_verified')`.
+ * 'otp_verifying' used to be missing here, so a
  * row in that state held the slot and cancel answered 404
  * ABHA_ENROLMENT_SESSION_NOT_FOUND: the patient could not start again until
  * the every-5-minute expiry sweep passed the row's expires_at, which
@@ -931,6 +930,7 @@ export async function cancelEnrolment({ tenantId = null, sessionId, patientUid }
     `UPDATE abha_enrolment_sessions
         SET status = 'cancelled',
             verification_claim_id = NULL, verification_claimed_at = NULL,
+            resend_claim_id = NULL, resend_claimed_at = NULL,
             updated_at = NOW()
       WHERE id = $1::integer AND tenant_id = $2::uuid
         AND patient_uid = $3::uuid
@@ -986,21 +986,18 @@ export async function getEnrolmentStatus({ tenantId = null, patientUid } = {}) {
 
 /**
  * Cron sweep: expire live sessions past expires_at (abha-enrolment-expiry).
- * Cross-tenant with explicit predicates; runs under the scheduler's job lock.
+ * The scheduler may invoke only migration 736's parameterless owner routine;
+ * runtime SQL cannot choose a tenant, predicate, state, timestamp, or payload.
  */
 export async function sweepExpiredEnrolmentSessions() {
   const rows = await prisma.$queryRawUnsafe(
-    `UPDATE abha_enrolment_sessions
-        SET status = 'expired', verification_claim_id = NULL,
-            verification_claimed_at = NULL, updated_at = NOW()
-      WHERE status IN ('${LIVE_STATUSES.join("', '")}')
-        AND expires_at IS NOT NULL AND expires_at < NOW()
-      RETURNING id`,
+    'SELECT public.sweep_expired_abha_enrolment_sessions() AS expired',
   );
-  if (rows.length > 0) {
-    logger.info('ABHA enrolment expiry sweep complete', { expired: rows.length });
+  const expired = Number(rows[0]?.expired ?? 0);
+  if (expired > 0) {
+    logger.info('ABHA enrolment expiry sweep complete', { expired });
   }
-  return { expired: rows.length };
+  return { expired };
 }
 
 export default {

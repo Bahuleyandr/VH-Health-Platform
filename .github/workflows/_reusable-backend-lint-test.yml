@@ -221,6 +221,21 @@ jobs:
       - name: OpenAPI core-spec sync check (vhhealth_core copy matches canonical)
         run: node scripts/check-core-spec-sync.mjs
 
+      # Silence the Postgres service container's per-statement/error logging
+      # before any DB traffic, so the "Stop containers" post-job teardown does
+      # not flood the job log. GitHub `services:` cannot override the container
+      # command, so settings are pushed via ALTER SYSTEM + reload (see the test
+      # job for the full rationale). psql runs from the service image for parity.
+      - name: Quiet Postgres logging (reduce teardown log flood)
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET log_statement='none';" \
+              -c "ALTER SYSTEM SET log_min_messages='fatal';" \
+              -c "ALTER SYSTEM SET log_min_error_statement='fatal';" \
+              -c "ALTER SYSTEM SET log_min_duration_statement=-1;" \
+              -c "SELECT pg_reload_conf();"
+
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
 
@@ -341,14 +356,138 @@ jobs:
         if: steps.prisma-client.outputs.cache-hit != 'true'
         run: npx prisma generate
 
+      # Silence the Postgres service container's per-statement/error logging
+      # BEFORE any migration/seed/test traffic. The GitHub `services:` syntax
+      # cannot override the container command (no `-c` server flags), so instead
+      # push the settings via ALTER SYSTEM + a config reload the moment the DB is
+      # healthy. Without this, the "Stop containers" post-job step dumps
+      # thousands of statement/error log lines into the job log AFTER the jest
+      # output, and the job-log API only serves the last ~5000 lines — burying a
+      # failing shard's FAIL/assertion lines beyond recovery. psql is run from
+      # the service image for client/server parity (same pattern as pg_dump/
+      # pg_restore below).
+      - name: Quiet Postgres logging (reduce teardown log flood)
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET log_statement='none';" \
+              -c "ALTER SYSTEM SET log_min_messages='fatal';" \
+              -c "ALTER SYSTEM SET log_min_error_statement='fatal';" \
+              -c "ALTER SYSTEM SET log_min_duration_statement=-1;" \
+              -c "SELECT pg_reload_conf();"
+
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
 
-      - name: Apply raw migrations + seed lookup data
+      # Cache a MIGRATED-but-UNSEEDED template so each shard restores the schema
+      # instead of replaying the whole migration chain. Keyed on the migrations,
+      # applier/helper roots, runtime dependencies, and database/runtime versions
+      # so any execution-semantic change is a cache miss (fresh apply).
+      # Seeds are NEVER cached — they use NOW() and date-relative tests exist —
+      # so seeding always runs fresh below. pg_dump/pg_restore run from the
+      # postgres service image for client/server version parity (the runner's
+      # bundled client is older than the pg17 service).
+      #
+      # HARDENING (poisoned-cache fix): a prior optimization saved this cache
+      # from every shard in parallel on a miss, and a partial/empty dump could
+      # be captured — poisoning the key so every later run got a cache HIT on a
+      # zero-byte archive and died at pg_restore ("input file is too short").
+      # Three defenses now:
+      #   1. key bumped v1 -> v2 to abandon the poisoned entry;
+      #   2. restore is split from save (actions/cache/restore is restore-only),
+      #      a cache hit is VALIDATED before use, and any bad dump falls through
+      #      to the fresh build path — the job never dies on a corrupt cache;
+      #   3. exactly ONE shard saves, only after building a validated dump, and
+      #      the dump is written atomically (temp file -> mv) so a save can
+      #      never capture a half-written archive;
+      #   4. key v3 hashes the applier's complete semantic dependency roots,
+      #      package lock, Node runtime, and Postgres image.
+      - name: Restore migrated DB template
+        id: db-template
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/.db-template/template.dump
+          key: db-template-v3-${{ runner.os }}-node-26.5.0-${{ inputs.postgres_image }}-${{ hashFiles('.github/workflows/_reusable-backend-lint-test.yml', 'apps/backend/src/migrations/**', 'apps/backend/scripts/ci-setup-db.mjs', 'apps/backend/scripts/ensure-pgvector-extension.mjs', 'apps/backend/scripts/lib/**', 'apps/backend/src/utils/migrations/**', 'apps/backend/src/logging/**', 'apps/backend/src/utils/logMasking.js', 'apps/backend/src/utils/urlRedaction.js', 'apps/backend/package.json', 'apps/backend/package-lock.json') }}
+
+      # Self-heal: only trust a cached dump that exists, is non-trivially sized,
+      # and parses as a valid custom-format archive. A failing check is demoted
+      # to a miss (file removed) so the build path below rebuilds instead of the
+      # restore path dying.
+      - name: Validate cached DB template
+        id: validate-template
+        if: steps.db-template.outputs.cache-hit == 'true'
+        run: |
+          valid=false
+          dump=.db-template/template.dump
+          if [ -f "$dump" ] && [ "$(stat -c%s "$dump")" -gt 1024 ]; then
+            if docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+                pg_restore --list < "$dump" > /dev/null 2>&1; then
+              valid=true
+            fi
+          fi
+          echo "valid=$valid" >> "$GITHUB_OUTPUT"
+          if [ "$valid" != "true" ]; then
+            echo "::warning::Cached DB template is missing/empty/corrupt — falling through to a fresh migrated rebuild."
+            rm -f "$dump"
+          fi
+
+      - name: Load template into database (valid cache hit)
+        if: steps.db-template.outputs.cache-hit == 'true' && steps.validate-template.outputs.valid == 'true'
+        run: |
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            pg_restore --no-owner --no-privileges --exit-on-error -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth \
+            < .db-template/template.dump
+
+      # Fresh build path: runs on a genuine cache miss OR when the cached dump
+      # failed validation. Applies migrations to the live DB and dumps ATOMICALLY
+      # (temp file, size-checked, then mv into place) so the artifact that a
+      # cache save may later capture is always complete.
+      - name: Build migrated template (cache miss or invalid cache)
+        id: build-template
+        if: steps.db-template.outputs.cache-hit != 'true' || steps.validate-template.outputs.valid != 'true'
+        run: |
+          set -o pipefail
+          node scripts/ci-setup-db.mjs --skip-seeds
+          mkdir -p .db-template
+          tmp=.db-template/template.dump.tmp
+          rm -f "$tmp"
+          docker run --rm --network host -e PGPASSWORD=${{ github.run_id }} "${{ inputs.postgres_image }}" \
+            pg_dump -Fc -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth > "$tmp"
+          if [ ! -s "$tmp" ] || [ "$(stat -c%s "$tmp")" -le 1024 ]; then
+            echo "::error::pg_dump produced an empty/short template archive — refusing to publish it."
+            rm -f "$tmp"
+            exit 1
+          fi
+          mv "$tmp" .db-template/template.dump
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      # Single-writer save: only shard 1, only after a validated fresh build, and
+      # only when the key was a genuine miss (an existing key is immutable in the
+      # cache backend anyway). This eliminates the parallel-save race that
+      # poisoned the key.
+      - name: Save migrated DB template (single writer)
+        if: matrix.shard == 1 && steps.build-template.outputs.built == 'true' && steps.db-template.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/.db-template/template.dump
+          key: ${{ steps.db-template.outputs.cache-primary-key }}
+
+      # Migrations now present either way (tracker-driven ci-setup-db skips them);
+      # this run seeds lookup data and provisions the non-owner RLS test roles,
+      # which live outside a per-database dump and must be recreated per shard.
+      - name: Seed lookup data + provision RLS roles
         run: node scripts/ci-setup-db.mjs
 
       - name: Seed comprehensive test data
         run: npm run seed:test-data
+
+      # T-M1: runtime-role (NOBYPASSRLS) regression for the pre-tenant webhook /
+      # ABDM / bounded-sweep paths under migration 726's fail-closed RLS. Runs
+      # once (shard 1) against the migrated DB; fails loudly if migration 732's
+      # resolver or migration 736's parameterless owner capabilities regress.
+      - name: Runtime-role webhook/ABDM RLS regression (T-M1)
+        if: matrix.shard == 1
+        run: node --experimental-vm-modules node_modules/jest/bin/jest.js src/tests/deep/runtimeRoleWebhookRls.deep.test.js --runInBand --forceExit
 
       - name: Run tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
         # Deterministic interleave over the chunked suite: every shard
@@ -370,6 +509,89 @@ jobs:
         run: |
           set -o pipefail
           npm run test:ci 2>&1 | tee /tmp/jest-shard-output.log
+
+      # Recoverability: the tee'd log is also uploaded as an artifact below, but
+      # artifact egress has been blocked before, leaving failing assertions
+      # unreadable. Echo the log tail into the job log itself (which get_job_logs
+      # can always read) so the real FAIL lines survive even when the artifact
+      # does not. Runs before the Postgres service teardown at job end.
+      - name: Dump failing jest log tail (job-log recoverable)
+        if: failure()
+        run: |
+          echo "===== tail of /tmp/jest-shard-output.log (shard ${{ matrix.shard }}/${{ strategy.job-total }}) ====="
+          tail -n 400 /tmp/jest-shard-output.log || echo "(no jest log captured — failure was before/at DB setup)"
+
+      # Belt-and-suspenders recoverability: the job-log tail above can still be
+      # buried, and the artifact/presigned URL sit on an egress-blocked blob
+      # host — but GitHub check-run ANNOTATIONS are retrievable as JSON via the
+      # API even under that egress policy. Re-emit the failing-test blocks as
+      # `::error::` workflow commands (which become annotations) so the exact
+      # failing test name + assertion is always readable. Parses the tee'd log
+      # for file-level `FAIL` lines, per-test `●` headers + their assertion
+      # context, and the `Tests:`/`Test Suites:` summary. Multi-line messages
+      # are joined with `%0A`; `%` is pre-escaped to `%25` per the workflow
+      # command spec. Emits a single explanatory `::error::` if the log is
+      # missing/empty. Runs before the Postgres service teardown at job end.
+      - name: "Annotate failing jest tests (workflow ::error:: commands)"
+        if: failure()
+        shell: bash
+        run: |
+          log=/tmp/jest-shard-output.log
+          shard="${{ matrix.shard }}/${{ strategy.job-total }}"
+          if [ ! -s "$log" ]; then
+            echo "::error title=Jest shard ${shard}::No jest output captured at ${log} (the failing shard produced no test output — failure occurred before/at DB setup, or the log is empty)."
+            exit 0
+          fi
+          # File-level FAIL lines (one annotation each).
+          grep -E '^FAIL ' "$log" | while IFS= read -r line; do
+            clean=${line//$'\r'/}
+            clean=${clean//%/%25}
+            echo "::error title=Jest FAIL suite (shard ${shard})::${clean}"
+          done
+          # Per-test failure blocks: each begins with a '●' header; capture the
+          # header plus up to 8 following non-blank lines as the assertion.
+          awk -v shard="$shard" '
+            function emit() {
+              if (hdr != "") {
+                msg = hdr
+                for (i = 0; i < n; i++) msg = msg "%0A" buf[i]
+                print "::error title=Jest failing test (shard " shard ")::" msg
+              }
+              hdr = ""; n = 0; capture = 0
+            }
+            /^[[:space:]]*●[[:space:]]/ {
+              emit()
+              line = $0
+              sub(/^[[:space:]]*●[[:space:]]*/, "", line)
+              gsub(/\r/, "", line)
+              gsub(/%/, "%25", line)
+              hdr = line
+              capture = 1
+              next
+            }
+            {
+              if (capture && n < 8) {
+                l = $0
+                gsub(/\r/, "", l)
+                if (l ~ /^[[:space:]]*$/) {
+                  # Jest prints a blank line right after the '●' header; skip
+                  # leading blanks, but treat a blank AFTER captured content as
+                  # the end of this test's assertion block.
+                  if (n > 0) capture = 0
+                } else {
+                  gsub(/%/, "%25", l)
+                  buf[n++] = l
+                }
+              }
+            }
+            END { emit() }
+          ' "$log"
+          # Jest summary line(s).
+          grep -E '^(Tests|Test Suites):' "$log" | while IFS= read -r line; do
+            clean=${line//$'\r'/}
+            clean=${clean//%/%25}
+            echo "::error title=Jest summary (shard ${shard})::${clean}"
+          done
 
       - name: Upload jest output
         if: always()

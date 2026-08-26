@@ -1254,6 +1254,18 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql).toContain(
         'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.clinical_continuity_assert_snapshot_governance()\n          FROM vhhealth_app',
       );
+      expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public._migrations')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON TABLE public._migrations\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'GRANT SELECT\n          ON TABLE public._migrations\n          TO vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public._migrations_id_seq\n          FROM vhhealth_app',
+      );
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

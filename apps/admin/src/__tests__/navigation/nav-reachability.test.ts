@@ -24,7 +24,11 @@ import {
   visibleNavSections,
   type NavItem,
 } from "@/lib/navConfig";
-import { policyForPath, roleSatisfiesPolicy } from "@/lib/routePolicy";
+import {
+  policyForPath,
+  roleSatisfiesPolicy,
+  SHIFT_MANAGEMENT_ROLES,
+} from "@/lib/routePolicy";
 import fs from "fs";
 import path from "path";
 
@@ -151,6 +155,50 @@ describe("R10 — nav gating exactly mirrors ROUTE_POLICY", () => {
         hasAllPermissions: () => false,
       }),
     ).toBe(false);
+  });
+
+  test("Shift Management exactly mirrors backend staffAdminRoutes roles", () => {
+    const item = NAV_ITEMS.find(
+      (candidate) => candidate.href === "/dashboard/shifts",
+    );
+    const policy = policyForPath("/dashboard/shifts");
+    expect(item).toBeDefined();
+    expect(policy).not.toBeNull();
+    expect(item!.allowedRoles).toEqual(SHIFT_MANAGEMENT_ROLES);
+    expect(policy!.roles).toEqual(SHIFT_MANAGEMENT_ROLES);
+    expect(SHIFT_MANAGEMENT_ROLES).toEqual([
+      "SUPER_ADMIN",
+      "ADMIN",
+      "HR_STAFF",
+      "HOUSEKEEPING_INCHARGE",
+      "CMO",
+      "CNO",
+      "MEDICAL_SUPERINTENDENT",
+    ]);
+
+    for (const rawRole of SHIFT_MANAGEMENT_ROLES) {
+      expect(roleSatisfiesPolicy(rawRole, policy!)).toBe(true);
+      expect(
+        isNavItemVisible(item!, {
+          rawRole,
+          role: rawRole,
+          isSuperAdmin: rawRole === "SUPER_ADMIN",
+          hasAllPermissions: () => false,
+        }),
+      ).toBe(true);
+    }
+
+    for (const rawRole of ["STAFF", "HR", "HR_MANAGER"]) {
+      expect(roleSatisfiesPolicy(rawRole, policy!)).toBe(false);
+      expect(
+        isNavItemVisible(item!, {
+          rawRole,
+          role: rawRole,
+          isSuperAdmin: false,
+          hasAllPermissions: () => false,
+        }),
+      ).toBe(false);
+    }
   });
 
   test("the shared section filter returns the same visible item set", () => {

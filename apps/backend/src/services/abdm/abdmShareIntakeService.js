@@ -149,46 +149,60 @@ export async function handlePatientProfileShareCallback({
 
   const abhaNumber = normalizeAbhaNumber(patient.abhaNumber ?? patient.healthIdNumber);
   const abhaAddress = patient.abhaAddress ?? patient.healthId ?? null;
-  const inserted = await prisma.$queryRawUnsafe(
-    `INSERT INTO abdm_patient_share_intakes
-       (tenant_id, environment, request_id, token_number, counter_context,
-        abha_number, abha_address, profile, status, received_at, expires_at)
-     VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text,
-             $6::text, $7::text, $8::jsonb, 'received', NOW(),
-             NOW() + ($9::int * INTERVAL '1 minute'))
-     ON CONFLICT (tenant_id, request_id, environment) DO NOTHING
-     RETURNING ${INTAKE_RETURNING}`,
-    tid, environment, requestId,
-    patient.tokenNumber ? String(patient.tokenNumber).slice(0, 20) : null,
-    profileWrapper.hipCode || profileWrapper.context || body.intent?.counter || null,
-    abhaNumber,
-    abhaAddress ? String(abhaAddress).trim().toLowerCase().slice(0, 120) : null,
-    JSON.stringify(sanitizeSharedProfile(patient)),
-    SHARE_INTAKE_TTL_MINUTES,
-  );
+  const incomingTokenNumber = String(patient.tokenNumber || '').trim().slice(0, 20) || null;
+  const counterContext = profileWrapper.hipCode
+    || profileWrapper.context
+    || body.intent?.counter
+    || null;
+  // Public callback mount — no request tenant context exists, so wrap the
+  // 726-tranche writes/reads on abdm_patient_share_intakes in setTenantTx for
+  // the resolved tenant. Plain prisma would 42501 on the INSERT WITH CHECK
+  // under the fail-closed restrictive policy on the prod runtime role.
+  const { intake, duplicate } = await setTenantTx(tid, async (tx) => {
+    const inserted = await tx.$queryRawUnsafe(
+      `INSERT INTO abdm_patient_share_intakes
+         (tenant_id, environment, request_id, token_number, counter_context,
+          abha_number, abha_address, profile, status, received_at, expires_at)
+       VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text,
+               $6::text, $7::text, $8::jsonb, 'received', NOW(),
+               NOW() + ($9::int * INTERVAL '1 minute'))
+       ON CONFLICT (tenant_id, request_id, environment) DO NOTHING
+       RETURNING id`,
+      tid, environment, requestId, incomingTokenNumber, counterContext,
+      abhaNumber,
+      abhaAddress ? String(abhaAddress).trim().toLowerCase().slice(0, 120) : null,
+      JSON.stringify(sanitizeSharedProfile(patient)),
+      SHARE_INTAKE_TTL_MINUTES,
+    );
+    const wasDuplicate = inserted.length === 0;
 
-  let intake = inserted[0] || null;
-  let duplicate = false;
-  if (!intake) {
-    duplicate = true;
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT ${INTAKE_RETURNING} FROM abdm_patient_share_intakes
-        WHERE tenant_id = $1::uuid AND request_id = $2::text AND environment = $3::text
-        LIMIT 1`,
-      tid, requestId, environment,
-    );
-    intake = existing[0] || null;
-  } else if (!intake.token_number) {
-    // No CM-assigned token: mint a queue-display token from the row id.
-    const tokenRows = await prisma.$queryRawUnsafe(
+    // The UPDATE is both the row lock and the legacy repair. Keeping it in the
+    // INSERT transaction means a local-token failure rolls back a new intake,
+    // while a redelivery heals any row stranded tokenless by older code.
+    const intakes = await tx.$queryRawUnsafe(
       `UPDATE abdm_patient_share_intakes
-          SET token_number = 'T-' || id::text, updated_at = NOW()
-        WHERE id = $1::integer AND tenant_id = $2::uuid AND token_number IS NULL
+          SET token_number = COALESCE(
+                NULLIF(BTRIM(token_number), ''),
+                $4::text,
+                'T-' || id::text
+              ),
+              updated_at = CASE
+                WHEN NULLIF(BTRIM(token_number), '') IS NULL THEN NOW()
+                ELSE updated_at
+              END
+        WHERE tenant_id = $1::uuid AND request_id = $2::text
+          AND environment = $3::text
         RETURNING ${INTAKE_RETURNING}`,
-      intake.id, tid,
+      tid, requestId, environment, incomingTokenNumber,
     );
-    intake = tokenRows[0] || intake;
-  }
+    if (intakes.length !== 1) {
+      throw AppError.conflict(
+        'Profile share intake could not be established atomically',
+        'ABDM_SHARE_INTAKE_NOT_ESTABLISHED',
+      );
+    }
+    return { intake: intakes[0], duplicate: wasDuplicate };
+  });
 
   await markWebhookProcessed({
     tenantId: tid,
@@ -531,18 +545,20 @@ export async function dismissShareIntake({
   return publicIntake(updated);
 }
 
-/** Cron sweep: expire unactioned intakes (abdm-share-intake-expiry). */
+/**
+ * Cron sweep: expire unactioned intakes (abdm-share-intake-expiry). The
+ * scheduler may invoke only migration 736's parameterless owner routine;
+ * runtime SQL cannot choose a tenant, predicate, state, timestamp, or payload.
+ */
 export async function sweepExpiredShareIntakes() {
   const rows = await prisma.$queryRawUnsafe(
-    `UPDATE abdm_patient_share_intakes
-        SET status = 'expired', updated_at = NOW()
-      WHERE status = 'received' AND expires_at IS NOT NULL AND expires_at < NOW()
-      RETURNING id`,
+    'SELECT public.sweep_expired_abdm_share_intakes() AS expired',
   );
-  if (rows.length > 0) {
-    logger.info('ABDM share-intake expiry sweep complete', { expired: rows.length });
+  const expired = Number(rows[0]?.expired ?? 0);
+  if (expired > 0) {
+    logger.info('ABDM share-intake expiry sweep complete', { expired });
   }
-  return { expired: rows.length };
+  return { expired };
 }
 
 export default {

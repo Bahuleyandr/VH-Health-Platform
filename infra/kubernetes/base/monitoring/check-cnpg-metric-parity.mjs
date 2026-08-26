@@ -106,8 +106,9 @@ if (exportedReferences.length === 0) {
 // corrupts the prefix itself (`cnpg_vhealth_connections_total`) falls out of
 // scope and passes silently — the same shape of failure this check exists to
 // catch. So every `cnpg_*` series is swept, and anything that is neither a CNPG
-// built-in (`cnpg_pg_*`, whose queries live in the operator, not this repo) nor
-// derivable from cluster.yaml is a failure.
+// built-in (`cnpg_pg_*` from the operator's default queries, or `cnpg_collector_*`
+// the instance-manager exporter's own health series — neither defined in this
+// repo) nor derivable from cluster.yaml is a failure.
 for (const file of listRuleFiles(here)) {
   for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
     // Only executable references — an `expr:` or a fixture `- series:`. Prose in
@@ -115,9 +116,11 @@ for (const file of listRuleFiles(here)) {
     // spellings while explaining them.
     if (!/^\s*(expr:|-\s*series:)/.test(line)) continue;
     for (const [, name] of line.matchAll(/\b(cnpg_[A-Za-z0-9_]+)/g)) {
-      if (name.startsWith(SERIES_PREFIX) || name.startsWith('cnpg_pg_')) continue;
+      if (name.startsWith(SERIES_PREFIX)
+        || name.startsWith('cnpg_pg_')
+        || name.startsWith('cnpg_collector_')) continue;
       failures.push(
-        `${rel(file)}: ${name} is neither a CNPG built-in (cnpg_pg_*) nor derivable from ${rel(clusterFile)} — if this is a custom-query series the prefix or query name is misspelled`,
+        `${rel(file)}: ${name} is neither a CNPG built-in (cnpg_pg_* / cnpg_collector_*) nor derivable from ${rel(clusterFile)} — if this is a custom-query series the prefix or query name is misspelled`,
       );
     }
   }

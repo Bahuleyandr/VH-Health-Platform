@@ -1362,6 +1362,16 @@ describe('received bundle access follows the live consent', () => {
 });
 
 describe('consent request leg + acks', () => {
+  const REQUESTED_ACK_SESSION = {
+    id: 71,
+    transaction_id: 'req-71',
+    request_id: 'req-71',
+    status: 'requested',
+    acknowledged_at: null,
+    key_material_private_ciphertext: 'enc:key',
+    failure_reason: null,
+  };
+
   it('requires the requested ABHA address to be verified on the target patient', async () => {
     route('SELECT uid FROM users', () => []);
     await expect(hiuService.createHiuConsentRequest({
@@ -1402,13 +1412,23 @@ describe('consent request leg + acks', () => {
 
   it('on-request ack stamps the CM transactionId and acknowledges the session', async () => {
     let ackSql;
-    route("status = 'acknowledged'", (sql, args) => {
+    route('FROM abdm_hiu_fetch_sessions', (sql, args) => {
+      expect(sql).toContain('environment = $3::text');
+      expect(args).toEqual([TENANT_ID, 'req-71', 'sandbox']);
+      return [REQUESTED_ACK_SESSION];
+    });
+    route("SET transaction_id = $4::text, status = 'acknowledged'", (sql, args) => {
       ackSql = sql;
-      expect(args).toEqual([TENANT_ID, 'req-71', 'cm-txn-9']);
-      return [];
+      expect(args).toEqual([71, TENANT_ID, 'sandbox', 'cm-txn-9', 'req-71']);
+      return [{
+        ...REQUESTED_ACK_SESSION,
+        transaction_id: 'cm-txn-9',
+        status: 'acknowledged',
+        acknowledged_at: new Date(),
+      }];
     });
 
-    await hiuService.handleHiuHealthInfoOnRequest({
+    const result = await hiuService.handleHiuHealthInfoOnRequest({
       tenantId: TENANT_ID,
       environment: 'sandbox',
       body: {
@@ -1417,7 +1437,214 @@ describe('consent request leg + acks', () => {
         hiRequest: { transactionId: 'cm-txn-9', sessionStatus: 'ACKNOWLEDGED' },
       },
     });
-    expect(ackSql).toContain('transaction_id = $3::text');
+    expect(result).toMatchObject({ duplicate: false, idempotent: false });
+    expect(ackSql).toContain('RETURNING id, transaction_id');
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 61, status: 'processed' }),
+    );
+  });
+
+  it('fails webhook evidence when a successful ack omits the CM transactionId', async () => {
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: { requestId: 'ack-missing-txn', resp: { requestId: 'req-71' } },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_ON_REQUEST_SHAPE', statusCode: 400 });
+
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledTimes(1);
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it.each([
+    ['missing', []],
+    ['ambiguous', [REQUESTED_ACK_SESSION, { ...REQUESTED_ACK_SESSION, id: 72 }]],
+  ])('fails closed when the acknowledgement request is %s', async (_label, rows) => {
+    route('FROM abdm_hiu_fetch_sessions', () => rows);
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: `ack-${_label}`,
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_ACK_NOT_APPLIED', statusCode: 409 });
+
+    expect(txQuery.mock.calls.some((call) => call[0].includes('SET transaction_id'))).toBe(false);
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it('accepts a same-transaction retry without regressing a completed session', async () => {
+    route('FROM abdm_hiu_fetch_sessions', () => [{
+      ...REQUESTED_ACK_SESSION,
+      transaction_id: 'cm-txn-9',
+      status: 'completed',
+      acknowledged_at: new Date('2026-08-25T12:00:00.000Z'),
+      key_material_private_ciphertext: null,
+    }]);
+
+    const result = await hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: 'ack-retry-new-event',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+      },
+    });
+
+    expect(result).toMatchObject({ duplicate: false, idempotent: true });
+    expect(txQuery.mock.calls.some((call) => call[0].includes('SET transaction_id'))).toBe(false);
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'processed' }),
+    );
+  });
+
+  it('rejects a retry that conflicts with the session transaction binding', async () => {
+    route('FROM abdm_hiu_fetch_sessions', () => [{
+      ...REQUESTED_ACK_SESSION,
+      transaction_id: 'cm-txn-original',
+      status: 'acknowledged',
+      acknowledged_at: new Date(),
+    }]);
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: 'ack-conflicting-txn',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-other' },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_ACK_NOT_APPLIED', statusCode: 409 });
+    expect(hipHiuMock.markWebhookProcessed).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it.each([
+    [
+      'a different session and transaction',
+      {
+        resp: { requestId: 'req-original' },
+        hiRequest: { transactionId: 'cm-txn-original' },
+      },
+      {
+        requestId: 'ack-reused',
+        resp: { requestId: 'req-other' },
+        hiRequest: { transactionId: 'cm-txn-other' },
+      },
+    ],
+    [
+      'a different transaction for the same session',
+      {
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-original' },
+      },
+      {
+        requestId: 'ack-reused',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-other' },
+      },
+    ],
+    [
+      'a rejection reusing a successful event identity',
+      {
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+      },
+      {
+        requestId: 'ack-reused',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+        error: { message: 'late rejection' },
+      },
+    ],
+  ])('rejects duplicate event id rebound to %s before session access', async (
+    _label,
+    storedPayload,
+    incomingBody,
+  ) => {
+    hipHiuMock.recordWebhookEvent.mockResolvedValue({
+      event: {
+        id: '61',
+        status: 'processed',
+        event_type: 'hiu_health_info_on_request',
+        payload: storedPayload,
+      },
+      duplicate: true,
+    });
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: incomingBody,
+    })).rejects.toMatchObject({
+      code: 'ABDM_HIU_ON_REQUEST_EVENT_COLLISION',
+      statusCode: 409,
+    });
+
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(txQuery).not.toHaveBeenCalled();
+    expect(hipHiuMock.markWebhookProcessed).not.toHaveBeenCalled();
+  });
+
+  it('repairs a requested session on duplicate delivery without rewriting event ownership', async () => {
+    hipHiuMock.recordWebhookEvent.mockResolvedValue({
+      event: {
+        id: '61',
+        status: 'processed',
+        event_type: 'hiu_health_info_on_request',
+        payload: {
+          resp: { requestId: 'req-71' },
+          hiRequest: { transactionId: 'cm-txn-9' },
+        },
+      },
+      duplicate: true,
+    });
+    route('FROM abdm_hiu_fetch_sessions', () => [REQUESTED_ACK_SESSION]);
+    route("SET transaction_id = $4::text, status = 'acknowledged'", () => [{
+      ...REQUESTED_ACK_SESSION,
+      transaction_id: 'cm-txn-9',
+      status: 'acknowledged',
+      acknowledged_at: new Date(),
+    }]);
+
+    const result = await hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: 'ack-duplicate',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+      },
+    });
+
+    expect(result).toMatchObject({ duplicate: true, idempotent: false });
+    expect(hipHiuMock.markWebhookProcessed).not.toHaveBeenCalled();
+  });
+
+  it('maps a CM transaction unique collision to a stable conflict', async () => {
+    route('FROM abdm_hiu_fetch_sessions', () => [REQUESTED_ACK_SESSION]);
+    route("SET transaction_id = $4::text, status = 'acknowledged'", () => {
+      throw Object.assign(new Error('duplicate key value'), { meta: { code: '23505' } });
+    });
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: 'ack-unique-conflict',
+        resp: { requestId: 'req-71' },
+        hiRequest: { transactionId: 'cm-txn-9' },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_TRANSACTION_CONFLICT', statusCode: 409 });
   });
 
   it('consent notify GRANTED verifies + records artefacts through the existing machinery', async () => {

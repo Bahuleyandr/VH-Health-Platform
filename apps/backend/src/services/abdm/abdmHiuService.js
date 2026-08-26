@@ -67,6 +67,7 @@ const BUNDLE_READ_TX_TIMEOUT_MS = 100000;
 const BUNDLE_UPLOAD_CLAIM_TX_TIMEOUT_MS = 100000;
 const BUNDLE_PURGE_TX_TIMEOUT_MS = 35000;
 const MAX_BUNDLE_PURGE_BATCH = 200;
+const HIU_ON_REQUEST_EVENT_TYPE = 'hiu_health_info_on_request';
 
 const SESSION_RETURNING = `id, tenant_id, environment, consent_artifact_id,
   data_transfer_id, patient_uid, transaction_id, request_id, hi_types,
@@ -137,6 +138,44 @@ function assertBundleTimeWindow(row) {
 
 function payloadTooLarge(message, code, details = null) {
   return new AppError(message, 413, code, details);
+}
+
+function isUniqueViolation(err) {
+  const code = err?.meta?.code ?? err?.code;
+  return String(code) === '23505' || /duplicate key value/i.test(String(err?.message || ''));
+}
+
+function hiuOnRequestCallbackIdentity(body = {}) {
+  const rejected = Boolean(body?.error);
+  return {
+    originalRequestId: String(body?.resp?.requestId || '').trim(),
+    transactionId: String(body?.hiRequest?.transactionId || '').trim(),
+    rejected,
+    failureReason: rejected
+      ? String(body?.error?.message || 'hi-request rejected').slice(0, 500)
+      : null,
+  };
+}
+
+function assertHiuOnRequestDuplicateBinding(eventIntake, incomingIdentity) {
+  if (eventIntake.duplicate !== true) return;
+  const storedPayload = eventIntake.event?.payload;
+  const storedIdentity = hiuOnRequestCallbackIdentity(storedPayload);
+  const bound = eventIntake.event?.event_type === HIU_ON_REQUEST_EVENT_TYPE
+    && storedPayload != null
+    && typeof storedPayload === 'object'
+    && !Array.isArray(storedPayload)
+    && storedIdentity.originalRequestId === incomingIdentity.originalRequestId
+    && storedIdentity.transactionId === incomingIdentity.transactionId
+    && storedIdentity.rejected === incomingIdentity.rejected
+    && (!incomingIdentity.rejected
+      || storedIdentity.failureReason === incomingIdentity.failureReason);
+  if (!bound) {
+    throw AppError.conflict(
+      'HIU acknowledgement event id is bound to a different callback identity',
+      'ABDM_HIU_ON_REQUEST_EVENT_COLLISION',
+    );
+  }
 }
 
 function sessionBundleBytes(session) {
@@ -994,49 +1033,146 @@ export async function handleHiuHealthInfoOnRequest({
   tenantId = null, environment = 'sandbox', body = {},
 } = {}) {
   const tid = requireTenantId(tenantId);
-  const originalRequestId = String(body?.resp?.requestId || '').trim();
+  const callbackIdentity = hiuOnRequestCallbackIdentity(body);
+  const originalRequestId = callbackIdentity.originalRequestId;
   if (!originalRequestId) {
     throw AppError.badRequest('on-request resp.requestId is required', 'ABDM_HIU_ON_REQUEST_SHAPE');
   }
   const eventIntake = await recordWebhookEvent({
     tenantId: tid,
     externalEventId: String(body.requestId || crypto.randomUUID()),
-    eventType: 'hiu_health_info_on_request',
+    eventType: HIU_ON_REQUEST_EVENT_TYPE,
     source: 'abdm_public_callback',
     signatureVerified: true,
     payload: body,
     environment,
     retryFailed: true,
   });
-  if (eventIntake.duplicate) return { duplicate: true };
+  const ownsWebhookEvent = eventIntake.duplicate !== true;
 
   try {
-  if (body?.error) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE abdm_hiu_fetch_sessions
-          SET status = 'failed', failure_reason = $3::text,
-              key_material_private_ciphertext = NULL, updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND request_id = $2::text
-          AND status IN ('requested', 'acknowledged')`,
-      tid, originalRequestId, String(body.error?.message || 'hi-request rejected').slice(0, 500),
-    );
-  } else {
-    const cmTransactionId = String(body?.hiRequest?.transactionId || '').trim();
-    if (cmTransactionId) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE abdm_hiu_fetch_sessions
-            SET transaction_id = $3::text, status = 'acknowledged',
-                acknowledged_at = NOW(), updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND request_id = $2::text
-            AND status = 'requested'`,
-        tid, originalRequestId, cmTransactionId,
+    assertHiuOnRequestDuplicateBinding(eventIntake, callbackIdentity);
+    const cmTransactionId = callbackIdentity.transactionId;
+    if (!callbackIdentity.rejected && !cmTransactionId) {
+      throw AppError.badRequest(
+        'on-request hiRequest.transactionId is required',
+        'ABDM_HIU_ON_REQUEST_SHAPE',
       );
     }
-  }
-  await markWebhookProcessed({ tenantId: tid, id: Number(eventIntake.event.id), status: 'processed' });
-  return { duplicate: false };
+
+    const failureReason = callbackIdentity.failureReason;
+    const outcome = await setTenantTx(tid, async (tx) => {
+      const sessions = await tx.$queryRawUnsafe(
+        `SELECT id, transaction_id, request_id, status, acknowledged_at,
+                key_material_private_ciphertext, failure_reason
+           FROM abdm_hiu_fetch_sessions
+          WHERE tenant_id = $1::uuid AND request_id = $2::text
+            AND environment = $3::text
+          ORDER BY id ASC
+          LIMIT 2
+          FOR UPDATE`,
+        tid, originalRequestId, environment,
+      );
+      if (sessions.length !== 1) {
+        throw AppError.conflict(
+          sessions.length === 0
+            ? 'No HIU fetch session matches this acknowledgement'
+            : 'HIU acknowledgement request id is ambiguous',
+          'ABDM_HIU_ACK_NOT_APPLIED',
+        );
+      }
+      const session = sessions[0];
+
+      if (callbackIdentity.rejected) {
+        if (session.status === 'failed'
+            && session.key_material_private_ciphertext == null
+            && session.failure_reason === failureReason) {
+          return { session, idempotent: true };
+        }
+        if (!['requested', 'acknowledged'].includes(session.status)) {
+          throw AppError.conflict(
+            'HIU fetch session no longer accepts this rejection',
+            'ABDM_HIU_ACK_NOT_APPLIED',
+          );
+        }
+        const failed = await tx.$queryRawUnsafe(
+          `UPDATE abdm_hiu_fetch_sessions
+              SET status = 'failed', failure_reason = $4::text,
+                  key_material_private_ciphertext = NULL, updated_at = NOW()
+            WHERE id = $1::integer AND tenant_id = $2::uuid
+              AND environment = $3::text
+              AND status IN ('requested', 'acknowledged')
+            RETURNING id, transaction_id, request_id, status, acknowledged_at,
+                      key_material_private_ciphertext, failure_reason`,
+          session.id, tid, environment, failureReason,
+        );
+        if (failed.length !== 1) {
+          throw AppError.conflict(
+            'HIU fetch rejection did not match a live session',
+            'ABDM_HIU_ACK_NOT_APPLIED',
+          );
+        }
+        return { session: failed[0], idempotent: false };
+      }
+
+      if (session.status !== 'requested') {
+        if (session.transaction_id === cmTransactionId && session.acknowledged_at) {
+          return { session, idempotent: true };
+        }
+        throw AppError.conflict(
+          'HIU acknowledgement conflicts with the fetch session state',
+          'ABDM_HIU_ACK_NOT_APPLIED',
+        );
+      }
+      if (session.transaction_id !== originalRequestId) {
+        throw AppError.conflict(
+          'HIU fetch session no longer carries its provisional transaction id',
+          'ABDM_HIU_ACK_NOT_APPLIED',
+        );
+      }
+
+      try {
+        const acknowledged = await tx.$queryRawUnsafe(
+          `UPDATE abdm_hiu_fetch_sessions
+              SET transaction_id = $4::text, status = 'acknowledged',
+                  acknowledged_at = COALESCE(acknowledged_at, NOW()), updated_at = NOW()
+            WHERE id = $1::integer AND tenant_id = $2::uuid
+              AND environment = $3::text AND request_id = $5::text
+              AND transaction_id = $5::text AND status = 'requested'
+            RETURNING id, transaction_id, request_id, status, acknowledged_at`,
+          session.id, tid, environment, cmTransactionId, originalRequestId,
+        );
+        if (acknowledged.length !== 1) {
+          throw AppError.conflict(
+            'HIU acknowledgement did not match a requested fetch session',
+            'ABDM_HIU_ACK_NOT_APPLIED',
+          );
+        }
+        return { session: acknowledged[0], idempotent: false };
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          throw AppError.conflict(
+            'HIU transaction id is already bound to another fetch session',
+            'ABDM_HIU_TRANSACTION_CONFLICT',
+          );
+        }
+        throw err;
+      }
+    });
+
+    if (ownsWebhookEvent) {
+      await markWebhookProcessed({
+        tenantId: tid,
+        id: Number(eventIntake.event.id),
+        status: 'processed',
+      });
+    }
+    return {
+      duplicate: eventIntake.duplicate === true,
+      idempotent: outcome.idempotent,
+    };
   } catch (err) {
-    await markWebhookFailed(tid, eventIntake.event, err);
+    if (ownsWebhookEvent) await markWebhookFailed(tid, eventIntake.event, err);
     throw err;
   }
 }

@@ -35,6 +35,7 @@ export const CONTROLLED_DISPENSE_WITNESS_ROLES = [
 
 export const CONTROLLED_DISPENSE_APPROVAL_SCOPES = Object.freeze({
   inventory: 'inventory_controlled_dispense',
+  inventoryMovement: 'inventory_controlled_movement',
   counterSale: 'pharmacy_counter_sale',
   dispenseSubstitution: 'pharmacy_dispense_substitution',
 });

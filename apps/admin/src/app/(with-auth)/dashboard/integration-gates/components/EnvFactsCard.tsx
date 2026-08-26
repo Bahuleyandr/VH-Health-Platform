@@ -92,6 +92,13 @@ export function EnvFactsCard({ env }: { env: IntegrationGateEnvFacts }) {
           on={env.lab_loinc_mapping_enabled === true}
         />
         <Fact
+          label="Validated LIS listener profiles (device-gateway config)"
+          on={(env.lis_listeners_configured ?? 0) > 0}
+          detail={`${env.lis_listeners_configured ?? 0} listener${
+            env.lis_listeners_configured === 1 ? "" : "s"
+          }`}
+        />
+        <Fact
           label="Metabase embeds (METABASE_URL + secret)"
           on={env.metabase_configured === true}
           detail={`${env.metabase_dashboards_configured ?? 0} dashboard id${

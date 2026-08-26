@@ -939,11 +939,14 @@ tests:
         alertname: PostgresReplicationLagHigh
         exp_alerts: []
 
-  # THE DURABLE GUARD. Nothing exports the assumed names at all — the exact
-  # state the four rules above were shipped in. The ungated arm must page.
+  # THE DURABLE GUARD. CNPG is running (cnpg_collector_up present) but the
+  # assumed vhhealth_connections names are not exported at all — the exact state
+  # the four rules above were shipped in. The CNPG-gated arm must page.
   - interval: 1m
     input_series:
       - series: 'up{job="node-exporter",instance="node-c"}'
+        values: '1x40'
+      - series: 'cnpg_collector_up{namespace="vhhealth-platform",pod="vhhealth-pg-1"}'
         values: '1x40'
     alert_rule_test:
       - eval_time: 16m
@@ -954,9 +957,26 @@ tests:
               team: database
             exp_annotations:
               summary: "CNPG connection-usage metrics are not being exported — PostgresConnectionsHigh is blind"
-              description: "The vhhealth_connections user-defined query reads pg_stat_activity, so it yields a row on every instance whenever the exporter is scraped at all. Absence means the customQueriesConfigMap is not mounted, the query is erroring, or the exported names are not cnpg_vhhealth_connections_total / cnpg_vhhealth_connections_max_conn. Read the real names off a live instance before editing the rules: kubectl exec -n vhhealth-platform vhhealth-pg-1 -c postgres -- curl -s localhost:9187/metrics | grep vhhealth"
+              description: "The vhhealth_connections user-defined query reads pg_stat_activity, so it yields a row on every instance whenever the exporter is scraped at all. This alert is gated on CNPG running (count(cnpg_collector_up) > 0), so it stays silent on a non-CNPG rig instead of paging forever; on a CNPG cluster its firing means the customQueriesConfigMap is not mounted, the query is erroring, or the exported names are not cnpg_vhhealth_connections_total / cnpg_vhhealth_connections_max_conn. Read the real names off a live instance before editing the rules: kubectl exec -n vhhealth-platform vhhealth-pg-1 -c postgres -- curl -s localhost:9187/metrics | grep vhhealth"
       # With no connections series the instance count is unknown, so the gated
-      # arm deliberately stays silent and the ungated arm carries the page.
+      # replication arm deliberately stays silent; PostgresConnectionMetricsAbsent
+      # carries the page.
+      - eval_time: 16m
+        alertname: PostgresReplicationMetricAbsent
+        exp_alerts: []
+
+  # NON-CNPG RIG. A plain-postgres StatefulSet (the test rig, and any non-CNPG
+  # overlay) exports no cnpg_ series at all — including no cnpg_collector_up.
+  # PostgresConnectionMetricsAbsent must NOT page here: absence is silence, not a
+  # naming miss. This is the case that used to page forever before the gate.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="node-c"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PostgresConnectionMetricsAbsent
+        exp_alerts: []
       - eval_time: 16m
         alertname: PostgresReplicationMetricAbsent
         exp_alerts: []

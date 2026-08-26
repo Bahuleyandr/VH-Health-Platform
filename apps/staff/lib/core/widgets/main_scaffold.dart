@@ -7,6 +7,7 @@ import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
 import '../config/api_config.dart';
 import '../config/role_config.dart';
+import '../config/specialty_gate_mode_snapshot.dart';
 import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
 import '../providers/clinical_inbox_provider.dart';
@@ -62,6 +63,10 @@ class _MainScaffoldState extends State<MainScaffold> {
   Future<void> _loadRole() async {
     final roleStr = await ApiConfig.getRole();
     final department = await ApiConfig.getDepartment();
+    // Seed the specialty tile filter with the last persisted server gate
+    // modes so an 'enforce' verdict survives an offline app start. A fresh
+    // fetch below replaces it once the policy snapshot lands.
+    RoleFeatures.setSpecialtyGateModes(await ApiConfig.getSpecialtyGateModes());
     final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
     setState(() {
@@ -78,6 +83,12 @@ class _MainScaffoldState extends State<MainScaffold> {
   Future<void> _loadRolePolicyFeatures(String rawRole, StaffRole role) async {
     try {
       final policy = await ClinicalPlatformApiService.getRolePolicySnapshot();
+      // The server's effective specialty gate modes ride the same snapshot.
+      // Null is an authoritative replacement too: a newer server that omits
+      // the field must clear an older persisted enforce verdict.
+      final gateModes = policy.specialtyGateModes;
+      await replaceSpecialtyGateModeSnapshot(gateModes);
+      if (mounted) setState(() {});
       final normalized = rawRole.trim().toUpperCase();
       final featureIds =
           policy.featuresByRole[normalized] ??

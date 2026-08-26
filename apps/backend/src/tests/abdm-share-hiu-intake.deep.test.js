@@ -47,6 +47,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 // id this suite writes through the webhook-dedupe layer is minted per run.
 const RUN = randomUUID().slice(0, 8);
 const REQUEST_ID = `deep-share-req-${RUN}`;
+const LEGACY_REQUEST_ID = `deep-share-legacy-${RUN}`;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -119,7 +120,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
 
     // The intake row landed with the EXPLICIT tenant (pre-RLS mount posture).
     const intakes = await prisma.$queryRawUnsafe(
-      `SELECT tenant_id::text AS tenant_id, status, abha_number, profile
+      `SELECT id, tenant_id::text AS tenant_id, status, token_number, abha_number, profile
          FROM abdm_patient_share_intakes
         WHERE tenant_id = $1::uuid AND request_id = $2 AND environment = 'sandbox'`,
       TENANT_ID, REQUEST_ID,
@@ -127,6 +128,7 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     expect(intakes).toHaveLength(1);
     expect(intakes[0].tenant_id).toBe(TENANT_ID);
     expect(intakes[0].abha_number).toBe('70-2000-0000-0001');
+    expect(intakes[0].token_number).toBe(`T-${intakes[0].id}`);
     // Allowlisted profile only.
     expect(intakes[0].profile).toMatchObject({ name: 'Deep Share Patient' });
 
@@ -141,6 +143,39 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       TENANT_ID, REQUEST_ID,
     );
     expect(countRows[0].n).toBe(1);
+  });
+
+  test('a redelivery repairs a legacy tokenless intake without creating another row', async () => {
+    const seeded = await prisma.$queryRawUnsafe(
+      `INSERT INTO abdm_patient_share_intakes
+         (tenant_id, environment, request_id, token_number, profile, status, expires_at)
+       VALUES ($1::uuid, 'sandbox', $2::text, NULL, '{}'::jsonb, 'received',
+               NOW() + INTERVAL '30 minutes')
+       RETURNING id`,
+      TENANT_ID, LEGACY_REQUEST_ID,
+    );
+
+    const result = await shareIntakeService.handlePatientProfileShareCallback({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        ...SHARE_BODY,
+        requestId: LEGACY_REQUEST_ID,
+      },
+    });
+
+    expect(result).toMatchObject({
+      duplicate: true,
+      tokenNumber: `T-${seeded[0].id}`,
+      intake: { id: seeded[0].id },
+    });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, token_number
+         FROM abdm_patient_share_intakes
+        WHERE tenant_id = $1::uuid AND request_id = $2::text AND environment = 'sandbox'`,
+      TENANT_ID, LEGACY_REQUEST_ID,
+    );
+    expect(rows).toEqual([{ id: seeded[0].id, token_number: `T-${seeded[0].id}` }]);
   });
 
   test('702 resolution-evidence CHECK: matched without a patient is impossible', async () => {
@@ -214,10 +249,38 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
       `INSERT INTO abdm_hiu_fetch_sessions
          (tenant_id, environment, transaction_id, request_id, status,
           key_material_private_ciphertext, key_material_nonce, key_material_expires_at)
-       VALUES ($1::uuid, 'sandbox', 'deep-hiu-seed-${RUN}', 'deep-hiu-req-9-${RUN}', 'requested',
+        VALUES ($1::uuid, 'sandbox', 'deep-hiu-req-9-${RUN}', 'deep-hiu-req-9-${RUN}', 'requested',
                'enc:placeholder', 'nonce', NOW() + INTERVAL '30 minutes')`,
       TENANT_ID,
     );
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: `deep-hiu-ack-missing-txn-${RUN}`,
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_ON_REQUEST_SHAPE', statusCode: 400 });
+    const afterInvalid = await prisma.$queryRawUnsafe(
+      `SELECT transaction_id, status
+         FROM abdm_hiu_fetch_sessions
+        WHERE tenant_id = $1::uuid AND request_id = 'deep-hiu-req-9-${RUN}'`,
+      TENANT_ID,
+    );
+    expect(afterInvalid[0]).toMatchObject({
+      transaction_id: `deep-hiu-req-9-${RUN}`,
+      status: 'requested',
+    });
+    const invalidEvents = await prisma.$queryRawUnsafe(
+      `SELECT status
+         FROM abdm_webhook_events
+        WHERE tenant_id = $1::uuid
+          AND external_event_id = 'deep-hiu-ack-missing-txn-${RUN}'
+          AND environment = 'sandbox'`,
+      TENANT_ID,
+    );
+    expect(invalidEvents).toEqual([{ status: 'failed' }]);
 
     const result = await hiuService.handleHiuHealthInfoOnRequest({
       tenantId: TENANT_ID,
@@ -239,6 +302,39 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
     expect(rows[0]).toMatchObject({ transaction_id: `deep-hiu-txn-9-${RUN}`, status: 'acknowledged' });
     expect(rows[0].acknowledged_at).not.toBeNull();
 
+    // A provider retry with a fresh event id is still idempotent at the
+    // session boundary and must not regress an already-advanced state.
+    const retryWithNewEvent = await hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: `deep-hiu-ack-9-retry-${RUN}`,
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+        hiRequest: { transactionId: `deep-hiu-txn-9-${RUN}` },
+      },
+    });
+    expect(retryWithNewEvent).toMatchObject({ duplicate: false, idempotent: true });
+
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: `deep-hiu-ack-9-conflict-${RUN}`,
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+        hiRequest: { transactionId: `deep-hiu-other-txn-9-${RUN}` },
+      },
+    })).rejects.toMatchObject({ code: 'ABDM_HIU_ACK_NOT_APPLIED', statusCode: 409 });
+    const afterConflict = await prisma.$queryRawUnsafe(
+      `SELECT transaction_id, status
+         FROM abdm_hiu_fetch_sessions
+        WHERE tenant_id = $1::uuid AND request_id = 'deep-hiu-req-9-${RUN}'`,
+      TENANT_ID,
+    );
+    expect(afterConflict[0]).toMatchObject({
+      transaction_id: `deep-hiu-txn-9-${RUN}`,
+      status: 'acknowledged',
+    });
+
     // Replayed ack collapses on the webhook-event dedupe.
     const replay = await hiuService.handleHiuHealthInfoOnRequest({
       tenantId: TENANT_ID,
@@ -249,6 +345,58 @@ d('Scan & Share + HIU deep (702/703 DB contract)', () => {
         hiRequest: { transactionId: `deep-hiu-txn-9-${RUN}` },
       },
     });
-    expect(replay.duplicate).toBe(true);
+    expect(replay).toMatchObject({ duplicate: true, idempotent: true });
+
+    const reboundRequestId = `deep-hiu-req-rebound-${RUN}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO abdm_hiu_fetch_sessions
+         (tenant_id, environment, transaction_id, request_id, status,
+          key_material_private_ciphertext, key_material_nonce, key_material_expires_at)
+       VALUES ($1::uuid, 'sandbox', $2::text, $2::text, 'requested',
+               'enc:placeholder', 'nonce', NOW() + INTERVAL '30 minutes')`,
+      TENANT_ID, reboundRequestId,
+    );
+
+    // Reusing event identity X for session B must fail before B can be locked
+    // or re-stamped; evidence X stays bound to the original session A payload.
+    await expect(hiuService.handleHiuHealthInfoOnRequest({
+      tenantId: TENANT_ID,
+      environment: 'sandbox',
+      body: {
+        requestId: `deep-hiu-ack-9-${RUN}`,
+        resp: { requestId: reboundRequestId },
+        hiRequest: { transactionId: `deep-hiu-txn-rebound-${RUN}` },
+      },
+    })).rejects.toMatchObject({
+      code: 'ABDM_HIU_ON_REQUEST_EVENT_COLLISION',
+      statusCode: 409,
+    });
+    const reboundRows = await prisma.$queryRawUnsafe(
+      `SELECT transaction_id, status, acknowledged_at
+         FROM abdm_hiu_fetch_sessions
+        WHERE tenant_id = $1::uuid AND request_id = $2::text AND environment = 'sandbox'`,
+      TENANT_ID, reboundRequestId,
+    );
+    expect(reboundRows).toEqual([{
+      transaction_id: reboundRequestId,
+      status: 'requested',
+      acknowledged_at: null,
+    }]);
+    const boundEvents = await prisma.$queryRawUnsafe(
+      `SELECT status, payload
+         FROM abdm_webhook_events
+        WHERE tenant_id = $1::uuid
+          AND external_event_id = 'deep-hiu-ack-9-${RUN}'
+          AND environment = 'sandbox'`,
+      TENANT_ID,
+    );
+    expect(boundEvents).toHaveLength(1);
+    expect(boundEvents[0]).toMatchObject({
+      status: 'processed',
+      payload: {
+        resp: { requestId: `deep-hiu-req-9-${RUN}` },
+        hiRequest: { transactionId: `deep-hiu-txn-9-${RUN}` },
+      },
+    });
   });
 });

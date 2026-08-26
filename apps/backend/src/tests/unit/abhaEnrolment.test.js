@@ -640,6 +640,8 @@ describe('resend / cancel / status / sweep', () => {
     expect(args).toContain(5); // OTP_VERIFY_CLAIM_TTL_MINUTES
     // The claim token is cleared with the row, mirroring the expiry sweep.
     expect(sql).toContain('verification_claim_id = NULL');
+    expect(sql).toContain('resend_claim_id = NULL');
+    expect(sql).toContain('resend_claimed_at = NULL');
   });
 
   it('cancelEnrolment refuses while an OTP verification claim is still fresh', async () => {
@@ -712,9 +714,12 @@ describe('resend / cancel / status / sweep', () => {
   });
 
   it('sweep expires live sessions past expires_at', async () => {
-    route("SET status = 'expired'", () => [{ id: 1 }, { id: 2 }]);
+    route('sweep_expired_abha_enrolment_sessions()', () => [{ expired: 2 }]);
     const result = await enrolmentService.sweepExpiredEnrolmentSessions();
     expect(result).toEqual({ expired: 2 });
+    expect(prismaQuery).toHaveBeenCalledWith(
+      'SELECT public.sweep_expired_abha_enrolment_sessions() AS expired',
+    );
   });
 
   it('requires a tenant context on every entry point', async () => {

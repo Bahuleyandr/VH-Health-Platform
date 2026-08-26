@@ -494,6 +494,11 @@ async function createRuntimeRolesAndGrants() {
     await client.query(`
       ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER_ROLE} IN SCHEMA public
         GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${RUNTIME_ROLE}`);
+    for (const role of [APP_ROLE, RUNTIME_ROLE]) {
+      await client.query(`REVOKE ALL PRIVILEGES ON TABLE public._migrations FROM ${role}`);
+      await client.query(`GRANT SELECT ON TABLE public._migrations TO ${role}`);
+      await client.query(`REVOKE ALL PRIVILEGES ON SEQUENCE public._migrations_id_seq FROM ${role}`);
+    }
   } finally {
     await client.end();
   }
@@ -586,6 +591,30 @@ async function runRlsProofs() {
         throw new Error(`connected as ${who.rows[0].u}, expected ${RUNTIME_ROLE}`);
       }
       return `current_user=${who.rows[0].u}; both roles super=f bypassrls=f`;
+    });
+
+    await check('E2 migration tracker is readable but not writable by the runtime role', async () => {
+      const { rows } = await rt.query(
+        `SELECT has_table_privilege(current_user, 'public._migrations', 'SELECT') AS can_read,
+                has_table_privilege(current_user, 'public._migrations', 'INSERT') AS can_insert,
+                has_table_privilege(current_user, 'public._migrations', 'UPDATE') AS can_update,
+                has_table_privilege(current_user, 'public._migrations', 'DELETE') AS can_delete,
+                has_table_privilege(current_user, 'public._migrations', 'TRUNCATE') AS can_truncate,
+                has_sequence_privilege(current_user, 'public._migrations_id_seq', 'USAGE') AS can_use_sequence`,
+      );
+      const posture = rows[0];
+      if (!posture?.can_read) throw new Error('runtime role cannot read _migrations');
+      if (
+        posture.can_insert
+        || posture.can_update
+        || posture.can_delete
+        || posture.can_truncate
+        || posture.can_use_sequence
+      ) {
+        throw new Error('runtime role has migration tracker write privileges');
+      }
+      const tracker = await rt.query('SELECT COUNT(*)::integer AS count FROM public._migrations');
+      return `rows=${tracker.rows[0].count}; read=t write=f sequence=f`;
     });
 
     // (a) Insert PHI under tenant A — should SUCCEED and auto-scope to A.

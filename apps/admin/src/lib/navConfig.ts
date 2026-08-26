@@ -26,6 +26,7 @@ import {
   CLINICAL_AI_CONTROL_ROLES,
   ORDER_SET_STUDIO_ROLES,
   ROLE_RANK,
+  SHIFT_MANAGEMENT_ROLES,
 } from "@/lib/routePolicy";
 
 export type NavItem = {
@@ -344,7 +345,12 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/dashboard/leave-approvals",
         minRole: "HR",
       },
-      { name: "Shift Management", href: "/dashboard/shifts", minRole: "STAFF" },
+      // Exact raw-role parity with backend `staffAdminRoutes`.
+      {
+        name: "Shift Management",
+        href: "/dashboard/shifts",
+        allowedRoles: SHIFT_MANAGEMENT_ROLES,
+      },
       { name: "Grievances (HR)", href: "/dashboard/grievances", minRole: "HR" },
       { name: "Incident Reports", href: "/dashboard/incidents", minRole: "HR" },
       {

@@ -176,6 +176,10 @@ describe('OpenAPI contract overlays (static gate)', () => {
       spec.components.schemas.PharmacyCounterSaleWitnessApprovalDecisionRequest;
     const inventoryDispense =
       spec.components.schemas.PharmacyInventoryControlledDispenseRequest;
+    const inventoryMovement =
+      spec.components.schemas.PharmacyInventoryMovementRequest;
+    const movementApprovalRequest =
+      spec.components.schemas.PharmacyInventoryMovementWitnessApprovalRequest;
     expect(createSchema.properties.witness).toBeUndefined();
     expect(createSchema.properties.witness_approval_id).toEqual(expect.objectContaining({
       type: 'string',
@@ -204,10 +208,28 @@ describe('OpenAPI contract overlays (static gate)', () => {
       pattern: '^[1-9][0-9]*$',
     }));
     expect(inventoryDispense.properties.require_usable_batch).toBeUndefined();
+    expect(inventoryDispense.properties.performed_by_name).toBeUndefined();
     const inventoryRequest = spec.components.schemas.PharmacyInventoryWitnessApprovalRequest;
     expect(inventoryRequest.required).toEqual([
       'inventory_item_id', 'inventory_batch_id', 'quantity',
     ]);
+    expect(inventoryMovement.properties.witness_uid).toBeUndefined();
+    expect(inventoryMovement.properties.witness_name).toBeUndefined();
+    expect(inventoryMovement.properties.performed_by).toBeUndefined();
+    expect(inventoryMovement.properties.performed_by_name).toBeUndefined();
+    expect(inventoryMovement.properties.require_usable_batch).toBeUndefined();
+    expect(inventoryMovement.properties.witness_approval_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
+    });
+    expect(movementApprovalRequest.required).toEqual([
+      'inventory_item_id', 'inventory_batch_id', 'movement_kind', 'quantity',
+    ]);
+    expect(movementApprovalRequest.properties.movement_kind.enum).toEqual([
+      'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
+    ]);
+    expect(movementApprovalRequest.properties.witness_uid).toBeUndefined();
+    expect(movementApprovalRequest.properties.witness_name).toBeUndefined();
 
     for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
       const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
@@ -215,6 +237,7 @@ describe('OpenAPI contract overlays (static gate)', () => {
       const requestApproval = spec.paths[`${prefix}/counter-sales/witness-approvals`]?.post;
       const approve = spec.paths[`${prefix}/counter-sales/witness-approvals/{id}/approve`]?.post;
       const finalDispense = spec.paths[`${prefix}/inventory/v2/controlled-dispense`]?.post;
+      const finalMovement = spec.paths[`${prefix}/inventory/v2/movements`]?.post;
       expect(finalSale?.security).toEqual(bearerSecurity);
       expect(requestApproval?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
@@ -243,6 +266,12 @@ describe('OpenAPI contract overlays (static gate)', () => {
       const inventoryApprove = spec.paths[
         `${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`
       ]?.post;
+      const movementRequest = spec.paths[
+        `${prefix}/inventory/v2/movements/witness-approvals`
+      ]?.post;
+      const movementApprove = spec.paths[
+        `${prefix}/inventory/v2/movements/witness-approvals/{id}/approve`
+      ]?.post;
       expect(inventoryRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalRequest',
       });
@@ -257,6 +286,23 @@ describe('OpenAPI contract overlays (static gate)', () => {
           schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
         }),
       ]));
+      expect(finalMovement?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryMovementRequest',
+      });
+      expect(movementRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest',
+      });
+      expect(movementApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalDecisionRequest',
+      });
+      expect(movementApprove?.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+        }),
+      ]));
       for (const operation of [
         finalSale,
         requestApproval,
@@ -264,6 +310,9 @@ describe('OpenAPI contract overlays (static gate)', () => {
         finalDispense,
         inventoryRequest,
         inventoryApprove,
+        finalMovement,
+        movementRequest,
+        movementApprove,
       ]) {
         expect(operation?.security).toEqual(bearerSecurity);
         for (const status of ['400', '401', '403', '404', '409', '429', '500']) {
@@ -276,8 +325,12 @@ describe('OpenAPI contract overlays (static gate)', () => {
         finalSale,
         requestApproval,
         approve,
+        finalDispense,
         inventoryRequest,
         inventoryApprove,
+        finalMovement,
+        movementRequest,
+        movementApprove,
       ]) {
         expect(operation?.parameters).toEqual(expect.arrayContaining([
           expect.objectContaining({
@@ -292,7 +345,12 @@ describe('OpenAPI contract overlays (static gate)', () => {
           });
         }
       }
-      for (const operation of [inventoryRequest, inventoryApprove]) {
+      for (const operation of [
+        inventoryRequest,
+        inventoryApprove,
+        movementRequest,
+        movementApprove,
+      ]) {
         expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
           $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalResponse',
         });

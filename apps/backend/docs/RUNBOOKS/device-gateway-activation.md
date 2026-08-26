@@ -8,6 +8,9 @@
 - Hospital IT has approved the device VLAN to cluster VLAN firewall rule.
 - Device registry rows exist with source IPs or bearer credentials.
 - A DEVICE_GATEWAY service credential exists in `device-gateway-secret`.
+- Every configured LIS profile's `token_env` is a matching sealed
+  `LIS_*_TOKEN` key in `device-gateway-secret`; never put token values in
+  `DEVICE_GATEWAY_LIS_LISTENERS` or any ConfigMap.
 - Staff have rehearsed scan-based device-to-patient association.
 - ADT-driven association assist remains disabled unless the pilot proves bed-data
   trust and a governance flag is approved. The safe default is scan/manual

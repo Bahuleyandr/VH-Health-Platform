@@ -14,6 +14,7 @@ import {
 } from '../../utils/infrastructure/rbacUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { getRolePolicy, getRolePolicyRoleCodes } from '../../config/rolePolicyGraph.js';
+import { specialtyGateModesByFeature } from '../../config/specialtyDepartmentPolicy.js';
 import {
   ADMIN,
   PATIENT,
@@ -22,7 +23,9 @@ import {
   LAB_STAFF,
   DOCTOR,
   GENERAL_STAFF,
-  HR_STAFF
+  HR_STAFF,
+  SUPER_ADMIN,
+  normalizeRole,
 } from '../../utils/roles.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import {
@@ -30,9 +33,27 @@ import {
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
 
+function assertRoleMutationStepUp(adminInfo) {
+  const actorRole = normalizeRole(adminInfo?.rawRole) || normalizeRole(adminInfo?.role);
+  if (actorRole === SUPER_ADMIN && adminInfo?.mfa !== true) {
+    throw AppError.forbidden(
+      'This sensitive operation requires a 2FA-verified super-admin session. Re-authenticate via the admin MFA challenge and retry.',
+      'SUPER_ADMIN_MFA_REQUIRED',
+    );
+  }
+  return actorRole;
+}
+
 export class RBACService {
   static getPolicy() {
-    return getRolePolicy();
+    return {
+      ...getRolePolicy(),
+      // Runtime posture, deliberately OUTSIDE the hashed policy graph: the
+      // per-module specialty gate mode is an env knob the operator can flip
+      // without a policy version bump. The staff app enforces its department
+      // tile filter only for modules the server reports as 'enforce'.
+      specialty_gate_modes: specialtyGateModesByFeature(process.env),
+    };
   }
 
   // Resolve the acting admin's tenant_id so cross-tenant user mutations
@@ -342,11 +363,12 @@ export class RBACService {
   // phone resolves to 0 rows → AppError.notFound (never a silent cross-tenant
   // write).
   static async assignRole(data, adminInfo) {
+    const actorRole = assertRoleMutationStepUp(adminInfo);
     const { phone, role, reason = 'Admin assignment' } = data;
     const normalizedPhone = normalizePhone(phone);
     const targetRole = role.toUpperCase();
 
-    if (!canUserManageRole(adminInfo.role, targetRole)) {
+    if (!canUserManageRole(actorRole, targetRole)) {
       throw new Error('Insufficient permissions to assign this role');
     }
 
@@ -407,7 +429,7 @@ export class RBACService {
           oldRole,
           newRole: targetRole,
           changedBy: adminInfo.uid,
-          changedByRole: adminInfo.role,
+          changedByRole: actorRole,
           reason,
           timestamp: formatDateDDMMYYYY(new Date()),
           revokedAt,
@@ -429,6 +451,7 @@ export class RBACService {
 
   // Bulk role assignment
   static async bulkAssignRoles(data, adminInfo) {
+    assertRoleMutationStepUp(adminInfo);
     const { assignments, reason = 'Bulk assignment' } = data;
     const results = [];
     const errors = [];

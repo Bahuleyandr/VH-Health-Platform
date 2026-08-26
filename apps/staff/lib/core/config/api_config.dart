@@ -116,6 +116,32 @@ class ApiConfig {
     return await _storage.read(key: 'staff_phone');
   }
 
+  /// Server-reported specialty gate modes (feature id ->
+  /// 'off' | 'report' | 'enforce'), persisted from the last successful
+  /// GET /rbac/policy fetch. A null snapshot is authoritative and deletes an
+  /// older value so a retired enforce mode cannot survive a server downgrade.
+  static Future<void> saveSpecialtyGateModes(Map<String, String>? modes) async {
+    if (modes == null) {
+      await _storage.delete(key: 'specialty_gate_modes');
+      return;
+    }
+    await _storage.write(key: 'specialty_gate_modes', value: jsonEncode(modes));
+  }
+
+  static Future<Map<String, String>?> getSpecialtyGateModes() async {
+    final raw = await _storage.read(key: 'specialty_gate_modes');
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return decoded.map(
+        (key, value) => MapEntry(key.toString(), value.toString()),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> clearSessionIdentity() async {
     const keys = [
       // Shared core auth keys.
@@ -133,6 +159,7 @@ class ApiConfig {
       'staff_role',
       'staff_department',
       'staff_phone',
+      'specialty_gate_modes',
     ];
     for (final key in keys) {
       await _storage.delete(key: key);

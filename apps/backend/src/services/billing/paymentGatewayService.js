@@ -39,6 +39,7 @@ import { postPaymentEntry } from './ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 import { resolveAdapter, GATEWAY_PROVIDERS } from './gatewayProviders/index.js';
 import { sha256Hex } from './gatewayProviders/webhookSignature.js';
+import { runInTenantContext } from '../../lib/tenantContext.js';
 
 export const PAYMENT_GATEWAY_DISABLED = 'PAYMENT_GATEWAY_DISABLED';
 
@@ -797,14 +798,16 @@ export async function resolveGatewayOrderReconciliation({ tenantId, id, note, re
   return { ...rows[0], id: Number(rows[0].id), amount: Number(rows[0].amount) };
 }
 
-/** Cron sweep: expire created/attempted orders past expires_at. Idempotent. */
+/**
+ * Cron sweep: expire created/attempted orders past expires_at. Idempotent.
+ * The scheduler may invoke only migration 736's parameterless owner routine;
+ * runtime SQL cannot choose a tenant, predicate, state, timestamp, or payload.
+ */
 export async function expireStaleGatewayOrders() {
-  const expired = await prisma.$executeRawUnsafe(
-    `UPDATE payment_gateway_orders
-        SET status = 'expired', updated_at = NOW()
-      WHERE status IN ('created', 'attempted')
-        AND expires_at IS NOT NULL AND expires_at < NOW()`,
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT public.sweep_expired_payment_gateway_orders() AS expired',
   );
+  const expired = Number(rows[0]?.expired ?? 0);
   return { expired };
 }
 
@@ -824,14 +827,25 @@ const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
  */
 export async function resolveWebhookConfigByToken(webhookToken) {
   if (typeof webhookToken !== 'string' || !WEBHOOK_TOKEN_RE.test(webhookToken)) return null;
-  // Cross-tenant by design (mirrors /pay's token-only lookup): the token is
-  // the routing key and the tenant is derived FROM the row.
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM payment_gateway_provider_configs
-      WHERE metadata->>'webhook_token' = $1
-      LIMIT 1`,
+  // The token is the routing key and the tenant is derived FROM the row, so the
+  // lookup is inherently pre-tenant. Under migration 726's fail-closed
+  // restrictive RLS a plain cross-tenant read returns 0 rows on the prod runtime
+  // role. The owner-owned SECURITY DEFINER accessor (migration 732) returns ONLY
+  // tenant_id + config id; we then re-read the full row under setTenantTx for the
+  // resolved tenant, where 726's policy matches and the read is tenant-scoped.
+  const resolved = await prisma.$queryRawUnsafe(
+    'SELECT tenant_id, config_id FROM resolve_payment_webhook_tenant($1)',
     String(webhookToken),
   );
+  const route = resolved[0];
+  if (!route) return null;
+  const tenant = requireTenantId(route.tenant_id);
+  const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
+    `SELECT * FROM payment_gateway_provider_configs
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      LIMIT 1`,
+    Number(route.config_id), tenant,
+  ));
   return rows[0] || null;
 }
 
@@ -892,7 +906,7 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload, creden
         && (!providerPaymentId || !Number.isInteger(billingRefundId) || billingRefundId <= 0)) {
       return false;
     }
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
       `SELECT r.id
          FROM payment_gateway_refunds r
          JOIN payment_gateway_orders o
@@ -917,7 +931,7 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload, creden
       Number.isInteger(billingRefundId) && billingRefundId > 0 ? billingRefundId : 0,
       retiredVersion,
       credential?.retiredAt instanceof Date ? credential.retiredAt.toISOString() : null,
-    );
+    ));
     return rows.length > 0;
   }
 
@@ -925,7 +939,7 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload, creden
   const order = payload?.payload?.order?.entity || {};
   const providerOrderId = String(payment.order_id || order.id || '').trim();
   if (!providerOrderId) return false;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
     `SELECT id
        FROM payment_gateway_orders
       WHERE tenant_id = $1::uuid
@@ -939,7 +953,7 @@ export async function hasBoundNonterminalWebhookIntent({ config, payload, creden
     tenant, config.provider, config.environment, Number(config.id), providerOrderId,
     retiredVersion,
     credential?.retiredAt instanceof Date ? credential.retiredAt.toISOString() : null,
-  );
+  ));
   return rows.length > 0;
 }
 
@@ -957,8 +971,10 @@ export async function recordWebhookEvent({
   const paymentEntity = entities.payment?.entity || {};
   const refundEntity = entities.refund?.entity || {};
   const orderEntity = entities.order?.entity || {};
+  // Pre-tenant public webhook mount: scope the 726-tranche write/read to the
+  // resolved tenant so the INSERT WITH CHECK passes under the fail-closed policy.
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_webhook_events
          (tenant_id, provider, environment, provider_event_id, event_type,
           signature_verified, payload, raw_body_sha256,
@@ -971,22 +987,25 @@ export async function recordWebhookEvent({
       paymentEntity.order_id || orderEntity.id || null,
       paymentEntity.id || refundEntity.payment_id || null,
       refundEntity.id || null,
-    );
+    ));
     return { duplicate: false, event: rows[0] };
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
       `SELECT * FROM payment_gateway_webhook_events
         WHERE tenant_id = $1::uuid AND provider = $2 AND provider_event_id = $3
         LIMIT 1`,
       tenant, provider, String(providerEventId),
-    );
+    ));
     return { duplicate: true, event: rows[0] || null };
   }
 }
 
 async function markWebhookEvent({ tenantId, eventId, status, failureReason = null, gatewayOrderId = null, note = null }) {
-  const updated = await prisma.$executeRawUnsafe(
+  const tenant = requireTenantId(tenantId);
+  // Pre-tenant public webhook mount: scope the 726-tranche UPDATE to the tenant
+  // so the row is visible under the fail-closed policy (plain prisma matches 0).
+  const updated = await setTenantTx(tenant, (tx) => tx.$executeRawUnsafe(
     `UPDATE payment_gateway_webhook_events
         SET status = $1, processed_at = NOW(),
             failure_reason = $2,
@@ -997,8 +1016,8 @@ async function markWebhookEvent({ tenantId, eventId, status, failureReason = nul
     String(status), failureReason ? String(failureReason).slice(0, 500) : null,
     gatewayOrderId != null ? Number(gatewayOrderId) : null,
     note ? String(note).slice(0, 500) : null,
-    Number(eventId), requireTenantId(tenantId),
-  );
+    Number(eventId), tenant,
+  ));
   if (Number(updated) !== 1) {
     throw new AppError(
       'Payment gateway webhook status could not be persisted',
@@ -2104,23 +2123,26 @@ export async function getPublicGatewayViewForLink({ tenantId, paymentLinkId }) {
   const disabled = { enabled: false, provider: null, keyId: null, providerOrderId: null };
   try {
     if (!tenantId || !paymentLinkId) return disabled;
-    const context = await resolveGatewayContext(tenantId);
-    if (!context.enabled) return disabled;
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT provider_order_id
-         FROM payment_gateway_orders
-        WHERE tenant_id = $1::uuid AND payment_link_id = $2::int
-          AND status IN ('created', 'attempted')
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1`,
-      requireTenantId(tenantId), Number(paymentLinkId),
-    );
-    return {
-      enabled: true,
-      provider: context.config.provider,
-      keyId: context.config.key_id || null,
-      providerOrderId: rows[0]?.provider_order_id || null,
-    };
+    const tenant = requireTenantId(tenantId);
+    return await runInTenantContext(tenant, async () => {
+      const context = await resolveGatewayContext(tenant);
+      if (!context.enabled) return disabled;
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT provider_order_id
+           FROM payment_gateway_orders
+          WHERE tenant_id = $1::uuid AND payment_link_id = $2::int
+            AND status IN ('created', 'attempted')
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1`,
+        tenant, Number(paymentLinkId),
+      );
+      return {
+        enabled: true,
+        provider: context.config.provider,
+        keyId: context.config.key_id || null,
+        providerOrderId: rows[0]?.provider_order_id || null,
+      };
+    });
   } catch (err) {
     logger.warn('public gateway view resolution failed — rendering disabled marker', {
       error: err?.message,

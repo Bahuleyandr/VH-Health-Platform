@@ -71,6 +71,16 @@ const GATE_ROWS: Array<{
     settingKey: null,
     note: "flags in Terminology & Knowledge console",
   },
+  // Device-gateway LIS analyzer transport (#891 deferral). No tenant boolean:
+  // the env layer is a validated profile from the gateway's authoritative
+  // ConfigMap for this tenant slug; the provider layer is an exact active
+  // analyzer-code match in that tenant's trusted-sender registry.
+  {
+    key: "lis_listeners",
+    label: "LIS analyzer listeners",
+    settingKey: null,
+    note: "validated gateway profile + matching active tenant analyzer",
+  },
   // Embedded BI (wt/bi-app): env layer is METABASE_URL + METABASE_EMBED_SECRET;
   // per-dashboard METABASE_DASH_* ids surface in the env facts card.
   {

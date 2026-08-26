@@ -1208,11 +1208,55 @@ export async function rejectWardIndent({ indentId, rejectedBy, reason, tenantId 
   });
 }
 
+// Classifies catalog ids through same-tenant inventory-v2 links. A positive
+// catalog-backed issue is unresolved when the catalog row is absent in this
+// tenant or has no inventory-v2 classification; callers must fail closed.
+async function classifyCatalogControl(db, tenantId, catalogIds) {
+  const ids = [...new Set(
+    (catalogIds || [])
+      .map(Number)
+      .filter((n) => Number.isSafeInteger(n) && n > 0),
+  )];
+  if (!ids.length) return { controlled: new Set(), unresolved: new Set() };
+  // ward_indent_items.pharmacy_catalog_id references pharmacy_catalog.id; the
+  // inventory-v2 items link back to the same catalog row through their own
+  // catalog_id FK, and carry the schedule_class / is_narcotic columns.
+  const placeholders = ids.map((_, i) => `$${i + 2}::int`).join(', ');
+  const rows = await db.$queryRawUnsafe(
+    `SELECT pc.id AS catalog_id,
+            COUNT(i.id)::int AS linked_item_count,
+            COALESCE(
+              BOOL_OR(i.schedule_class IN ('H1', 'X') OR i.is_narcotic = TRUE),
+              FALSE
+            ) AS is_controlled
+       FROM pharmacy_catalog pc
+       LEFT JOIN pharmacy_inventory_items i
+         ON i.tenant_id = pc.tenant_id
+        AND i.catalog_id = pc.id
+      WHERE pc.tenant_id = $1::uuid
+        AND pc.id IN (${placeholders})
+      GROUP BY pc.id`,
+    tenantId,
+    ...ids,
+  );
+  const classified = new Map(rows.map((row) => [Number(row.catalog_id), row]));
+  const controlled = new Set();
+  const unresolved = new Set();
+  for (const id of ids) {
+    const row = classified.get(id);
+    if (!row || Number(row.linked_item_count) <= 0) {
+      unresolved.add(id);
+    } else if (row.is_controlled === true) {
+      controlled.add(id);
+    }
+  }
+  return { controlled, unresolved };
+}
+
 /**
- * Issue an approved indent — decrements pharmacy_catalog stock for any
- * line items linked to a catalog row. Best-effort decrement: items
- * without pharmacy_catalog_id (free-text non-catalog items) are
- * recorded but skip stock decrement.
+ * Issue an approved indent — decrements pharmacy_catalog stock for classified
+ * catalog rows. Positive free-text/non-catalog lines fail closed because this
+ * ledger cannot prove that they are non-controlled stock.
  */
 export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued, tenantId = null }) {
   if (!indentId) throw AppError.badRequest('indentId is required');
@@ -1235,6 +1279,38 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
         ? itemQuantitiesIssued.map((x) => [x.item_id, Number(x.quantity_issued)])
         : [],
     );
+
+    // pharmacy_catalog is schedule-blind (no schedule_class / is_narcotic
+    // columns), so the register-mandatory controlled classes are detected via
+    // the inventory-v2 items that link back to the catalog row. Schedule H1
+    // (Rule 65(11A)) and Schedule X / narcotic stock must never leave the shelf
+    // through this ledger — it carries no statutory register row, witness, or
+    // batch lineage. Block the whole issue (before any decrement) and steer the
+    // controlled lines to the witnessed inventory-v2 flow (2026-08-25 reaudit
+    // BC-M3). Schedule H is register-recommended, not mandatory, so it is not
+    // blocked here to avoid stalling routine ward stock.
+    const catalogIdsToIssue = current.items
+      .filter((item) => item.pharmacy_catalog_id
+        && (issuedMap.get(item.id) ?? Number(item.quantity_requested)) > 0)
+      .map((item) => Number(item.pharmacy_catalog_id));
+    const hasUnclassifiedFreeTextIssue = current.items.some((item) => (
+      item.pharmacy_catalog_id == null
+      && (issuedMap.get(item.id) ?? Number(item.quantity_requested)) > 0
+    ));
+    const catalogControl = await classifyCatalogControl(tx, tid, catalogIdsToIssue);
+    if (catalogControl.controlled.size) {
+      throw AppError.conflict(
+        'Ward indent contains controlled (Schedule H1/X or narcotic) items that cannot be issued through the ward-indent catalog ledger; issue them through the controlled pharmacy flow (POST /api/v1/pharmacy/inventory/v2/controlled-dispense) so the statutory register and witness are recorded',
+        'WARD_INDENT_CONTROLLED_ITEM_BLOCKED',
+      );
+    }
+    if (hasUnclassifiedFreeTextIssue || catalogControl.unresolved.size) {
+      throw AppError.conflict(
+        'Ward indent contains items whose controlled-drug classification cannot be resolved for this facility; link every positive line to a catalog row and same-facility inventory item before issuing',
+        'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
+      );
+    }
+
     for (const item of current.items) {
       const qtyIssued = issuedMap.get(item.id) ?? Number(item.quantity_requested);
       if (!Number.isFinite(qtyIssued) || qtyIssued < 0) continue;
@@ -1247,8 +1323,9 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
           `UPDATE pharmacy_catalog
               SET stock_quantity = GREATEST(COALESCE(stock_quantity, 0) - $1, 0),
                   updated_at = NOW()
-            WHERE id = $2`,
-          qtyIssued, item.pharmacy_catalog_id,
+            WHERE id = $2
+              AND tenant_id = $3::uuid`,
+          qtyIssued, item.pharmacy_catalog_id, tid,
         );
       }
     }

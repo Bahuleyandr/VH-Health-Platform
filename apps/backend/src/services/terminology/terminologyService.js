@@ -215,6 +215,51 @@ async function conceptCountForSystem(systemKey) {
   return Number(rows[0]?.concept_count) || 0;
 }
 
+// A system's catalogue is authoritative only when a real (non-dry-run) full
+// concept import batch COMPLETED for it. concept_count alone cannot carry
+// that meaning: WHO ICD-11 API caching, migration starter seeds, and an
+// aborted terminology-import.mjs run all leave concept_count > 0 over a
+// partial catalogue — and a 'block' surface would then 400 legitimate codes
+// on death certificates / discharge / preauth (2026-08-25 reaudit, BC-M2).
+// Cached for 60s: this only gates the code-MISS path, but a batch of misses
+// on one document must not fan out a probe per code.
+const importCompletenessCache = new Map();
+const IMPORT_COMPLETENESS_TTL_MS = 60_000;
+
+async function hasCompletedConceptImport(systemKey) {
+  const hit = importCompletenessCache.get(systemKey);
+  if (hit && hit.expiresAt > Date.now()) return hit.complete;
+  const rows = await prismaReadOnly.$queryRawUnsafe(
+    `SELECT 1 AS found
+       FROM terminology_import_batches b
+      WHERE b.system_key = $1
+        AND b.status = 'completed'
+        AND COALESCE((b.metadata->>'dry_run')::boolean, false) = false
+        AND COALESCE((b.metadata->>'full')::boolean, false) = true
+        AND EXISTS (
+          SELECT 1
+            FROM terminology_concepts c
+           WHERE c.system_key = b.system_key
+             AND c.last_import_batch_id = b.id
+             AND c.last_seen_release IS NOT DISTINCT FROM b.release_label
+        )
+      LIMIT 1`,
+    systemKey,
+  );
+  const complete = rows.length > 0;
+  // Never cache "incomplete" for long at the moment an import finishes —
+  // 60s of extra warn-not-block is an accepted trade for a bounded probe.
+  importCompletenessCache.set(systemKey, {
+    complete,
+    expiresAt: Date.now() + IMPORT_COMPLETENESS_TTL_MS,
+  });
+  return complete;
+}
+
+export function clearImportCompletenessCacheForTests() {
+  importCompletenessCache.clear();
+}
+
 async function shouldSearchIcd11LocalFirst() {
   const conceptCount = await conceptCountForSystem('ICD11');
   return conceptCount > ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD;
@@ -431,9 +476,13 @@ export async function getConcept(system, code) {
  * Validate a code against the imported catalogue.
  *
  * Modes:
- *   'catalog'    — system has imported concepts; verdict is authoritative.
- *   'structural' — LOINC only, catalogue not imported yet: falls back to the
- *                  structural validator (existing HL7 ingestion behaviour).
+ *   'catalog'    — a COMPLETED full import backs the system; verdict is
+ *                  authoritative (the only mode 'block' enforcement acts on).
+ *   'partial'    — concepts exist but no completed full import backs them
+ *                  (WHO API cache, migration seed, aborted import); a miss
+ *                  is advisory, never blockable.
+ *   'structural' — LOINC only, catalogue not (completely) imported: falls
+ *                  back to the structural validator (HL7 ingestion behaviour).
  *   'unimported' — system has no imported concepts and no structural
  *                  fallback; valid=false with reason 'system_not_imported'
  *                  so callers can choose to warn rather than block.
@@ -457,7 +506,7 @@ export async function validateCode(system, code) {
   }
 
   const conceptCount = await conceptCountForSystem(systemKey);
-  if (conceptCount > 0) {
+  if (conceptCount > 0 && (await hasCompletedConceptImport(systemKey))) {
     return { valid: false, mode: 'catalog', reason: 'code_not_found', concept: null };
   }
   if (systemKey === 'LOINC') {
@@ -468,6 +517,11 @@ export async function validateCode(system, code) {
       reason: structurallyValid ? 'catalog_not_imported_structural_pass' : 'invalid_structure',
       concept: null,
     };
+  }
+  if (conceptCount > 0) {
+    // Partial/unbacked catalogue: report the miss, but never as the
+    // authoritative 'catalog' verdict a 'block' surface may act on.
+    return { valid: false, mode: 'partial', reason: 'catalog_import_incomplete', concept: null };
   }
   return { valid: false, mode: 'unimported', reason: 'system_not_imported', concept: null };
 }

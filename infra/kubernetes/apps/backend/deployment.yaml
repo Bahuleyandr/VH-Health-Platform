@@ -124,6 +124,15 @@ spec:
               value: "5000"
             - name: CLUSTER_WORKERS
               value: "2"
+            # Read the exact same non-secret listener profiles as the held
+            # device gateway. The ConfigMap is optional because that held tree
+            # is not composed by active overlays; absent remains dark.
+            - name: DEVICE_GATEWAY_LIS_LISTENERS
+              valueFrom:
+                configMapKeyRef:
+                  name: device-gateway-config
+                  key: DEVICE_GATEWAY_LIS_LISTENERS
+                  optional: true
             # validateEnv.js still treats this legacy deploy/backup variable as
             # mandatory at backend startup. Keep it explicit and isolated while
             # the archive jobs also use the same dedicated crypto generation;

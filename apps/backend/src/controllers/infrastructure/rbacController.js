@@ -4,7 +4,16 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { RBACService } from '../../services/infrastructure/rbacService.js';
 import { rowsToCsv } from '../../utils/csv.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
+
+function roleMutationActorInfo(req) {
+  return {
+    uid: req.user?.uid,
+    role: req.user?.role,
+    rawRole: req.user?.rawRole,
+    mfa: req.user?.mfa,
+  };
+}
 
 // Get public role information
 export const getPublicRoles = async (req, res) => {
@@ -128,15 +137,16 @@ export const assignRole = async (req, res) => {
   
   try {
     const assignmentData = req.body;
-    const adminInfo = {
-      uid: req.user?.uid,
-      role: req.user?.role
-    };
+    const adminInfo = roleMutationActorInfo(req);
     
     const result = await RBACService.assignRole(assignmentData, adminInfo);
     success(res, result, result.unchanged ? 'Role unchanged' : 'Role assigned successfully');
   } catch (err) {
     logger.error('[AssignRole]:', err);
+
+    if (err?.code === 'SUPER_ADMIN_MFA_REQUIRED') {
+      return relayAppError(res, err, 'Failed to assign role');
+    }
     
     if (err.message.includes('Insufficient permissions')) {
       return error(res, err.message, HTTP_STATUS.FORBIDDEN);
@@ -164,15 +174,15 @@ export const bulkAssignRoles = async (req, res) => {
   
   try {
     const bulkData = req.body;
-    const adminInfo = {
-      uid: req.user?.uid,
-      role: req.user?.role
-    };
+    const adminInfo = roleMutationActorInfo(req);
     
     const result = await RBACService.bulkAssignRoles(bulkData, adminInfo);
     success(res, result, 'Bulk role assignment completed');
   } catch (err) {
     logger.error('[BulkAssignRoles]:', err);
+    if (err?.code === 'SUPER_ADMIN_MFA_REQUIRED') {
+      return relayAppError(res, err, 'Failed to process bulk assignment');
+    }
     error(res, 'Failed to process bulk assignment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -297,9 +307,7 @@ export const massRoleUpdate = async (req, res) => {
   
   try {
     const { fromRole, toRole, reason = 'Mass role update', dryRun = false } = req.body;
-    const adminInfo = {
-      uid: req.user?.uid
-    };
+    const adminInfo = roleMutationActorInfo(req);
     
     // For dry run, we'll use the analytics service to preview the impact
     if (dryRun) {
@@ -363,6 +371,10 @@ export const massRoleUpdate = async (req, res) => {
     
   } catch (err) {
     logger.error('[MassRoleUpdate]:', err);
+
+    if (err?.code === 'SUPER_ADMIN_MFA_REQUIRED') {
+      return relayAppError(res, err, 'Failed to perform mass role update');
+    }
     
     if (err.message.includes('capacity')) {
       return error(res, err.message, HTTP_STATUS.BAD_REQUEST);

@@ -1,6 +1,10 @@
 import { jest } from '@jest/globals';
 
-import { executeCiMigrationFile } from '../../../scripts/lib/ciMigrationExecutor.mjs';
+import {
+  ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL,
+  executeCiMigrationFile,
+} from '../../../scripts/lib/ciMigrationExecutor.mjs';
+import { migrationChecksum } from '../../../scripts/lib/migrationChecksum.mjs';
 
 function client() {
   return { query: jest.fn(async () => ({ rows: [], rowCount: 0 })) };
@@ -9,13 +13,14 @@ function client() {
 describe('ci migration executor directives', () => {
   test('runs a concurrent-index migration statement-by-statement without BEGIN', async () => {
     const db = client();
+    const migrationSql = `-- @no-transaction
+-- @statement_timeout: 0
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test ON test_table (id);`;
 
     await executeCiMigrationFile({
       client: db,
       file: '999_concurrent.sql',
-      sql: `-- @no-transaction
--- @statement_timeout: 0
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test ON test_table (id);`,
+      sql: migrationSql,
     });
 
     const statements = db.query.mock.calls.map(([sql]) => sql);
@@ -24,8 +29,30 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test ON test_table (id);`,
     expect(statements.some((sql) => String(sql).includes('CREATE INDEX CONCURRENTLY'))).toBe(true);
     expect(statements).toContain("SET statement_timeout = '120s'");
     expect(db.query.mock.calls.at(-3)).toEqual([
-      'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-      ['999_concurrent.sql'],
+      'INSERT INTO _migrations (name, checksum) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING',
+      ['999_concurrent.sql', migrationChecksum(migrationSql)],
+    ]);
+  });
+
+  test('adds the checksum column before recording a fresh baseline', async () => {
+    const db = client();
+    const sql = 'CREATE TABLE public._migrations (name text PRIMARY KEY);';
+
+    await executeCiMigrationFile({
+      client: db,
+      file: '000_baseline.sql',
+      sql,
+      baseline: true,
+    });
+
+    expect(db.query.mock.calls.map(([statement]) => statement)).toEqual([
+      sql,
+      ENSURE_MIGRATION_CHECKSUM_COLUMN_SQL,
+      'INSERT INTO _migrations (name, checksum) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING',
+    ]);
+    expect(db.query.mock.calls.at(-1)[1]).toEqual([
+      '000_baseline.sql',
+      migrationChecksum(sql),
     ]);
   });
 

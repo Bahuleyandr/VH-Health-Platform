@@ -6,6 +6,7 @@
 // suggestions, coverage, and curator RBAC.
 
 import prisma from '../lib/prisma.js';
+import { clearImportCompletenessCacheForTests } from '../services/terminology/terminologyService.js';
 import { authClient } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -26,6 +27,9 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM investigation_test_catalog WHERE name LIKE 'B8TEST%'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM terminology_import_batches WHERE source_ref LIKE 'B8TEST%'`,
   ).catch(() => {});
 }
 
@@ -60,6 +64,39 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
     await prisma.$executeRawUnsafe(
       `UPDATE terminology_code_systems SET concept_count = 0 WHERE system_key = 'LOINC'`,
     );
+    // An authoritative 'catalog' miss additionally requires a COMPLETED full
+    // (non-dry-run) import batch for the system — concept rows + a count or a
+    // completed incremental batch stay advisory (BC-M2).
+    const batches = await prisma.$queryRawUnsafe(
+      `INSERT INTO terminology_import_batches
+         (system_key, source_ref, status, rows_processed, rows_inserted, started_at, finished_at, metadata)
+       VALUES ('ICD10', 'B8TEST seed', 'completed', 3, 3, NOW(), NOW(),
+               '{"dry_run": false, "full": true}'::jsonb)
+       RETURNING id`,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE terminology_concepts
+          SET last_import_batch_id = $1::bigint
+        WHERE system_key = 'ICD10' AND code LIKE 'B8%'`,
+      batches[0].id,
+    );
+
+    const partialBatches = await prisma.$queryRawUnsafe(
+      `INSERT INTO terminology_import_batches
+         (system_key, source_ref, release_label, status, rows_processed, rows_inserted,
+          started_at, finished_at, metadata)
+       VALUES ('ICD11', 'B8TEST partial seed', 'B8TEST_PARTIAL', 'completed', 1, 1,
+               NOW(), NOW(), '{"dry_run": false, "full": false}'::jsonb)
+       RETURNING id`,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE terminology_concepts
+          SET last_seen_release = 'B8TEST_PARTIAL',
+              last_import_batch_id = $1::bigint
+        WHERE system_key = 'ICD11' AND code = 'BA00'`,
+      partialBatches[0].id,
+    );
+    clearImportCompletenessCacheForTests();
 
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_test_catalog (name, code, category, is_active)
@@ -125,6 +162,16 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
       .query({ system: 'ICD11', code: 'BA00' });
     expect(validate.status).toBe(200);
     expect(validate.body.data).toMatchObject({ valid: true, mode: 'catalog' });
+
+    const missing = await authClient('DOCTOR')
+      .get('/api/v1/terminology/validate')
+      .query({ system: 'ICD11', code: 'B8TEST-NOT-CACHED' });
+    expect(missing.status).toBe(200);
+    expect(missing.body.data).toMatchObject({
+      valid: false,
+      mode: 'partial',
+      reason: 'catalog_import_incomplete',
+    });
   });
 
   test('search rejects unknown system and short query', async () => {

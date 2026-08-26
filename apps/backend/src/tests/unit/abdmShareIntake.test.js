@@ -103,6 +103,7 @@ function dispatch(sql, args) {
 beforeEach(() => {
   jest.clearAllMocks();
   routes = [];
+  route('SET token_number = COALESCE', () => [BASE_INTAKE]);
   prismaQuery.mockImplementation(async (sql, ...args) => dispatch(sql, args));
   prismaExecute.mockImplementation(async (sql, ...args) => dispatch(sql, args));
   recordWebhookEvent.mockResolvedValue({
@@ -160,6 +161,38 @@ describe('handlePatientProfileShareCallback', () => {
     expect(markWebhookProcessed).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT_ID, id: 31, status: 'processed',
     }));
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('mints a fallback token in the SAME tenant transaction as the insert', async () => {
+    route('INSERT INTO abdm_patient_share_intakes', () => [{ id: BASE_INTAKE.id }]);
+    route('SET token_number = COALESCE', (sql, args) => {
+      expect(sql).toContain("'T-' || id::text");
+      expect(args).toEqual([TENANT_ID, 'req-abc', 'sandbox', null]);
+      return [BASE_INTAKE];
+    });
+
+    const result = await shareIntakeService.handlePatientProfileShareCallback({
+      tenantId: TENANT_ID, environment: 'sandbox', body: SHARE_BODY,
+    });
+
+    expect(result).toMatchObject({ duplicate: false, tokenNumber: 'T-21' });
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(txQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not acknowledge an intake whose in-transaction token repair fails', async () => {
+    route('INSERT INTO abdm_patient_share_intakes', () => [{ id: BASE_INTAKE.id }]);
+    route('SET token_number = COALESCE', () => {
+      throw new Error('token repair unavailable');
+    });
+
+    await expect(shareIntakeService.handlePatientProfileShareCallback({
+      tenantId: TENANT_ID, environment: 'sandbox', body: SHARE_BODY,
+    })).rejects.toThrow('token repair unavailable');
+
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(markWebhookProcessed).not.toHaveBeenCalled();
   });
 
   it('allowlists the shared profile — KYC/Aadhaar-adjacent fields never persist', async () => {
@@ -181,9 +214,12 @@ describe('handlePatientProfileShareCallback', () => {
     expect(storedProfile).not.toHaveProperty('aadhaarLast4');
   });
 
-  it('collapses a CM redelivery to duplicate=true and marks the event duplicate', async () => {
+  it('collapses a CM redelivery and repairs a legacy tokenless row', async () => {
     route('INSERT INTO abdm_patient_share_intakes', () => []); // ON CONFLICT DO NOTHING
-    route('SELECT id, tenant_id, environment', () => [BASE_INTAKE]);
+    route('SET token_number = COALESCE', (sql) => {
+      expect(sql).toContain("NULLIF(BTRIM(token_number), '')");
+      return [BASE_INTAKE];
+    });
     recordWebhookEvent.mockResolvedValue({
       event: { id: '31', event_type: 'patient_profile_share', status: 'duplicate' },
       duplicate: true,
@@ -195,9 +231,24 @@ describe('handlePatientProfileShareCallback', () => {
 
     expect(result.duplicate).toBe(true);
     expect(result.intake.id).toBe(21);
+    expect(result.tokenNumber).toBe('T-21');
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
     expect(markWebhookProcessed).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'duplicate' }),
     );
+  });
+
+  it('fails closed when neither the insert nor repair can return the intake', async () => {
+    route('INSERT INTO abdm_patient_share_intakes', () => []);
+    route('SET token_number = COALESCE', () => []);
+
+    await expect(shareIntakeService.handlePatientProfileShareCallback({
+      tenantId: TENANT_ID, environment: 'sandbox', body: SHARE_BODY,
+    })).rejects.toMatchObject({
+      code: 'ABDM_SHARE_INTAKE_NOT_ESTABLISHED',
+      statusCode: 409,
+    });
+    expect(markWebhookProcessed).not.toHaveBeenCalled();
   });
 
   it('refuses a request id that collides with a DIFFERENT ABDM event type', async () => {
@@ -413,11 +464,11 @@ describe('front-desk transitions', () => {
   });
 
   it('sweep expires only unactioned received intakes', async () => {
-    route("SET status = 'expired'", (sql) => {
-      expect(sql).toContain("status = 'received'");
-      return [{ id: 1 }];
-    });
+    route('sweep_expired_abdm_share_intakes()', () => [{ expired: 1 }]);
     const result = await shareIntakeService.sweepExpiredShareIntakes();
     expect(result).toEqual({ expired: 1 });
+    expect(prismaQuery).toHaveBeenCalledWith(
+      'SELECT public.sweep_expired_abdm_share_intakes() AS expired',
+    );
   });
 });

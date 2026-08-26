@@ -6,6 +6,10 @@ const APPROVE_PATHS = [
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/not-an-id/approve',
   '/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/not-an-id/approve',
 ];
+const MOVEMENT_APPROVE_PATHS = [
+  '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/not-an-id/approve',
+  '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/not-an-id/approve',
+];
 
 function client(role) {
   return authClient(role, { tenant_id: TENANT });
@@ -22,9 +26,40 @@ describe('inventory controlled-dispense witness app mount', () => {
     expect(response.body.code).toBe('INVENTORY_BATCH_REQUIRED');
   });
 
+  it.each(MOVEMENT_APPROVE_PATHS)(
+    'lets a declared clinical witness role reach generic movement approval %s',
+    async (path) => {
+      const response = await client('DOCTOR').post(path)
+        .set('Idempotency-Key', `${RUN_KEY}-movement-${path.includes('pharmacy-orders') ? 'orders' : 'alias'}`)
+        .send({
+          movement: {
+            inventory_item_id: 17,
+            movement_kind: 'dispose',
+            quantity: 1,
+          },
+        });
+      expect(response.statusCode).toBe(400);
+      expect(response.body.code).toBe('INVENTORY_BATCH_REQUIRED');
+    },
+  );
+
   it('requires an idempotency key after the clinical witness reaches the approval route', async () => {
     const response = await client('DOCTOR').post(APPROVE_PATHS[0]).send({
       dispense: { inventory_item_id: 17, quantity: 1 },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toMatch(/Idempotency-Key/);
+  });
+
+  it.each([
+    '/api/v1/pharmacy/inventory/v2/movements',
+    '/api/v1/pharmacy/inventory/v2/controlled-dispense',
+  ])('requires an idempotency key for final stock mutation %s', async (path) => {
+    const response = await client('PHARMACY_STAFF').post(path).send({
+      inventory_item_id: 17,
+      inventory_batch_id: 29,
+      movement_kind: 'dispose',
+      quantity: 1,
     });
     expect(response.statusCode).toBe(400);
     expect(response.body.message).toMatch(/Idempotency-Key/);
