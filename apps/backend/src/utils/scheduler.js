@@ -1005,6 +1005,24 @@ if (process.env.NODE_ENV !== 'test') {
     await observeWardDowntimePackOutput();
   }));
 
+  // 🛡️ SIEM export sweep (G3 / BES-1) — env-gated, OFF by default. The SIEM
+  // export engine + its migrations (448/449/622) exist but had zero runtime
+  // callers; this is the missing driver. Every 5 minutes it captures new
+  // security audit events into the export ledger and dispatches them to each
+  // tenant's ACTIVE targets (the registry IS the per-tenant enable — a tenant
+  // with no active target is a fast no-op). The live SIEM endpoint/creds are
+  // owner-side: nothing delivers anywhere the owner did not explicitly wire.
+  // Per-tenant fan-out with fault isolation; lazy import keeps the security
+  // export graph off the scheduler boot path when the flag is off.
+  if (String(process.env.SIEM_EXPORT_SCHEDULER_ENABLED || '').toLowerCase() === 'true') {
+    registerCron('*/5 * * * *', withJobLock('siem-export-sweep', async () => {
+      const { runSiemExportForTenant } = await import('../services/security/siemExportSchedulerService.js');
+      const r = await runForEachTenant('siem-export-sweep', (tenantId) =>
+        runSiemExportForTenant({ tenantId }));
+      logger.info('siem-export-sweep complete', r);
+    }));
+  }
+
   // 📡 Every 2 minutes — claim one owner-authorized outbound HL7v2 message
   // per tenant/subscription. A transport response alone never completes the
   // message; only a parsed, control-ID-correlated MSA|AA can advance delivery.

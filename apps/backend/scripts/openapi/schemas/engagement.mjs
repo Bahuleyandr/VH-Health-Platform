@@ -1,5 +1,5 @@
 // apps/backend/scripts/openapi/schemas/engagement.mjs
-// NL9 patient-engagement console — read endpoints.
+// NL9 patient-engagement console — discovery and approval contracts.
 //
 // The engagement router shipped write-only (POST /templates, POST /campaigns
 // and five POST campaign actions), so the admin console could not list what it
@@ -8,13 +8,27 @@
 // `.spectral-baseline.txt` only ever shrinks, so a new operation must arrive
 // with a description rather than a new baselined warning.
 //
-// These descriptions used to call the approve step a "second approver" control.
-// It is not one. `approveCampaign`
-// (services/engagement/engagementCampaignService.js) gates on the caller's ROLE
-// and nothing else — it never compares the approver against `submitted_by` or
-// `created_by`, so a caller holding an approving role may approve a campaign
-// they submitted themselves. A real requester/approver separation would be a
-// new control, not a documentation fix; it is parked in docs/ROADMAP.md.
+// Approval now binds the immutable authenticated submitter, requires a distinct
+// authenticated approver holding the governed role, and records a required
+// reason atomically with the transition. Material-version binding, approval
+// expiry, and edit invalidation remain a separate control boundary tracked in
+// docs/ROADMAP.md.
+
+export const schemas = {
+  EngagementCampaignApprovalRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason'],
+    properties: {
+      reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 1000,
+        description: 'Required audit reason for this approval, after trimming.',
+      },
+    },
+  },
+};
 
 export const operations = {
   'GET /api/v1/engagement/campaigns': {
@@ -29,6 +43,11 @@ export const operations = {
     description:
       'Tenant-scoped engagement template list. Retired templates are hidden unless `include_retired=true`, matching the `WHERE retired_at IS NULL` partial indexes on the table. Filters: `template_kind`, `channel`. Paginated via `page`/`limit` (default 20, max 100). Payload is `{ templates, pagination }`.',
   },
+  'POST /api/v1/engagement/campaigns/{campaignId}/approve': {
+    description:
+      'Moves a pending campaign to scheduled only when the authenticated caller holds the campaign\'s governed approval role, has a stable user identity distinct from the immutable submitter, and supplies a non-empty audit reason. The status change and audit evidence commit atomically; a concurrent status change is rejected rather than reported as a successful approval.',
+    request: 'EngagementCampaignApprovalRequest',
+  },
 };
 
-export default { operations };
+export default { schemas, operations };

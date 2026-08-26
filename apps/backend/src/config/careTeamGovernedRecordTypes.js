@@ -6,6 +6,7 @@ export const CARE_TEAM_GOVERNED_RECORD_TYPES = Object.freeze([
   'BCMA',
   'BED_BOARD',
   'BED_MANAGEMENT',
+  'BIRTH_NOTIFICATION',
   'BLOOD_BANK',
   'BURN_CHART',
   'CARE_PLAN',
