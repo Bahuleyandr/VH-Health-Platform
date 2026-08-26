@@ -339,6 +339,34 @@ an unresolved head; it is only for clearing a stale pause after the ledger shows
 a terminal rejection, acknowledged delivery, suppression, or audited superseding
 replay. Enter an incident-specific reason and never clear the cursor with SQL.
 
+## LabThresholdReconciliationCronJobStale / LabThresholdReconciliationCronJobFailing
+
+The facility policy control plane leaves every unclassified laboratory result
+in a high-severity owned exception and task. These alerts mean the automatic
+re-evaluation loop is stale or failing; they do not mean the result may be
+treated as normal.
+
+1. Preserve the failing Job and inspect the scheduler state and logs:
+   `kubectl -n vhhealth get cronjob lab-threshold-exception-reconciliation`
+   and `kubectl -n vhhealth get jobs --sort-by=.metadata.creationTimestamp`.
+2. Read the latest Job log with
+   `kubectl -n vhhealth logs job/<job-name>` and correlate its `run_id` with
+   `scheduled_job_runs` and `scheduled_job_tenant_runs`. Identify every failed
+   or unresolved tenant receipt; do not infer fleet success from one tenant.
+3. Verify the named tenant's open `lab_threshold_unmatched_exceptions`, their
+   bound `tasks`/SLA state, and notification-outbox rows. Do not close, delete,
+   or relabel an exception to clear the alert.
+4. Fix the evidenced image, secret, database/network, or policy defect. With
+   incident authority, run one bounded retry from the CronJob template:
+   `kubectl -n vhhealth create job --from=cronjob/lab-threshold-exception-reconciliation <approved-job-name>`.
+5. Close the incident only after the retry has a successful fleet receipt,
+   each tenant receipt is terminal, newly matchable results carry the exact
+   bundle/rule/catalogue identity, and any newly critical result has its alert,
+   acknowledgement task/SLA, notification and canonical evidence.
+
+Never invent or copy a clinical threshold during incident response. Missing
+content remains a pathologist/content-owner gate and the exception stays open.
+
 ## ReliabilityMetricsStale
 
 The last complete reliability-metric collection is absent or older than five

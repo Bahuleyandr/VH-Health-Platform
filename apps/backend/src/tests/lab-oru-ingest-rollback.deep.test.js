@@ -22,6 +22,9 @@ jest.unstable_mockModule('../services/lab/labCriticalAlertService.js', () => ({
 
 const { default: prisma } = await import('../lib/prisma.js');
 const { ingestOruMessage } = await import('../services/lab/labResultsService.js');
+const { cleanupGovernedOruFixture, seedActiveLabThresholdPolicy } = await import(
+  './helpers/labThresholdGovernanceFixture.js'
+);
 
 const describeIfTestDb =
   process.env.TEST_DATABASE_URL || process.env.DATABASE_URL ? describe : describe.skip;
@@ -30,10 +33,14 @@ const RUN_ID = randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();
 const ACTOR_UID = randomUUID();
 const DOCTOR_UID = randomUUID();
 const PATIENT_UID = randomUUID();
+const POLICY_AUTHOR_UID = randomUUID();
+const POLICY_APPROVER_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const ANALYZER_CODE = `ORU-ROLLBACK-${RUN_ID}`;
 const TEST_CODE = `RB${RUN_ID}`;
 const CONTROL_ID = `ROLLBACK-${RUN_ID}`;
 let investigationId;
+let policyFixture;
 
 function phoneFor(seed) {
   const numeric = Number.parseInt(seed.replaceAll('-', '').slice(0, 8), 16);
@@ -68,15 +75,51 @@ describeIfTestDb('HL7 ORU late-failure transaction rollback', () => {
     );
     const patientId = users.find(row => row.role === 'PATIENT').id;
     await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5, 'ORU Rollback Policy Author', 'ADMIN', true, 'active', NOW()),
+         ($2::uuid, $4::uuid, $6, 'ORU Rollback Policy Approver', 'PATHOLOGIST', true, 'active', NOW()),
+         ($3::uuid, $4::uuid, $7, 'ORU Rollback Policy Activator', 'SUPER_ADMIN', true, 'active', NOW())`,
+      POLICY_AUTHOR_UID,
+      POLICY_APPROVER_UID,
+      POLICY_ACTIVATOR_UID,
+      TENANT_ID,
+      phoneFor(POLICY_AUTHOR_UID),
+      phoneFor(POLICY_APPROVER_UID),
+      phoneFor(POLICY_ACTIVATOR_UID),
+    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT_ID,
+      facilityCode: `oru-rollback-policy-${RUN_ID.toLowerCase()}`,
+      facilityName: `ORU rollback governed-policy facility ${RUN_ID}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: POLICY_APPROVER_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `ORU-ROLLBACK-${RUN_ID}`,
+      metadata: { test_fixture: 'lab-oru-ingest-rollback-deep' },
+      entries: [{
+        testCode: TEST_CODE,
+        testName: `${TEST_CODE} rollback critical`,
+        specimenType: 'any',
+        unit: 'mmol/L',
+        referenceLow: 3.5,
+        referenceHigh: 5.1,
+        criticalLow: 2.5,
+        criticalHigh: 6.5,
+      }],
+    });
+    await prisma.$queryRawUnsafe(
       `INSERT INTO lab_analyzers
-         (tenant_id, analyzer_code, display_name, interface_kind, status, metadata,
+         (tenant_id, facility_id, analyzer_code, display_name, interface_kind, status, metadata,
           created_at, updated_at)
-       VALUES ($1::uuid, $2, $2, 'hl7', 'active',
+       VALUES ($1::uuid, $4::int, $2, $2, 'hl7', 'active',
                jsonb_build_object('hl7_actor_uids', jsonb_build_array($3::text)),
                NOW(), NOW())`,
       TENANT_ID,
       ANALYZER_CODE,
       ACTOR_UID,
+      policyFixture.facilityId,
     );
     const investigations = await prisma.$queryRawUnsafe(
       `INSERT INTO investigations
@@ -94,19 +137,27 @@ describeIfTestDb('HL7 ORU late-failure transaction rollback', () => {
       DOCTOR_UID,
     );
     investigationId = Number(investigations[0].id);
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_low, critical_high,
-          applies_to, is_active, source)
-       VALUES ($1::uuid, $2, $3, 'mmol/L', 2.5, 6.5, 'all', TRUE, 'oru-rollback-test')`,
-      TENANT_ID,
-      TEST_CODE,
-      `${TEST_CODE} rollback critical`,
-    );
   }, 30000);
 
   afterAll(async () => {
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanupGovernedOruFixture({
+        tenantId: TENANT_ID,
+        analyzerCodes: [ANALYZER_CODE],
+        userUids: [
+          ACTOR_UID,
+          DOCTOR_UID,
+          PATIENT_UID,
+          POLICY_AUTHOR_UID,
+          POLICY_APPROVER_UID,
+          POLICY_ACTIVATOR_UID,
+        ],
+        facilityIds: [policyFixture?.facilityId],
+        investigationIds: [investigationId],
+      });
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
   });
 
   it('rolls back claim, result, critical alert, task, SLA, canonical pair, and order advance after the real materializer writes', async () => {
@@ -122,6 +173,13 @@ describeIfTestDb('HL7 ORU late-failure transaction rollback', () => {
       state: 'critical',
       alert: { patient_uid: PATIENT_UID },
       task: { assignedToUid: DOCTOR_UID },
+      result: {
+        criticality_status: 'critical',
+        facility_id: policyFixture.facilityId,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(TEST_CODE),
+      },
     });
     const attemptedResultId = Number(materializedBeforeFailure.alert.result_id);
     const attemptedAlertId = Number(materializedBeforeFailure.alert.id);
@@ -185,7 +243,14 @@ describeIfTestDb('HL7 ORU late-failure transaction rollback', () => {
       investigationId,
     });
     expect(retry.results).toHaveLength(1);
-    expect(retry.results[0].is_critical).toBe(true);
+    expect(retry.results[0]).toMatchObject({
+      is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(TEST_CODE),
+    });
     expect(retry.alerts).toHaveLength(1);
 
     const committed = await prisma.$queryRawUnsafe(

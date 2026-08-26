@@ -63,15 +63,23 @@ const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const ASSIGNEE_UID = randomUUID();
 const UNAUTHORIZED_UID = randomUUID();
+const POLICY_APPROVER_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const SLA_ID = randomUUID();
 const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 12);
 const TENANT_SLUG = `lab-alert-ack-atomic-${SUFFIX}`;
 const PATIENT_PHONE = `5${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`;
 const ASSIGNEE_PHONE = `6${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`;
+const POLICY_APPROVER_PHONE = `7${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`;
+const POLICY_ACTIVATOR_PHONE = `8${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`;
 
 let resultId;
 let alertId;
 let taskId;
+let facilityId;
+let policyBundleId;
+let policyRuleId;
+let catalogEntryId;
 let inboxActor;
 let finishedPhiContext;
 
@@ -156,6 +164,30 @@ async function cleanup() {
       TENANT_ID,
     );
     await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_unmatched_exceptions WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_rules WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_bundles WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_entries WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_states WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
       `DELETE FROM users WHERE tenant_id = $1::uuid`,
       TENANT_ID,
     );
@@ -181,36 +213,153 @@ async function seedAcknowledgement() {
      ON CONFLICT (tenant_id, package_key) DO NOTHING`,
   );
   await prisma.$executeRawUnsafe(
-    `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
-     VALUES ($1::uuid, $2, 'Critical lab test patient', 'PATIENT', TRUE, $4::uuid, NOW()),
-            ($3::uuid, $5, 'Critical lab assignee', 'DOCTOR', TRUE, $4::uuid, NOW())`,
+    `INSERT INTO users
+       (uid, phone, name, role, is_active, status, is_deleted, tenant_id, updated_at)
+     VALUES ($1::uuid, $2, 'Critical lab test patient', 'PATIENT',
+             TRUE, 'active', FALSE, $4::uuid, NOW()),
+            ($3::uuid, $5, 'Critical lab assignee', 'DOCTOR',
+             TRUE, 'active', FALSE, $4::uuid, NOW()),
+            ($6::uuid, $7, 'Critical lab policy approver', 'PATHOLOGIST',
+             TRUE, 'active', FALSE, $4::uuid, NOW()),
+            ($8::uuid, $9, 'Critical lab policy activator', 'SUPER_ADMIN',
+             TRUE, 'active', FALSE, $4::uuid, NOW())`,
     PATIENT_UID,
     PATIENT_PHONE,
     ASSIGNEE_UID,
     TENANT_ID,
     ASSIGNEE_PHONE,
+    POLICY_APPROVER_UID,
+    POLICY_APPROVER_PHONE,
+    POLICY_ACTIVATOR_UID,
+    POLICY_ACTIVATOR_PHONE,
+  );
+  const facilities = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities
+       (tenant_id, facility_code, display_name, status, is_default, created_by)
+     VALUES ($1::uuid, $2, 'Critical lab acknowledgement facility',
+             'active', TRUE, $3::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    `critical-ack-${SUFFIX}`,
+    ASSIGNEE_UID,
+  );
+  facilityId = Number(facilities[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO lab_threshold_catalog_states
+       (tenant_id, facility_id, current_revision, updated_by)
+     VALUES ($1::uuid, $2::int, 1, $3::uuid)`,
+    TENANT_ID,
+    facilityId,
+    ASSIGNEE_UID,
+  );
+  const catalog = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_threshold_catalog_entries
+       (tenant_id, facility_id, introduced_revision, test_code, test_name,
+        specimen_type, evaluation_mode, unit, normalized_unit,
+        pregnancy_scope, criticality_required, created_by)
+     VALUES ($1::uuid, $2::int, 1, 'K', 'Potassium', 'any',
+             'numeric_threshold', 'mmol/L', 'mmol/l', 'all', TRUE, $3::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    facilityId,
+    ASSIGNEE_UID,
+  );
+  catalogEntryId = catalog[0].id;
+  const bundles = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_threshold_policy_bundles
+       (tenant_id, facility_id, bundle_version, catalog_revision,
+        lifecycle_status, created_by)
+     VALUES ($1::uuid, $2::int, 1, 1, 'draft', $3::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    facilityId,
+    ASSIGNEE_UID,
+  );
+  policyBundleId = bundles[0].id;
+  const rules = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_threshold_policy_rules
+       (tenant_id, facility_id, bundle_id, catalog_entry_id,
+        reference_low, reference_high, critical_low, critical_high, created_by)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid,
+             3.5, 5.1, 2.5, 6.2, $5::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    facilityId,
+    policyBundleId,
+    catalogEntryId,
+    ASSIGNEE_UID,
+  );
+  policyRuleId = rules[0].id;
+  await prisma.$executeRawUnsafe(
+    `UPDATE lab_threshold_policy_bundles
+        SET lifecycle_status = 'in_review',
+            source_reference = 'critical-ack-signed-test-policy',
+            content_sha256 = repeat('a', 64),
+            effective_from = NOW() - INTERVAL '1 day',
+            submitted_by = $3::uuid,
+            submitted_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    TENANT_ID,
+    policyBundleId,
+    ASSIGNEE_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `UPDATE lab_threshold_policy_bundles
+        SET lifecycle_status = 'approved',
+            approved_by = $3::uuid,
+            approved_at = NOW(),
+            approval_reason = 'Independent clinical fixture approval',
+            approval_evidence_reference = 'critical-ack-test-evidence',
+            approval_evidence_sha256 = repeat('e', 64)
+      WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    TENANT_ID,
+    policyBundleId,
+    POLICY_APPROVER_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `UPDATE lab_threshold_policy_bundles
+        SET lifecycle_status = 'active',
+            activated_by = $3::uuid,
+            activated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    TENANT_ID,
+    policyBundleId,
+    POLICY_ACTIVATOR_UID,
   );
   const results = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, test_code, test_name, value_text,
-        value_numeric, unit, status, is_critical)
+        value_numeric, unit, status, is_critical, facility_id, specimen_type,
+        criticality_status, threshold_policy_bundle_id,
+        threshold_policy_rule_id, threshold_catalog_entry_id,
+        threshold_evaluated_at)
      VALUES ($1::uuid, $2::uuid, 'K', 'Potassium', '7.1', 7.1,
-             'mmol/L', 'final', TRUE)
+             'mmol/L', 'final', TRUE, $3::int, 'serum', 'critical',
+             $4::uuid, $5::uuid, $6::uuid, NOW())
      RETURNING id`,
     TENANT_ID,
     PATIENT_UID,
+    facilityId,
+    policyBundleId,
+    policyRuleId,
+    catalogEntryId,
   );
   resultId = results[0].id;
   const alerts = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_critical_alerts
        (tenant_id, result_id, patient_uid, test_name, value_text,
-        value_numeric, unit, threshold_breached, threshold_value)
+        value_numeric, unit, threshold_breached, threshold_value,
+        threshold_policy_bundle_id, threshold_policy_rule_id,
+        threshold_catalog_entry_id)
      VALUES ($1::uuid, $2::int, $3::uuid, 'Potassium', '7.1', 7.1,
-             'mmol/L', 'high', 6.2)
+             'mmol/L', 'high', 6.2, $4::uuid, $5::uuid, $6::uuid)
      RETURNING id`,
     TENANT_ID,
     resultId,
     PATIENT_UID,
+    policyBundleId,
+    policyRuleId,
+    catalogEntryId,
   );
   alertId = alerts[0].id;
   const tasks = await actualPrismaModule.setTenantTx(TENANT_ID, async (tx) => {
@@ -993,6 +1142,9 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
         evaluatedValue: 7.1,
         criticalLow: null,
         criticalHigh: 6.2,
+        policyBundleId,
+        policyRuleId,
+        catalogEntryId,
       },
     })).rejects.toMatchObject({
       statusCode: 409,
@@ -1118,6 +1270,9 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
         evaluatedValue: 7.1,
         criticalLow: null,
         criticalHigh: 6.2,
+        policyBundleId,
+        policyRuleId,
+        catalogEntryId,
       },
     });
     expect(corrected).toMatchObject({ created: true, state: 'critical' });
@@ -1215,6 +1370,9 @@ d('critical-lab alert acknowledgement authorization and atomicity', () => {
         evaluatedValue: 7.1,
         criticalLow: null,
         criticalHigh: 6.2,
+        policyBundleId,
+        policyRuleId,
+        catalogEntryId,
       },
     });
     expect(corrected).toMatchObject({

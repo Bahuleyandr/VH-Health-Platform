@@ -42,11 +42,11 @@ async function runCanaryChecksInner() {
     results.database_write = { status: 'skip', error: err.message };
   }
 
-  // 2b. Critical-lab-threshold coverage (re-audit 2026-08-23). A tenant with
-  //     no active lab_critical_thresholds rows can never raise a critical lab
-  //     alert — the lookup simply matches nothing and returns quietly. That
-  //     is the tenancy defect the re-audit found, and it is invisible from
-  //     the result-recording path itself.
+  // 2b. Governed laboratory-policy coverage. Every facility catalogue revision
+  //     must have one effective, signed active bundle at that exact revision.
+  //     Result ingestion now fails safe into an owned high-severity exception
+  //     when this is not true; this fleet view catches coverage drift before a
+  //     result has to discover it.
   //
   //     It is answered HERE, not there, on purpose: every caller of
   //     evaluateCriticalThreshold passes its open transaction, and a failed
@@ -54,36 +54,64 @@ async function runCanaryChecksInner() {
   //     clinical write path could stop a lab result being recorded. The
   //     canary runs on its own connection, so it cannot.
   //
-  //     Provisioning is deliberately NOT automated: thresholds must agree
-  //     with lab_reference_ranges and units, which is clinical sign-off, not
-  //     a copy. See docs/ROADMAP.md.
+  //     Provisioning is deliberately NOT automated: reference intervals and
+  //     critical limits are facility-, analyzer-, and population-specific
+  //     clinical content. See docs/ROADMAP.md.
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT t.id::text AS tenant_id, t.name AS tenant_name
-         FROM tenants t
-        WHERE t.status = 'active'
+      `SELECT tenant.id::text AS tenant_id,
+              tenant.name AS tenant_name,
+              facility.id AS facility_id,
+              facility.display_name AS facility_name,
+              catalog.current_revision
+         FROM lab_threshold_catalog_states AS catalog
+         JOIN tenants AS tenant
+           ON tenant.id = catalog.tenant_id
+         JOIN facilities AS facility
+           ON facility.tenant_id = catalog.tenant_id
+          AND facility.id = catalog.facility_id
+        WHERE tenant.status = 'active'
+          AND facility.status = 'active'
           AND NOT EXISTS (
-            SELECT 1 FROM lab_critical_thresholds th
-             WHERE th.tenant_id = t.id AND th.is_active = true
+            SELECT 1
+              FROM lab_threshold_policy_bundles AS bundle
+             WHERE bundle.tenant_id = catalog.tenant_id
+               AND bundle.facility_id = catalog.facility_id
+               AND bundle.catalog_revision = catalog.current_revision
+               AND bundle.lifecycle_status = 'active'
+               AND bundle.effective_from <= NOW()
+               AND (bundle.effective_until IS NULL OR bundle.effective_until > NOW())
           )
-        ORDER BY t.id`,
+        ORDER BY tenant.id, facility.id`,
     );
-    results.lab_critical_threshold_coverage = rows.length
+    results.lab_threshold_policy_coverage = rows.length
       ? {
         status: 'warn',
-        unconfigured_tenants: rows.length,
-        tenants: rows.map((r) => r.tenant_id),
+        uncovered_facilities: rows.length,
+        facilities: rows.map((row) => ({
+          tenant_id: row.tenant_id,
+          facility_id: Number(row.facility_id),
+          catalog_revision: Number(row.current_revision),
+        })),
       }
-      : { status: 'ok', unconfigured_tenants: 0 };
+      : { status: 'ok', uncovered_facilities: 0 };
     if (rows.length) {
       logger.warn(
-        'canary: tenants hold no active lab_critical_thresholds — no lab result can raise a critical alert for them',
-        { tenants: rows.map((r) => ({ id: r.tenant_id, name: r.tenant_name })) },
+        'canary: laboratory catalogue revisions lack an effective signed policy bundle',
+        {
+          facilities: rows.map((row) => ({
+            tenantId: row.tenant_id,
+            tenantName: row.tenant_name,
+            facilityId: Number(row.facility_id),
+            facilityName: row.facility_name,
+            catalogRevision: Number(row.current_revision),
+          })),
+        },
       );
     }
   } catch (err) {
     // Never let the probe read as healthy coverage.
-    results.lab_critical_threshold_coverage = { status: 'fail', error: err.message };
+    results.lab_threshold_policy_coverage = { status: 'fail', error: err.message };
   }
 
   // 2c. Escalation-rule coverage (re-audit 2026-08-23). A tenant with no

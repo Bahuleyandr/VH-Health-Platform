@@ -1,15 +1,18 @@
 import { setTenantTx } from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
 import { lockResultsInboxResourceTx } from '../results/resultsInboxResourceLock.js';
 import {
   enqueueCriticalResultTask,
   ensureCriticalResultTaskOpen,
 } from '../results/resultsInboxService.js';
 import { supersedeAcknowledgementTaskFromTrustedWorkflow } from '../workflow/taskService.js';
+import { applyLabThresholdAssessmentTx } from './labThresholdExceptionService.js';
 
 const CORRECTIVE_DECISIONS = new Set(['corrected', 'amended']);
 const ALERT_STATES = new Set([
   'critical',
   'within_active_critical_thresholds',
+  'threshold_policy_not_applicable',
   'threshold_unavailable',
   'legacy_unclassified',
 ]);
@@ -41,11 +44,59 @@ function normalizeAssessment(assessment) {
     breachedSide,
     breachedValue,
     evaluatedValue,
+    criticalityStatus: assessment.criticalityStatus
+      || (breached ? 'critical' : matched ? 'within_policy' : 'threshold_unavailable'),
+    evaluatedAt: assessment.evaluatedAt || new Date(),
   };
+}
+
+function nullableIdentity(value) {
+  return value == null ? null : String(value);
+}
+
+function validatedPreappliedThresholdAssessment({
+  result,
+  assessment,
+  materialization,
+}) {
+  const applied = materialization?.result;
+  const identityMatches = applied
+    && Number(applied.id) === Number(result.id)
+    && nullableIdentity(applied.patient_uid) === nullableIdentity(result.patient_uid)
+    && nullableIdentity(applied.value_text) === nullableIdentity(result.value_text)
+    && nullableIdentity(applied.value_numeric) === nullableIdentity(result.value_numeric)
+    && nullableIdentity(applied.unit) === nullableIdentity(result.unit);
+  const policyMatches = identityMatches
+    && applied.criticality_status === assessment.criticalityStatus
+    && applied.is_critical === assessment.breached
+    && nullableIdentity(applied.facility_id) === nullableIdentity(assessment.facilityId)
+    && nullableIdentity(applied.threshold_policy_bundle_id)
+      === nullableIdentity(assessment.policyBundleId)
+    && nullableIdentity(applied.threshold_policy_rule_id)
+      === nullableIdentity(assessment.policyRuleId)
+    && nullableIdentity(applied.threshold_catalog_entry_id)
+      === nullableIdentity(assessment.catalogEntryId)
+    && applied.threshold_evaluated_at != null;
+  const exceptionMatches = assessment.matched === true || (
+    materialization?.exception
+    && Number(materialization.exception.result_id) === Number(result.id)
+    && materialization.exception.unmatched_reason === assessment.unmatchedReason
+    && materialization.exception.lifecycle_status === 'open'
+  );
+  if (!policyMatches || !exceptionMatches) {
+    throw AppError.internal(
+      'Pre-applied lab threshold assessment does not match the current result',
+      'LAB_THRESHOLD_PREAPPLIED_MISMATCH',
+    );
+  }
+  return materialization;
 }
 
 function stateForAssessment(assessment) {
   if (assessment.breached) return 'critical';
+  if (assessment.criticalityStatus === 'not_applicable') {
+    return 'threshold_policy_not_applicable';
+  }
   return assessment.matched
     ? 'within_active_critical_thresholds'
     : 'threshold_unavailable';
@@ -56,6 +107,9 @@ function describeAssessment(assessment) {
     return `current value breaches the active ${assessment.breachedSide} critical threshold ${assessment.breachedValue}`;
   }
   if (assessment.matched) {
+    if (assessment.criticalityStatus === 'not_applicable') {
+      return 'current result is covered by a signed qualitative criticality exemption';
+    }
     return 'current value does not breach the active critical thresholds; prior critical alert superseded';
   }
   return 'current criticality could not be classified against an active threshold; prior critical alert superseded';
@@ -70,6 +124,7 @@ export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
   diagnosticGenerationId,
   supersededByActorUid,
   criticality,
+  preappliedThresholdAssessment = null,
 } = {}) {
   await lockResultsInboxResourceTx({
     tx,
@@ -108,8 +163,8 @@ export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
   );
   const alert = rows[0] || null;
   const resultRows = await tx.$queryRawUnsafe(
-    `SELECT id, patient_uid, loinc_code, test_code, value_text,
-            value_numeric, unit
+    `SELECT id, patient_uid, loinc_code, test_code, test_name, value_text,
+            value_numeric, unit, specimen_type
        FROM lab_results
       WHERE tenant_id = $1::uuid
         AND id = $2::integer
@@ -125,6 +180,20 @@ export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
   if (assessment.breached) {
     throw new Error('A critical corrected result cannot use diagnostic supersession');
   }
+  const policyMaterialization = preappliedThresholdAssessment
+    ? validatedPreappliedThresholdAssessment({
+      result,
+      assessment,
+      materialization: preappliedThresholdAssessment,
+    })
+    : await applyLabThresholdAssessmentTx({
+      tx,
+      tenantId,
+      result,
+      assessment,
+      source: 'diagnostic_generation_supersession',
+    });
+  Object.assign(result, policyMaterialization.result);
   const receipt = await persistNoAlertCorrectiveReceipt({
     tx,
     tenantId,
@@ -133,12 +202,27 @@ export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
     source: 'diagnostic_generation_supersession',
     assessment,
   });
-  if (!alert) return { superseded: false, alert: null, task: null, receipt };
+  if (!alert) {
+    return {
+      superseded: false,
+      alert: null,
+      task: null,
+      receipt,
+      thresholdException: policyMaterialization.exception || null,
+    };
+  }
   if (alert.superseded_at) {
     if (String(alert.superseded_by_diagnostic_generation_id) !== String(diagnosticGenerationId)) {
       throw new Error('Critical alert was superseded by a different diagnostic generation');
     }
-    return { superseded: true, alert, task: null, receipt, replayed: true };
+    return {
+      superseded: true,
+      alert,
+      task: null,
+      receipt,
+      replayed: true,
+      thresholdException: policyMaterialization.exception || null,
+    };
   }
 
   let task = null;
@@ -185,7 +269,14 @@ export async function supersedeCriticalAlertWithDiagnosticGenerationTx({
     Number(signoffId),
   );
   if (!updated[0]) throw new Error('Critical alert supersession changed concurrently');
-  return { superseded: true, alert: updated[0], task, receipt, replayed: false };
+  return {
+    superseded: true,
+    alert: updated[0],
+    task,
+    receipt,
+    replayed: false,
+    thresholdException: policyMaterialization.exception || null,
+  };
 }
 
 async function resolveOrderingClinician({ tx, tenantId, result, orderingClinicianUid }) {
@@ -247,28 +338,35 @@ async function persistNoAlertCorrectiveReceipt({
   source,
   assessment,
 }) {
-  const outcome = assessment.matched
-    ? 'within_active_critical_thresholds'
-    : 'no_active_critical_threshold';
+  const outcome = assessment.criticalityStatus === 'not_applicable'
+    ? 'threshold_policy_not_applicable'
+    : assessment.matched
+      ? 'within_active_critical_thresholds'
+      : 'threshold_unavailable';
   const evidence = {
     evaluator: 'labCriticalThresholdService',
     matched: assessment.matched,
     breached: assessment.breached,
     lookup_test_code: result.test_code || null,
     lookup_loinc_code: result.loinc_code || null,
+    policy_bundle_id: assessment.policyBundleId || null,
+    policy_rule_id: assessment.policyRuleId || null,
+    catalog_entry_id: assessment.catalogEntryId || null,
+    unmatched_reason: assessment.unmatchedReason || null,
   };
   const inserted = await tx.$queryRawUnsafe(
     `INSERT INTO lab_critical_alert_reconciliation_receipts
        (tenant_id, result_id, patient_uid, signoff_id, signoff_decision,
         signoff_signed_at, outcome, source, result_value_text,
         result_value_numeric, result_unit, evaluated_value, threshold_id,
-        threshold_test_code, threshold_loinc_code, threshold_low,
-        threshold_high, threshold_unit, threshold_applies_to,
+        threshold_policy_bundle_id, threshold_policy_rule_id,
+        threshold_catalog_entry_id, threshold_test_code, threshold_loinc_code,
+        threshold_low, threshold_high, threshold_unit, threshold_applies_to,
         threshold_conversion, evidence)
      SELECT $1::uuid, $2::int, $3::uuid, $4::int, signoff.decision,
             signoff.signed_at, $5, $6, $7, $8::numeric, $9, $10::numeric,
-            $11::int, $12, $13, $14::numeric, $15::numeric, $16, $17,
-            $18, $19::jsonb
+            $11::int, $12::uuid, $13::uuid, $14::uuid, $15, $16,
+            $17::numeric, $18::numeric, $19, $20, $21, $22::jsonb
        FROM lab_pathologist_signoffs AS signoff
       WHERE signoff.tenant_id = $1::uuid
         AND signoff.id = $4::int
@@ -287,6 +385,9 @@ async function persistNoAlertCorrectiveReceipt({
     result.unit,
     assessment.evaluatedValue,
     assessment.thresholdId ?? null,
+    assessment.policyBundleId ?? null,
+    assessment.policyRuleId ?? null,
+    assessment.catalogEntryId ?? null,
     assessment.thresholdTestCode ?? null,
     assessment.thresholdLoincCode ?? null,
     assessment.criticalLow ?? null,
@@ -324,6 +425,7 @@ export async function materializeLabCriticalAlertGeneration({
   expectedPatientUid = null,
   criticality = null,
   evaluateCriticality = null,
+  preappliedThresholdAssessment = null,
   orderingClinicianUid = null,
   source = 'lab_result',
   taskTitle = null,
@@ -439,6 +541,7 @@ export async function materializeLabCriticalAlertGeneration({
           task: null,
           state: predecessor?.generation_metadata?.corrected_state || null,
           criticality: null,
+          result,
         };
       }
       if (
@@ -458,6 +561,7 @@ export async function materializeLabCriticalAlertGeneration({
           task: null,
           state: predecessor?.generation_metadata?.corrected_state || null,
           criticality: null,
+          result,
         };
       }
     } else if (predecessor) {
@@ -469,6 +573,7 @@ export async function materializeLabCriticalAlertGeneration({
           task: null,
           state: predecessor?.generation_metadata?.corrected_state || 'critical',
           criticality: null,
+          result,
         };
       }
       let boundTask = null;
@@ -578,6 +683,7 @@ export async function materializeLabCriticalAlertGeneration({
         },
         state: predecessor?.generation_metadata?.corrected_state || 'critical',
         criticality: null,
+        result,
       };
     }
 
@@ -586,16 +692,21 @@ export async function materializeLabCriticalAlertGeneration({
         ? await evaluateCriticality({ tx, result })
         : criticality,
     );
-    if (!predecessor && !assessment.breached) {
-      await tx.$executeRawUnsafe(
-        `UPDATE lab_results
-            SET is_critical = false,
-                updated_at = NOW()
-          WHERE tenant_id = $1::uuid
-            AND id = $2::int`,
+    const policyMaterialization = preappliedThresholdAssessment
+      ? validatedPreappliedThresholdAssessment({
+        result,
+        assessment,
+        materialization: preappliedThresholdAssessment,
+      })
+      : await applyLabThresholdAssessmentTx({
+        tx,
         tenantId,
-        numericResultId,
-      );
+        result,
+        assessment,
+        source,
+      });
+    Object.assign(result, policyMaterialization.result);
+    if (!predecessor && !assessment.breached) {
       const receipt = numericSignoffId == null
         ? null
         : await persistNoAlertCorrectiveReceipt({
@@ -612,8 +723,10 @@ export async function materializeLabCriticalAlertGeneration({
         alert: null,
         task: null,
         receipt,
+        thresholdException: policyMaterialization.exception || null,
         state: stateForAssessment(assessment),
         criticality: assessment,
+        result: policyMaterialization.result,
       };
     }
 
@@ -732,6 +845,9 @@ export async function materializeLabCriticalAlertGeneration({
       active_threshold_low: assessment.criticalLow ?? null,
       active_threshold_high: assessment.criticalHigh ?? null,
       active_threshold_id: assessment.thresholdId ?? null,
+      active_threshold_policy_bundle_id: assessment.policyBundleId ?? null,
+      active_threshold_policy_rule_id: assessment.policyRuleId ?? null,
+      active_threshold_catalog_entry_id: assessment.catalogEntryId ?? null,
       active_threshold_test_code: assessment.thresholdTestCode ?? null,
       active_threshold_loinc_code: assessment.thresholdLoincCode ?? null,
       active_threshold_unit: assessment.thresholdUnit ?? null,
@@ -789,10 +905,12 @@ export async function materializeLabCriticalAlertGeneration({
       `INSERT INTO lab_critical_alerts
         (id, tenant_id, result_id, patient_uid, test_name, value_text,
          value_numeric, unit, threshold_breached, threshold_value, fired_at,
-         generation_signoff_id, acknowledgement_task_id, generation_metadata)
+         generation_signoff_id, acknowledgement_task_id, generation_metadata,
+         threshold_policy_bundle_id, threshold_policy_rule_id,
+         threshold_catalog_entry_id)
        VALUES ($1::int, $2::uuid, $3::int, $4::uuid, $5, $6, $7::numeric,
                $8, $9, $10::numeric, $11::timestamptz, $12::int, $13::int,
-               $14::jsonb)
+               $14::jsonb, $15::uuid, $16::uuid, $17::uuid)
        RETURNING *`,
       alertId,
       tenantId,
@@ -808,6 +926,9 @@ export async function materializeLabCriticalAlertGeneration({
       numericSignoffId,
       Number(taskMaterialization.taskId),
       JSON.stringify(generationMetadata),
+      assessment.policyBundleId ?? null,
+      assessment.policyRuleId ?? null,
+      assessment.catalogEntryId ?? null,
     );
     if (!alerts[0]) throw new Error('Critical lab alert generation was not created');
 
@@ -823,6 +944,8 @@ export async function materializeLabCriticalAlertGeneration({
       },
       state,
       criticality: assessment,
+      thresholdException: policyMaterialization.exception || null,
+      result: policyMaterialization.result,
     };
   };
 

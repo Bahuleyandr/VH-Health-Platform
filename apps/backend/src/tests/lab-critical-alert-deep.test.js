@@ -17,6 +17,14 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import app from '../app.js';
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import {
+  activateLabThresholdPolicyBundle,
+  addLabThresholdCatalogEntry,
+  approveLabThresholdPolicyBundle,
+  createLabThresholdPolicyBundle,
+  replaceLabThresholdPolicyRules,
+  submitLabThresholdPolicyBundle,
+} from '../services/lab/labThresholdGovernanceService.js';
 import { API_KEY, authClient } from './testClient.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 
@@ -27,8 +35,17 @@ const PATIENT_UID = 'c4444444-4444-4444-8444-44444444aa01';
 const PATIENT_PHONE = '9000040001';
 const DOCTOR_UID = 'c4444444-4444-4444-8444-44444444aa02';
 const DOCTOR_PHONE = '9000040002';
+const POLICY_AUTHOR_UID = 'c4444444-4444-4444-8444-44444444aa03';
+const POLICY_AUTHOR_PHONE = '9000040003';
+const POLICY_APPROVER_UID = 'c4444444-4444-4444-8444-44444444aa04';
+const POLICY_APPROVER_PHONE = '9000040004';
+const POLICY_ACTIVATOR_UID = 'c4444444-4444-4444-8444-44444444aa05';
+const POLICY_ACTIVATOR_PHONE = '9000040005';
 const IDEMPOTENCY_RUN = Date.now();
 const CRITICAL_TEST_CODE = `TCA${IDEMPOTENCY_RUN}`;
+const POLICY_FACILITY_CODE = `lab-alert-policy-${IDEMPOTENCY_RUN}`;
+
+const policyFixture = {};
 
 async function cleanupFixture() {
   await setTenantTx(TENANT_ID, async (tx) => {
@@ -43,6 +60,18 @@ async function cleanupFixture() {
     const resultIds = resultRows.map((row) => Number(row.id));
     const resultIdTexts = resultIds.map(String);
     const testCodes = [...new Set([...resultRows.map((row) => row.test_code), CRITICAL_TEST_CODE])];
+    const thresholdExceptions = await tx.$queryRawUnsafe(
+      `SELECT id, task_id
+         FROM lab_threshold_unmatched_exceptions
+        WHERE tenant_id = $1::uuid
+          AND result_id = ANY($2::int[])`,
+      TENANT_ID,
+      resultIds,
+    );
+    const thresholdExceptionIds = thresholdExceptions.map((row) => String(row.id));
+    const thresholdExceptionTaskIds = thresholdExceptions
+      .map((row) => Number(row.task_id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
     const investigationRows = await tx.$queryRawUnsafe(
       `SELECT id
          FROM investigations
@@ -115,10 +144,17 @@ async function cleanupFixture() {
     await tx.$executeRawUnsafe(
       `DELETE FROM tasks
         WHERE tenant_id = $1::uuid
-          AND related_resource_type = 'lab_result'
-          AND related_resource_id = ANY($2::text[])`,
+          AND (
+            (related_resource_type = 'lab_result'
+              AND related_resource_id = ANY($2::text[]))
+            OR id = ANY($3::int[])
+            OR (related_resource_type = 'lab_threshold_exception'
+              AND related_resource_id = ANY($4::text[]))
+          )`,
       TENANT_ID,
       resultIdTexts,
+      thresholdExceptionTaskIds,
+      thresholdExceptionIds,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM workflow_sla_instances
@@ -143,6 +179,13 @@ async function cleanupFixture() {
       resultIds,
     );
     await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_unmatched_exceptions
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::uuid[])`,
+      TENANT_ID,
+      thresholdExceptionIds,
+    );
+    await tx.$executeRawUnsafe(
       `DELETE FROM lab_result_ingest_commands
         WHERE tenant_id = $1::uuid
           AND result_ids && $2::int[]`,
@@ -162,6 +205,60 @@ async function cleanupFixture() {
           AND test_code = ANY($2::text[])`,
       TENANT_ID,
       testCodes,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE tenant_id = $1::uuid
+          AND action LIKE 'LAB_THRESHOLD_%'
+          AND actor_uid = ANY($2::uuid[])`,
+      TENANT_ID,
+      [POLICY_AUTHOR_UID, POLICY_APPROVER_UID, POLICY_ACTIVATOR_UID],
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_rules
+        WHERE tenant_id = $1::uuid
+          AND facility_id IN (
+            SELECT id FROM facilities
+             WHERE tenant_id = $1::uuid AND facility_code = $2
+          )`,
+      TENANT_ID,
+      POLICY_FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_bundles
+        WHERE tenant_id = $1::uuid
+          AND facility_id IN (
+            SELECT id FROM facilities
+             WHERE tenant_id = $1::uuid AND facility_code = $2
+          )`,
+      TENANT_ID,
+      POLICY_FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_entries
+        WHERE tenant_id = $1::uuid
+          AND facility_id IN (
+            SELECT id FROM facilities
+             WHERE tenant_id = $1::uuid AND facility_code = $2
+          )`,
+      TENANT_ID,
+      POLICY_FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_states
+        WHERE tenant_id = $1::uuid
+          AND facility_id IN (
+            SELECT id FROM facilities
+             WHERE tenant_id = $1::uuid AND facility_code = $2
+          )`,
+      TENANT_ID,
+      POLICY_FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid AND facility_code = $2`,
+      TENANT_ID,
+      POLICY_FACILITY_CODE,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM notification_outbox
@@ -190,9 +287,92 @@ async function cleanupFixture() {
         WHERE tenant_id = $1::uuid
           AND uid = ANY($2::uuid[])`,
       TENANT_ID,
-      [PATIENT_UID, DOCTOR_UID],
+      [
+        PATIENT_UID,
+        DOCTOR_UID,
+        POLICY_AUTHOR_UID,
+        POLICY_APPROVER_UID,
+        POLICY_ACTIVATOR_UID,
+      ],
     );
   });
+}
+
+async function seedGovernedCriticalPolicy() {
+  const facilities = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities
+       (tenant_id, facility_code, display_name, status, is_default, created_by)
+     VALUES ($1::uuid, $2, 'Critical alert governed-policy facility',
+             'active', TRUE, $3::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    POLICY_FACILITY_CODE,
+    POLICY_AUTHOR_UID,
+  );
+  policyFixture.facilityId = Number(facilities[0].id);
+
+  const catalog = await addLabThresholdCatalogEntry({
+    tenantId: TENANT_ID,
+    facilityId: policyFixture.facilityId,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    entry: {
+      test_code: CRITICAL_TEST_CODE,
+      test_name: 'Troponin I',
+      specimen_type: 'any',
+      evaluation_mode: 'numeric_threshold',
+      unit: 'ng/mL',
+      criticality_required: true,
+    },
+    metadata: { test_fixture: 'lab-critical-alert-deep' },
+  });
+  policyFixture.catalogEntryId = catalog.entry.id;
+
+  const bundle = await createLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    facilityId: policyFixture.facilityId,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    metadata: { test_fixture: 'lab-critical-alert-deep' },
+  });
+  const coverage = await replaceLabThresholdPolicyRules({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    rules: [{
+      catalog_entry_id: policyFixture.catalogEntryId,
+      reference_low: 0,
+      reference_high: 0.04,
+      critical_high: 0.04,
+    }],
+  });
+  policyFixture.policyRuleId = coverage.rules[0].id;
+  await submitLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    sourceReference: 'signed-critical-alert-deep-test-policy',
+    effectiveFrom: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await approveLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_APPROVER_UID,
+    actorRole: 'PATHOLOGIST',
+    reason: 'Independent clinical approval for the critical-alert deep fixture.',
+    evidenceReference: 'critical-alert-deep-test-evidence',
+    evidenceSha256: 'e'.repeat(64),
+  });
+  const activated = await activateLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_ACTIVATOR_UID,
+    actorRole: 'SUPER_ADMIN',
+    reason: 'Test-only activation after independent fixture approval.',
+  });
+  policyFixture.policyBundleId = activated.bundle.id;
 }
 
 async function makeUser(uid, phone, name, role) {
@@ -224,6 +404,20 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
 
     const patientId = await makeUser(PATIENT_UID, PATIENT_PHONE, 'Lab Alert Test Patient', 'PATIENT');
     doctorId = await makeUser(DOCTOR_UID, DOCTOR_PHONE, 'Lab Alert Test ER Doctor', 'DOCTOR');
+    await makeUser(POLICY_AUTHOR_UID, POLICY_AUTHOR_PHONE, 'Lab Alert Policy Author', 'ADMIN');
+    await makeUser(
+      POLICY_APPROVER_UID,
+      POLICY_APPROVER_PHONE,
+      'Lab Alert Policy Approver',
+      'PATHOLOGIST',
+    );
+    await makeUser(
+      POLICY_ACTIVATOR_UID,
+      POLICY_ACTIVATOR_PHONE,
+      'Lab Alert Policy Activator',
+      'SUPER_ADMIN',
+    );
+    await seedGovernedCriticalPolicy();
 
     // Active ER visit with the doctor as attending — this is what the
     // recipient fan-out keys on (emergency_visits.attending_doctor_uid).
@@ -251,13 +445,6 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
     );
     investigationId = investigationRows[0].id;
 
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-       (tenant_id, test_code, test_name, critical_high, is_active)
-       VALUES ($1::uuid, $2, 'Troponin I', 0.04, true)`,
-      TENANT_ID,
-      CRITICAL_TEST_CODE,
-    );
   });
 
   afterAll(async () => {
@@ -282,7 +469,14 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
       unit: 'ng/mL',
       });
     expect(labRes.statusCode).toBe(200);
-    expect(labRes.body.data?.result?.is_critical).toBe(true);
+    expect(labRes.body.data?.result).toMatchObject({
+      is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.policyBundleId,
+      threshold_policy_rule_id: policyFixture.policyRuleId,
+      threshold_catalog_entry_id: policyFixture.catalogEntryId,
+    });
     expect(labRes.body.data?.alerts?.length).toBeGreaterThanOrEqual(1);
     const resultId = labRes.body.data.result.id;
 
@@ -337,13 +531,19 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
     // descriptive read-back methods must not trip the old VARCHAR(40)
     // database limit and surface as a generic 500.
     const [alertRow] = await prisma.$queryRawUnsafe(
-      `SELECT id
+      `SELECT id, threshold_policy_bundle_id, threshold_policy_rule_id,
+              threshold_catalog_entry_id
          FROM lab_critical_alerts
         WHERE result_id = $1::int
         ORDER BY id DESC
         LIMIT 1`,
       resultId,
     );
+    expect(alertRow).toMatchObject({
+      threshold_policy_bundle_id: policyFixture.policyBundleId,
+      threshold_policy_rule_id: policyFixture.policyRuleId,
+      threshold_catalog_entry_id: policyFixture.catalogEntryId,
+    });
     const ackMethod = 'manual phone read-back to ward nurse and surgical team';
     const ackRes = await request(app)
       .post(`/api/v1/lab/alerts/critical/${alertRow.id}/ack`)

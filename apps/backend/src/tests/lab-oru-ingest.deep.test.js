@@ -4,6 +4,10 @@ import { Client } from 'pg';
 import prisma from '../lib/prisma.js';
 import { parseHL7 } from '../services/hl7/hl7Parser.js';
 import { ingestOruMessage } from '../services/lab/labResultsService.js';
+import {
+  cleanupGovernedOruFixture,
+  seedActiveLabThresholdPolicy,
+} from './helpers/labThresholdGovernanceFixture.js';
 import { authClient } from './testClient.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -14,6 +18,9 @@ const ACTOR_A = randomUUID();
 const ACTOR_B = randomUUID();
 const DOCTOR_UID = randomUUID();
 const PATIENT_UID = randomUUID();
+const POLICY_AUTHOR_UID = randomUUID();
+const POLICY_APPROVER_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const ANALYZER_A = `ORU-${RUN_ID}-A`;
 const ANALYZER_B = `ORU-${RUN_ID}-B`;
 const CLIENT_A = 71_000_000 + Number.parseInt(RUN_ID.slice(0, 5), 16);
@@ -24,6 +31,7 @@ let criticalInvestigationId;
 let collisionInvestigationId;
 let collidingBookingInvestigationId;
 let unstructuredInvestigationId;
+let policyFixture;
 
 function phoneFor(seed) {
   const numeric = Number.parseInt(seed.replaceAll('-', '').slice(0, 8), 16);
@@ -113,15 +121,50 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       phoneFor(DOCTOR_UID),
     );
     await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5, 'ORU Policy Author', 'ADMIN', true, 'active', NOW()),
+         ($2::uuid, $4::uuid, $6, 'ORU Policy Approver', 'PATHOLOGIST', true, 'active', NOW()),
+         ($3::uuid, $4::uuid, $7, 'ORU Policy Activator', 'SUPER_ADMIN', true, 'active', NOW())`,
+      POLICY_AUTHOR_UID,
+      POLICY_APPROVER_UID,
+      POLICY_ACTIVATOR_UID,
+      TENANT_ID,
+      phoneFor(POLICY_AUTHOR_UID),
+      phoneFor(POLICY_APPROVER_UID),
+      phoneFor(POLICY_ACTIVATOR_UID),
+    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT_ID,
+      facilityCode: `oru-policy-${RUN_ID.toLowerCase()}`,
+      facilityName: `ORU governed-policy facility ${RUN_ID}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: POLICY_APPROVER_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `ORU-DEEP-${RUN_ID}`,
+      metadata: { test_fixture: 'lab-oru-ingest-deep' },
+      entries: [{
+        testCode: CRITICAL_TEST_CODE,
+        testName: `${CRITICAL_TEST_CODE} critical test`,
+        specimenType: 'any',
+        unit: 'mmol/L',
+        referenceLow: 3.5,
+        referenceHigh: 5.1,
+        criticalLow: 2.5,
+        criticalHigh: 6.5,
+      }],
+    });
+    await prisma.$queryRawUnsafe(
       `INSERT INTO lab_analyzers
-         (tenant_id, analyzer_code, display_name, interface_kind, status, metadata,
+         (tenant_id, facility_id, analyzer_code, display_name, interface_kind, status, metadata,
           created_at, updated_at)
        VALUES
-         ($1::uuid, $2, $2, 'hl7', 'active',
+         ($1::uuid, $8::int, $2, $2, 'hl7', 'active',
           jsonb_build_object('hl7_actor_uids', jsonb_build_array($4::text),
                              'hl7_api_client_ids', jsonb_build_array($6::text)),
           NOW(), NOW()),
-         ($1::uuid, $3, $3, 'hl7', 'active',
+         ($1::uuid, $8::int, $3, $3, 'hl7', 'active',
           jsonb_build_object('hl7_actor_uids', jsonb_build_array($5::text),
                              'hl7_api_client_ids', jsonb_build_array($7::text)),
           NOW(), NOW())`,
@@ -132,6 +175,7 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       ACTOR_B,
       String(CLIENT_A),
       String(CLIENT_B),
+      policyFixture.facilityId,
     );
 
     const patients = await prisma.$queryRawUnsafe(
@@ -224,19 +268,34 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       DOCTOR_UID,
     );
     unstructuredInvestigationId = Number(unstructuredInvestigations[0].id);
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_low, critical_high,
-          applies_to, is_active, source)
-       VALUES ($1::uuid, $2, $3, 'mmol/L', 2.5, 6.5, 'all', TRUE, 'oru-deep-test')`,
-      TENANT_ID,
-      CRITICAL_TEST_CODE,
-      `${CRITICAL_TEST_CODE} critical test`,
-    );
   }, 30000);
 
   afterAll(async () => {
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanupGovernedOruFixture({
+        tenantId: TENANT_ID,
+        analyzerCodes: [ANALYZER_A, ANALYZER_B],
+        userUids: [
+          ACTOR_A,
+          ACTOR_B,
+          DOCTOR_UID,
+          PATIENT_UID,
+          POLICY_AUTHOR_UID,
+          POLICY_APPROVER_UID,
+          POLICY_ACTIVATOR_UID,
+        ],
+        facilityIds: [policyFixture?.facilityId],
+        investigationIds: [
+          criticalInvestigationId,
+          collisionInvestigationId,
+          collidingBookingInvestigationId,
+          unstructuredInvestigationId,
+        ],
+        bookingIds: [collisionInvestigationId],
+      });
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
   });
 
   it('commits the immutable claim, exact raw OBX, generated hash, result, and canonical pair together', async () => {
@@ -527,17 +586,34 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       booking_id: null,
       investigation_id: criticalInvestigationId,
       is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
     });
     expect(output.alerts).toHaveLength(1);
+    expect(output.alerts[0]).toMatchObject({
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
+    });
 
     const evidence = await prisma.$queryRawUnsafe(
       `SELECT claim.status AS claim_status, claim.result_ids,
               claim.critical_result_ids, claim.active_critical_result_ids,
               claim.closed_critical_result_ids, claim.alert_ids,
               claim.task_ids, claim.sla_instance_ids,
-              result.id AS result_id, result.is_critical,
+              result.id AS result_id, result.is_critical, result.criticality_status,
+              result.facility_id,
+              result.threshold_policy_bundle_id AS result_policy_bundle_id,
+              result.threshold_policy_rule_id AS result_policy_rule_id,
+              result.threshold_catalog_entry_id AS result_catalog_entry_id,
               alert.id AS alert_id, alert.acknowledged_at, alert.superseded_at,
               alert.acknowledgement_task_id,
+              alert.threshold_policy_bundle_id AS alert_policy_bundle_id,
+              alert.threshold_policy_rule_id AS alert_policy_rule_id,
+              alert.threshold_catalog_entry_id AS alert_catalog_entry_id,
               task.id AS task_id, task.status AS task_status,
               task.assigned_to_uid, task.assigned_to_role,
               task.sla_completion_semantics, task.completed_at AS task_completed_at,
@@ -552,7 +628,27 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
                 WHERE audit.tenant_id = result.tenant_id
                   AND audit.resource_table = 'lab_results'
                   AND audit.resource_id = result.id::text
-                  AND audit.action = 'lab.result_recorded') AS audit_count
+                  AND audit.action = 'lab.result_recorded') AS audit_count,
+              (SELECT COUNT(*)::int FROM clinical_timeline_events AS timeline
+                WHERE timeline.tenant_id = result.tenant_id
+                  AND timeline.source_table = 'lab_results'
+                  AND timeline.source_id = result.id::text
+                  AND timeline.event_type = 'lab.result_recorded'
+                  AND timeline.payload->'threshold_assessment'->>'policy_bundle_id' = $4::text
+                  AND timeline.payload->'threshold_assessment'->>'policy_rule_id' = $5::text
+                  AND timeline.payload->'threshold_assessment'->>'catalog_entry_id' = $6::text
+                  AND (timeline.payload->'threshold_assessment'->>'facility_id')::int = $7::int)
+                AS governed_timeline_count,
+              (SELECT COUNT(*)::int FROM clinical_audit_events AS audit
+                WHERE audit.tenant_id = result.tenant_id
+                  AND audit.resource_table = 'lab_results'
+                  AND audit.resource_id = result.id::text
+                  AND audit.action = 'lab.result_recorded'
+                  AND audit.metadata->'threshold_assessment'->>'policy_bundle_id' = $4::text
+                  AND audit.metadata->'threshold_assessment'->>'policy_rule_id' = $5::text
+                  AND audit.metadata->'threshold_assessment'->>'catalog_entry_id' = $6::text
+                  AND (audit.metadata->'threshold_assessment'->>'facility_id')::int = $7::int)
+                AS governed_audit_count
          FROM lab_oru_ingest_messages AS claim
          JOIN lab_results AS result
            ON result.tenant_id = claim.tenant_id
@@ -573,12 +669,24 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       TENANT_ID,
       ANALYZER_A,
       controlId,
+      policyFixture.bundleId,
+      policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
+      policyFixture.facilityId,
     );
     expect(evidence).toHaveLength(1);
     const row = evidence[0];
     expect(row).toMatchObject({
       claim_status: 'completed',
       is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      result_policy_bundle_id: policyFixture.bundleId,
+      result_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      result_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
+      alert_policy_bundle_id: policyFixture.bundleId,
+      alert_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      alert_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
       acknowledged_at: null,
       superseded_at: null,
       task_status: 'open',
@@ -592,6 +700,8 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
       sla_completed_at: null,
       timeline_count: 1,
       audit_count: 1,
+      governed_timeline_count: 1,
+      governed_audit_count: 1,
     });
     expect(Number(row.acknowledgement_task_id)).toBe(Number(row.task_id));
     expect(row.result_ids.map(Number)).toEqual([Number(row.result_id)]);
@@ -606,6 +716,13 @@ describeIfTestDb('HL7 ORU atomic ingest and exact replay', () => {
     expect(replay.replayed).toBe(true);
     expect(replay.claimId).toBe(output.claimId);
     expect(replay.results.map(result => Number(result.id))).toEqual([Number(row.result_id)]);
+    expect(replay.results[0]).toMatchObject({
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
+    });
     expect(replay.alerts.map(alert => Number(alert.id))).toEqual([Number(row.alert_id)]);
 
     const counts = await prisma.$queryRawUnsafe(

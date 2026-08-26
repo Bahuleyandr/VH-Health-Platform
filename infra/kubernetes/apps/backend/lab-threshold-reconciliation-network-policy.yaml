@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lab-threshold-exception-reconciliation
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: lab-threshold-exception-reconciliation
+    app.kubernetes.io/component: clinical-safety-job
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: lab-threshold-exception-reconciliation
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-pg
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              cnpg.io/poolerName: vhhealth-pg-rw-pooler
+      ports:
+        - protocol: TCP
+          port: 5432

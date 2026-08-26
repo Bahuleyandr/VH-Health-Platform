@@ -9,11 +9,20 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { Client } from 'pg';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   acknowledgeAlert,
   signOffResults,
 } from '../services/lab/labResultsService.js';
+import {
+  activateLabThresholdPolicyBundle,
+  addLabThresholdCatalogEntry,
+  approveLabThresholdPolicyBundle,
+  createLabThresholdPolicyBundle,
+  replaceLabThresholdPolicyRules,
+  retireLabThresholdCatalogEntry,
+  submitLabThresholdPolicyBundle,
+} from '../services/lab/labThresholdGovernanceService.js';
 import { API_KEY, authClient } from './testClient.js';
 
 const DATABASE_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -28,7 +37,7 @@ const LAB_RECOVERY_MIGRATION_SQL = readFileSync(
   'utf8',
 );
 
-const RUN = String(Date.now() % 100000).padStart(5, '0');
+const RUN = String(Date.now());
 const ACCESSION = `B3TEST-ACC-${RUN}`;
 const ANALYZER_CODE = `B3TEST-ANALYZER-${RUN}`;
 const ASTM_SENDER = `B3TEST-${RUN}^Analyzer`;
@@ -39,13 +48,23 @@ const CRITICAL_ACCESSION = `B3TEST-CRITICAL-${RUN}`;
 const CRITICAL_TEST_CODE = `B3CRITICAL-${RUN}`;
 const CORRECTED_ACCESSION = `B3TEST-CORRECTED-${RUN}`;
 const CORRECTED_TEST_CODE = `B3CORRECTED-${RUN}`;
-const PHONE = `+9199911${String(Date.now() % 10000).padStart(4, '0')}`;
+const PHONE = `+9199${RUN.slice(-8)}`;
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const TEST_ACTOR_UID = '550e8400-e29b-41d4-a716-446655440000';
+const POLICY_APPROVER_UID = '550e8400-e29b-41d4-a716-44665544b301';
+const POLICY_ACTIVATOR_UID = '550e8400-e29b-41d4-a716-44665544b302';
+const POLICY_APPROVER_PHONE = `89${RUN.slice(-8)}`;
+const POLICY_ACTIVATOR_PHONE = `88${RUN.slice(-8)}`;
+const POLICY_FACILITY_CODE = `b3-lab-policy-${RUN}`;
 
 let patientUid;
 let patientId;
 let specimenId;
+let policyFacilityId;
+let policyBundleId;
+let policyCatalogRevision;
+let policyCatalogIds = new Map();
+let policyRuleIds = new Map();
 
 const astmFor = (accession) => [
   `H|\\^&|||${ASTM_SENDER}|||||||P|E1394-97|20260610`,
@@ -56,11 +75,469 @@ const astmFor = (accession) => [
 ].join('\r');
 
 async function cleanup() {
+  await setTenantTx(DEFAULT_TENANT, async (tx) => {
+    const results = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid, investigation_id, booking_id, specimen_id,
+              interface_message_id
+         FROM lab_results
+        WHERE tenant_id = $1::uuid
+          AND test_code LIKE ANY($2::text[])`,
+      DEFAULT_TENANT,
+      ['B3GLU-%', 'B3ROLLBACK-%', 'B3CRITICAL-%', 'B3CORRECTED-%'],
+    );
+    const specimens = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid, booking_id
+         FROM lab_specimens
+        WHERE tenant_id = $1::uuid
+          AND accession_number LIKE 'B3TEST-%'`,
+      DEFAULT_TENANT,
+    );
+    const patients = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid AND name = 'B3TEST Patient'`,
+      DEFAULT_TENANT,
+    );
+    const messages = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM lab_interface_messages
+        WHERE tenant_id = $1::uuid
+          AND analyzer_code LIKE 'B3TEST-ANALYZER-%'`,
+      DEFAULT_TENANT,
+    );
+    const resultIds = results.map((row) => Number(row.id));
+    const resultIdTexts = resultIds.map(String);
+    const specimenIds = specimens.map((row) => Number(row.id));
+    const messageIds = messages.map((row) => Number(row.id));
+    const investigationIds = [...new Set(results
+      .map((row) => Number(row.investigation_id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0))];
+    const bookingIds = [...new Set([
+      ...results.map((row) => Number(row.booking_id)),
+      ...specimens.map((row) => Number(row.booking_id)),
+    ].filter((id) => Number.isSafeInteger(id) && id > 0))];
+    const patientUids = [...new Set([
+      ...results.map((row) => row.patient_uid),
+      ...specimens.map((row) => row.patient_uid),
+      ...patients.map((row) => row.uid),
+    ].filter(Boolean).map(String))];
+    const exceptions = await tx.$queryRawUnsafe(
+      `SELECT id, task_id
+         FROM lab_threshold_unmatched_exceptions
+        WHERE tenant_id = $1::uuid AND result_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    const exceptionIds = exceptions.map((row) => String(row.id));
+    const exceptionTaskIds = exceptions
+      .map((row) => Number(row.task_id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
+    const generations = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT generation.id
+         FROM diagnostic_result_generations AS generation
+         JOIN diagnostic_result_generation_items AS item
+           ON item.tenant_id = generation.tenant_id
+          AND item.generation_id = generation.id
+        WHERE generation.tenant_id = $1::uuid
+          AND item.source_table = 'lab_results'
+          AND item.source_row_id = ANY($2::text[])`,
+      DEFAULT_TENANT,
+      resultIdTexts,
+    );
+    const generationIds = generations.map((row) => String(row.id));
+    const facilityRows = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM facilities
+        WHERE tenant_id = $1::uuid AND facility_code LIKE 'b3-lab-policy-%'`,
+      DEFAULT_TENANT,
+    );
+    const facilityIds = facilityRows.map((row) => Number(row.id));
+    const policyResources = await tx.$queryRawUnsafe(
+      `SELECT id::text AS id FROM lab_threshold_policy_bundles
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])
+       UNION ALL
+       SELECT id::text FROM lab_threshold_policy_rules
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])
+       UNION ALL
+       SELECT id::text FROM lab_threshold_catalog_entries
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    const policyResourceIds = policyResources.map((row) => row.id);
+
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alert_acknowledgement_receipts
+        WHERE tenant_id = $1::uuid AND result_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alert_reconciliation_receipts
+        WHERE tenant_id = $1::uuid AND result_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_patient_notifications
+        WHERE tenant_id = $1::uuid AND generation_id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_release_states
+        WHERE tenant_id = $1::uuid AND generation_id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_actions
+        WHERE tenant_id = $1::uuid
+          AND (generation_id = ANY($2::uuid[])
+            OR superseding_generation_id = ANY($2::uuid[]))`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM discharge_pending_result_owner_actions
+        WHERE tenant_id = $1::uuid
+          AND (generation_id = ANY($2::uuid[])
+            OR predecessor_generation_id = ANY($2::uuid[]))`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM discharge_pending_result_handoffs
+        WHERE tenant_id = $1::uuid
+          AND resolution_generation_id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generation_items
+        WHERE tenant_id = $1::uuid AND generation_id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM diagnostic_result_generations
+        WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      generationIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      patientUids,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events
+        WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      patientUids,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_critical_alerts
+        WHERE tenant_id = $1::uuid AND result_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM task_comments
+        WHERE tenant_id = $1::uuid
+          AND task_id IN (
+            SELECT id FROM tasks
+             WHERE tenant_id = $1::uuid
+               AND ((related_resource_type = 'lab_result'
+                 AND related_resource_id = ANY($2::text[]))
+                OR id = ANY($3::int[])
+                OR (related_resource_type = 'lab_threshold_exception'
+                  AND related_resource_id = ANY($4::text[])))
+          )`,
+      DEFAULT_TENANT,
+      resultIdTexts,
+      exceptionTaskIds,
+      exceptionIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND ((related_resource_type = 'lab_result'
+            AND related_resource_id = ANY($2::text[]))
+           OR id = ANY($3::int[])
+           OR (related_resource_type = 'lab_threshold_exception'
+             AND related_resource_id = ANY($4::text[])))`,
+      DEFAULT_TENANT,
+      resultIdTexts,
+      exceptionTaskIds,
+      exceptionIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'lab_result'
+          AND source_id = ANY($2::text[])`,
+      DEFAULT_TENANT,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_unmatched_exceptions
+        WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      exceptionIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_pathologist_signoffs
+        WHERE tenant_id = $1::uuid AND result_ids && $2::int[]`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_results
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      resultIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_interface_messages
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      messageIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_specimen_status_history
+        WHERE tenant_id = $1::uuid AND specimen_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      specimenIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_specimens
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      specimenIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM investigation_bookings
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      bookingIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM investigations
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      investigationIds,
+    );
+    const outboxRows = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND (payload->>'patient_uid' = ANY($2::text[])
+            OR payload->>'result_id' = ANY($3::text[]))`,
+      DEFAULT_TENANT,
+      patientUids,
+      resultIdTexts,
+    );
+    const outboxIds = outboxRows.map((row) => Number(row.id));
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_delivery_attempts
+        WHERE tenant_id = $1::uuid
+          AND notification_outbox_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      outboxIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      outboxIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notifications
+        WHERE tenant_id = $1::uuid
+          AND (data->>'patient_uid' = ANY($2::text[])
+            OR data->>'result_id' = ANY($3::text[]))`,
+      DEFAULT_TENANT,
+      patientUids,
+      resultIdTexts,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE tenant_id = $1::uuid
+          AND action LIKE 'LAB_THRESHOLD_%'
+          AND resource_id = ANY($2::text[])`,
+      DEFAULT_TENANT,
+      policyResourceIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_rules
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_bundles
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_entries
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_states
+        WHERE tenant_id = $1::uuid AND facility_id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_analyzers
+        WHERE tenant_id = $1::uuid AND analyzer_code LIKE 'B3TEST-ANALYZER-%'`,
+      DEFAULT_TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      DEFAULT_TENANT,
+      facilityIds,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users
+        WHERE tenant_id = $1::uuid AND uid = ANY($2::uuid[])`,
+      DEFAULT_TENANT,
+      patientUids,
+    );
+  });
+}
+
+const policyDefinitions = new Map([
+  [CRITICAL_TEST_CODE, { testName: 'B3 critical analyte' }],
+  [CORRECTED_TEST_CODE, { testName: 'B3 corrected analyte' }],
+]);
+
+async function activatePolicyForCatalog({ codes, sourceReference, activationReason }) {
+  const bundle = await createLabThresholdPolicyBundle({
+    tenantId: DEFAULT_TENANT,
+    facilityId: policyFacilityId,
+    actorUid: TEST_ACTOR_UID,
+    actorRole: 'ADMIN',
+    metadata: { test_fixture: 'lab-closed-loop-deep' },
+  });
+  const coverage = await replaceLabThresholdPolicyRules({
+    tenantId: DEFAULT_TENANT,
+    bundleId: bundle.id,
+    actorUid: TEST_ACTOR_UID,
+    actorRole: 'ADMIN',
+    rules: codes.map((code) => ({
+      catalog_entry_id: policyCatalogIds.get(code),
+      reference_low: 3.9,
+      reference_high: 5,
+      critical_high: 5,
+    })),
+  });
+  const rulesByCode = new Map(coverage.rules.map((rule) => {
+    const code = codes.find(
+      (candidate) => policyCatalogIds.get(candidate) === rule.catalog_entry_id,
+    );
+    return [code, rule.id];
+  }));
+  await submitLabThresholdPolicyBundle({
+    tenantId: DEFAULT_TENANT,
+    bundleId: bundle.id,
+    actorUid: TEST_ACTOR_UID,
+    actorRole: 'ADMIN',
+    sourceReference,
+    effectiveFrom: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await approveLabThresholdPolicyBundle({
+    tenantId: DEFAULT_TENANT,
+    bundleId: bundle.id,
+    actorUid: POLICY_APPROVER_UID,
+    actorRole: 'PATHOLOGIST',
+    reason: 'Independent clinical approval for the closed-loop lab fixture.',
+    evidenceReference: `${sourceReference}-approval`,
+    evidenceSha256: 'e'.repeat(64),
+  });
+  const activated = await activateLabThresholdPolicyBundle({
+    tenantId: DEFAULT_TENANT,
+    bundleId: bundle.id,
+    actorUid: POLICY_ACTIVATOR_UID,
+    actorRole: 'SUPER_ADMIN',
+    reason: activationReason,
+  });
+  return {
+    bundleId: activated.bundle.id,
+    catalogRevision: Number(activated.bundle.catalog_revision),
+    rulesByCode,
+  };
+}
+
+async function seedGovernedPolicies() {
   await prisma.$executeRawUnsafe(
-    `UPDATE lab_analyzers
-        SET status = 'retired', updated_at = NOW()
-      WHERE analyzer_code LIKE 'B3TEST-ANALYZER-%'`,
-  ).catch(() => {});
+    `INSERT INTO users
+       (uid, phone, name, role, is_active, status, is_deleted, tenant_id, updated_at)
+     VALUES ($1::uuid, $2, 'B3 policy approver', 'PATHOLOGIST',
+             TRUE, 'active', FALSE, $5::uuid, NOW()),
+            ($3::uuid, $4, 'B3 policy activator', 'SUPER_ADMIN',
+             TRUE, 'active', FALSE, $5::uuid, NOW())
+     ON CONFLICT (uid) DO UPDATE
+       SET phone = EXCLUDED.phone,
+           role = EXCLUDED.role,
+           is_active = TRUE,
+           status = 'active',
+           is_deleted = FALSE,
+           tenant_id = EXCLUDED.tenant_id,
+           updated_at = NOW()`,
+    POLICY_APPROVER_UID,
+    POLICY_APPROVER_PHONE,
+    POLICY_ACTIVATOR_UID,
+    POLICY_ACTIVATOR_PHONE,
+    DEFAULT_TENANT,
+  );
+  const facilities = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities
+       (tenant_id, facility_code, display_name, status, is_default, created_by)
+     VALUES ($1::uuid, $2, 'B3 closed-loop governed-policy facility',
+             'active', FALSE, $3::uuid)
+     RETURNING id`,
+    DEFAULT_TENANT,
+    POLICY_FACILITY_CODE,
+    TEST_ACTOR_UID,
+  );
+  policyFacilityId = Number(facilities[0].id);
+
+  policyCatalogIds = new Map();
+  for (const [code, definition] of policyDefinitions) {
+    const catalog = await addLabThresholdCatalogEntry({
+      tenantId: DEFAULT_TENANT,
+      facilityId: policyFacilityId,
+      actorUid: TEST_ACTOR_UID,
+      actorRole: 'ADMIN',
+      entry: {
+        test_code: code,
+        test_name: definition.testName,
+        specimen_type: 'blood',
+        evaluation_mode: 'numeric_threshold',
+        unit: 'mmol/L',
+        criticality_required: true,
+      },
+      metadata: { test_fixture: 'lab-closed-loop-deep' },
+    });
+    policyCatalogIds.set(code, catalog.entry.id);
+  }
+  const active = await activatePolicyForCatalog({
+    codes: [...policyDefinitions.keys()],
+    sourceReference: 'signed-b3-closed-loop-test-policy',
+    activationReason: 'Test-only activation after independent fixture approval.',
+  });
+  policyBundleId = active.bundleId;
+  policyCatalogRevision = active.catalogRevision;
+  policyRuleIds = active.rulesByCode;
 }
 
 async function createOrderSource(testName) {
@@ -323,6 +800,7 @@ async function loadDiagnosticGenerationChain(resultId) {
 d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
   beforeAll(async () => {
     await cleanup();
+    await seedGovernedPolicies();
     const keyHash = createHash('sha256').update(`vhapi:${API_KEY}`).digest('hex');
     const apiClients = await prisma.$queryRawUnsafe(
       `SELECT client.id
@@ -341,8 +819,9 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     const apiClientIds = apiClients[0] ? [String(apiClients[0].id)] : [];
     await prisma.$executeRawUnsafe(
       `INSERT INTO lab_analyzers
-         (tenant_id, analyzer_code, display_name, interface_kind, status, metadata)
-       VALUES ($1::uuid, $2, 'B3TEST ASTM Analyzer', 'astm', 'active',
+         (tenant_id, analyzer_code, display_name, interface_kind, status,
+          facility_id, metadata)
+       VALUES ($1::uuid, $2, 'B3TEST ASTM Analyzer', 'astm', 'active', $6::int,
                jsonb_build_object(
                  'astm_sender_aliases', jsonb_build_array($3::text),
                  'astm_manual_import_actor_uids', jsonb_build_array($4::text),
@@ -350,12 +829,14 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
                ))
        ON CONFLICT (tenant_id, analyzer_code)
        DO UPDATE SET status = 'active', interface_kind = 'astm',
+                     facility_id = EXCLUDED.facility_id,
                      metadata = EXCLUDED.metadata, updated_at = NOW()`,
       DEFAULT_TENANT,
       ANALYZER_CODE,
       ASTM_SENDER,
       TEST_ACTOR_UID,
       JSON.stringify(apiClientIds),
+      policyFacilityId,
     );
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, updated_at)
@@ -629,17 +1110,8 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
   });
 
   test('critical ASTM result atomically binds threshold, alert, task, SLA, and canonical provenance', async () => {
-    const thresholdRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_high, applies_to,
-          is_active, source)
-       VALUES ($1::uuid, $2, 'B3 critical analyte', 'mmol/L', 5.0000,
-               'all', TRUE, 'test')
-       RETURNING id`,
-      DEFAULT_TENANT,
-      CRITICAL_TEST_CODE,
-    );
-    const thresholdId = Number(thresholdRows[0].id);
+    const policyRuleId = policyRuleIds.get(CRITICAL_TEST_CODE);
+    const catalogEntryId = policyCatalogIds.get(CRITICAL_TEST_CODE);
     const specimenRows = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_specimens
          (tenant_id, patient_uid, accession_number, specimen_type, priority, status,
@@ -676,11 +1148,18 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
       threshold_assessment: {
         matched: true,
         breached: true,
-        threshold_id: thresholdId,
+        threshold_id: null,
+        policy_bundle_id: policyBundleId,
+        policy_rule_id: policyRuleId,
+        catalog_entry_id: catalogEntryId,
+        catalog_revision: policyCatalogRevision,
+        facility_id: policyFacilityId,
         threshold_test_code: CRITICAL_TEST_CODE,
-        threshold_unit: 'mmol/L',
+        threshold_unit: 'mmol/l',
         threshold_applies_to: 'all',
         breached_side: 'high',
+        criticality_status: 'critical',
+        unmatched_reason: null,
       },
     });
 
@@ -688,9 +1167,17 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     const obligation = await prisma.$queryRawUnsafe(
       `SELECT result.id AS result_id,
               result.is_critical,
+              result.criticality_status,
+              result.facility_id,
+              result.threshold_policy_bundle_id AS result_policy_bundle_id,
+              result.threshold_policy_rule_id AS result_policy_rule_id,
+              result.threshold_catalog_entry_id AS result_catalog_entry_id,
               alert.id AS alert_id,
               alert.threshold_breached,
               alert.threshold_value::text AS threshold_value,
+              alert.threshold_policy_bundle_id AS alert_policy_bundle_id,
+              alert.threshold_policy_rule_id AS alert_policy_rule_id,
+              alert.threshold_catalog_entry_id AS alert_catalog_entry_id,
               alert.acknowledged_at,
               task.id AS task_id,
               task.status AS task_status,
@@ -728,8 +1215,16 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     expect(obligation).toHaveLength(1);
     expect(obligation[0]).toMatchObject({
       is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFacilityId,
+      result_policy_bundle_id: policyBundleId,
+      result_policy_rule_id: policyRuleId,
+      result_catalog_entry_id: catalogEntryId,
       threshold_breached: 'high',
       threshold_value: '5.0000',
+      alert_policy_bundle_id: policyBundleId,
+      alert_policy_rule_id: policyRuleId,
+      alert_catalog_entry_id: catalogEntryId,
       acknowledged_at: null,
       task_status: 'open',
       sla_completion_semantics: 'acknowledgement',
@@ -754,18 +1249,24 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
              AND source_table = 'lab_results'
              AND source_id = $3::text
              AND payload->>'interface_message_id' = $2::text
-             AND payload->'threshold_assessment'->>'threshold_id' = $4::text
-             AND payload->>'authenticated_actor_uid' = $5::text
-             AND payload->>'analyzer_sender_identity' = $6) AS result_timeline,
+             AND payload->'threshold_assessment'->>'policy_bundle_id' = $4::text
+             AND payload->'threshold_assessment'->>'policy_rule_id' = $5::text
+             AND payload->'threshold_assessment'->>'catalog_entry_id' = $6::text
+             AND (payload->'threshold_assessment'->>'facility_id')::int = $7::int
+             AND payload->>'authenticated_actor_uid' = $8::text
+             AND payload->>'analyzer_sender_identity' = $9) AS result_timeline,
          (SELECT COUNT(*)::int FROM clinical_audit_events
            WHERE tenant_id = $1::uuid
              AND action = 'lab.result_recorded'
              AND resource_table = 'lab_results'
              AND resource_id = $3::text
              AND metadata->>'interface_message_id' = $2::text
-             AND metadata->'threshold_assessment'->>'threshold_id' = $4::text
-             AND metadata->>'authenticated_actor_uid' = $5::text
-             AND metadata->>'analyzer_sender_identity' = $6) AS result_audit,
+             AND metadata->'threshold_assessment'->>'policy_bundle_id' = $4::text
+             AND metadata->'threshold_assessment'->>'policy_rule_id' = $5::text
+             AND metadata->'threshold_assessment'->>'catalog_entry_id' = $6::text
+             AND (metadata->'threshold_assessment'->>'facility_id')::int = $7::int
+             AND metadata->>'authenticated_actor_uid' = $8::text
+             AND metadata->>'analyzer_sender_identity' = $9) AS result_audit,
          (SELECT COUNT(*)::int FROM clinical_timeline_events
            WHERE tenant_id = $1::uuid
              AND event_type = 'lab.analyzer_results_ingested'
@@ -779,7 +1280,10 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
       DEFAULT_TENANT,
       messageId,
       Number(obligation[0].result_id),
-      thresholdId,
+      policyBundleId,
+      policyRuleId,
+      catalogEntryId,
+      policyFacilityId,
       TEST_ACTOR_UID,
       ASTM_SENDER,
     );
@@ -792,17 +1296,8 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
   });
 
   test('critical ASTM corrections survive migration reruns and noncritical successors close their obligation', async () => {
-    const thresholdRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_high, applies_to,
-          is_active, source)
-       VALUES ($1::uuid, $2, 'B3 corrected analyte', 'mmol/L', 5.0000,
-               'all', TRUE, 'test')
-       RETURNING id`,
-      DEFAULT_TENANT,
-      CORRECTED_TEST_CODE,
-    );
-    const thresholdId = Number(thresholdRows[0].id);
+    const correctedPolicyRuleId = policyRuleIds.get(CORRECTED_TEST_CODE);
+    const correctedCatalogEntryId = policyCatalogIds.get(CORRECTED_TEST_CODE);
     const { bookingId } = await createOrderSource('B3 corrected analyte');
     const specimenRows = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_specimens
@@ -834,7 +1329,9 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     });
     const messageId = Number(response.body.data.message_id);
     const resultRows = await prisma.$queryRawUnsafe(
-      `SELECT id, booking_id, investigation_id
+      `SELECT id, booking_id, investigation_id, criticality_status, facility_id,
+              threshold_policy_bundle_id, threshold_policy_rule_id,
+              threshold_catalog_entry_id
          FROM lab_results
         WHERE tenant_id = $1::uuid AND interface_message_id = $2::int`,
       DEFAULT_TENANT,
@@ -843,6 +1340,13 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     expect(resultRows).toHaveLength(1);
     expect(Number(resultRows[0].booking_id)).toBe(bookingId);
     expect(resultRows[0].investigation_id).toBeTruthy();
+    expect(resultRows[0]).toMatchObject({
+      criticality_status: 'critical',
+      facility_id: policyFacilityId,
+      threshold_policy_bundle_id: policyBundleId,
+      threshold_policy_rule_id: correctedPolicyRuleId,
+      threshold_catalog_entry_id: correctedCatalogEntryId,
+    });
     const resultId = Number(resultRows[0].id);
 
     let chain = await loadCriticalGenerationChain(resultId);
@@ -937,13 +1441,6 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     await expectSplitCurrentTailRejected({ messageId, resultId });
 
     await prisma.$executeRawUnsafe(
-      `UPDATE lab_critical_thresholds
-          SET critical_high = 10.0000, updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      DEFAULT_TENANT,
-      thresholdId,
-    );
-    await prisma.$executeRawUnsafe(
       `UPDATE lab_results
           SET value_text = '4.0', value_numeric = 4.0, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND id = $2::int`,
@@ -974,22 +1471,33 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     });
     expect(chain[1].superseded_at).toBeTruthy();
     expect(generationsAfterNoncriticalCorrection[2]).toMatchObject({
-      classification: 'abnormal',
+      classification: 'normal',
       predecessor_generation_id: generationsAfterNoncriticalCorrection[1].id,
       source_critical: false,
-      item_classification: 'abnormal',
+      item_classification: 'normal',
       value_snapshot: expect.objectContaining({
         value_text: '4.0',
         value_numeric: '4',
+        criticality_status: 'within_policy',
+        facility_id: policyFacilityId,
+        threshold_policy_bundle_id: policyBundleId,
+        threshold_policy_rule_id: correctedPolicyRuleId,
+        threshold_catalog_entry_id: correctedCatalogEntryId,
       }),
     });
-    await prisma.$executeRawUnsafe(
-      `UPDATE lab_critical_thresholds
-          SET is_active = FALSE, updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      DEFAULT_TENANT,
-      thresholdId,
-    );
+    await retireLabThresholdCatalogEntry({
+      tenantId: DEFAULT_TENANT,
+      facilityId: policyFacilityId,
+      catalogEntryId: correctedCatalogEntryId,
+      reason: 'Test fixture retires the corrected analyte to prove unmatched ownership.',
+      actorUid: TEST_ACTOR_UID,
+      actorRole: 'ADMIN',
+    });
+    const successorPolicy = await activatePolicyForCatalog({
+      codes: [CRITICAL_TEST_CODE],
+      sourceReference: 'signed-b3-closed-loop-successor-test-policy',
+      activationReason: 'Replace the test fixture policy after governed catalogue retirement.',
+    });
     await prisma.$executeRawUnsafe(
       `UPDATE lab_results
           SET updated_at = clock_timestamp()
@@ -1012,13 +1520,22 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
     const finalDiagnosticGenerations = await loadDiagnosticGenerationChain(resultId);
     expect(finalDiagnosticGenerations).toHaveLength(4);
     expect(finalDiagnosticGenerations[3]).toMatchObject({
-      classification: 'abnormal',
+      classification: 'indeterminate',
       predecessor_generation_id: finalDiagnosticGenerations[2].id,
       source_critical: false,
-      item_classification: 'abnormal',
+      item_classification: 'indeterminate',
+      value_snapshot: expect.objectContaining({
+        criticality_status: 'threshold_unavailable',
+        facility_id: policyFacilityId,
+        threshold_policy_bundle_id: successorPolicy.bundleId,
+        threshold_policy_rule_id: null,
+        threshold_catalog_entry_id: null,
+      }),
     });
     const noncriticalReceipts = await prisma.$queryRawUnsafe(
-      `SELECT outcome, result_value_text
+      `SELECT outcome, result_value_text, threshold_policy_bundle_id,
+              threshold_policy_rule_id, threshold_catalog_entry_id,
+              evidence->>'unmatched_reason' AS unmatched_reason
          FROM lab_critical_alert_reconciliation_receipts
         WHERE tenant_id = $1::uuid
           AND result_id = $2::int
@@ -1027,9 +1544,50 @@ d('Closed-loop lab — deep round-trip (roadmap B3)', () => {
       resultId,
     );
     expect(noncriticalReceipts).toEqual([
-      { outcome: 'within_active_critical_thresholds', result_value_text: '4.0' },
-      { outcome: 'no_active_critical_threshold', result_value_text: '4.0' },
+      {
+        outcome: 'within_active_critical_thresholds',
+        result_value_text: '4.0',
+        threshold_policy_bundle_id: policyBundleId,
+        threshold_policy_rule_id: correctedPolicyRuleId,
+        threshold_catalog_entry_id: correctedCatalogEntryId,
+        unmatched_reason: null,
+      },
+      {
+        outcome: 'threshold_unavailable',
+        result_value_text: '4.0',
+        threshold_policy_bundle_id: successorPolicy.bundleId,
+        threshold_policy_rule_id: null,
+        threshold_catalog_entry_id: null,
+        unmatched_reason: 'no_matching_rule',
+      },
     ]);
+    const unmatchedOwnership = await prisma.$queryRawUnsafe(
+      `SELECT exception.lifecycle_status, exception.unmatched_reason,
+              exception.facility_id, exception.metadata,
+              task.status AS task_status, task.priority AS task_priority,
+              task.assigned_to_role
+         FROM lab_threshold_unmatched_exceptions AS exception
+         JOIN tasks AS task
+           ON task.tenant_id = exception.tenant_id
+          AND task.id = exception.task_id
+        WHERE exception.tenant_id = $1::uuid
+          AND exception.result_id = $2::int`,
+      DEFAULT_TENANT,
+      resultId,
+    );
+    expect(unmatchedOwnership).toEqual([expect.objectContaining({
+      lifecycle_status: 'open',
+      unmatched_reason: 'no_matching_rule',
+      facility_id: policyFacilityId,
+      task_status: 'open',
+      task_priority: 'high',
+      assigned_to_role: 'LAB_INCHARGE',
+      metadata: expect.objectContaining({
+        policy_bundle_id: successorPolicy.bundleId,
+        catalog_entry_id: null,
+        catalog_revision: successorPolicy.catalogRevision,
+      }),
+    })]);
     const receiptCardinality = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS receipt_count,
               COUNT(DISTINCT acknowledgement_task_id)::int AS task_count,

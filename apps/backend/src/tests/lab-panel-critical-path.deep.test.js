@@ -79,6 +79,14 @@ const { recordLabPanel } = await import('../services/lab/labPanelService.js');
 const { materializeLabCriticalAlertGeneration } = await import(
   '../services/lab/labCriticalAlertService.js'
 );
+const {
+  activateLabThresholdPolicyBundle,
+  addLabThresholdCatalogEntry,
+  approveLabThresholdPolicyBundle,
+  createLabThresholdPolicyBundle,
+  replaceLabThresholdPolicyRules,
+  submitLabThresholdPolicyBundle,
+} = await import('../services/lab/labThresholdGovernanceService.js');
 const { signOffResults } = await import('../services/lab/labResultsService.js');
 const { default: labPanelRoutes } = await import('../routes/lab/labPanelRoutes.js');
 
@@ -88,6 +96,8 @@ const INACTIVE_PATIENT_UID = randomUUID();
 const DOCTOR_UID = randomUUID();
 const LAB_TECH_UID = randomUUID();
 const PATHOLOGIST_UID = randomUUID();
+const POLICY_AUTHOR_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 10);
 const TENANT_SLUG = `lab-panel-critical-${SUFFIX}`;
 const PATIENT_PHONE = `5${String(parseInt(SUFFIX, 16) % 1_000_000_000).padStart(9, '0')}`;
@@ -95,6 +105,8 @@ const INACTIVE_PATIENT_PHONE = `4${String((parseInt(SUFFIX, 16) + 4) % 1_000_000
 const DOCTOR_PHONE = `6${String((parseInt(SUFFIX, 16) + 1) % 1_000_000_000).padStart(9, '0')}`;
 const LAB_TECH_PHONE = `7${String((parseInt(SUFFIX, 16) + 2) % 1_000_000_000).padStart(9, '0')}`;
 const PATHOLOGIST_PHONE = `8${String((parseInt(SUFFIX, 16) + 3) % 1_000_000_000).padStart(9, '0')}`;
+const POLICY_AUTHOR_PHONE = `3${String((parseInt(SUFFIX, 16) + 5) % 1_000_000_000).padStart(9, '0')}`;
+const POLICY_ACTIVATOR_PHONE = `2${String((parseInt(SUFFIX, 16) + 6) % 1_000_000_000).padStart(9, '0')}`;
 
 const fixture = {};
 
@@ -184,16 +196,21 @@ async function seed() {
   );
   const users = await prisma.$queryRawUnsafe(
     `INSERT INTO users
-       (uid, phone, name, gender, birthday, role, is_active, tenant_id, updated_at)
+       (uid, phone, name, gender, birthday, role, is_active, status,
+        is_deleted, tenant_id, updated_at)
      VALUES
        ($1::uuid, $2, 'Panel critical patient', 'F', DATE '1990-01-01',
-        'PATIENT', TRUE, $9::uuid, NOW()),
+        'PATIENT', TRUE, 'active', FALSE, $13::uuid, NOW()),
        ($3::uuid, $4, 'Panel ordering doctor', NULL, NULL,
-        'DOCTOR', TRUE, $9::uuid, NOW()),
+        'DOCTOR', TRUE, 'active', FALSE, $13::uuid, NOW()),
        ($5::uuid, $6, 'Panel lab technician', NULL, NULL,
-        'LAB_STAFF', TRUE, $9::uuid, NOW()),
+        'LAB_STAFF', TRUE, 'active', FALSE, $13::uuid, NOW()),
        ($7::uuid, $8, 'Panel pathologist', NULL, NULL,
-        'PATHOLOGIST', TRUE, $9::uuid, NOW())
+        'PATHOLOGIST', TRUE, 'active', FALSE, $13::uuid, NOW()),
+       ($9::uuid, $10, 'Panel policy author', NULL, NULL,
+        'ADMIN', TRUE, 'active', FALSE, $13::uuid, NOW()),
+       ($11::uuid, $12, 'Panel policy activator', NULL, NULL,
+        'SUPER_ADMIN', TRUE, 'active', FALSE, $13::uuid, NOW())
      RETURNING id, uid`,
     PATIENT_UID,
     PATIENT_PHONE,
@@ -203,6 +220,10 @@ async function seed() {
     LAB_TECH_PHONE,
     PATHOLOGIST_UID,
     PATHOLOGIST_PHONE,
+    POLICY_AUTHOR_UID,
+    POLICY_AUTHOR_PHONE,
+    POLICY_ACTIVATOR_UID,
+    POLICY_ACTIVATOR_PHONE,
     TENANT_ID,
   );
   fixture.patientId = users.find((user) => user.uid === PATIENT_UID).id;
@@ -302,6 +323,95 @@ async function seed() {
       'K_UNIT_MISMATCH',
     ],
   );
+
+  const facilities = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities
+       (tenant_id, facility_code, display_name, status, is_default, created_by)
+     VALUES ($1::uuid, $2, 'Panel governance facility', 'active', TRUE, $3::uuid)
+     RETURNING id`,
+    TENANT_ID,
+    `panel-governance-${SUFFIX}`,
+    POLICY_AUTHOR_UID,
+  );
+  fixture.facilityId = Number(facilities[0].id);
+
+  const governedCodes = [
+    'K_ATOMIC',
+    'K_FALLBACK',
+    'K_SIGNOFF',
+    'K_REPLAY',
+    'K_CONCURRENT',
+    'K_BOUNDARY',
+    'K_BOUNDARY_LOW',
+    'K_POLICY_MISMATCH',
+    'K_UNIT_MISMATCH',
+  ];
+  const catalogEntries = new Map();
+  for (const code of governedCodes) {
+    const catalog = await addLabThresholdCatalogEntry({
+      tenantId: TENANT_ID,
+      facilityId: fixture.facilityId,
+      actorUid: POLICY_AUTHOR_UID,
+      actorRole: 'ADMIN',
+      entry: {
+        test_code: code,
+        test_name: `${code} governed potassium`,
+        specimen_type: 'any',
+        evaluation_mode: 'numeric_threshold',
+        unit: code === 'K_UNIT_MISMATCH' ? 'mEq/L' : 'mmol/L',
+        criticality_required: true,
+      },
+      metadata: { test_fixture: 'lab-panel-critical-path' },
+    });
+    catalogEntries.set(code, catalog.entry.id);
+  }
+
+  const bundle = await createLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    facilityId: fixture.facilityId,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    metadata: { test_fixture: 'lab-panel-critical-path' },
+  });
+  await replaceLabThresholdPolicyRules({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    rules: governedCodes.map((code) => ({
+      catalog_entry_id: catalogEntries.get(code),
+      reference_low: 3.5,
+      reference_high: 5,
+      critical_low: 2.5,
+      critical_high: 6.5,
+    })),
+  });
+  await submitLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_AUTHOR_UID,
+    actorRole: 'ADMIN',
+    sourceReference: 'signed-panel-critical-path-test-policy',
+    effectiveFrom: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await approveLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: PATHOLOGIST_UID,
+    actorRole: 'PATHOLOGIST',
+    reason: 'Independent clinical approval for the panel critical-path fixture.',
+    evidenceReference: 'panel-critical-path-test-evidence',
+    evidenceSha256: 'e'.repeat(64),
+  });
+  const activated = await activateLabThresholdPolicyBundle({
+    tenantId: TENANT_ID,
+    bundleId: bundle.id,
+    actorUid: POLICY_ACTIVATOR_UID,
+    actorRole: 'SUPER_ADMIN',
+    reason: 'Test-only activation after independent clinical approval.',
+  });
+  fixture.policyBundleId = activated.bundle.id;
+  fixture.catalogEntries = catalogEntries;
 }
 
 function panelArgs(code, source, overrides = {}) {
@@ -407,6 +517,34 @@ async function readCounts(investigationId) {
     investigationId,
   );
   return rows[0];
+}
+
+async function readThresholdException(investigationId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT exception_row.lifecycle_status,
+            exception_row.unmatched_reason,
+            exception_row.occurrence_count,
+            task.status AS task_status,
+            task.priority AS task_priority,
+            task.assigned_to_role,
+            result.criticality_status,
+            result.threshold_policy_bundle_id,
+            result.threshold_policy_rule_id,
+            result.threshold_catalog_entry_id
+       FROM lab_results AS result
+       JOIN lab_threshold_unmatched_exceptions AS exception_row
+         ON exception_row.tenant_id = result.tenant_id
+        AND exception_row.result_id = result.id
+       JOIN tasks AS task
+         ON task.tenant_id = exception_row.tenant_id
+        AND task.id = exception_row.task_id
+      WHERE result.tenant_id = $1::uuid
+        AND result.investigation_id = $2::int
+      ORDER BY exception_row.first_seen_at, exception_row.id`,
+    TENANT_ID,
+    investigationId,
+  );
+  return rows;
 }
 
 async function waitForIdempotencyComplete(requestKey) {
@@ -565,69 +703,99 @@ d('structured lab-panel critical path', () => {
     });
   });
 
-  it('rolls back conflicting threshold configuration instead of choosing either policy', async () => {
-    await expect(recordLabPanel(panelArgs('K_POLICY_MISMATCH', fixture.policyMismatch)))
-      .rejects.toMatchObject({
-        statusCode: 400,
-        code: 'LAB_CRITICAL_POLICY_MISMATCH',
-        details: expect.objectContaining({
-          reasons: expect.arrayContaining(['critical_high', 'breached_threshold']),
-          reference_range_policy: expect.objectContaining({ critical_high: 6.5 }),
-          canonical_policy: expect.objectContaining({ critical_high: 7 }),
-        }),
-      });
+  it('ignores conflicting unsigned legacy thresholds and uses the active signed bundle', async () => {
+    const recorded = await recordLabPanel(panelArgs(
+      'K_POLICY_MISMATCH',
+      fixture.policyMismatch,
+    ));
+    expect(recorded).toMatchObject({
+      criticals_fired: 1,
+      results: [expect.objectContaining({
+        criticality_status: 'critical',
+        is_critical: true,
+        threshold_policy_bundle_id: fixture.policyBundleId,
+        threshold_catalog_entry_id: fixture.catalogEntries.get('K_POLICY_MISMATCH'),
+      })],
+    });
     expect(await readCounts(fixture.policyMismatch.investigationId)).toEqual({
-      result_count: 0,
-      alert_count: 0,
-      task_count: 0,
-      sla_count: 0,
-      timeline_count: 0,
-      audit_count: 0,
+      result_count: 1,
+      alert_count: 1,
+      task_count: 1,
+      sla_count: 1,
+      timeline_count: 1,
+      audit_count: 1,
     });
-    expect(notificationObservations).toHaveLength(0);
+    expect(await readThresholdException(fixture.policyMismatch.investigationId)).toEqual([]);
+    expect(notificationObservations).toHaveLength(1);
   }, 30_000);
 
-  it('rolls back when only the reference-range policy is configured', async () => {
-    await expect(recordLabPanel(panelArgs('K_MISSING_POLICY', fixture.missingPolicy)))
-      .rejects.toMatchObject({
-        statusCode: 400,
-        code: 'LAB_CRITICAL_POLICY_MISMATCH',
-        details: expect.objectContaining({
-          reasons: expect.arrayContaining(['policy_presence']),
-          reference_range_policy: expect.objectContaining({ matched: true }),
-          canonical_policy: expect.objectContaining({ matched: false }),
-        }),
-      });
+  it('persists a result missing from the governed catalogue and opens its owner task', async () => {
+    const recorded = await recordLabPanel(panelArgs('K_MISSING_POLICY', fixture.missingPolicy));
+    expect(recorded).toMatchObject({
+      criticals_fired: 0,
+      results: [expect.objectContaining({
+        criticality_status: 'threshold_unavailable',
+        is_critical: false,
+        threshold_policy_bundle_id: fixture.policyBundleId,
+        threshold_policy_rule_id: null,
+        threshold_catalog_entry_id: null,
+      })],
+    });
     expect(await readCounts(fixture.missingPolicy.investigationId)).toEqual({
-      result_count: 0,
+      result_count: 1,
       alert_count: 0,
       task_count: 0,
       sla_count: 0,
-      timeline_count: 0,
-      audit_count: 0,
+      timeline_count: 1,
+      audit_count: 1,
     });
+    expect(await readThresholdException(fixture.missingPolicy.investigationId)).toEqual([
+      expect.objectContaining({
+        lifecycle_status: 'open',
+        unmatched_reason: 'no_matching_rule',
+        occurrence_count: 1,
+        task_status: 'open',
+        task_priority: 'high',
+        assigned_to_role: 'LAB_INCHARGE',
+        criticality_status: 'threshold_unavailable',
+      }),
+    ]);
     expect(notificationObservations).toHaveLength(0);
   }, 30_000);
 
-  it('rolls back a threshold-unit disagreement without assuming a conversion policy', async () => {
-    await expect(recordLabPanel(panelArgs('K_UNIT_MISMATCH', fixture.unitMismatch)))
-      .rejects.toMatchObject({
-        statusCode: 400,
-        code: 'LAB_CRITICAL_POLICY_MISMATCH',
-        details: expect.objectContaining({
-          reasons: ['threshold_unit'],
-          result_unit: 'mmol/L',
-          threshold_unit: 'mEq/L',
-        }),
-      });
+  it('persists a unit mismatch without inventing a conversion and opens its owner task', async () => {
+    const recorded = await recordLabPanel(panelArgs('K_UNIT_MISMATCH', fixture.unitMismatch));
+    expect(recorded).toMatchObject({
+      criticals_fired: 0,
+      results: [expect.objectContaining({
+        criticality_status: 'threshold_unavailable',
+        is_critical: false,
+        threshold_policy_bundle_id: fixture.policyBundleId,
+        threshold_policy_rule_id: null,
+        threshold_catalog_entry_id: fixture.catalogEntries.get('K_UNIT_MISMATCH'),
+      })],
+    });
     expect(await readCounts(fixture.unitMismatch.investigationId)).toEqual({
-      result_count: 0,
+      result_count: 1,
       alert_count: 0,
       task_count: 0,
       sla_count: 0,
-      timeline_count: 0,
-      audit_count: 0,
+      timeline_count: 1,
+      audit_count: 1,
     });
+    expect(await readThresholdException(fixture.unitMismatch.investigationId)).toEqual([
+      expect.objectContaining({
+        lifecycle_status: 'open',
+        unmatched_reason: 'unit_mismatch',
+        occurrence_count: 1,
+        task_status: 'open',
+        task_priority: 'high',
+        assigned_to_role: 'LAB_INCHARGE',
+        criticality_status: 'threshold_unavailable',
+        threshold_policy_bundle_id: fixture.policyBundleId,
+        threshold_catalog_entry_id: fixture.catalogEntries.get('K_UNIT_MISMATCH'),
+      }),
+    ]);
     expect(notificationObservations).toHaveLength(0);
   }, 30_000);
 

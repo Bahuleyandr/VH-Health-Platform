@@ -20,10 +20,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
-import {
-  assertConfiguredCriticalAnalytesNumeric,
-  evaluateCriticalThreshold,
-} from './labCriticalThresholdService.js';
+import { evaluateCriticalThreshold } from './labCriticalThresholdService.js';
 import {
   claimLabResultIngestCommand,
   completeLabResultIngestCommand,
@@ -45,124 +42,10 @@ const PANEL_RESULTABLE_BOOKING_STATUSES = new Set([
 ]);
 const MANUAL_PANEL_SOURCE = 'manual_panel_entry';
 
-function normalizeLabUnit(unit) {
-  if (unit == null || unit === '') return '';
-  return String(unit)
-    .trim()
-    .toLowerCase()
-    .replace(/μ/g, 'u')
-    .replace(/µ/g, 'u')
-    .replace(/\s+/g, '');
-}
-
-function numericThreshold(value) {
-  if (value == null || value === '') return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
 function withoutInternalCommandIdentity(result) {
   const response = { ...result };
   delete response.ingest_command_id;
   return response;
-}
-
-function referenceCriticalAssessment({ analyte, range, flag }) {
-  const evaluatedValue = numericThreshold(analyte.value_numeric);
-  const criticalLow = numericThreshold(range?.critical_low);
-  const criticalHigh = numericThreshold(range?.critical_high);
-  const matched = evaluatedValue != null && (criticalLow != null || criticalHigh != null);
-  const breached = flag === 'LL' || flag === 'HH';
-  return {
-    matched,
-    breached,
-    breachedSide: breached ? (flag === 'LL' ? 'low' : 'high') : null,
-    breachedValue: breached ? (flag === 'LL' ? criticalLow : criticalHigh) : null,
-    evaluatedValue,
-    criticalLow,
-    criticalHigh,
-    thresholdUnit: range?.unit || analyte.unit || null,
-  };
-}
-
-function nullableNumbersEqual(left, right) {
-  if (left == null || right == null) return left == null && right == null;
-  return Number(left) === Number(right);
-}
-
-function assertCriticalPolicyAgreement({ result, referenceAssessment, canonicalAssessment }) {
-  const reasons = [];
-  if (referenceAssessment.matched !== canonicalAssessment.matched) {
-    reasons.push('policy_presence');
-  }
-  if (!nullableNumbersEqual(referenceAssessment.criticalLow, canonicalAssessment.criticalLow)) {
-    reasons.push('critical_low');
-  }
-  if (!nullableNumbersEqual(referenceAssessment.criticalHigh, canonicalAssessment.criticalHigh)) {
-    reasons.push('critical_high');
-  }
-
-  if (referenceAssessment.matched || canonicalAssessment.matched) {
-    const referenceUnit = normalizeLabUnit(referenceAssessment.thresholdUnit);
-    const canonicalUnit = normalizeLabUnit(canonicalAssessment.thresholdUnit);
-    const resultUnit = normalizeLabUnit(result.unit);
-    if (
-      !referenceUnit
-      || !canonicalUnit
-      || !resultUnit
-      || referenceUnit !== canonicalUnit
-      || referenceUnit !== resultUnit
-    ) {
-      reasons.push('threshold_unit');
-    }
-  }
-  if (referenceAssessment.breached !== canonicalAssessment.breached) {
-    reasons.push('boundary_or_breach_decision');
-  }
-  if (
-    referenceAssessment.breached
-    && canonicalAssessment.breached
-    && referenceAssessment.breachedSide !== canonicalAssessment.breachedSide
-  ) {
-    reasons.push('breached_side');
-  }
-  if (
-    referenceAssessment.breached
-    && canonicalAssessment.breached
-    && !nullableNumbersEqual(
-      referenceAssessment.breachedValue,
-      canonicalAssessment.breachedValue,
-    )
-  ) {
-    reasons.push('breached_threshold');
-  }
-  if (!reasons.length) return canonicalAssessment;
-
-  throw AppError.badRequest(
-    'Lab critical-threshold policies disagree; result was not recorded',
-    'LAB_CRITICAL_POLICY_MISMATCH',
-    {
-      reasons: [...new Set(reasons)],
-      test_code: result.test_code || null,
-      loinc_code: result.loinc_code || null,
-      reference_range_policy: {
-        matched: referenceAssessment.matched,
-        critical_low: referenceAssessment.criticalLow,
-        critical_high: referenceAssessment.criticalHigh,
-        unit: referenceAssessment.thresholdUnit,
-        low_comparator: 'less_than',
-        high_comparator: 'greater_than',
-      },
-      canonical_policy: {
-        matched: canonicalAssessment.matched,
-        critical_low: canonicalAssessment.criticalLow ?? null,
-        critical_high: canonicalAssessment.criticalHigh ?? null,
-        unit: canonicalAssessment.thresholdUnit ?? null,
-        low_comparator: 'less_than',
-        high_comparator: 'greater_than',
-      },
-    },
-  );
 }
 
 function panelSourceMismatch() {
@@ -538,42 +421,9 @@ export async function recordLabPanel({
       bookingId: assertedBookingId,
       investigationId: assertedInvestigationId,
     });
-    const sex = source.gender ? String(source.gender).slice(0, 1).toUpperCase() : null;
-    const ageYears = source.birthday
-      ? Math.max(0, Math.floor(
-          (Date.now() - new Date(source.birthday).getTime()) / (365.25 * 86400000),
-        ))
-      : null;
-    await assertConfiguredCriticalAnalytesNumeric({
-      client: tx,
-      tenantId: tid,
-      results: normalizedAnalytes,
-    });
-    const enriched = [];
-    for (const analyte of normalizedAnalytes) {
-      const range = await lookupReferenceRangeWithClient(tx, {
-        tenantId: tid,
-        testCode: analyte.test_code,
-        sex,
-        ageYears,
-      });
-      const flag = computeAbnormalFlag(analyte.value_numeric, range);
-      enriched.push({
-        analyte,
-        range,
-        flag,
-        referenceCriticality: referenceCriticalAssessment({ analyte, range, flag }),
-      });
-    }
-
     const rows = [];
     const criticalNotifications = [];
-    for (const {
-      analyte,
-      range,
-      flag,
-      referenceCriticality,
-    } of enriched) {
+    for (const analyte of normalizedAnalytes) {
       const created = await tx.lab_results.create({
         data: {
           tenant_id: tid,
@@ -582,20 +432,16 @@ export async function recordLabPanel({
           admission_id: source.admissionId,
           patient_uid: source.patientUid,
           patient_name: source.patientName,
-          loinc_code: analyte.loinc_code ?? range?.loinc_code ?? null,
+          loinc_code: analyte.loinc_code ?? null,
           test_code: analyte.test_code,
           test_name: analyte.test_name,
           value_text: analyte.value_text ?? null,
           value_numeric: analyte.value_numeric != null ? analyte.value_numeric : null,
-          unit: analyte.unit ?? range?.unit ?? null,
-          // Render a human-readable string from the structured range so
-          // legacy callers reading reference_range still get useful text.
-          reference_range: range
-            ? renderReferenceRangeText(range)
-            : null,
-          reference_range_low: range?.range_low ?? null,
-          reference_range_high: range?.range_high ?? null,
-          abnormal_flag: flag ?? null,
+          unit: analyte.unit ?? null,
+          reference_range: null,
+          reference_range_low: null,
+          reference_range_high: null,
+          abnormal_flag: null,
           // Panel entry is a manual lab-authoring path. As with single-result
           // entry, only the pathologist sign-off workflow may make a result
           // final/corrected; a payload cannot bypass that release rail.
@@ -610,31 +456,32 @@ export async function recordLabPanel({
         },
       });
 
+      const canonicalCriticality = await evaluateCriticalThreshold({
+        client: tx,
+        tenantId: tid,
+        result: created,
+      });
       const generation = await materializeLabCriticalAlertGeneration({
         tx,
         tenantId: tid,
         resultId: created.id,
         expectedPatientUid: source.patientUid,
-        evaluateCriticality: async ({ tx: evaluationTx, result }) => {
-          const canonicalCriticality = await evaluateCriticalThreshold({
-            client: evaluationTx,
-            tenantId: tid,
-            result,
-          });
-          return assertCriticalPolicyAgreement({
-            result,
-            referenceAssessment: referenceCriticality,
-            canonicalAssessment: canonicalCriticality,
-          });
-        },
+        criticality: canonicalCriticality,
         orderingClinicianUid: source.orderingClinicianUid,
         source: 'lab_panel',
       });
+      const updated = generation?.result;
+      if (!updated) {
+        throw AppError.internal(
+          'Lab panel threshold evidence was not returned by the materializer',
+          'LAB_PANEL_THRESHOLD_EVIDENCE_MISSING',
+        );
+      }
 
-      const isCritical = referenceCriticality.breached;
-      let recordedResult = withoutInternalCommandIdentity(created);
+      const isCritical = canonicalCriticality.breached;
+      let recordedResult = withoutInternalCommandIdentity(updated);
       if (isCritical) {
-        const thresholdValue = referenceCriticality.breachedValue;
+        const thresholdValue = canonicalCriticality.breachedValue;
         if (
           generation?.created !== true
           || !generation.alert
@@ -730,7 +577,7 @@ export async function recordLabPanel({
           booking_id: source.bookingId,
           investigation_id: source.investigationId,
           analyte_count: rows.length,
-          critical_count: enriched.filter((entry) => entry.referenceCriticality.breached).length,
+          critical_count: criticalNotifications.length,
         },
         ip_address: null,
       },
@@ -819,16 +666,6 @@ export async function recordLabPanel({
     replayed: phaseOne.replayed,
   });
   return phaseOne.responseData;
-}
-
-function renderReferenceRangeText(range) {
-  const lo = range.range_low != null ? Number(range.range_low) : null;
-  const hi = range.range_high != null ? Number(range.range_high) : null;
-  const unit = range.unit || '';
-  if (lo != null && hi != null) return `${lo}–${hi} ${unit}`.trim();
-  if (lo != null) return `> ${lo} ${unit}`.trim();
-  if (hi != null) return `< ${hi} ${unit}`.trim();
-  return '';
 }
 
 /**
@@ -949,25 +786,12 @@ export async function listReferenceRanges({ tenantId, testCode = null, includeIn
  * Admin: upsert a reference range (manual config flow).
  */
 export async function upsertReferenceRange(data, { tenantId }) {
-  const tid = requireTenantId(tenantId);
-  if (!data.test_code || !data.test_name || !data.unit) {
-    throw AppError.badRequest('test_code, test_name, and unit are required');
-  }
-  const { id, tenant_id: _ignoredTenantId, ...rangeData } = data;
-  if (id) {
-    const rangeId = Number(id);
-    const updated = await prisma.lab_reference_ranges.updateMany({
-      where: { id: rangeId, tenant_id: tid },
-      data: { ...rangeData, updated_at: new Date() },
-    });
-    if (updated.count === 0) throw AppError.notFound('Reference range not found');
-    return prisma.lab_reference_ranges.findFirst({
-      where: { id: rangeId, tenant_id: tid },
-    });
-  }
-  return prisma.lab_reference_ranges.create({
-    data: { ...rangeData, tenant_id: tid, source: rangeData.source ?? 'manual' },
-  });
+  requireTenantId(tenantId);
+  void data;
+  throw AppError.conflict(
+    'Legacy reference ranges are read-only evidence; use the governed laboratory threshold catalogue and signed policy-bundle workflow',
+    'LAB_REFERENCE_RANGE_LEGACY_READ_ONLY',
+  );
 }
 
 export default {

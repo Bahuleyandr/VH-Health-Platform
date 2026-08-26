@@ -195,6 +195,12 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: ward-downtime-packs
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: lab-threshold-exception-reconciliation
       ports:
         - protocol: TCP
           port: 5432

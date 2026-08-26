@@ -14,10 +14,8 @@ import {
   resolveTrustedAstmAnalyzer,
   verdictForResult,
 } from '../lab/labClosedLoopService.js';
-import {
-  assertConfiguredCriticalAnalytesNumeric,
-  evaluateCriticalThreshold,
-} from '../lab/labCriticalThresholdService.js';
+import { evaluateCriticalThreshold } from '../lab/labCriticalThresholdService.js';
+import { applyLabThresholdAssessmentTx } from '../lab/labThresholdExceptionService.js';
 import { createTask } from '../workflow/taskService.js';
 import { appendExternalRecoveryCriticalReviewObligationTx } from './externalRecoveryCriticalReviewService.js';
 import {
@@ -284,15 +282,6 @@ export async function validateI01OruRecovery({ tenantId, message, recovery, cont
     obrTestIdentity: parsed.obr?.testCode,
     obxRows,
   });
-  await assertConfiguredCriticalAnalytesNumeric({
-    client: tx,
-    tenantId: common.tenantId,
-    results: obxRows.map(obx => ({
-      loinc_code: obx.loincCode,
-      test_code: obx.testCode,
-      value_numeric: strictNumericOrNull(obx.value),
-    })),
-  });
   return Object.freeze({
     offsetId: common.offsetId,
     interfaceFamily: 'I01',
@@ -381,11 +370,6 @@ export async function validateI02AstmRecovery({
   });
   if (envelope.source_token !== expectedSourceToken) refuse('I02 source_token is not canonical');
   await resolveLateAstmSource({ tx, tenantId: common.tenantId, accession: parsed.accession });
-  await assertConfiguredCriticalAnalytesNumeric({
-    client: tx,
-    tenantId: common.tenantId,
-    results: parsed.results,
-  });
   return Object.freeze({
     offsetId: common.offsetId,
     interfaceFamily: 'I02',
@@ -619,15 +603,6 @@ async function persistI01({ tx, tenantId, recoveryInboxId, occurredAt, command }
     obrTestIdentity: parsed.obr?.testCode,
     obxRows,
   });
-  await assertConfiguredCriticalAnalytesNumeric({
-    client: tx,
-    tenantId,
-    results: obxRows.map(obx => ({
-      loinc_code: obx.loincCode,
-      test_code: obx.testCode,
-      value_numeric: strictNumericOrNull(obx.value),
-    })),
-  });
   const receipts = await tx.$queryRawUnsafe(
     `INSERT INTO lab_oru_ingest_messages
        (tenant_id, trusted_sender_identity, message_control_id, raw_message,
@@ -692,15 +667,14 @@ async function persistI01({ tx, tenantId, recoveryInboxId, occurredAt, command }
     );
     const result = inserted[0];
     const criticality = await evaluateCriticalThreshold({ client: tx, tenantId, result });
-    if (criticality.breached === true) {
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE lab_results SET is_critical = TRUE, updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND id = $2::integer RETURNING *`,
-        tenantId,
-        Number(result.id),
-      );
-      Object.assign(result, updated[0]);
-    }
+    const policyMaterialization = await applyLabThresholdAssessmentTx({
+      tx,
+      tenantId,
+      result,
+      assessment: criticality,
+      source: 'external_lab_recovery_i01',
+    });
+    Object.assign(result, policyMaterialization.result);
     await recordRecoveredResultEvent({
       tx,
       tenantId,
@@ -780,7 +754,6 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     actorRoles: actor.actorRoles,
   });
   const source = await resolveLateAstmSource({ tx, tenantId, accession: parsed.accession });
-  await assertConfiguredCriticalAnalytesNumeric({ client: tx, tenantId, results: parsed.results });
   const receipts = await tx.$queryRawUnsafe(
     `INSERT INTO lab_interface_messages
        (tenant_id, analyzer_id, analyzer_code, direction, protocol, message_type,
@@ -849,15 +822,14 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     );
     const result = inserted[0];
     const criticality = await evaluateCriticalThreshold({ client: tx, tenantId, result });
-    if (criticality.breached === true) {
-      const updated = await tx.$queryRawUnsafe(
-        `UPDATE lab_results SET is_critical = TRUE, updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND id = $2::integer RETURNING *`,
-        tenantId,
-        Number(result.id),
-      );
-      Object.assign(result, updated[0]);
-    }
+    const policyMaterialization = await applyLabThresholdAssessmentTx({
+      tx,
+      tenantId,
+      result,
+      assessment: criticality,
+      source: 'external_lab_recovery_i02',
+    });
+    Object.assign(result, policyMaterialization.result);
     const verdict = {
       ...await verdictForResult({
         client: tx,

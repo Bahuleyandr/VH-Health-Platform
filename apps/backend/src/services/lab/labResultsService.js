@@ -2,8 +2,8 @@
 //
 // Sprint 3 — Lab results ingestion + critical alerts + pathologist
 // worklist. Persists ORU^R01 messages from analyzers into lab_results,
-// fires critical alerts based on lab_critical_thresholds, and exposes
-// the pathologist sign-off workflow.
+// evaluates signed facility-bound threshold policies, routes unmatched
+// results into owned exceptions, and exposes the pathologist sign-off workflow.
 
 import crypto from 'node:crypto';
 
@@ -27,10 +27,9 @@ import {
   materializeLabCriticalAlertGeneration,
   supersedeCriticalAlertWithDiagnosticGenerationTx,
 } from './labCriticalAlertService.js';
-import {
-  assertConfiguredCriticalAnalytesNumeric,
-  evaluateCriticalThreshold,
-} from './labCriticalThresholdService.js';
+import { evaluateCriticalThreshold } from './labCriticalThresholdService.js';
+import { applyLabThresholdAssessmentTx } from './labThresholdExceptionService.js';
+import { labThresholdAssessmentEvidence } from './labThresholdPolicyContract.js';
 import {
   claimLabResultIngestCommand,
   completeLabResultIngestCommand,
@@ -177,6 +176,14 @@ function resultSnapshotHash(rows) {
     unit: row.unit ?? null,
     abnormal_flag: row.abnormal_flag ?? null,
     is_critical: row.is_critical === true,
+    criticality_status: row.criticality_status ?? null,
+    facility_id: row.facility_id == null ? null : Number(row.facility_id),
+    threshold_policy_bundle_id: row.threshold_policy_bundle_id ?? null,
+    threshold_policy_rule_id: row.threshold_policy_rule_id ?? null,
+    threshold_catalog_entry_id: row.threshold_catalog_entry_id ?? null,
+    threshold_evaluated_at: row.threshold_evaluated_at?.toISOString?.()
+      || row.threshold_evaluated_at
+      || null,
     status: row.status ?? null,
     signed_off_at: row.signed_off_at?.toISOString?.() || row.signed_off_at || null,
   }));
@@ -269,22 +276,16 @@ async function createCorrectedCriticalAlertGeneration({
   signoffId,
   signedOffBy,
   orderingClinicianUid,
+  criticality,
+  preappliedThresholdAssessment,
 }) {
-  await assertConfiguredCriticalAnalytesNumeric({
-    client: tx || prisma,
-    tenantId,
-    results: [result],
-  });
   const materialized = await materializeLabCriticalAlertGeneration({
     tx,
     tenantId,
     resultId: result.id,
     expectedPatientUid: result.patient_uid,
-    evaluateCriticality: ({ tx, result: currentResult }) => evaluateCriticalThreshold({
-      client: tx,
-      tenantId,
-      result: currentResult,
-    }),
+    criticality,
+    preappliedThresholdAssessment,
     orderingClinicianUid,
     source: 'lab_corrective_signoff',
     generationSignoffId: signoffId,
@@ -691,7 +692,8 @@ export async function resolveTrustedOruChannel({
   }
 
   const analyzerRows = await tx.$queryRawUnsafe(
-    `SELECT analyzer.id, analyzer.analyzer_code, analyzer.metadata
+    `SELECT analyzer.id, analyzer.analyzer_code, analyzer.facility_id,
+            analyzer.metadata
        FROM lab_analyzers AS analyzer
       WHERE analyzer.tenant_id = $1::uuid
         AND analyzer.status = 'active'
@@ -915,16 +917,6 @@ export async function ingestOruMessage(message, {
       apiClientTenantId,
       sendingApp,
     });
-    await assertConfiguredCriticalAnalytesNumeric({
-      client: tx,
-      tenantId,
-      results: obxRows.map(obx => ({
-        loinc_code: obx.loincCode,
-        test_code: obx.testCode,
-        value_numeric: asNumericOrNull(obx.value),
-      })),
-    });
-
     const insertedClaims = await tx.$queryRawUnsafe(
       `INSERT INTO lab_oru_ingest_messages
          (tenant_id, trusted_sender_identity, message_control_id, raw_message,
@@ -986,7 +978,10 @@ export async function ingestOruMessage(message, {
                   oru_ingest_message_id::text AS oru_ingest_message_id,
                   loinc_code, test_code, test_name,
                   value_text, value_numeric, unit, reference_range,
-                  abnormal_flag, status, is_critical, performed_by_lab,
+                  reference_range_low, reference_range_high, abnormal_flag,
+                  status, is_critical, criticality_status, facility_id, specimen_type,
+                  threshold_policy_bundle_id, threshold_policy_rule_id,
+                  threshold_catalog_entry_id, threshold_evaluated_at, performed_by_lab,
                   performed_at, received_at, created_at, updated_at, raw_obx,
                   analyzer_id
              FROM lab_results
@@ -1142,6 +1137,8 @@ export async function ingestOruMessage(message, {
 
     const persistedResults = [];
     const adoptedLegacyResultIds = new Set();
+    const thresholdAssessments = new Map();
+    const thresholdPolicyMaterializations = new Map();
     for (const obx of obxRows) {
       const numeric = asNumericOrNull(obx.value);
       let persisted = bySegmentId.get(obx.segmentId) || null;
@@ -1241,6 +1238,22 @@ export async function ingestOruMessage(message, {
         if (!persisted) throw oruReplayConflict();
       }
 
+      const criticality = await evaluateCriticalThreshold({
+        client: tx,
+        tenantId,
+        result: persisted,
+      });
+      const policyMaterialization = await applyLabThresholdAssessmentTx({
+        tx,
+        tenantId,
+        result: persisted,
+        assessment: criticality,
+        source: 'lab_oru',
+      });
+      persisted = policyMaterialization.result;
+      thresholdAssessments.set(Number(persisted.id), criticality);
+      thresholdPolicyMaterializations.set(Number(persisted.id), policyMaterialization);
+
       const canonical = await recordCanonicalLabEvent({
         tx,
         tenantId,
@@ -1252,7 +1265,11 @@ export async function ingestOruMessage(message, {
         actorRole: databaseActorRole,
         occurredAt: persisted.performed_at || persisted.received_at || persisted.created_at || null,
         summary: `Lab result recorded from analyzer: ${persisted.test_name}`,
-        afterState: { status: persisted.status },
+        afterState: {
+          status: persisted.status,
+          criticality_status: persisted.criticality_status,
+          is_critical: persisted.is_critical,
+        },
         payload: {
           investigation_id: persisted.investigation_id,
           booking_id: persisted.booking_id,
@@ -1267,6 +1284,7 @@ export async function ingestOruMessage(message, {
           performed_by_lab: persisted.performed_by_lab,
           sender_binding_mode: bindingMode,
           sender_binding_identity: bindingIdentity,
+          threshold_assessment: labThresholdAssessmentEvidence(criticality),
         },
       });
       if (persisted.admission_id != null) {
@@ -1310,13 +1328,8 @@ export async function ingestOruMessage(message, {
         tenantId,
         resultId: result.id,
         expectedPatientUid: result.patient_uid,
-        evaluateCriticality: ({ tx: materializerTx, result: currentResult }) => (
-          evaluateCriticalThreshold({
-            client: materializerTx,
-            tenantId,
-            result: currentResult,
-          })
-        ),
+        criticality: thresholdAssessments.get(Number(result.id)),
+        preappliedThresholdAssessment: thresholdPolicyMaterializations.get(Number(result.id)),
         source: 'lab_oru',
       });
       if (materialized.skippedReason === 'alert_already_acknowledged') {
@@ -1368,7 +1381,8 @@ export async function ingestOruMessage(message, {
         }
         materialized.closedObligation = closedRows[0];
       }
-      materializations.push({ ...materialized, result });
+      Object.assign(result, materialized.result);
+      materializations.push({ ...materialized, result: materialized.result });
     }
 
     const completedResults = await tx.$queryRawUnsafe(
@@ -1376,8 +1390,12 @@ export async function ingestOruMessage(message, {
               patient_name, hl7_message_id, hl7_segment_index,
               oru_ingest_message_id::text AS oru_ingest_message_id,
               loinc_code, test_code, test_name,
-              value_text, value_numeric, unit, reference_range, abnormal_flag,
-              status, is_critical, performed_by_lab, performed_at, received_at,
+              value_text, value_numeric, unit, reference_range,
+              reference_range_low, reference_range_high, abnormal_flag,
+              status, is_critical, criticality_status, facility_id, specimen_type,
+              threshold_policy_bundle_id, threshold_policy_rule_id,
+              threshold_catalog_entry_id, threshold_evaluated_at, performed_by_lab,
+              performed_at, received_at,
               created_at, updated_at, raw_obx, analyzer_id
          FROM lab_results
         WHERE tenant_id = $1::uuid
@@ -1639,7 +1657,6 @@ export async function notifyCreatedCriticalLabAlerts({ tenantId, materialization
 export async function detectCriticalsForResults({ tenantId, results }) {
   const materializations = [];
   for (const r of results) {
-    if (r.value_numeric == null) continue;
     const materialized = await materializeLabCriticalAlertGeneration({
       tenantId,
       resultId: r.id,
@@ -1770,16 +1787,6 @@ export async function recordResultManual({
     sanitised.admission_id = source.admissionId;
     sanitised.patient_name = source.patientName;
 
-    await assertConfiguredCriticalAnalytesNumeric({
-      client: tx,
-      tenantId,
-      results: [{
-        loinc_code: sanitised.loinc_code,
-        test_code: sanitised.test_code,
-        value_numeric: numeric,
-      }],
-    });
-
     // Guard against duplicate-analyte submission after sign-off. Holding the
     // investigation lock also serializes this check with manual entry for the
     // same order.
@@ -1868,22 +1875,24 @@ export async function recordResultManual({
       source: 'lab_result',
     });
 
-    const refreshedRows = await tx.$queryRawUnsafe(
-      `SELECT id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
-              patient_name, loinc_code, test_code, test_name, value_text,
-              value_numeric, unit, reference_range, reference_range_low,
-              reference_range_high, abnormal_flag, status, is_critical,
-              performed_by_lab, performed_at, received_at, signed_off_at,
-              signed_off_by, comments, created_at, updated_at
-         FROM lab_results
-        WHERE tenant_id = $1::uuid
-          AND id = $2::int
-        LIMIT 1`,
-      tenantId,
-      inserted.id,
-    );
-    const finalResult = refreshedRows[0];
-    if (!finalResult) throw new Error('Manual lab result disappeared during recording');
+    const finalResult = materialized.result;
+    if (!finalResult || Number(finalResult.id) !== Number(inserted.id)) {
+      throw AppError.internal(
+        'Manual lab result disappeared during criticality assessment',
+        'LAB_RESULT_THRESHOLD_EVIDENCE_MISSING',
+      );
+    }
+    if (materialized.criticality?.unmatchedReason === 'non_numeric_value') {
+      throw AppError.badRequest(
+        'value_text must be numeric for the active governed laboratory policy',
+        'LAB_RESULT_NUMERIC_VALUE_REQUIRED',
+        {
+          test_code: finalResult.test_code,
+          catalog_entry_id: materialized.criticality.catalogEntryId || null,
+          policy_bundle_id: materialized.criticality.policyBundleId || null,
+        },
+      );
+    }
 
     const canonical = await recordCanonicalLabEvent({
       tx,
@@ -1896,7 +1905,11 @@ export async function recordResultManual({
       actorRole: performed_by_role || null,
       occurredAt: inserted.received_at || inserted.created_at || null,
       summary: `Lab result recorded: ${inserted.test_name}`,
-      afterState: { status: finalResult.status, is_critical: finalResult.is_critical },
+      afterState: {
+        status: finalResult.status,
+        criticality_status: finalResult.criticality_status,
+        is_critical: finalResult.is_critical,
+      },
       payload: {
         investigation_id: finalResult.investigation_id,
         booking_id: finalResult.booking_id,
@@ -1908,7 +1921,7 @@ export async function recordResultManual({
         status: finalResult.status,
         is_critical: finalResult.is_critical,
         critical_state: materialized.state,
-        criticality: materialized.criticality,
+        threshold_assessment: labThresholdAssessmentEvidence(materialized.criticality),
       },
     });
     if (finalResult.admission_id != null) {
@@ -2282,37 +2295,34 @@ export async function signOffResults({
     }
 
     const correctiveAssessments = new Map();
+    const correctivePolicyMaterializations = new Map();
     if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
       for (const result of owned) {
-        await assertConfiguredCriticalAnalytesNumeric({
-          client: tx,
-          tenantId: tid,
-          results: [result],
-        });
         const assessment = await evaluateCriticalThreshold({
           client: tx,
           tenantId: tid,
           result,
         });
         correctiveAssessments.set(Number(result.id), assessment);
-        await tx.$executeRawUnsafe(
-          `UPDATE lab_results
-              SET is_critical = $3::boolean,
-                  updated_at = NOW()
-            WHERE tenant_id = $1::uuid
-              AND id = $2::integer`,
-          tid,
-          Number(result.id),
-          assessment.breached === true,
-        );
-        result.is_critical = assessment.breached === true;
+        const policyMaterialization = await applyLabThresholdAssessmentTx({
+          tx,
+          tenantId: tid,
+          result,
+          assessment,
+          source: 'lab_corrective_signoff',
+        });
+        correctivePolicyMaterializations.set(Number(result.id), policyMaterialization);
+        Object.assign(result, policyMaterialization.result);
       }
     }
 
     const signedPanel = await tx.$queryRawUnsafe(
       `SELECT id, admission_id, loinc_code, test_code, test_name, value_text, value_numeric,
               unit, reference_range, reference_range_low, reference_range_high,
-              abnormal_flag, is_critical, status, signed_off_at
+              abnormal_flag, is_critical, criticality_status, facility_id,
+              threshold_policy_bundle_id, threshold_policy_rule_id,
+              threshold_catalog_entry_id, threshold_evaluated_at,
+              status, signed_off_at
          FROM lab_results
         WHERE tenant_id = $1::uuid
           AND id = ANY($2::int[])
@@ -2371,6 +2381,9 @@ export async function signOffResults({
     if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
       for (const result of owned) {
         const assessment = correctiveAssessments.get(Number(result.id));
+        const preappliedThresholdAssessment = correctivePolicyMaterializations.get(
+          Number(result.id),
+        );
         const generation = assessment?.breached === true
           ? await createCorrectedCriticalAlertGeneration({
             tx,
@@ -2380,6 +2393,8 @@ export async function signOffResults({
             signoffId: created.id,
             signedOffBy: actor.uid,
             orderingClinicianUid: null,
+            criticality: assessment,
+            preappliedThresholdAssessment,
           })
           : await supersedeCriticalAlertWithDiagnosticGenerationTx({
             tx,
@@ -2390,6 +2405,7 @@ export async function signOffResults({
             diagnosticGenerationId: diagnosticGeneration.id,
             supersededByActorUid: actor.uid,
             criticality: assessment,
+            preappliedThresholdAssessment,
           });
         correctiveGenerations.push({ resultId: Number(result.id), ...generation });
       }

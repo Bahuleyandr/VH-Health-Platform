@@ -53,6 +53,7 @@ const {
   completeTaskFromDomainEvidence,
   createApproval,
   createCoveringTransferReviewTaskTx,
+  createLabThresholdExceptionReviewTaskTx,
   createTask,
   createWorkflowDefinition,
   getTask,
@@ -177,6 +178,21 @@ describe('createTask', () => {
     const params = queryUnsafeMock.mock.calls[0].slice(1);
     expect(params[12]).toBeNull();
     expect(params[13]).toBeNull();
+  });
+
+  it('rejects lab threshold exception tasks outside their domain factory', async () => {
+    await expect(createTask({
+      tenantId: TENANT,
+      title: 'Unmatched laboratory result',
+      taskKind: 'review',
+      relatedResourceType: 'lab_threshold_exception',
+      relatedResourceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      assignedToRole: 'LAB_INCHARGE',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_THRESHOLD_EXCEPTION_TASK_FACTORY_REQUIRED',
+    });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('uses the supplied tx client instead of the default prisma', async () => {
@@ -431,6 +447,45 @@ describe('createTask', () => {
       executorAuthority: PATHWAY_TEST_CAPABILITY,
     })).rejects.toMatchObject({ code: 'TASK_SLA_SOURCE_BINDING_INVALID' });
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO tasks/i.test(sql))).toBe(false);
+  });
+});
+
+describe('createLabThresholdExceptionReviewTaskTx', () => {
+  it('creates the exact protected high-priority laboratory owner task', async () => {
+    const tx = { $queryRawUnsafe: jest.fn().mockResolvedValueOnce([{
+      id: 91,
+      task_kind: 'review',
+      priority: 'high',
+      assigned_to_role: 'LAB_INCHARGE',
+    }]) };
+    const exceptionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const task = await createLabThresholdExceptionReviewTaskTx({
+      tenantId: TENANT,
+      exceptionId,
+      resultId: 44,
+      patientUid: USER,
+      testName: 'Potassium',
+      unmatchedReason: 'unit_mismatch',
+      source: 'unit_test',
+      tx,
+    });
+    expect(task).toMatchObject({
+      id: 91,
+      task_kind: 'review',
+      priority: 'high',
+      assigned_to_role: 'LAB_INCHARGE',
+    });
+    const params = tx.$queryRawUnsafe.mock.calls[0].slice(1);
+    expect(params[4]).toBe('review');
+    expect(params[9]).toBe('lab_threshold_exception');
+    expect(params[10]).toBe(exceptionId);
+    expect(params[11]).toBe('high');
+    expect(params[13]).toBe('LAB_INCHARGE');
+    expect(JSON.parse(params[20])).toMatchObject({
+      task_contract: 'lab_threshold_policy_exception_v1',
+      lab_result_id: 44,
+      unmatched_reason: 'unit_mismatch',
+    });
   });
 });
 
