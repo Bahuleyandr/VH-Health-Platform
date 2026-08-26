@@ -1285,7 +1285,8 @@ CREATE TABLE IF NOT EXISTS lab_threshold_unmatched_exceptions (
   CONSTRAINT fk_lab_threshold_exception_result
     FOREIGN KEY (tenant_id, result_id, patient_uid)
     REFERENCES lab_results(tenant_id, id, patient_uid)
-    ON DELETE NO ACTION,
+    ON DELETE NO ACTION
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_lab_threshold_exception_facility
     FOREIGN KEY (tenant_id, facility_id)
     REFERENCES facilities(tenant_id, id) ON DELETE NO ACTION,

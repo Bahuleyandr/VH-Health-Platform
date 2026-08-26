@@ -178,6 +178,19 @@ describeIfDb('lab threshold policy governance', () => {
       { conname: 'fk_lab_results_threshold_catalog_entry', convalidated: true },
       { conname: 'fk_lab_results_threshold_rule', convalidated: true },
     ]);
+
+    const exceptionPatientConstraint = await client.query(
+      `SELECT conname, convalidated, condeferrable, condeferred
+         FROM pg_constraint
+        WHERE conrelid = 'lab_threshold_unmatched_exceptions'::regclass
+          AND conname = 'fk_lab_threshold_exception_result'`,
+    );
+    expect(exceptionPatientConstraint.rows).toEqual([{
+      conname: 'fk_lab_threshold_exception_result',
+      convalidated: true,
+      condeferrable: true,
+      condeferred: false,
+    }]);
   });
 
   test('records numeric and signed qualitative catalogue coverage but rejects overlaps', async () => {
