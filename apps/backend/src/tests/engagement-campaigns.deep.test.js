@@ -15,6 +15,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT_ID = '00000000-0000-4000-8000-00000000e901';
 const ACTOR_UID = '00000000-0000-4000-8000-00000000e9aa';
+const APPROVER_UID = '00000000-0000-4000-8000-00000000e9ab';
 const PATIENT_ELIGIBLE = '00000000-0000-4000-8000-00000000e911';
 const PATIENT_MISSING = '00000000-0000-4000-8000-00000000e912';
 const PATIENT_REVOKED = '00000000-0000-4000-8000-00000000e913';
@@ -28,6 +29,12 @@ const PATIENTS = [
 ];
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM audit_logs
+      WHERE action = 'ENGAGEMENT_CAMPAIGN_STATUS_CHANGED'
+        AND metadata->>'tenant_id' = $1`,
+    TENANT_ID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM notification_outbox
       WHERE payload->>'campaign_id' IS NOT NULL
@@ -189,18 +196,107 @@ d('NL9-P1 engagement campaigns consent gates', () => {
     });
     expect(materialized.counts).toEqual({ materialized: 4, eligible: 1, suppressed: 3 });
 
+    await expect(submitCampaignForApproval({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ENGAGEMENT_SUBMITTER_IDENTITY_REQUIRED',
+    });
+
     await submitCampaignForApproval({
       tenantId: TENANT_ID,
       campaignId: campaign.id,
       actorUid: ACTOR_UID,
       actorRole: 'DOCTOR',
     });
-    await approveCampaign({
+
+    await expect(approveCampaign({
       tenantId: TENANT_ID,
       campaignId: campaign.id,
       actorUid: ACTOR_UID,
       actorRole: 'DOCTOR',
+      reason: 'Attempted self-approval',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ENGAGEMENT_SELF_APPROVAL_FORBIDDEN',
     });
+
+    await expect(approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorRole: 'DOCTOR',
+      reason: 'Missing approver identity',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ENGAGEMENT_APPROVER_IDENTITY_REQUIRED',
+    });
+
+    await expect(approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'ENGAGEMENT_APPROVAL_REASON_REQUIRED',
+    });
+
+    await expect(approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+      reason: 'x'.repeat(1001),
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'ENGAGEMENT_APPROVAL_REASON_INVALID',
+    });
+
+    await approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+      reason: 'Audience and consent dry-run reviewed',
+    });
+
+    const approvalRows = await prisma.$queryRawUnsafe(
+      `SELECT submitted_by::text, approved_by::text, status
+         FROM engagement_campaigns
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT_ID,
+      campaign.id,
+    );
+    expect(approvalRows[0]).toEqual(expect.objectContaining({
+      submitted_by: ACTOR_UID,
+      approved_by: APPROVER_UID,
+      status: 'scheduled',
+    }));
+
+    const transitionAudit = await prisma.$queryRawUnsafe(
+      `SELECT uid::text, role, metadata
+         FROM audit_logs
+        WHERE action = 'ENGAGEMENT_CAMPAIGN_STATUS_CHANGED'
+          AND resource = 'engagement_campaign'
+          AND resource_id = $1
+          AND metadata->>'tenant_id' = $2
+        ORDER BY id`,
+      String(campaign.id),
+      TENANT_ID,
+    );
+    expect(transitionAudit).toHaveLength(2);
+    expect(transitionAudit[1]).toEqual(expect.objectContaining({
+      uid: APPROVER_UID,
+      role: 'DOCTOR',
+      metadata: expect.objectContaining({
+        previous_status: 'pending_approval',
+        next_status: 'scheduled',
+        reason: 'Audience and consent dry-run reviewed',
+      }),
+    }));
 
     const queued = await queueDueCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, limit: 10 });
     expect(queued).toEqual({ claimed: 1, queued: 1, suppressed: 0, failed: 0 });

@@ -31,10 +31,8 @@ const TEMPLATES_KEY = "engagement-templates";
  * (`GET /engagement/campaigns`, `/campaigns/:id`, `/templates`), all
  * tenant-scoped, so a campaign is visible to anyone who can open this console
  * rather than only to the browser session that created it. That is what lets a
- * campaign be approved from somewhere other than the tab that submitted it; it
- * is not a requester/approver separation, and the backend does not enforce one
- * (approveCampaign gates on role only — see
- * apps/backend/src/routes/engagement/engagementListQueries.js).
+ * distinct authorized reviewer open it. The backend rejects self-approval and
+ * requires a reason; the browser does not infer or enforce that authority.
  *
  * The workflow panel always drives a campaign object the backend returned —
  * a list row, a by-id lookup, or the result of the last transition — never a
@@ -122,8 +120,8 @@ export default function EngagementPage() {
         <span>
           Campaigns and templates are listed for the whole tenant, so a campaign
           waiting on approval can be found and opened by an approver who did not
-          submit it. Approval is gated on your role, and the backend records who
-          approved.
+          submit it. Approval requires a distinct authorized reviewer and a
+          recorded reason.
         </span>
       </div>
 

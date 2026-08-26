@@ -174,7 +174,7 @@ export function CampaignWorkflow({
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => approveCampaign(campaign.id, reason.trim() || undefined),
+    mutationFn: () => approveCampaign(campaign.id, reason.trim()),
     onSuccess: (updated) => {
       setLastRefusal(null);
       onUpdate(updated);
@@ -296,14 +296,15 @@ export function CampaignWorkflow({
             </select>
           </FieldLabel>
           <FieldLabel
-            label="Reason (recorded on submit/approve)"
+            label="Approval reason (required to approve; optional on submit)"
             htmlFor="workflow-reason"
           >
             <input
               id="workflow-reason"
-              aria-label="Reason (recorded on submit/approve)"
+              aria-label="Approval reason (required to approve; optional on submit)"
               className={inputClass}
               value={reason}
+              maxLength={1000}
               onChange={(e) => setReason(e.target.value)}
             />
           </FieldLabel>
@@ -332,7 +333,11 @@ export function CampaignWorkflow({
         <button
           type="button"
           onClick={() => setConfirmApprove(true)}
-          disabled={busy || campaign.status !== "pending_approval"}
+          disabled={
+            busy ||
+            campaign.status !== "pending_approval" ||
+            reason.trim().length === 0
+          }
           className="inline-flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 disabled:opacity-50"
         >
           <ShieldCheck className="h-4 w-4" />
@@ -368,9 +373,9 @@ export function CampaignWorkflow({
         </span>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        The backend enforces this order — dry run before approval, approval
-        before queueing. Queueing hands eligible recipients to the notification
-        outbox.
+        The backend enforces this order — dry run before approval, approval by a
+        distinct authenticated reviewer before queueing. Approval requires a
+        reason. Queueing hands eligible recipients to the notification outbox.
       </p>
 
       {preview && (

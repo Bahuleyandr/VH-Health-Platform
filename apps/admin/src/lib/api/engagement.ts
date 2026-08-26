@@ -377,10 +377,10 @@ export function submitCampaignForApproval(campaignId: number, reason?: string) {
   );
 }
 
-export function approveCampaign(campaignId: number, reason?: string) {
+export function approveCampaign(campaignId: number, reason: string) {
   return postJSON<EngagementCampaign>(
     `/engagement/campaigns/${campaignId}/approve`,
-    { reason: reason || null },
+    { reason },
   );
 }
 
