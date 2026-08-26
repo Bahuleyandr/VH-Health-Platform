@@ -315,8 +315,6 @@ const DIRECT_TRANSPORT_SITES = Object.freeze({
   'services/billing/paymentLinkService.js': ['direct-patient', 'direct-patient'],
   // Scheduled MIS report to `schedule.recipients`, an operator-configured list.
   'services/dashboards/misReportScheduleService.js': ['direct-supplied'],
-  // emailInvestigationReport → `emailOptions.email`, whoever the caller names.
-  'services/investigation/reportService.js': ['direct-supplied'],
   // The dispatcher's email / whatsapp / sms channels.
   'utils/notifications/notificationDispatcher.js': [
     'mechanism-transport', 'mechanism-transport', 'mechanism-transport',

@@ -12,8 +12,8 @@
 //     every recipient was provider-acknowledged
 //   - idempotence: a second sweep for the same occurrence sends nothing
 //
-// The transport is mocked at the sendEmailNotification seam (the same seam
-// reportServiceEmailReport.test.js and paymentLink tests stub).
+// The transport is mocked at the sendEmailNotification seam used by the
+// payment-link delivery tests as well.
 
 import { jest } from '@jest/globals';
 
