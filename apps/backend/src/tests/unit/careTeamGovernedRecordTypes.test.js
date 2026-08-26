@@ -11,6 +11,14 @@ const guardNames = new Set([
   'patientAccessGuardForResource',
   'patientAccessGuardForPaths',
 ]);
+// routePatientGuard (middleware/routePatientAccessGuards.js) is a factory that
+// sets careTeamModeGoverned: true UNCONDITIONALLY, so its call sites are
+// governed without carrying the flag in their own options — the 2026-08 lane
+// that moved 17 mount guards in-router declares ICU/DIALYSIS/ANESTHESIA_CHART/
+// OPERATING_THEATRE through it, and the scan went blind to all four until it
+// learned the factory. If the factory ever grows a way to pass
+// careTeamModeGoverned: false, this constant must become a per-call check.
+const alwaysGovernedFactories = new Set(['routePatientGuard']);
 
 function filesUnder(target) {
   if (!fs.statSync(target).isDirectory()) return [target];
@@ -31,25 +39,50 @@ function isGovernedOptions(node) {
   ));
 }
 
-function visit(node, file, found, unsupported) {
+function stringConstsOf(ast) {
+  const consts = new Map();
+  for (const stmt of ast.body ?? []) {
+    const decl = stmt.type === 'ExportNamedDeclaration' ? stmt.declaration : stmt;
+    if (decl?.type !== 'VariableDeclaration' || decl.kind !== 'const') continue;
+    for (const d of decl.declarations) {
+      if (
+        d.id?.type === 'Identifier'
+        && d.init?.type === 'Literal'
+        && typeof d.init.value === 'string'
+      ) {
+        consts.set(d.id.name, d.init.value);
+      }
+    }
+  }
+  return consts;
+}
+
+function visit(node, file, found, unsupported, consts) {
   if (!node || typeof node !== 'object') return;
   if (
     node.type === 'CallExpression'
     && node.callee?.type === 'Identifier'
-    && guardNames.has(node.callee.name)
-    && node.arguments.some(isGovernedOptions)
+    && (
+      (guardNames.has(node.callee.name) && node.arguments.some(isGovernedOptions))
+      || alwaysGovernedFactories.has(node.callee.name)
+    )
   ) {
     const recordType = node.arguments[0];
     if (recordType?.type === 'Literal' && typeof recordType.value === 'string') {
       found.add(recordType.value);
+    } else if (
+      recordType?.type === 'Identifier'
+      && consts?.has(recordType.name)
+    ) {
+      found.add(consts.get(recordType.name));
     } else {
       unsupported.push(`${file}:${node.loc.start.line}`);
     }
   }
   for (const [key, value] of Object.entries(node)) {
     if (key === 'parent') continue;
-    if (Array.isArray(value)) value.forEach((child) => visit(child, file, found, unsupported));
-    else if (value && typeof value === 'object') visit(value, file, found, unsupported);
+    if (Array.isArray(value)) value.forEach((child) => visit(child, file, found, unsupported, consts));
+    else if (value && typeof value === 'object') visit(value, file, found, unsupported, consts);
   }
 }
 
@@ -69,7 +102,12 @@ describe('care-team governed record-type inventory', () => {
         sourceType: 'module',
         loc: true,
       });
-      visit(ast, file, found, unsupported);
+      // Guard modules name their record type once (const CATH_RECORD_TYPE =
+      // 'CLINICAL_WORKFLOW') and pass the identifier to every factory call.
+      // Resolving module-level string consts keeps those sites countable
+      // while anything genuinely dynamic still lands in `unsupported`.
+      const consts = stringConstsOf(ast);
+      visit(ast, file, found, unsupported, consts);
     }
 
     expect(unsupported).toEqual([]);

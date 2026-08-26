@@ -4,11 +4,17 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
+import prisma from '../../lib/prisma.js';
 import theatreService from '../../services/theatre/theatreService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 import { paramId, theatreScheduleValidator } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
+import {
+  positiveIntOrNull,
+  routePatientGuard,
+  selectorTenantOf,
+} from '../../middleware/routePatientAccessGuards.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -22,11 +28,52 @@ function tenantOf(req) {
   return resolveTenantOrThrow(req);
 }
 
+// Re-audit M: the /api/v1/theatre mount used to wrap this router in
+// patientAccessGuard('OPERATING_THEATRE') — which ran before Express matched a
+// route, saw an empty req.params, and returned no_patient_context without ever
+// evaluating a policy. The guard now lives here, per route, with selectors
+// that resolve the exact case row the handler serves (tenant-scoped).
+// GET /today and GET /availability are boards/room queries with no single
+// patient subject and deliberately keep the mount's role gate only.
+const OT_SCHEDULE_RECORD_TYPE = 'OPERATING_THEATRE';
+
+// The row PUT /:id/status, PUT /:id/checklist and DELETE /:id are about:
+// ot_schedules.:id → patient_uid, scoped to the request tenant. Malformed ids
+// resolve to null (clean refusal), never a throw.
+export async function selectOtSchedulePatient(req, rawScheduleId) {
+  const tenantId = selectorTenantOf(req);
+  const scheduleId = positiveIntOrNull(rawScheduleId);
+  if (tenantId == null || scheduleId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM ot_schedules
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantId,
+    scheduleId,
+  );
+  return rows[0] ?? null;
+}
+
+const guardTheatreCase = routePatientGuard(OT_SCHEDULE_RECORD_TYPE, {
+  tag: 'theatre:ot-schedule-param',
+  patientSelector: (req) => selectOtSchedulePatient(req, req.params?.id),
+});
+
+// POST /schedule creates the case FOR body.patient_uid — the same value the
+// service persists. resolvePatientForAccess verifies it against the tenant's
+// users table, so the decision subject is the patient the surgery is booked
+// for. Runs after theatreScheduleValidator, so shape errors still 400 first.
+const guardTheatreScheduleCreate = routePatientGuard(OT_SCHEDULE_RECORD_TYPE, {
+  tag: 'theatre:body-patient-uid',
+  patientSelector: (req) => ({ uid: req.body?.patient_uid }),
+});
+
 /**
  * POST /theatre/schedule
  * Schedule a new surgery
  */
-router.post('/schedule', ...theatreScheduleValidator, validate, async (req, res, next) => {
+router.post('/schedule', ...theatreScheduleValidator, validate, guardTheatreScheduleCreate, async (req, res, next) => {
   try {
     const scheduleData = {
       patient_uid: req.body.patient_uid,
@@ -103,7 +150,7 @@ router.get('/availability', async (req, res, next) => {
  * PUT /theatre/:id/status
  * Update surgery status
  */
-router.put('/:id/status', paramId(), validate, async (req, res, next) => {
+router.put('/:id/status', paramId(), validate, guardTheatreCase, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -127,7 +174,7 @@ router.put('/:id/status', paramId(), validate, async (req, res, next) => {
  * PUT /theatre/:id/checklist
  * Update pre-op checklist
  */
-router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
+router.put('/:id/checklist', paramId(), validate, guardTheatreCase, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { checklist } = req.body;
@@ -151,7 +198,7 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
  * DELETE /theatre/:id
  * Cancel a scheduled surgery
  */
-router.delete('/:id', paramId(), validate, async (req, res, next) => {
+router.delete('/:id', paramId(), validate, guardTheatreCase, async (req, res, next) => {
   try {
     const { id } = req.params;
     const result = await theatreService.cancelSurgery(parseInt(id, 10), req.user?.uid, {

@@ -41,14 +41,17 @@ export const NICU_PICU_UNITS = ['NICU', 'PICU'];
 const PARENTERAL_FEED_TYPES = ['tpn', 'iv_fluid', 'medication_volume'];
 
 // Allowlisted verification targets — resource key → physical table. Never
-// interpolate caller-supplied table names.
-const VERIFIABLE_RESOURCES = {
+// interpolate caller-supplied table names. Exported so the route-level
+// patient-access guard on PATCH /icu/nicu/:resource/:id/verify resolves the
+// SAME table this service will serve (re-audit M) — a local copy in the
+// router could drift.
+export const VERIFIABLE_RESOURCES = Object.freeze({
   'feed-fluid': 'nicu_feed_fluid_entries',
   'respiratory-support': 'nicu_respiratory_support_observations',
   'cardioresp-events': 'nicu_cardiorespiratory_events',
   'jaundice-phototherapy': 'nicu_jaundice_phototherapy_events',
   'thermal-observations': 'nicu_thermal_environment_observations'
-};
+});
 
 function tenantOr(tenantId) {
   return requireTenantId(tenantId);
@@ -922,7 +925,12 @@ export async function listThermalObservations({ tenantId, icuAdmissionId, hours,
 // ── Device-sourced observation review (unverified → verified) ──────────
 
 export async function verifyNicuObservation({ tenantId, resource, id, actorUid, actorRole }) {
-  const table = VERIFIABLE_RESOURCES[resource];
+  // Object.hasOwn: a bare bracket lookup resolves prototype keys
+  // ('constructor', '__proto__') to functions, which then interpolate into
+  // the FROM clause and 500. Own-key check keeps the allowlist an allowlist.
+  const table = Object.hasOwn(VERIFIABLE_RESOURCES, resource)
+    ? VERIFIABLE_RESOURCES[resource]
+    : undefined;
   if (!table) {
     throw AppError.badRequest(
       `resource must be one of: ${Object.keys(VERIFIABLE_RESOURCES).join(', ')}`,
