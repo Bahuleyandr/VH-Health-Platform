@@ -49,4 +49,8 @@ describe('comprehensive seed core references', () => {
       "return column.udt_name === 'uuid' ? ctx.generatedUuid : ctx.invoiceId;",
     );
   });
+
+  test('pins facility asset history to a non-transition event', () => {
+    expect(source).toMatch(/facility_asset_events:\s*\{\s*event_type: 'created'/);
+  });
 });

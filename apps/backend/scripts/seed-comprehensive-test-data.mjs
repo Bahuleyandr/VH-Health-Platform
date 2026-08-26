@@ -614,6 +614,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   body_custody_events: {
     event_type: 'receive',
   },
+  // mig 704 has the same catalog-order ambiguity: event_type appears in both
+  // its allowed-values CHECK and a conditional transition-evidence CHECK. If
+  // the latter is visited first, checkedValue() chooses status_changed while
+  // nullable to_status remains unset. Pin a non-transition event so the seed
+  // is deterministic on fresh PostgreSQL catalogs.
+  facility_asset_events: {
+    event_type: 'created',
+  },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
   cath_consumable_catalog: {
