@@ -250,6 +250,10 @@ const EMITTERS = Object.freeze({
   // Site order: critical-result alert to lab/clinical staff (:1606), then the
   // patient/guardian result-ready intent inside notifyPatientResultRecipients.
   'services/lab/labResultsService.js': { queue: ['staff', 'patient'] },
+  // SAFE-01: unmatched-threshold exception notice to the assignee or the
+  // exception role's holders (`role <> 'PATIENT'` in its recipient query,
+  // audience-bounded, in-app only) — never the patient.
+  'services/lab/labThresholdExceptionService.js': { queue: ['staff'] },
   'services/investigation/investigationService.js': { queue: ['patient'] },
   // Site order: prescription-ready to the patient with channels
   // ['push','inapp'] — the dispatcher commits the row — then the pharmacy-staff
