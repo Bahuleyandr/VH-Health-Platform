@@ -26,6 +26,7 @@ import {
   deactivateMapping,
   _invalidateLabCodeMappingCache,
 } from '../services/lab/labCodeMappingService.js';
+import { cleanupGovernedOruFixture } from './helpers/labThresholdGovernanceFixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfTestDb = databaseUrl ? describe : describe.skip;
@@ -133,6 +134,12 @@ describeIfTestDb('LOINC analyzer-code mapping closed loop (ORU ingest)', () => {
     if (mappingId) {
       await deactivateMapping({ tenantId: TENANT_ID, id: mappingId, actorUid: ACTOR })
         .catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM lab_analyzer_code_mappings
+          WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        TENANT_ID,
+        mappingId,
+      );
     }
     if (savedSettings !== null) {
       await prisma.$executeRawUnsafe(
@@ -141,12 +148,15 @@ describeIfTestDb('LOINC analyzer-code mapping closed loop (ORU ingest)', () => {
         JSON.stringify(savedSettings),
       ).catch(() => {});
     }
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM lab_results WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
-      TENANT_ID,
-      PATIENT_UID,
-    ).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanupGovernedOruFixture({
+        tenantId: TENANT_ID,
+        analyzerCodes: [ANALYZER],
+        userUids: [ACTOR, PATIENT_UID],
+      });
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
   });
 
   beforeEach(() => {

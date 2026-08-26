@@ -73,8 +73,8 @@
 //     compares the reference-range-derived assessment against the
 //     threshold-derived one and throws on any disagreement — `policy_presence`
 //     when only one side is configured, `threshold_unit` when the units differ
-//     — and evaluateCriticalThreshold has its own `threshold_unit` throw plus
-//     assertConfiguredCriticalAnalytesNumeric's NON_NUMERIC_FOR_CRITICAL_THRESHOLD.
+//     — and the former threshold preflight rejected nonnumeric results before
+//     they could become owned clinical exceptions.
 //     A tenant that received copied thresholds but keeps its own (or no)
 //     reference ranges therefore had lab results REJECTED — in every
 //     backfilled tenant, which is worse than the silent non-alert being fixed.

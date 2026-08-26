@@ -22,6 +22,14 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'external_recovery_operability_actions',
   'external_recovery_critical_review_obligations',
   'external_recovery_critical_review_acknowledgements',
+  // Laboratory threshold rows are clinical policy and its operational
+  // evidence. Generic seed coverage must not invent a facility catalogue,
+  // pathologist approval, activation, or unmatched-result exception.
+  'lab_threshold_catalog_entries',
+  'lab_threshold_catalog_states',
+  'lab_threshold_policy_bundles',
+  'lab_threshold_policy_rules',
+  'lab_threshold_unmatched_exceptions',
   // Inbound ADT/ORM recovery receipts require exact encrypted HL7 and ACK
   // bytes, signed cursor/retention evidence, and a real no-SLA owner task.
   // Seeds must not fabricate a sender outage or activate an I03 partition.

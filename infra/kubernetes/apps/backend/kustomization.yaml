@@ -47,6 +47,8 @@ resources:
   # REL-3 / WS2 B2.3: outage-critical jobs promoted from in-process scheduler
   # to native CronJobs so they survive backend Deployment downtime.
   - ward-downtime-packs-cronjob.yaml
+  - lab-threshold-reconciliation-cronjob.yaml
+  - lab-threshold-reconciliation-network-policy.yaml
   - backup-verification-cronjob.yaml
   - canary-health-check-cronjob.yaml
 

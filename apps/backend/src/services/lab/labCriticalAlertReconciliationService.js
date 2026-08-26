@@ -1,10 +1,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { lockResultsInboxResourceTx } from '../results/resultsInboxResourceLock.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
-import {
-  assertConfiguredCriticalAnalytesNumeric,
-  evaluateCriticalThreshold,
-} from './labCriticalThresholdService.js';
+import { evaluateCriticalThreshold } from './labCriticalThresholdService.js';
 
 const DEFAULT_BATCH_SIZE = 200;
 const MAX_BATCH_SIZE = 1000;
@@ -259,11 +256,6 @@ async function reconcileCandidate(candidate) {
       };
     }
 
-    await assertConfiguredCriticalAnalytesNumeric({
-      client: tx,
-      tenantId,
-      results: [result],
-    });
     const materialized = await materializeLabCriticalAlertGeneration({
       tx,
       tenantId,

@@ -15,10 +15,15 @@
 //   2026-05-08-lab-walk-in-lab-tech-results-no-validation-no-critical-alert
 //   H' D66 — bulk EMR lab orders must materialize onto worklists
 
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import app from '../app.js';
 import { API_KEY, authClient, generateTestToken } from './testClient.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
+import {
+  cleanupGovernedOruFixture,
+  seedActiveLabThresholdPolicy,
+} from './helpers/labThresholdGovernanceFixture.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -30,8 +35,17 @@ const PATIENT_ER_PHONE  = '9000030001';
 const PATIENT_IPD_PHONE = '9000030002';
 const PATIENT_OPD_PHONE = '9000030003';
 const ORDERING_DOCTOR_UID = 'b3333333-3333-4333-8333-333333333d01';
+const POLICY_AUTHOR_UID = randomUUID();
+const POLICY_APPROVER_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const IDEMPOTENCY_RUN = Date.now();
 const WORKLIST_TEST_CODE = `TWL${IDEMPOTENCY_RUN}`;
+let policyFixture;
+
+function phoneFor(seed) {
+  const numeric = Number.parseInt(seed.replaceAll('-', '').slice(0, 8), 16);
+  return `+91${String(numeric).padStart(10, '0').slice(-10)}`;
+}
 
 function doctorClient() {
   const token = generateTestToken('DOCTOR', { uid: ORDERING_DOCTOR_UID, id: 933301 });
@@ -138,6 +152,41 @@ describe('Lab worklist + manual result validation — deep integration', () => {
               updated_at = NOW()`,
       ORDERING_DOCTOR_UID,
     );
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5, 'Worklist Policy Author', 'ADMIN', true, 'active', NOW()),
+         ($2::uuid, $4::uuid, $6, 'Worklist Policy Approver', 'PATHOLOGIST', true, 'active', NOW()),
+         ($3::uuid, $4::uuid, $7, 'Worklist Policy Activator', 'SUPER_ADMIN', true, 'active', NOW())`,
+      POLICY_AUTHOR_UID,
+      POLICY_APPROVER_UID,
+      POLICY_ACTIVATOR_UID,
+      TENANT_ID,
+      phoneFor(POLICY_AUTHOR_UID),
+      phoneFor(POLICY_APPROVER_UID),
+      phoneFor(POLICY_ACTIVATOR_UID),
+    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT_ID,
+      facilityCode: `worklist-policy-${IDEMPOTENCY_RUN}`,
+      facilityName: `Worklist governed-policy facility ${IDEMPOTENCY_RUN}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: POLICY_APPROVER_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `WORKLIST-DEEP-${IDEMPOTENCY_RUN}`,
+      metadata: { test_fixture: 'lab-worklist-deep' },
+      isDefault: true,
+      entries: [{
+        testCode: WORKLIST_TEST_CODE,
+        testName: 'Troponin I',
+        specimenType: 'any',
+        unit: 'ng/mL',
+        referenceLow: 0,
+        referenceHigh: 0.04,
+        criticalHigh: 0.04,
+      }],
+    });
 
     erPatientId  = await makePatient(PATIENT_ER_UID,  PATIENT_ER_PHONE,  'Lab Worklist ER Patient');
     ipdPatientId = await makePatient(PATIENT_IPD_UID, PATIENT_IPD_PHONE, 'Lab Worklist IPD Patient');
@@ -181,28 +230,77 @@ describe('Lab worklist + manual result validation — deep integration', () => {
       priority: 'NORMAL', phone: PATIENT_OPD_PHONE,
     });
 
-    // Ensure a TROPI critical threshold exists for this tenant.
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-       (tenant_id, test_code, test_name, critical_high, is_active)
-       VALUES ($1::uuid, $2, 'Troponin I', 0.04, true)`,
-      TENANT_ID,
-      WORKLIST_TEST_CODE,
-    );
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM lab_critical_thresholds
-        WHERE tenant_id = $1::uuid AND test_code = $2`,
-      TENANT_ID,
-      WORKLIST_TEST_CODE,
-    ).catch(() => {});
-    await delPatient(PATIENT_ER_UID);
-    await delPatient(PATIENT_IPD_UID);
-    await delPatient(PATIENT_OPD_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, ORDERING_DOCTOR_UID).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanupGovernedOruFixture({
+        tenantId: TENANT_ID,
+        userUids: [POLICY_AUTHOR_UID, POLICY_APPROVER_UID, POLICY_ACTIVATOR_UID],
+        resultPatientUids: [PATIENT_ER_UID, PATIENT_IPD_UID, PATIENT_OPD_UID],
+        facilityIds: [policyFixture?.facilityId],
+        investigationIds: [erTroponinInvId, ipdCbcInvId, opdLftInvId],
+      });
+      await setTenantTx(TENANT_ID, async (tx) => {
+        const patientUids = [PATIENT_ER_UID, PATIENT_IPD_UID, PATIENT_OPD_UID];
+        const userUids = [...patientUids, ORDERING_DOCTOR_UID];
+        await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+        await tx.$executeRawUnsafe(
+          `DELETE FROM clinical_timeline_events
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM clinical_audit_events
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM care_team_members
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM care_teams
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM clinical_orders
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM emergency_visits
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM admissions
+            WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM investigations
+            WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])`,
+          TENANT_ID,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM users
+            WHERE uid = ANY($1::uuid[])`,
+          userUids,
+        );
+      });
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
   });
 
   describe('GET /api/v1/lab/worklist', () => {
@@ -373,7 +471,14 @@ describe('Lab worklist + manual result validation — deep integration', () => {
         unit: 'ng/mL',
         });
       expect(res.statusCode).toBe(200);
-      expect(res.body.data?.result?.is_critical).toBe(true);
+      expect(res.body.data?.result).toMatchObject({
+        is_critical: true,
+        criticality_status: 'critical',
+        facility_id: policyFixture.facilityId,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(WORKLIST_TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(WORKLIST_TEST_CODE),
+      });
       expect(res.body.data?.alerts?.length).toBeGreaterThanOrEqual(1);
     });
 

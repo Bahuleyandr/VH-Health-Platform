@@ -9,7 +9,6 @@ const recordCanonicalClinicalEventMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
 const materializeLabCriticalAlertGenerationMock = jest.fn();
 const evaluateCriticalThresholdMock = jest.fn();
-const assertConfiguredCriticalAnalytesNumericMock = jest.fn();
 const claimLabResultIngestCommandMock = jest.fn();
 const completeLabResultIngestCommandMock = jest.fn();
 const finaliseHttpIdempotencyInTxMock = jest.fn();
@@ -55,7 +54,6 @@ jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => 
 }));
 
 jest.unstable_mockModule('../../services/lab/labCriticalThresholdService.js', () => ({
-  assertConfiguredCriticalAnalytesNumeric: assertConfiguredCriticalAnalytesNumericMock,
   evaluateCriticalThreshold: evaluateCriticalThresholdMock,
 }));
 
@@ -171,18 +169,26 @@ describe('recordLabPanel safety rails', () => {
     sendStaffNotificationsMock.mockReset();
     materializeLabCriticalAlertGenerationMock.mockReset();
     evaluateCriticalThresholdMock.mockReset();
-    assertConfiguredCriticalAnalytesNumericMock.mockReset();
     claimLabResultIngestCommandMock.mockReset();
     completeLabResultIngestCommandMock.mockReset();
     finaliseHttpIdempotencyInTxMock.mockReset();
     recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: { id: 1 }, audit: { id: 2 } });
     sendStaffNotificationsMock.mockResolvedValue({ sent: 1 });
-    materializeLabCriticalAlertGenerationMock.mockResolvedValue({
-      created: false,
-      skippedReason: 'not_critical_without_alert_history',
-      alert: null,
-      task: null,
-      state: 'within_active_critical_thresholds',
+    materializeLabCriticalAlertGenerationMock.mockImplementation(async ({ criticality }) => {
+      const inserted = await labResultCreateMock.mock.results.at(-1)?.value;
+      return {
+        created: false,
+        skippedReason: 'not_critical_without_alert_history',
+        alert: null,
+        task: null,
+        state: criticality?.matched
+          ? 'within_active_critical_thresholds'
+          : 'threshold_unavailable',
+        result: {
+          ...inserted,
+          is_critical: criticality?.breached === true,
+        },
+      };
     });
     evaluateCriticalThresholdMock.mockResolvedValue({
       matched: true,
@@ -195,7 +201,6 @@ describe('recordLabPanel safety rails', () => {
       thresholdUnit: 'g/dL',
     });
     auditCreateMock.mockResolvedValue({ id: 1 });
-    assertConfiguredCriticalAnalytesNumericMock.mockResolvedValue(undefined);
     claimLabResultIngestCommandMock.mockResolvedValue({
       replayed: false,
       command: { id: 601n },
@@ -282,13 +287,23 @@ describe('recordLabPanel safety rails', () => {
     expect(labResultCreateMock).not.toHaveBeenCalled();
   });
 
-  it('rejects a configured alias threshold with a text-only value before result insert', async () => {
+  it('persists and owns a text-only analyte when no governed numeric policy can match', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([sourceRow()]);
-    const thresholdError = Object.assign(
-      new Error('A configured critical-threshold analyte requires a numeric result value'),
-      { statusCode: 400, code: 'NON_NUMERIC_FOR_CRITICAL_THRESHOLD' },
-    );
-    assertConfiguredCriticalAnalytesNumericMock.mockRejectedValueOnce(thresholdError);
+    const result = createdResult({
+      test_code: 'TROP',
+      test_name: 'Troponin I',
+      value_numeric: null,
+      value_text: 'positive',
+      unit: 'ng/L',
+    });
+    labResultCreateMock.mockResolvedValueOnce(result);
+    const assessment = {
+      matched: false,
+      breached: false,
+      criticalityStatus: 'threshold_unavailable',
+      unmatchedReason: 'non_numeric_value',
+    };
+    evaluateCriticalThresholdMock.mockResolvedValueOnce(assessment);
 
     await expect(recordLabPanel(panelInput({
       analytes: [{
@@ -297,23 +312,19 @@ describe('recordLabPanel safety rails', () => {
         value_text: 'positive',
         unit: 'ng/L',
       }],
-    }))).rejects.toMatchObject({
-      statusCode: 400,
-      code: 'NON_NUMERIC_FOR_CRITICAL_THRESHOLD',
+    }))).resolves.toMatchObject({
+      criticals_fired: 0,
+      results: [expect.objectContaining({ test_code: 'TROP', value_text: 'positive' })],
     });
 
-    expect(assertConfiguredCriticalAnalytesNumericMock).toHaveBeenCalledWith({
-      client: tx,
-      tenantId: TENANT,
-      results: [expect.objectContaining({
-        test_code: 'TROP',
-        value_numeric: null,
-        value_text: 'positive',
-      })],
-    });
     expect(referenceRangeFindManyMock).not.toHaveBeenCalled();
-    expect(labResultCreateMock).not.toHaveBeenCalled();
-    expect(materializeLabCriticalAlertGenerationMock).not.toHaveBeenCalled();
+    expect(materializeLabCriticalAlertGenerationMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx,
+      tenantId: TENANT,
+      resultId: result.id,
+      criticality: assessment,
+      source: 'lab_panel',
+    }));
   });
 
   it('rejects when the asserted patient does not match the booking patient', async () => {
@@ -398,7 +409,7 @@ describe('recordLabPanel safety rails', () => {
       tenantId: TENANT,
       resultId: 91,
       expectedPatientUid: PATIENT,
-      evaluateCriticality: expect.any(Function),
+      criticality: expect.objectContaining({ matched: true, breached: false }),
       source: 'lab_panel',
     }));
     expect(completeLabResultIngestCommandMock).toHaveBeenCalledWith({
@@ -433,7 +444,6 @@ describe('recordLabPanel safety rails', () => {
     await expect(recordLabPanel(panelInput())).resolves.toEqual(responseData);
 
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
-    expect(assertConfiguredCriticalAnalytesNumericMock).not.toHaveBeenCalled();
     expect(labResultCreateMock).not.toHaveBeenCalled();
     expect(materializeLabCriticalAlertGenerationMock).not.toHaveBeenCalled();
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
@@ -486,6 +496,12 @@ describe('recordLabPanel safety rails', () => {
         assignedToRole: null,
       },
       state: 'critical',
+      result: createdResult({
+        value_text: '24',
+        value_numeric: 24,
+        abnormal_flag: 'HH',
+        is_critical: true,
+      }),
     });
     evaluateCriticalThresholdMock.mockResolvedValueOnce({
       matched: true,
@@ -505,7 +521,7 @@ describe('recordLabPanel safety rails', () => {
         patient_uid: PATIENT,
         booking_id: 71,
         investigation_id: 81,
-        abnormal_flag: 'HH',
+        abnormal_flag: null,
         is_critical: false,
       }),
     });
@@ -514,24 +530,14 @@ describe('recordLabPanel safety rails', () => {
       tenantId: TENANT,
       resultId: 91,
       expectedPatientUid: PATIENT,
-      evaluateCriticality: expect.any(Function),
+      criticality: expect.objectContaining({
+        matched: true,
+        breached: true,
+        breachedSide: 'high',
+        breachedValue: 20,
+      }),
       orderingClinicianUid: ORDERING_CLINICIAN,
       source: 'lab_panel',
-    });
-    const evaluateCriticality = materializeLabCriticalAlertGenerationMock.mock.calls[0][0]
-      .evaluateCriticality;
-    await expect(evaluateCriticality({
-      tx,
-      result: createdResult({
-        value_text: '24',
-        value_numeric: 24,
-        abnormal_flag: 'HH',
-      }),
-    })).resolves.toMatchObject({
-      matched: true,
-      breached: true,
-      breachedSide: 'high',
-      breachedValue: 20,
     });
     expect(evaluateCriticalThresholdMock).toHaveBeenCalledWith({
       client: tx,
@@ -583,13 +589,10 @@ describe('recordLabPanel safety rails', () => {
       thresholdUnit: 'g/dL',
     });
     materializeLabCriticalAlertGenerationMock.mockImplementationOnce(async (args) => {
-      await args.evaluateCriticality({
-        tx,
-        result: createdResult({
-          value_text: String(value),
-          value_numeric: value,
-          abnormal_flag: flag,
-        }),
+      expect(args.criticality).toMatchObject({
+        matched: true,
+        breached: false,
+        evaluatedValue: value,
       });
       return {
         created: false,
@@ -597,6 +600,12 @@ describe('recordLabPanel safety rails', () => {
         alert: null,
         task: null,
         state: 'within_active_critical_thresholds',
+        result: createdResult({
+          value_text: String(value),
+          value_numeric: value,
+          abnormal_flag: flag,
+          is_critical: false,
+        }),
       };
     });
 
@@ -625,6 +634,16 @@ describe('recordLabPanel safety rails', () => {
       value_numeric: 24,
       abnormal_flag: 'HH',
     }));
+    evaluateCriticalThresholdMock.mockResolvedValueOnce({
+      matched: true,
+      breached: true,
+      breachedSide: 'high',
+      breachedValue: 20,
+      evaluatedValue: 24,
+      criticalLow: 6,
+      criticalHigh: 20,
+      thresholdUnit: 'g/dL',
+    });
     materializeLabCriticalAlertGenerationMock.mockResolvedValueOnce({
       created: true,
       alert: { id: 302 },
@@ -635,6 +654,12 @@ describe('recordLabPanel safety rails', () => {
         assignedToRole: 'DUTY_DOCTOR',
       },
       state: 'critical',
+      result: createdResult({
+        value_text: '24',
+        value_numeric: 24,
+        abnormal_flag: 'HH',
+        is_critical: true,
+      }),
     });
     sendStaffNotificationsMock.mockRejectedValueOnce(new Error('notification transport down'));
 
@@ -658,6 +683,16 @@ describe('recordLabPanel safety rails', () => {
       value_numeric: 24,
       abnormal_flag: 'HH',
     }));
+    evaluateCriticalThresholdMock.mockResolvedValueOnce({
+      matched: true,
+      breached: true,
+      breachedSide: 'high',
+      breachedValue: 20,
+      evaluatedValue: 24,
+      criticalLow: 6,
+      criticalHigh: 20,
+      thresholdUnit: 'g/dL',
+    });
     materializeLabCriticalAlertGenerationMock.mockRejectedValueOnce(
       new Error('critical task/SLA materialization failed'),
     );

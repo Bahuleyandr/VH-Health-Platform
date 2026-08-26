@@ -27,6 +27,7 @@ import {
   acknowledgeExternalRecoveryCriticalReviewForInboxTask,
 } from '../services/integrations/externalRecoveryCriticalReviewService.js';
 import { listInboxTasks } from '../services/workflow/taskService.js';
+import { seedActiveLabThresholdPolicy } from './helpers/labThresholdGovernanceFixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -34,6 +35,9 @@ const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const ACTOR_UID = randomUUID();
 const REVIEWER_UID = randomUUID();
+const POLICY_AUTHOR_UID = randomUUID();
+const POLICY_APPROVER_UID = randomUUID();
+const POLICY_ACTIVATOR_UID = randomUUID();
 const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase();
 const ORU_ANALYZER = `C61C-ORU-${SUFFIX}`;
 const ASTM_ANALYZER = `C61C-ASTM-${SUFFIX}`;
@@ -58,6 +62,55 @@ const context = Object.freeze({
 let patientId;
 let astmAnalyzerId;
 let specimenId;
+let policyFixture;
+
+async function cleanupTenantFixture() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    const tables = [
+      'external_recovery_critical_review_acknowledgements',
+      'external_recovery_critical_review_obligations',
+      'external_recovery_operability_actions',
+      'lab_critical_alert_acknowledgement_receipts',
+      'lab_critical_alert_reconciliation_receipts',
+      'lab_critical_alerts',
+      'lab_threshold_unmatched_exceptions',
+      'task_comments',
+      'tasks',
+      'workflow_sla_instances',
+      'notification_delivery_attempts',
+      'notification_outbox',
+      'notifications',
+      'clinical_timeline_events',
+      'clinical_audit_events',
+      'audit_logs',
+      'lab_results',
+      'lab_oru_ingest_messages',
+      'lab_interface_messages',
+      'lab_specimen_status_history',
+      'lab_specimens',
+      'pathway_projector_inbox',
+      'event_consumer_offsets',
+      'lab_threshold_policy_rules',
+      'lab_threshold_policy_bundles',
+      'lab_threshold_catalog_entries',
+      'lab_threshold_catalog_states',
+      'lab_analyzers',
+      'facilities',
+      'users',
+    ];
+    for (const table of tables) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM public.${table} WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tenants WHERE id = $1::uuid`,
+      TENANT_ID,
+    );
+  });
+}
 
 function recoveryCommon({ family, offsetId, sourcePartition, sourceToken, duplicateKey }) {
   return {
@@ -150,6 +203,7 @@ async function expectGuardedFailure(statement, params = []) {
 
 describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
   beforeAll(async () => {
+    await cleanupTenantFixture();
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name)
        VALUES ($1::uuid, $2::text, 'C6.1-C laboratory recovery tenant')`,
@@ -173,13 +227,61 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       `93${SUFFIX.slice(0, 10)}`,
     );
     patientId = Number(users.find(row => row.uid === PATIENT_UID).id);
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5::text, 'C6.1-C policy author', 'ADMIN', TRUE, 'active', NOW()),
+         ($2::uuid, $4::uuid, $6::text, 'C6.1-C policy approver', 'PATHOLOGIST', TRUE, 'active', NOW()),
+         ($3::uuid, $4::uuid, $7::text, 'C6.1-C policy activator', 'SUPER_ADMIN', TRUE, 'active', NOW())`,
+      POLICY_AUTHOR_UID,
+      POLICY_APPROVER_UID,
+      POLICY_ACTIVATOR_UID,
+      TENANT_ID,
+      `94${SUFFIX.slice(0, 10)}`,
+      `95${SUFFIX.slice(0, 10)}`,
+      `96${SUFFIX.slice(0, 10)}`,
+    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT_ID,
+      facilityCode: `c61c-lab-policy-${SUFFIX.toLowerCase()}`,
+      facilityName: `C6.1-C governed-policy facility ${SUFFIX}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: POLICY_APPROVER_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `C61C-LAB-RECOVERY-${SUFFIX}`,
+      effectiveFrom: '2026-07-01T00:00:00.000Z',
+      metadata: { test_fixture: 'external-lab-recovery-deep' },
+      isDefault: true,
+      entries: [
+        {
+          testCode: ORU_TEST_CODE,
+          testName: ORU_TEST_CODE,
+          specimenType: 'any',
+          unit: 'mmol/L',
+          referenceLow: 0,
+          referenceHigh: 10,
+          criticalHigh: 10,
+        },
+        {
+          testCode: ASTM_TEST_CODE,
+          testName: ASTM_TEST_CODE,
+          specimenType: 'blood',
+          unit: 'mmol/L',
+          referenceLow: 0,
+          referenceHigh: 10,
+          criticalHigh: 10,
+        },
+      ],
+    });
     const analyzers = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_analyzers
-         (tenant_id, analyzer_code, display_name, interface_kind, status, metadata)
+         (tenant_id, facility_id, analyzer_code, display_name, interface_kind, status, metadata)
        VALUES
-         ($1::uuid, $2::text, 'C6.1-C ORU analyzer', 'hl7', 'active',
+         ($1::uuid, $6::int, $2::text, 'C6.1-C ORU analyzer', 'hl7', 'active',
           jsonb_build_object('hl7_actor_uids', jsonb_build_array($4::text))),
-         ($1::uuid, $3::text, 'C6.1-C ASTM analyzer', 'astm', 'active',
+         ($1::uuid, $6::int, $3::text, 'C6.1-C ASTM analyzer', 'astm', 'active',
           jsonb_build_object(
             'astm_sender_aliases', jsonb_build_array($5::text),
             'astm_manual_import_actor_uids', jsonb_build_array($4::text)))
@@ -189,6 +291,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       ASTM_ANALYZER,
       ACTOR_UID,
       ASTM_SENDER,
+      policyFixture.facilityId,
     );
     astmAnalyzerId = Number(analyzers.find(row => row.analyzer_code === ASTM_ANALYZER).id);
     const specimens = await prisma.$queryRawUnsafe(
@@ -204,21 +307,14 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       OCCURRED_AT,
     );
     specimenId = Number(specimens[0].id);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_low, critical_high,
-          applies_to, is_active, source)
-       VALUES
-         ($1::uuid, $2::text, $2::text, 'mmol/L', 0, 10, 'all', TRUE, 'c61c-test'),
-         ($1::uuid, $3::text, $3::text, 'mmol/L', 0, 10, 'all', TRUE, 'c61c-test')`,
-      TENANT_ID,
-      ORU_TEST_CODE,
-      ASTM_TEST_CODE,
-    );
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    try {
+      await cleanupTenantFixture();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it('persists a late critical I01 result and actionable no-SLA inbox task', async () => {
@@ -275,7 +371,11 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
               receipt.recovery_pending_task_id,
               receipt.message_sha256,
               receipt.critical_result_ids,
-               result.id AS result_id, result.is_critical,
+               result.id AS result_id, result.is_critical, result.criticality_status,
+               result.facility_id,
+               result.threshold_policy_bundle_id,
+               result.threshold_policy_rule_id,
+               result.threshold_catalog_entry_id,
                to_char(result.performed_at AT TIME ZONE 'UTC',
                  'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS performed_at_utc,
               task.task_kind, task.priority, task.status AS task_status,
@@ -300,6 +400,11 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       message_sha256: sha256Utf8(message),
       result_id: Number(outcome.result_id),
       is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(ORU_TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(ORU_TEST_CODE),
       task_kind: 'review',
       priority: 'critical',
       task_status: 'open',
@@ -387,7 +492,11 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
               receipt.recovery_critical_result_ids,
               receipt.recovery_pending_task_id,
               lab_astm_canonical_message(receipt.raw_message) AS db_canonical_message,
-               result.id AS result_id, result.is_critical,
+               result.id AS result_id, result.is_critical, result.criticality_status,
+               result.facility_id,
+               result.threshold_policy_bundle_id,
+               result.threshold_policy_rule_id,
+               result.threshold_catalog_entry_id,
                to_char(result.performed_at AT TIME ZONE 'UTC',
                  'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS performed_at_utc,
               result.specimen_id, task.priority, task.status AS task_status,
@@ -414,6 +523,11 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       astm_message_sha256: astmMessageSha256,
       result_id: Number(outcome.result_id),
       is_critical: true,
+      criticality_status: 'critical',
+      facility_id: policyFixture.facilityId,
+      threshold_policy_bundle_id: policyFixture.bundleId,
+      threshold_policy_rule_id: policyFixture.policyRules.get(ASTM_TEST_CODE),
+      threshold_catalog_entry_id: policyFixture.catalogEntries.get(ASTM_TEST_CODE),
       specimen_id: specimenId,
       priority: 'critical',
       task_status: 'open',

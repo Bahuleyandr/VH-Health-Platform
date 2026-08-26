@@ -125,6 +125,9 @@ const ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY = Symbol(
 const ED_CLOSURE_TASK_CREATION_AUTHORITY = Symbol(
   'ED_CLOSURE_TASK_CREATION_AUTHORITY',
 );
+const LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY = Symbol(
+  'LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY',
+);
 const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
   'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
 );
@@ -137,6 +140,7 @@ const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
 const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1';
 const ED_DESTINATION_HANDOFF_TASK_CONTRACT = 'ed_destination_handoff_review_v1';
 const ED_CLOSURE_TASK_CONTRACT = 'ed_closure_review_v1';
+const LAB_THRESHOLD_EXCEPTION_TASK_CONTRACT = 'lab_threshold_policy_exception_v1';
 
 function requiredTaskFactoryTx(tx, code, message) {
   if (!tx?.$queryRawUnsafe) {
@@ -201,6 +205,15 @@ function assertProtectedTaskCreationAllowed({
     );
   }
   if (
+    relatedResourceType === 'lab_threshold_exception'
+    && authority !== LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Lab threshold exception tasks must use the laboratory policy domain task factory',
+      'LAB_THRESHOLD_EXCEPTION_TASK_FACTORY_REQUIRED',
+    );
+  }
+  if (
     metadata?.task_contract
     && ![
       COVERING_TRANSFER_TASK_CREATION_AUTHORITY,
@@ -208,6 +221,7 @@ function assertProtectedTaskCreationAllowed({
       ED_DESTINATION_HANDOFF_TASK_CREATION_AUTHORITY,
       ED_CLOSURE_TASK_CREATION_AUTHORITY,
       PENDING_RESULT_TASK_CREATION_AUTHORITY,
+      LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY,
     ].includes(authority)
   ) {
     throw AppError.conflict(
@@ -1063,6 +1077,69 @@ export async function createPendingResultTrackingTaskTx({
       rearm_reason: cleanRearmReason,
     },
     protectedTaskCreationAuthority: PENDING_RESULT_TASK_CREATION_AUTHORITY,
+    tx,
+    onConflictResourceDoNothing: true,
+  });
+}
+
+export async function createLabThresholdExceptionReviewTaskTx({
+  tenantId = null,
+  exceptionId,
+  resultId,
+  patientUid,
+  testName,
+  unmatchedReason,
+  source,
+  assignedToUid = null,
+  assignedToRole = 'LAB_INCHARGE',
+  createdBy = null,
+  tx = null,
+} = {}) {
+  requiredTaskFactoryTx(
+    tx,
+    'LAB_THRESHOLD_EXCEPTION_TASK_FACTORY_TX_REQUIRED',
+    'Lab threshold exception task creation requires a transaction',
+  );
+  const cleanExceptionId = maybeUuid(exceptionId, 'exception_id');
+  const cleanResultId = normalizeId(resultId, 'result_id');
+  const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+  const cleanTestName = safeText(testName, 240);
+  const cleanUnmatchedReason = safeText(unmatchedReason, 80);
+  const cleanSource = safeText(source, 120);
+  const assignment = normalizeTaskAssignment({ assignedToUid, assignedToRole });
+  const cleanCreatedBy = maybeUuid(createdBy, 'created_by');
+  if (
+    !cleanExceptionId
+    || !cleanPatientUid
+    || !cleanTestName
+    || !cleanUnmatchedReason
+    || !cleanSource
+    || (!assignment.uid && assignment.role !== 'LAB_INCHARGE')
+  ) {
+    throw AppError.badRequest(
+      'Lab threshold exception task requires exact exception, result, patient, reason, source, and laboratory owner',
+      'LAB_THRESHOLD_EXCEPTION_TASK_FACTORY_INPUT_INVALID',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind: 'review',
+    title: `Lab policy exception: ${cleanTestName}`,
+    description: `${cleanTestName} could not be classified by the active governed laboratory policy (${cleanUnmatchedReason}); review and reconcile the policy coverage.`,
+    patientUid: cleanPatientUid,
+    relatedResourceType: 'lab_threshold_exception',
+    relatedResourceId: cleanExceptionId,
+    priority: 'high',
+    assignedToUid: assignment.uid,
+    assignedToRole: assignment.role,
+    createdBy: cleanCreatedBy,
+    metadata: {
+      task_contract: LAB_THRESHOLD_EXCEPTION_TASK_CONTRACT,
+      lab_result_id: cleanResultId,
+      unmatched_reason: cleanUnmatchedReason,
+      source: cleanSource,
+    },
+    protectedTaskCreationAuthority: LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY,
     tx,
     onConflictResourceDoNothing: true,
   });
@@ -6388,6 +6465,7 @@ export const __testing__ = {
 
 export default {
   createTask,
+  createLabThresholdExceptionReviewTaskTx,
   createPendingResultTrackingTaskTx,
   createPendingResultOwnerActionTaskTx,
   createCoveringTransferReviewTaskTx,

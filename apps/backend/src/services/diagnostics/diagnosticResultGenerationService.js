@@ -65,6 +65,22 @@ function labItemSnapshot(row) {
     reference_range_high: row.reference_range_high == null
       ? null
       : String(row.reference_range_high),
+    criticality_status: row.criticality_status == null
+      ? null
+      : String(row.criticality_status),
+    facility_id: row.facility_id == null ? null : Number(row.facility_id),
+    threshold_policy_bundle_id: row.threshold_policy_bundle_id == null
+      ? null
+      : String(row.threshold_policy_bundle_id),
+    threshold_policy_rule_id: row.threshold_policy_rule_id == null
+      ? null
+      : String(row.threshold_policy_rule_id),
+    threshold_catalog_entry_id: row.threshold_catalog_entry_id == null
+      ? null
+      : String(row.threshold_catalog_entry_id),
+    threshold_evaluated_at: row.threshold_evaluated_at?.toISOString?.()
+      || row.threshold_evaluated_at
+      || null,
   };
 }
 
@@ -265,10 +281,13 @@ async function loadExactSignedLabPanelTx({
     );
   }
   const sourceRows = await tx.$queryRawUnsafe(
-    `SELECT id, patient_uid, admission_id, investigation_id, booking_id,
+      `SELECT id, patient_uid, admission_id, investigation_id, booking_id,
             loinc_code, test_code, test_name, value_text, value_numeric,
             unit, reference_range, reference_range_low, reference_range_high,
-            abnormal_flag, is_critical, status, signed_off_at, signed_off_by
+            abnormal_flag, is_critical, criticality_status, facility_id,
+            threshold_policy_bundle_id, threshold_policy_rule_id,
+            threshold_catalog_entry_id, threshold_evaluated_at,
+            status, signed_off_at, signed_off_by
        FROM lab_results
       WHERE tenant_id = $1::uuid
         AND id = ANY($2::integer[])

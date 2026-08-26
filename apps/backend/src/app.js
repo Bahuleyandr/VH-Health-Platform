@@ -291,6 +291,7 @@ import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRou
 import cssdRoutes from './routes/cssd/cssdRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
+import labThresholdGovernanceRoutes from './routes/lab/labThresholdGovernanceRoutes.js';
 import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
@@ -1916,6 +1917,14 @@ app.use('/api/v1/lab', requireRole(...LAB_INGEST_MOUNT_ROUTE_ROLES), labIngestRo
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+// No patientAccessGuard on the governance mount: threshold catalogues,
+// bundles, rules, and exception worklists are facility policy administration
+// with no patient subject to resolve, so a mount-level guard here could never
+// decide — it would return no_patient_context on every request without
+// evaluating a policy (the exact defect class the 2026-08 mount-guard lane
+// eradicated). Role gating carries the authorization; exception rows expose
+// patient identity only through their own audited service reads.
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labThresholdGovernanceRoutes);
 // Gap-audit 2026-08 (PHI mounts): per-patient policies, preauth bundles, and
 // claim documents are PHI reads — access-log them like sibling billing mounts.
 app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), phiAccessLogger('INSURANCE_CLAIM'), insuranceClaimsRoutes);

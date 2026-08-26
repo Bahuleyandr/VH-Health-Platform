@@ -34,12 +34,18 @@ import {
   CANONICAL_EVENTS,
   prisma,
 } from './_journeyHarness.js';
+import {
+  cleanupGovernedOruFixture,
+  seedActiveLabThresholdPolicy,
+} from '../helpers/labThresholdGovernanceFixture.js';
 
 const RUN = runSuffix();
 const DOCTOR_UID = `b4000001-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const LABTECH_UID = `b4000002-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const PATHOLOGIST_UID = `b4000003-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const RECEPTIONIST_UID = `b4000004-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const POLICY_AUTHOR_UID = `b4000005-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const POLICY_ACTIVATOR_UID = `b4000006-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const DEPARTMENT = `JLabWalkIn-${RUN}`;
 const PATIENT_PHONE = `96501${RUN}`;
 const DOCTOR_PHONE = `+9196502${RUN}`;
@@ -48,6 +54,7 @@ const PATHOLOGIST_PHONE = `+9196504${RUN}`;
 const RECEPTIONIST_PHONE = `96505${RUN}`;
 const CRITICAL_TEST_CODE = `JWL${RUN}`;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+let policyFixture;
 
 async function cleanupLabWalkInEvidence() {
   const resultRows = await prisma.$queryRawUnsafe(
@@ -167,7 +174,14 @@ describeJourney('Journey: lab-walk-in', () => {
   beforeAll(async () => {
     await cleanupLabWalkInEvidence();
     await cleanupJourney({
-      staffUids: [DOCTOR_UID, LABTECH_UID, PATHOLOGIST_UID, RECEPTIONIST_UID],
+      staffUids: [
+        DOCTOR_UID,
+        LABTECH_UID,
+        PATHOLOGIST_UID,
+        RECEPTIONIST_UID,
+        POLICY_AUTHOR_UID,
+        POLICY_ACTIVATOR_UID,
+      ],
       phones: [PATIENT_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT],
     });
@@ -189,32 +203,64 @@ describeJourney('Journey: lab-walk-in', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2, $3, 'RECEPTIONIST', true, NOW()) RETURNING id`,
       RECEPTIONIST_UID, `+91${RECEPTIONIST_PHONE}`, `Reception ${RUN}`);
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $3::uuid, $4, $5, 'ADMIN', true, 'active', NOW()),
+         ($2::uuid, $3::uuid, $6, $7, 'SUPER_ADMIN', true, 'active', NOW())`,
+      POLICY_AUTHOR_UID,
+      POLICY_ACTIVATOR_UID,
+      TENANT_ID,
+      `+9196506${RUN}`,
+      `Lab policy author ${RUN}`,
+      `+9196507${RUN}`,
+      `Lab policy activator ${RUN}`,
+    );
 
     receptionist = roleClient('RECEPTIONIST', { uid: RECEPTIONIST_UID, id: recepRow[0].id });
     doctor = roleClient('DOCTOR', { uid: DOCTOR_UID, id: doctorUserId, phone: DOCTOR_PHONE });
     labTech = roleClient('LAB_STAFF', { uid: LABTECH_UID, id: labRow[0].id, phone: LABTECH_PHONE });
     pathologist = roleClient('PATHOLOGIST', { uid: PATHOLOGIST_UID, id: pathRow[0].id, phone: PATHOLOGIST_PHONE });
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, critical_high, is_active)
-       VALUES ('00000000-0000-4000-8000-000000000001'::uuid, $1,
-               'Troponin I', 0.04, true)`,
-      CRITICAL_TEST_CODE,
-    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT_ID,
+      facilityCode: `lab-walk-in-policy-${RUN}`,
+      facilityName: `Lab walk-in governed-policy facility ${RUN}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: PATHOLOGIST_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `LAB-WALK-IN-${RUN}`,
+      metadata: { test_fixture: 'lab-walk-in-journey' },
+      isDefault: true,
+      entries: [{
+        testCode: CRITICAL_TEST_CODE,
+        testName: 'Troponin I',
+        specimenType: 'any',
+        unit: 'ng/mL',
+        referenceLow: 0,
+        referenceHigh: 0.04,
+        criticalHigh: 0.04,
+      }],
+    });
   });
 
   afterAll(async () => {
     await cleanupLabWalkInEvidence();
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM lab_critical_thresholds
-        WHERE tenant_id = $1::uuid
-          AND test_code = $2`,
-      TENANT_ID,
-      CRITICAL_TEST_CODE,
-    );
+    await cleanupGovernedOruFixture({
+      tenantId: TENANT_ID,
+      userUids: [POLICY_AUTHOR_UID, POLICY_ACTIVATOR_UID],
+      facilityIds: [policyFixture?.facilityId],
+    });
     await cleanupJourney({
       patientUids: [patientUid].filter(Boolean),
-      staffUids: [DOCTOR_UID, LABTECH_UID, PATHOLOGIST_UID, RECEPTIONIST_UID],
+      staffUids: [
+        DOCTOR_UID,
+        LABTECH_UID,
+        PATHOLOGIST_UID,
+        RECEPTIONIST_UID,
+        POLICY_AUTHOR_UID,
+        POLICY_ACTIVATOR_UID,
+      ],
       phones: [PATIENT_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT],
     });
@@ -327,7 +373,14 @@ describeJourney('Journey: lab-walk-in', () => {
         unit: 'ng/mL',
         });
       expect(res.statusCode).toBe(200);
-      expect(res.body.data?.result?.is_critical).toBe(true);
+      expect(res.body.data?.result).toMatchObject({
+        is_critical: true,
+        criticality_status: 'critical',
+        facility_id: policyFixture.facilityId,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(CRITICAL_TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(CRITICAL_TEST_CODE),
+      });
       expect(res.body.data?.alerts?.length).toBeGreaterThanOrEqual(1);
       resultId = res.body.data.result.id;
       expect(resultId).toBeTruthy();

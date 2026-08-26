@@ -148,6 +148,110 @@ export const schemas = {
     },
   },
   LabPathologistSignoffResponse: envelope('LabPathologistSignoff'),
+  LabThresholdCatalogEntryRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['facility_id', 'entry'],
+    properties: {
+      facility_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      metadata: { type: 'object', additionalProperties: true },
+      entry: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['test_code', 'test_name', 'specimen_type', 'evaluation_mode'],
+        properties: {
+          test_code: { type: 'string', minLength: 1, maxLength: 80 },
+          loinc_code: { type: 'string', maxLength: 80, nullable: true },
+          test_name: { type: 'string', minLength: 1, maxLength: 255 },
+          specimen_type: { type: 'string', minLength: 1, maxLength: 120 },
+          evaluation_mode: {
+            type: 'string',
+            enum: ['numeric_threshold', 'qualitative_exempt'],
+          },
+          unit: { type: 'string', maxLength: 80, nullable: true },
+          sex: { type: 'string', enum: ['male', 'female', 'other'], nullable: true },
+          age_min_days: { type: 'integer', minimum: 0, nullable: true },
+          age_max_days: { type: 'integer', minimum: 0, nullable: true },
+          pregnancy_scope: {
+            type: 'string',
+            enum: ['all', 'pregnant', 'not_pregnant'],
+          },
+          criticality_required: { type: 'boolean' },
+          exemption_reason: { type: 'string', maxLength: 1000, nullable: true },
+        },
+      },
+    },
+  },
+  LabThresholdCatalogRetireRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['facility_id', 'reason'],
+    properties: {
+      facility_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      reason: { type: 'string', minLength: 1, maxLength: 500 },
+    },
+  },
+  LabThresholdBundleCreateRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['facility_id'],
+    properties: {
+      facility_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  LabThresholdRuleSetRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['rules'],
+    properties: {
+      rules: {
+        type: 'array',
+        maxItems: 1000,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['catalog_entry_id'],
+          properties: {
+            catalog_entry_id: { type: 'string', format: 'uuid' },
+            reference_low: { type: 'number', nullable: true },
+            reference_high: { type: 'number', nullable: true },
+            critical_low: { type: 'number', nullable: true },
+            critical_high: { type: 'number', nullable: true },
+            notes: { type: 'string', maxLength: 1000, nullable: true },
+          },
+        },
+      },
+    },
+  },
+  LabThresholdBundleSubmitRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['source_reference', 'effective_from'],
+    properties: {
+      source_reference: { type: 'string', minLength: 1, maxLength: 500 },
+      effective_from: { type: 'string', format: 'date-time' },
+      effective_until: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  LabThresholdBundleApprovalRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason', 'evidence_reference', 'evidence_sha256'],
+    properties: {
+      reason: { type: 'string', minLength: 1, maxLength: 1000 },
+      evidence_reference: { type: 'string', minLength: 1, maxLength: 500 },
+      evidence_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+  },
+  LabThresholdReasonRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason'],
+    properties: {
+      reason: { type: 'string', minLength: 1, maxLength: 1000 },
+    },
+  },
 };
 
 const idempotencyKeyParameter = {
@@ -189,5 +293,78 @@ export const operations = {
     parameters: [idempotencyKeyParameter],
     request: 'LabPathologistSignoffRequest',
     response: 'LabPathologistSignoffResponse',
+  },
+  'GET /api/v1/lab/threshold-governance/catalog': {
+    summary: 'List the current governed laboratory analyte catalogue',
+    description: 'Returns facility-scoped numeric analytes and signed qualitative exemptions at the current catalogue revision.',
+  },
+  'POST /api/v1/lab/threshold-governance/catalog': {
+    summary: 'Add a governed laboratory catalogue entry',
+    description: 'Author-only mutation. Adding an entry increments the facility catalogue revision and makes older bundles ineligible for activation.',
+    request: 'LabThresholdCatalogEntryRequest',
+  },
+  'POST /api/v1/lab/threshold-governance/catalog/{entryId}/retire': {
+    summary: 'Retire a governed laboratory catalogue entry',
+    description: 'Author-only mutation. Retirement is revisioned and preserves the historical entry used by signed bundles and result evidence.',
+    request: 'LabThresholdCatalogRetireRequest',
+    pathParameters: { entryId: { type: 'string', format: 'uuid' } },
+  },
+  'GET /api/v1/lab/threshold-governance/bundles': {
+    summary: 'List governed laboratory policy bundles',
+    description: 'Lists facility-scoped bundle versions and their draft, review, approval, activation, supersession, or rejection evidence.',
+  },
+  'POST /api/v1/lab/threshold-governance/bundles': {
+    summary: 'Create a draft laboratory policy bundle',
+    description: 'Creates a draft bound to the facility current catalogue revision; it has no runtime effect until distinct clinical approval and super-admin activation.',
+    request: 'LabThresholdBundleCreateRequest',
+  },
+  'PUT /api/v1/lab/threshold-governance/bundles/{bundleId}/rules': {
+    summary: 'Replace all numeric rules in a draft laboratory policy bundle',
+    description: 'Author-only draft mutation that replaces the complete numeric rule set and re-evaluates signed catalogue coverage.',
+    request: 'LabThresholdRuleSetRequest',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'GET /api/v1/lab/threshold-governance/bundles/{bundleId}/coverage': {
+    summary: 'Evaluate exact catalogue coverage for a laboratory policy bundle',
+    description: 'Reports every catalogue entry and any blocker that prevents submission or activation of the selected bundle.',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'POST /api/v1/lab/threshold-governance/bundles/{bundleId}/submit': {
+    summary: 'Submit a complete laboratory policy bundle for clinical review',
+    description: 'Freezes a deterministic content digest only when every catalogue entry is covered by a numeric rule or an explicit qualitative exemption.',
+    request: 'LabThresholdBundleSubmitRequest',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'POST /api/v1/lab/threshold-governance/bundles/{bundleId}/approve': {
+    summary: 'Clinically approve a laboratory policy bundle',
+    description: 'Pathologist-only decision with evidence digest. The approver must be distinct from the author and submitter.',
+    request: 'LabThresholdBundleApprovalRequest',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'POST /api/v1/lab/threshold-governance/bundles/{bundleId}/reject': {
+    summary: 'Reject a laboratory policy bundle under review',
+    description: 'Pathologist-only decision that closes an in-review bundle with a durable rejection reason and audit event.',
+    request: 'LabThresholdReasonRequest',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'POST /api/v1/lab/threshold-governance/bundles/{bundleId}/activate': {
+    summary: 'Activate a clinically approved laboratory policy bundle',
+    description: 'Super-admin-only activation. Exactly one effective, current-revision bundle may be active per facility.',
+    request: 'LabThresholdReasonRequest',
+    pathParameters: { bundleId: { type: 'string', format: 'uuid' } },
+  },
+  'GET /api/v1/lab/threshold-governance/exceptions': {
+    summary: 'List owned laboratory policy exceptions',
+    description: 'Returns unmatched results together with their high-priority laboratory review task and reconciliation evidence.',
+  },
+  'GET /api/v1/lab/threshold-governance/exceptions/{exceptionId}': {
+    summary: 'Get one laboratory policy exception',
+    description: 'Returns the unmatched result, exact exception evidence, and its mandatory laboratory ownership task.',
+    pathParameters: { exceptionId: { type: 'string', format: 'uuid' } },
+  },
+  'POST /api/v1/lab/threshold-governance/exceptions/{exceptionId}/reconcile': {
+    summary: 'Re-evaluate one laboratory policy exception',
+    description: 'Never accepts a caller-supplied classification. It re-runs the current signed policy and resolves the exception only when exact governed evidence is available.',
+    pathParameters: { exceptionId: { type: 'string', format: 'uuid' } },
   },
 };

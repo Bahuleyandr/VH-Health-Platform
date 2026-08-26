@@ -1,20 +1,13 @@
 import { jest } from '@jest/globals';
 
 const labResultsFindManyMock = jest.fn();
-const referenceRangeUpdateManyMock = jest.fn();
-const referenceRangeFindFirstMock = jest.fn();
-const referenceRangeCreateMock = jest.fn();
 const usersFindFirstMock = jest.fn();
 
 const __prismaDefaultMock = {
   lab_results: {
     findMany: labResultsFindManyMock,
   },
-  lab_reference_ranges: {
-    updateMany: referenceRangeUpdateManyMock,
-    findFirst: referenceRangeFindFirstMock,
-    create: referenceRangeCreateMock,
-  },
+  lab_reference_ranges: {},
   users: {
     findFirst: usersFindFirstMock,
   },
@@ -53,7 +46,6 @@ jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => 
 }));
 
 jest.unstable_mockModule('../../services/lab/labCriticalThresholdService.js', () => ({
-  assertConfiguredCriticalAnalytesNumeric: jest.fn(),
   evaluateCriticalThreshold: jest.fn(),
 }));
 
@@ -71,9 +63,6 @@ const PANEL_ID = '33333333-3333-4333-8333-333333333333';
 describe('labPanelService tenant predicates', () => {
   beforeEach(() => {
     labResultsFindManyMock.mockReset();
-    referenceRangeUpdateManyMock.mockReset();
-    referenceRangeFindFirstMock.mockReset();
-    referenceRangeCreateMock.mockReset();
     usersFindFirstMock.mockReset();
   });
 
@@ -115,37 +104,23 @@ describe('labPanelService tenant predicates', () => {
     }));
   });
 
-  it('updates reference ranges by id and tenant together', async () => {
-    referenceRangeUpdateManyMock.mockResolvedValueOnce({ count: 1 });
-    referenceRangeFindFirstMock.mockResolvedValueOnce({ id: 9, tenant_id: TENANT_ID });
-
-    await upsertReferenceRange({
+  it.each([
+    ['same-tenant legacy row', { id: 9, tenant_id: TENANT_ID }],
+    ['caller-supplied foreign tenant', {
       id: 9,
       tenant_id: '99999999-9999-4999-8999-999999999999',
+    }],
+  ])('keeps %s immutable and routes changes to governed policy APIs', async (_label, identity) => {
+    await expect(upsertReferenceRange({
+      ...identity,
       test_code: 'HGB',
       test_name: 'Hemoglobin',
       unit: 'g/dL',
       range_low: 12,
       range_high: 16,
-    }, { tenantId: TENANT_ID });
-
-    expect(referenceRangeUpdateManyMock).toHaveBeenCalledWith({
-      where: { id: 9, tenant_id: TENANT_ID },
-      data: expect.not.objectContaining({ tenant_id: expect.anything() }),
+    }, { tenantId: TENANT_ID })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_REFERENCE_RANGE_LEGACY_READ_ONLY',
     });
-    expect(referenceRangeFindFirstMock).toHaveBeenCalledWith({
-      where: { id: 9, tenant_id: TENANT_ID },
-    });
-  });
-
-  it('rejects reference-range updates when id belongs to another tenant', async () => {
-    referenceRangeUpdateManyMock.mockResolvedValueOnce({ count: 0 });
-
-    await expect(upsertReferenceRange({
-      id: 9,
-      test_code: 'HGB',
-      test_name: 'Hemoglobin',
-      unit: 'g/dL',
-    }, { tenantId: TENANT_ID })).rejects.toMatchObject({ statusCode: 404 });
   });
 });

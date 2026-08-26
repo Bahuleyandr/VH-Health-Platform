@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lab-threshold-exception-reconciliation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: lab-threshold-exception-reconciliation
+    app.kubernetes.io/component: clinical-safety-job
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  schedule: "*/5 * * * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 240
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: lab-threshold-exception-reconciliation
+            app.kubernetes.io/component: clinical-safety-job
+            app.kubernetes.io/part-of: vhhealth
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 30
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: lab-threshold-exception-reconciliation
+              image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
+              imagePullPolicy: IfNotPresent
+              command: ["node", "/app/scripts/reconcile-lab-threshold-exceptions.mjs"]
+              env:
+                - name: NODE_ENV
+                  value: "production"
+                - name: LAB_THRESHOLD_RECONCILIATION_BATCH_SIZE
+                  value: "100"
+              envFrom:
+                - configMapRef:
+                    name: vhhealth-backend-config
+                - secretRef:
+                    name: vhhealth-backend-env
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "192Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: app-tmp
+                  mountPath: /app/tmp
+                - name: prisma-cache
+                  mountPath: /app/node_modules/.prisma
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 128Mi
+            - name: app-tmp
+              emptyDir:
+                sizeLimit: 128Mi
+            - name: prisma-cache
+              emptyDir:
+                sizeLimit: 64Mi

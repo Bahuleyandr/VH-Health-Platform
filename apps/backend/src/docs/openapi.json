@@ -30024,6 +30024,252 @@
           }
         }
       },
+      "LabThresholdBundleApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "evidence_reference",
+          "evidence_sha256"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "evidence_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "evidence_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "LabThresholdBundleCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "facility_id"
+        ],
+        "properties": {
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "LabThresholdBundleSubmitRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_reference",
+          "effective_from"
+        ],
+        "properties": {
+          "source_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effective_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "LabThresholdCatalogEntryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "facility_id",
+          "entry"
+        ],
+        "properties": {
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "entry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "test_code",
+              "test_name",
+              "specimen_type",
+              "evaluation_mode"
+            ],
+            "properties": {
+              "test_code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "loinc_code": {
+                "type": "string",
+                "maxLength": 80,
+                "nullable": true
+              },
+              "test_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "specimen_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "evaluation_mode": {
+                "type": "string",
+                "enum": [
+                  "numeric_threshold",
+                  "qualitative_exempt"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "maxLength": 80,
+                "nullable": true
+              },
+              "sex": {
+                "type": "string",
+                "enum": [
+                  "male",
+                  "female",
+                  "other"
+                ],
+                "nullable": true
+              },
+              "age_min_days": {
+                "type": "integer",
+                "minimum": 0,
+                "nullable": true
+              },
+              "age_max_days": {
+                "type": "integer",
+                "minimum": 0,
+                "nullable": true
+              },
+              "pregnancy_scope": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "pregnant",
+                  "not_pregnant"
+                ]
+              },
+              "criticality_required": {
+                "type": "boolean"
+              },
+              "exemption_reason": {
+                "type": "string",
+                "maxLength": 1000,
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "LabThresholdCatalogRetireRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "facility_id",
+          "reason"
+        ],
+        "properties": {
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "LabThresholdReasonRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "LabThresholdRuleSetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rules"
+        ],
+        "properties": {
+          "rules": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "catalog_entry_id"
+              ],
+              "properties": {
+                "catalog_entry_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reference_low": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "reference_high": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "critical_low": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "critical_high": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "notes": {
+                  "type": "string",
+                  "maxLength": 1000,
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
       "LeaveEncashment": {
         "type": "object",
         "additionalProperties": false,
@@ -119942,6 +120188,489 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles": {
+      "get": {
+        "operationId": "get_api_v1_lab_threshold_governance_bundles",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List governed laboratory policy bundles",
+        "description": "Lists facility-scoped bundle versions and their draft, review, approval, activation, supersession, or rejection evidence."
+      },
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_bundles",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create a draft laboratory policy bundle",
+        "description": "Creates a draft bound to the facility current catalogue revision; it has no runtime effect until distinct clinical approval and super-admin activation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdBundleCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/activate": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_bundles_by_bundleId_activate",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Activate a clinically approved laboratory policy bundle",
+        "description": "Super-admin-only activation. Exactly one effective, current-revision bundle may be active per facility.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/approve": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_bundles_by_bundleId_approve",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Clinically approve a laboratory policy bundle",
+        "description": "Pathologist-only decision with evidence digest. The approver must be distinct from the author and submitter.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdBundleApprovalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/coverage": {
+      "get": {
+        "operationId": "get_api_v1_lab_threshold_governance_bundles_by_bundleId_coverage",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Evaluate exact catalogue coverage for a laboratory policy bundle",
+        "description": "Reports every catalogue entry and any blocker that prevents submission or activation of the selected bundle.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/reject": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_bundles_by_bundleId_reject",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reject a laboratory policy bundle under review",
+        "description": "Pathologist-only decision that closes an in-review bundle with a durable rejection reason and audit event.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/rules": {
+      "put": {
+        "operationId": "put_api_v1_lab_threshold_governance_bundles_by_bundleId_rules",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Replace all numeric rules in a draft laboratory policy bundle",
+        "description": "Author-only draft mutation that replaces the complete numeric rule set and re-evaluates signed catalogue coverage.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdRuleSetRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/bundles/{bundleId}/submit": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_bundles_by_bundleId_submit",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Submit a complete laboratory policy bundle for clinical review",
+        "description": "Freezes a deterministic content digest only when every catalogue entry is covered by a numeric rule or an explicit qualitative exemption.",
+        "parameters": [
+          {
+            "name": "bundleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdBundleSubmitRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/catalog": {
+      "get": {
+        "operationId": "get_api_v1_lab_threshold_governance_catalog",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List the current governed laboratory analyte catalogue",
+        "description": "Returns facility-scoped numeric analytes and signed qualitative exemptions at the current catalogue revision."
+      },
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_catalog",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add a governed laboratory catalogue entry",
+        "description": "Author-only mutation. Adding an entry increments the facility catalogue revision and makes older bundles ineligible for activation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdCatalogEntryRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/catalog/{entryId}/retire": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_catalog_by_entryId_retire",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Retire a governed laboratory catalogue entry",
+        "description": "Author-only mutation. Retirement is revisioned and preserves the historical entry used by signed bundles and result evidence.",
+        "parameters": [
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabThresholdCatalogRetireRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/threshold-governance/exceptions": {
+      "get": {
+        "operationId": "get_api_v1_lab_threshold_governance_exceptions",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List owned laboratory policy exceptions",
+        "description": "Returns unmatched results together with their high-priority laboratory review task and reconciliation evidence."
+      }
+    },
+    "/api/v1/lab/threshold-governance/exceptions/{exceptionId}": {
+      "get": {
+        "operationId": "get_api_v1_lab_threshold_governance_exceptions_by_exceptionId",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get one laboratory policy exception",
+        "description": "Returns the unmatched result, exact exception evidence, and its mandatory laboratory ownership task.",
+        "parameters": [
+          {
+            "name": "exceptionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/lab/threshold-governance/exceptions/{exceptionId}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_lab_threshold_governance_exceptions_by_exceptionId_reconcile",
+        "tags": [
+          "lab"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Re-evaluate one laboratory policy exception",
+        "description": "Never accepts a caller-supplied classification. It re-runs the current signed policy and resolves the exception only when exact governed evidence is available.",
+        "parameters": [
+          {
+            "name": "exceptionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ]

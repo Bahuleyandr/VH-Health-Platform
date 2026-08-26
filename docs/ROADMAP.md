@@ -193,57 +193,32 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
 - **SMS config tables RLS**: excluded from migration 726 until
   smsProviderConfigService wraps its raw calls in setTenantTx (see
   prisma/SCHEMA_NOTES.md).
-- **Per-tenant lab critical thresholds + reference ranges** (tenancy re-audit
-  2026-08-24): there is **no operator path to configure
-  `lab_critical_thresholds`**. Verified: the only `INSERT INTO
-  lab_critical_thresholds` outside tests are migrations 151 and 193, both of
-  which seed the **default tenant only**; no service, controller, route or
-  admin screen writes the table, and `src/tests/unit/tenantProvisioningRegistry.test.js`
-  now fails if one appears. So any tenant other than the founding one holds zero
-  thresholds and `evaluateCriticalThreshold` answers every lookup `matched:false`
-  — a CRITICAL lab result never raises an alert there, silently.
+- **Per-facility laboratory threshold and reference-range content** (SAFE-01,
+  2026-08-26): the backend governance control plane is implemented, but real
+  clinical content remains an external activation gate. Migration 740 and the
+  laboratory governance services model a versioned catalogue by tenant,
+  facility, analyte/LOINC, specimen, unit and demographic scope; require an
+  author, a distinct pathologist approver, a distinct super-admin activator,
+  signed evidence, effective dates and complete reference/critical bounds; and
+  preserve an immutable activation/supersession/rollback chain. The HTTP
+  workbench supports draft, review, approve, reject, activate, coverage and
+  exception reconciliation. It deliberately ships with **no generic clinical
+  thresholds** and does not copy another hospital's content.
 
-  **Auto-copy was attempted and withdrawn — do not retry it.** Two rounds of
-  review shipped a backfill of the default tenant's rows into every tenant, and
-  each tripped a different rejection on the lab **result-recording** path:
-  round 1's `(loinc_code, test_code)` guard let a copied row tie a tenant's own
-  row at `evaluateCriticalThreshold`'s best match rank (`LAB_CRITICAL_POLICY_MISMATCH`
-  / `threshold_ambiguous`); round 2's table-empty guard removed that tie and
-  exposed the real coupling — `lab_critical_thresholds` and `lab_reference_ranges`
-  are two halves of one policy that must agree, and
-  `labPanelService.assertCriticalPolicyAgreement` throws on any disagreement
-  (`policy_presence` when only one side is configured, `threshold_unit` when the
-  units differ). Copying thresholds without matching reference ranges therefore
-  **rejected lab results in every backfilled tenant** — worse than the silent
-  non-alert. Migration 728 and the provisioning registry no longer carry the
-  table, for the backfill and for `createTenant` alike.
+  All supported manual, panel, ASTM, ORU and recovery result rails now persist
+  the exact governed bundle/rule/catalogue identity before canonical evidence
+  and alert materialization. Missing or mismatched coverage is never recorded
+  as normal: it persists `threshold_unavailable`, creates an owned high-severity
+  `LAB_INCHARGE` exception/task and durable in-app notification, and is retried
+  by the tenant-fanout reconciliation job. The canary reports
+  `lab_threshold_policy_coverage` when a facility's current catalogue revision
+  lacks an effective signed active bundle.
 
-  **What the real fix needs**, and why it is parked rather than queued: the two
-  tables must be built together, with clinical sign-off on the critical limits,
-  the reference intervals **and** the units they are expressed in — these are
-  tied to a hospital's analyzers and patient population, so one hospital's
-  potassium limits are not a safe default for another. Scope: an operator write
-  path (service + admin screen + audit) covering both tables, plus a
-  provisioning story for a new tenant that starts empty rather than inheriting.
-  `lab_reference_ranges` is already parked on the same guard test's list for the
-  same reason.
-
-  **Until then the absence is observable, not silent** (this is the part that
-  shipped): `evaluateCriticalThreshold` counts every lookup on
-  `vhhealth_lab_critical_threshold_lookups_total{outcome="matched"|"unmatched"}`,
-  and the canary check (`src/utils/canaryHealthCheck.js`) reports
-  `lab_critical_threshold_coverage` — the active tenants holding no thresholds
-  at all, warned by name.
-  
-  The split lives in the canary rather than on the result-recording path for a
-  specific reason: every caller of `evaluateCriticalThreshold` passes its open
-  transaction, and a failed statement aborts that transaction — an earlier
-  revision probed there, and a probe failure would have surfaced as 25P02 on
-  the next write, i.e. observability stopping a lab result from being recorded.
-  The lookup therefore issues no extra statement (pinned by a call-count
-  assertion, since a mocked rejection cannot reproduce a real aborted
-  transaction). Alert on `lab_critical_threshold_coverage` being non-zero:
-  those tenants can never raise a critical lab alert.
+  `lab_critical_thresholds` and `lab_reference_ranges` remain historical,
+  non-authoritative compatibility data; tenant provisioning must continue to
+  exclude them. Production remains held until each facility supplies a
+  clinically approved content bundle and the operator validates the rendered
+  governance workbench and reconciliation alerts in the target environment.
 
 ## Explicitly parked (re-audit lane J, 2026-08-24 — admin surfaces that could not finish their own workflow)
 

@@ -32,6 +32,7 @@ import {
 } from '../services/lab/labCriticalAlertReconciliationService.js';
 import { materializeLabCriticalAlertGeneration } from '../services/lab/labCriticalAlertService.js';
 import { evaluateCriticalThreshold } from '../services/lab/labCriticalThresholdService.js';
+import { seedActiveLabThresholdPolicy } from './helpers/labThresholdGovernanceFixture.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const DATABASE_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -44,7 +45,17 @@ const PATIENT_B_UID = `d2b00000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
 const PATIENT_C_UID = `d2c00000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
 const DOCTOR_UID = `d2d00000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
 const PATHOLOGIST_UID = `d2e00000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
-const ALL_UIDS = [PATIENT_A_UID, PATIENT_B_UID, PATIENT_C_UID, DOCTOR_UID, PATHOLOGIST_UID];
+const POLICY_AUTHOR_UID = `d2f00000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const POLICY_ACTIVATOR_UID = `d2f10000-0000-4000-8000-${SUFFIX.padStart(12, '0')}`;
+const ALL_UIDS = [
+  PATIENT_A_UID,
+  PATIENT_B_UID,
+  PATIENT_C_UID,
+  DOCTOR_UID,
+  PATHOLOGIST_UID,
+  POLICY_AUTHOR_UID,
+  POLICY_ACTIVATOR_UID,
+];
 // Synthetic analyte code so the seeded threshold set can never collide.
 const TEST_CODE = `XKT${SUFFIX}`;
 const CONVERTED_TEST_CODE = `XWB${SUFFIX}`;
@@ -54,6 +65,7 @@ const FAIL_REOPEN_TRIGGER = `vh_test_fail_result_reopen_trigger_${SUFFIX}`;
 const resultIds = [];
 const investigationIds = [];
 let manualCommandOrdinal = 0;
+let policyFixture;
 
 async function recordManualResult(args) {
   manualCommandOrdinal += 1;
@@ -339,11 +351,11 @@ async function cleanup() {
       scopedInvestigationIds,
     );
     await tx.$executeRawUnsafe(
-      `DELETE FROM lab_critical_thresholds
+      `DELETE FROM clinical_audit_events
         WHERE tenant_id = $1::uuid
-          AND test_code = ANY($2::text[])`,
+          AND patient_uid = ANY($2::uuid[])`,
       TENANT,
-      [TEST_CODE, CONVERTED_TEST_CODE],
+      [PATIENT_A_UID, PATIENT_B_UID, PATIENT_C_UID],
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM notification_outbox
@@ -359,6 +371,59 @@ async function cleanup() {
     await tx.$executeRawUnsafe(
       `DELETE FROM notifications WHERE uid = ANY($1::uuid[])`,
       ALL_UIDS,
+    );
+    const policyResourceRows = await tx.$queryRawUnsafe(
+      `SELECT id::text AS id FROM lab_threshold_policy_bundles
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int
+       UNION ALL
+       SELECT id::text FROM lab_threshold_policy_rules
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int
+       UNION ALL
+       SELECT id::text FROM lab_threshold_catalog_entries
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE tenant_id = $1::uuid
+          AND (
+            actor_uid = ANY($2::uuid[])
+            OR resource_id = ANY($3::text[])
+          )`,
+      TENANT,
+      ALL_UIDS,
+      policyResourceRows.map((row) => row.id),
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_rules
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_policy_bundles
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_entries
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM lab_threshold_catalog_states
+        WHERE tenant_id = $1::uuid AND facility_id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      policyFixture?.facilityId || null,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM users
@@ -377,14 +442,52 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
     await insertUser(PATIENT_C_UID, `98223${SUFFIX}3`.slice(0, 10), 'Reack Patient C [test]', 'PATIENT');
     await insertUser(DOCTOR_UID, `98224${SUFFIX}4`.slice(0, 10), 'Reack Doctor [test]', 'DOCTOR');
     await insertUser(PATHOLOGIST_UID, `98225${SUFFIX}5`.slice(0, 10), 'Reack Pathologist [test]', 'PATHOLOGIST');
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO lab_critical_thresholds
-         (tenant_id, test_code, test_name, unit, critical_low, critical_high, is_active)
-       VALUES
-         ($1::uuid, $2, 'Potassium [test]', 'mmol/L', 2.5, 6.0, true),
-         ($1::uuid, $3, 'White blood cell count [test]', '10^3/uL', 2.0, 30.0, true)`,
-      TENANT, TEST_CODE, CONVERTED_TEST_CODE,
+    await insertUser(
+      POLICY_AUTHOR_UID,
+      `98226${SUFFIX}6`.slice(0, 10),
+      'Reack Policy Author [test]',
+      'ADMIN',
     );
+    await insertUser(
+      POLICY_ACTIVATOR_UID,
+      `98227${SUFFIX}7`.slice(0, 10),
+      'Reack Policy Activator [test]',
+      'SUPER_ADMIN',
+    );
+    policyFixture = await seedActiveLabThresholdPolicy({
+      db: prisma,
+      tenantId: TENANT,
+      facilityCode: `reack-policy-${SUFFIX}`,
+      facilityName: `Corrected-result governed-policy facility ${SUFFIX}`,
+      authorUid: POLICY_AUTHOR_UID,
+      approverUid: PATHOLOGIST_UID,
+      activatorUid: POLICY_ACTIVATOR_UID,
+      sourceReference: `REACK-DEEP-${SUFFIX}`,
+      metadata: { test_fixture: 'lab-corrected-signoff-reack-deep' },
+      isDefault: true,
+      entries: [
+        {
+          testCode: TEST_CODE,
+          testName: 'Potassium [test]',
+          specimenType: 'any',
+          unit: 'mmol/L',
+          referenceLow: 3.5,
+          referenceHigh: 5.1,
+          criticalLow: 2.5,
+          criticalHigh: 6,
+        },
+        {
+          testCode: CONVERTED_TEST_CODE,
+          testName: 'White blood cell count [test]',
+          specimenType: 'any',
+          unit: '10^3/uL',
+          referenceLow: 4,
+          referenceHigh: 11,
+          criticalLow: 2,
+          criticalHigh: 30,
+        },
+      ],
+    });
   });
 
   afterAll(async () => {
@@ -423,7 +526,19 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       });
       resultId = result.id;
       resultIds.push(resultId);
+      expect(result).toMatchObject({
+        criticality_status: 'critical',
+        facility_id: policyFixture.facilityId,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(TEST_CODE),
+      });
       expect(alerts.length).toBe(1);
+      expect(alerts[0]).toMatchObject({
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(TEST_CODE),
+      });
       originalAlertId = alerts[0].id;
 
       const tasks = await openTasksFor(resultId);
@@ -1172,7 +1287,9 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
         `SELECT id, outcome, result_value_text, result_value_numeric, result_unit,
                 evaluated_value, threshold_id, threshold_test_code,
                 threshold_low, threshold_high, threshold_unit,
-                threshold_applies_to, successor_alert_id, successor_receipt_id
+                threshold_applies_to, threshold_policy_bundle_id,
+                threshold_policy_rule_id, threshold_catalog_entry_id,
+                successor_alert_id, successor_receipt_id
            FROM lab_critical_alert_reconciliation_receipts
           WHERE tenant_id = $1::uuid
             AND result_id = $2::int
@@ -1187,8 +1304,12 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
         result_value_text: '4.1',
         result_unit: 'mmol/L',
         threshold_test_code: TEST_CODE,
-        threshold_unit: 'mmol/L',
+        threshold_unit: 'mmol/l',
         threshold_applies_to: 'all',
+        threshold_id: null,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(TEST_CODE),
         successor_alert_id: null,
         successor_receipt_id: null,
       });
@@ -1196,7 +1317,6 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(Number(receipts[0].evaluated_value)).toBe(4.1);
       expect(Number(receipts[0].threshold_low)).toBe(2.5);
       expect(Number(receipts[0].threshold_high)).toBe(6);
-      expect(receipts[0].threshold_id).toBeTruthy();
       await expect(prisma.$executeRawUnsafe(
         `UPDATE lab_critical_alert_reconciliation_receipts
             SET source = 'tampered'
@@ -1382,6 +1502,13 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
         },
       });
       resultIds.push(result.id);
+      expect(result).toMatchObject({
+        criticality_status: 'critical',
+        facility_id: policyFixture.facilityId,
+        threshold_policy_bundle_id: policyFixture.bundleId,
+        threshold_policy_rule_id: policyFixture.policyRules.get(CONVERTED_TEST_CODE),
+        threshold_catalog_entry_id: policyFixture.catalogEntries.get(CONVERTED_TEST_CODE),
+      });
       expect(alerts).toHaveLength(1);
       const rows = await prisma.$queryRawUnsafe(
         `SELECT value_numeric, unit, generation_metadata
@@ -1394,7 +1521,7 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(rows[0].unit).toBe('/uL');
       expect(rows[0].generation_metadata).toMatchObject({
         active_threshold_test_code: CONVERTED_TEST_CODE,
-        active_threshold_unit: '10^3/uL',
+        active_threshold_unit: '10^3/ul',
         threshold_evaluated_value: 1,
         threshold_value_conversion: 'per_microliter_to_thousands_per_microliter',
       });
@@ -1602,7 +1729,7 @@ d('Corrected/amended sign-off restarts the critical-result safety loop', () => {
       expect(currentRows[0]).toMatchObject({
         value_text: '8.2',
         threshold_breached: 'high',
-        diagnostic_classification: 'indeterminate',
+        diagnostic_classification: 'normal',
       });
       expect(Number(currentRows[0].value_numeric)).toBe(8.2);
       expect(currentRows[0].superseded_at).toBeTruthy();
