@@ -16,18 +16,12 @@
 // `pending_approval` was invisible to every console session except the tab that
 // submitted it, so nobody else could open it to approve it.
 //
-// WHAT THIS FILE DOES NOT CLAIM
-// An earlier draft of this header called the above "a broken two-person
-// control". There is no two-person control here to break. `approveCampaign`
-// (../../services/engagement/engagementCampaignService.js) checks the caller's
-// ROLE against BROAD_APPROVAL_ROLES or CARE_TEAM_APPROVAL_ROLES, moves the row
-// from `pending_approval` to `scheduled`, and stamps `approved_by`/`approved_at`
-// with whoever called. It never reads `submitted_by` or `created_by`, so the
-// same person can submit and approve — and `submitCampaignForApproval` has no
-// role gate at all beyond the mount's ENGAGEMENT_ROUTE_ROLES. These GETs make a
-// campaign findable by someone other than its author; they do not make that
-// separation mandatory, and nothing in this module should be read as saying so.
-// Requester/approver separation is parked as a feature in docs/ROADMAP.md.
+// APPROVAL BOUNDARY
+// `approveCampaign` checks the caller's governed approval role, requires an
+// authenticated identity and approval reason, and rejects an approver whose uid
+// matches the campaign's immutable `submitted_by`. These GETs make the pending
+// campaign discoverable to that distinct reviewer; they do not themselves
+// authorize or perform a transition.
 //
 // WHY IT LIVES HERE RATHER THAN IN THE SERVICE
 // services/engagement/engagementCampaignService.js owns the campaign state

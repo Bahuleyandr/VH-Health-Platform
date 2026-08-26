@@ -255,6 +255,7 @@ import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
 import publicPaymentPageRoutes from './routes/billing/publicPaymentPageRoutes.js';
 import paymentGatewayRoutes from './routes/billing/paymentGatewayRoutes.js';
+import gstEInvoiceRoutes from './routes/billing/gstEInvoiceRoutes.js';
 import paymentGatewayWebhookRoutes from './routes/billing/paymentGatewayWebhookRoutes.js';
 import smsDlrWebhookRoutes from './routes/webhooks/smsDlrRoutes.js';
 import labRoutes from './routes/lab/labRoutes.js';
@@ -300,6 +301,8 @@ import stemiPathwayRoutes from './routes/clinical/stemiPathwayRoutes.js';
 import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import resuscitationRoutes from './routes/clinical/resuscitationRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
+import birthNotificationRoutes from './routes/clinical/birthNotificationRoutes.js';
+import publicHealthRoutes from './routes/publicHealth/publicHealthRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
 import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
@@ -1785,7 +1788,24 @@ app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAcce
 app.use('/api/v1/resuscitation', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('RESUSCITATION'), resuscitationRoutes);
 app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
+// Statutory public-health notifiable-disease register + Nikshay/IDSP/HMIS
+// export files (G1) — dark-gated in the service layer (env
+// PUBLIC_HEALTH_REGISTERS_ENABLED AND settings.publicHealthRegisters.enabled,
+// fail-closed, default OFF).
+app.use('/api/v1/public-health', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('PUBLIC_HEALTH_NOTIFICATION'), publicHealthRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
+// Birth notification / birth-certificate register (G4) — statutory symmetry
+// with death-certification. Dark-gated in the service layer
+// (requireBirthNotificationEnabled: env BIRTH_NOTIFICATION_ENABLED AND per-tenant
+// settings.birthNotification.enabled, fail-closed, default OFF).
+// No patientAccessGuard on THIS mount. It runs before Express has matched the
+// route, so req.params is empty; every route here is keyed on a notification
+// :id and none carries a patient identifier in the query, so the guard
+// resolved no patient and returned no_patient_context without evaluating a
+// policy — a control that could never decide. The router now guards each
+// route with a selector that resolves birth_notifications.mother_patient_uid
+// (see birthNotificationRoutes.js).
+app.use('/api/v1/birth-notification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('BIRTH_NOTIFICATION'), birthNotificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
@@ -1802,6 +1822,17 @@ app.use(
   requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'),
   billingPhiAccessLogger(),
   paymentGatewayRoutes,
+);
+
+// GST e-invoicing (IRN/IRP) + Tally/GL accounting export (G2) — dark-gated in
+// the service layer (env GST_EINVOICE_ENABLED AND settings.gstEInvoice.enabled,
+// fail-closed, default OFF). Mounted BEFORE the generic /api/v1/billing mounts
+// so their role gates cannot shadow this surface.
+app.use(
+  '/api/v1/billing/gst',
+  requireRole(...BILLING_V2_ROUTE_ROLES),
+  billingPhiAccessLogger(),
+  gstEInvoiceRoutes,
 );
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)

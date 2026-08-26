@@ -2,7 +2,13 @@ import { existsSync, readFileSync } from 'node:fs';
 
 const deadSources = [
   '../../controllers/pharmacyController.js',
+  '../../controllers/healthController.js',
+  '../../controllers/auth/index.js',
+  '../../controllers/infrastructure/index.js',
   '../../utils/auth/tokenHelpers.js',
+  '../../utils/infrastructure/index.js',
+  '../../services/infrastructure/index.js',
+  '../../services/investigation/reportService.js',
   '../../services/investigation/templateService.js',
   '../../services/analytics/execDigestBenchmarkService.js',
 ];
@@ -16,6 +22,10 @@ describe('Audit 3 dead-surface guard', () => {
 
   it('keeps the orphaned executive digest service test retired', () => {
     expect(existsSync(new URL('./execDigestBenchmarkService.test.js', import.meta.url))).toBe(false);
+  });
+
+  it('keeps the orphaned investigation report service test retired', () => {
+    expect(existsSync(new URL('./reportServiceEmailReport.test.js', import.meta.url))).toBe(false);
   });
 
   it('keeps the governed pharmacy order controller on the live router', () => {

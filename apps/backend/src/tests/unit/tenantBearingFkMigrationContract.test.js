@@ -128,8 +128,15 @@ function singleColumnTenantBearingFks() {
  * needs its own migration and its own blast-radius review. The other four are
  * held with them so the slate converts as one unit. 729's header carries the
  * same list.
+ *
+ * gst_einvoice_documents.invoice_id (migration 738) is deferred with them for
+ * the same money-spine reason: its parent is billing_invoices, which still has
+ * no (tenant_id, id) unique, so the composite conversion waits on the same
+ * unique-index-on-the-legacy-billing-spine work that blocks the four billing_*
+ * parents above.
  */
 const DEFERRED_PAYMENT_GATEWAY_AND_SMS = `
+gst_einvoice_documents.invoice_id
 payment_gateway_orders.billing_payment_id
 payment_gateway_orders.invoice_id
 payment_gateway_orders.payment_link_id

@@ -1203,39 +1203,23 @@ removed, and none of the seven grantable flags describes wristband printing. The
 control the owner asked for is the audit trail, and it is unconditional. Revisit
 only if an owner asks for per-admin scoping of band printing specifically.
 
-### Engagement campaigns — no requester/approver separation exists; building one is a feature `[CODE]`
+### Engagement campaigns — distinct submitter/approver control enforced; version binding remains `[CODE]`
 
-*What the code does.* `approveCampaign`
-(`apps/backend/src/services/engagement/engagementCampaignService.js`) loads the
-campaign, checks the caller's **role** against `BROAD_APPROVAL_ROLES` (SUPER_ADMIN,
-ADMIN, QUALITY_OFFICER, CMO, CNO, MEDICAL_SUPERINTENDENT) when
-`approval_required_role = 'admin_quality'` and against `CARE_TEAM_APPROVAL_ROLES`
-(those plus the doctor and ward-incharge roles) otherwise, then moves the row
-`pending_approval → scheduled` and stamps `approved_by`/`approved_at` with
-whoever called. It never reads `submitted_by` or `created_by`.
-`submitCampaignForApproval` has no role gate of its own beyond the mount's
-`ENGAGEMENT_ROUTE_ROLES`. So a caller holding an approving role can submit a
-campaign and approve it themselves, and the platform records both stamps as the
-same person.
+`submitCampaignForApproval` now refuses a missing authenticated submitter and
+persists that identity. `approveCampaign` still applies the governed role set,
+then also requires an authenticated different actor and a non-empty reason. The
+Each status compare and its submitter-or-approver stamp commits with the matching
+transition audit row in one tenant transaction; a lost concurrent transition
+fails with a conflict instead of returning an empty success. The admin console
+keeps authority on the backend and requires the reason before opening its
+approval confirmation.
 
-*What was claimed.* Round 3 added three read endpoints and described them — in
-the published OpenAPI spec, in `routes/engagement/engagementListQueries.js`, in
-`routes/engagement/engagementRoutes.js`, and in the admin console's
-`CampaignsPanel.tsx` and `engagement/page.tsx` — as closing "a broken two-person
-control" for "the second approver, who is not the author". There is no such
-control to break. The reads are a genuine fix for a genuine hole (a campaign was
-addressable only by an id the caller already held, so no other session could open
-it), and that is now all they say.
-
-*Why the control is not built here.* Requester/approver separation is a policy
-choice with real operational consequences: the columns already exist
-(`engagement_campaigns.submitted_by`, `.approved_by`), so the code change is
-small, but a single-clinician site or an out-of-hours recall would be unable to
-send anything the moment it lands. The patient-merge two-person rule
-(`services/patient/patientMergeService.js`) is the shape to copy — including its
-handling of a NULL requester, which it refuses rather than waves through — but
-whether engagement campaigns warrant it, and whether it should apply to both
-`approval_required_role` tiers or only the broad one, is a product decision.
+The remaining FLOW-04 work is material-version binding: hash the approved
+campaign definition, expire approvals, and return any materially edited
+campaign to draft so an approval cannot survive a changed template, audience,
+channel, schedule, or rate policy. Until that follow-up closes, distinct-actor
+separation is real but should not be described as complete content approval
+integrity.
 
 ### ADT^A02 on first bed allocation — an interface-contract decision, so the capability string was narrowed instead `[CODE]` `[OPERATOR]`
 
