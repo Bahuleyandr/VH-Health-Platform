@@ -1,19 +1,165 @@
 // src/routes/clinical/icuRoutes.js — Sprint 19
 
 import { Router } from 'express';
+import prisma from '../../lib/prisma.js';
 import * as icu from '../../services/clinical/icuService.js';
 import * as icuChart from '../../services/clinical/icuChartingService.js';
 import * as nicuChart from '../../services/clinical/nicuPicuChartingService.js';
+import { VERIFIABLE_RESOURCES } from '../../services/clinical/nicuPicuChartingService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff, isLeadership } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitIcuBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
+import {
+  positiveBigIntTextOrNull,
+  positiveIntOrNull,
+  routePatientGuard,
+  selectorTenantOf,
+} from '../../middleware/routePatientAccessGuards.js';
 
 const router = Router();
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
 }
+
+// ── Re-audit M: per-route patient access guards ──────────────────────
+// The /api/v1/icu mount used to wrap this router in patientAccessGuard('ICU'),
+// which ran before Express matched a route, saw an empty req.params, and
+// returned no_patient_context without ever evaluating a policy. The guard now
+// lives on each single-patient route with a selector that resolves the exact
+// row the handler serves. This is a bedside surface: every selector is one
+// indexed lookup (pk + tenant predicate) and never throws on malformed input
+// (bad ids resolve to null, which the guard refuses cleanly).
+//
+// Deliberately NOT guarded (no single patient subject — role gate only):
+// GET /admissions (unit census), GET+PUT /chart-settings,
+// GET+PUT /nicu-chart-settings, GET+PUT /nicu-score-definitions (tenant-level
+// governance), GET /bundle-compliance (30-day aggregate).
+
+// The ICU admission row every /admissions/:id* handler loads.
+export async function selectIcuAdmissionPatient(req, rawAdmissionId) {
+  const tenantId = selectorTenantOf(req);
+  const admissionId = positiveIntOrNull(rawAdmissionId);
+  if (tenantId == null || admissionId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM icu_admissions
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantId,
+    admissionId,
+  );
+  return rows[0] ?? null;
+}
+
+// POST /admissions/from-er/:emergencyVisitId admits the ER visit's patient —
+// createAdmissionFromEr takes patient_uid from the visit row, never the body.
+export async function selectErVisitPatient(req, rawVisitId) {
+  const tenantId = selectorTenantOf(req);
+  const visitId = positiveIntOrNull(rawVisitId);
+  if (tenantId == null || visitId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM emergency_visits
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantId,
+    visitId,
+  );
+  return rows[0] ?? null;
+}
+
+// PATCH /ventilation/:episodeId/stop — the episode's admission owns the
+// patient; resolve through the join the service's own emit relies on.
+export async function selectVentilationEpisodePatient(req, rawEpisodeId) {
+  const tenantId = selectorTenantOf(req);
+  const episodeId = positiveBigIntTextOrNull(rawEpisodeId);
+  if (tenantId == null || episodeId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT a.patient_uid AS uid
+       FROM icu_ventilation_episodes e
+       JOIN icu_admissions a
+         ON a.id = e.icu_admission_id
+        AND a.tenant_id = e.tenant_id
+      WHERE e.tenant_id = $1::uuid AND e.id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    episodeId,
+  );
+  return rows[0] ?? null;
+}
+
+// PATCH /lines/:lineEventId/stop — same shape over the line/tube/drain event.
+export async function selectLineEventPatient(req, rawLineEventId) {
+  const tenantId = selectorTenantOf(req);
+  const lineEventId = positiveBigIntTextOrNull(rawLineEventId);
+  if (tenantId == null || lineEventId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT a.patient_uid AS uid
+       FROM icu_line_tube_drain_events e
+       JOIN icu_admissions a
+         ON a.id = e.icu_admission_id
+        AND a.tenant_id = e.tenant_id
+      WHERE e.tenant_id = $1::uuid AND e.id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    lineEventId,
+  );
+  return rows[0] ?? null;
+}
+
+// PATCH /nicu/:resource/:id/verify — the resource key maps to a physical
+// table via the service's own allowlist (imported, so it cannot drift); an
+// unknown resource resolves to null and is refused before the service's 400.
+export async function selectNicuObservationPatient(req, rawResource, rawId) {
+  const resourceKey = String(rawResource ?? '');
+  // Own-key check: bare brackets resolve prototype keys ('constructor',
+  // '__proto__') to functions that would interpolate into FROM and 500.
+  const table = Object.hasOwn(VERIFIABLE_RESOURCES, resourceKey)
+    ? VERIFIABLE_RESOURCES[resourceKey]
+    : undefined;
+  const tenantId = selectorTenantOf(req);
+  const rowId = positiveBigIntTextOrNull(rawId);
+  if (!table || tenantId == null || rowId == null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT a.patient_uid AS uid
+       FROM ${table} t
+       JOIN icu_admissions a
+         ON a.id = t.icu_admission_id
+        AND a.tenant_id = t.tenant_id
+      WHERE t.tenant_id = $1::uuid AND t.id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    rowId,
+  );
+  return rows[0] ?? null;
+}
+
+const guardIcuAdmissionParam = routePatientGuard('ICU', {
+  tag: 'icu:admission-param',
+  patientSelector: (req) => selectIcuAdmissionPatient(req, req.params?.id),
+});
+const guardIcuAdmissionCreate = routePatientGuard('ICU', {
+  tag: 'icu:body-patient-uid',
+  patientSelector: (req) => ({ uid: req.body?.patient_uid }),
+});
+const guardIcuErVisitParam = routePatientGuard('ICU', {
+  tag: 'icu:er-visit-param',
+  patientSelector: (req) => selectErVisitPatient(req, req.params?.emergencyVisitId),
+});
+const guardIcuVentilationEpisode = routePatientGuard('ICU', {
+  tag: 'icu:ventilation-episode-param',
+  patientSelector: (req) => selectVentilationEpisodePatient(req, req.params?.episodeId),
+});
+const guardIcuLineEvent = routePatientGuard('ICU', {
+  tag: 'icu:line-event-param',
+  patientSelector: (req) => selectLineEventPatient(req, req.params?.lineEventId),
+});
+const guardIcuNicuVerify = routePatientGuard('ICU', {
+  tag: 'icu:nicu-verify-param',
+  patientSelector: (req) => selectNicuObservationPatient(req, req.params?.resource, req.params?.id),
+});
 
 function wrap(handler) {
   return async (req, res, _next) => {
@@ -49,6 +195,7 @@ function requireGovernanceAuthority(req, res, next) {
 router.post(
   '/admissions',
   requireStaffOrAdmin,
+  guardIcuAdmissionCreate,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.createAdmission({
@@ -71,6 +218,7 @@ router.post(
 router.post(
   '/admissions/from-er/:emergencyVisitId',
   requireStaffOrAdmin,
+  guardIcuErVisitParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.createAdmissionFromEr({
@@ -101,12 +249,14 @@ router.get(
 router.get(
   '/admissions/:id',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => icu.getAdmission({ tenantId: tenantOf(req), id: req.params.id }))
 );
 
 router.patch(
   '/admissions/:id/code-status',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.updateAdmissionCodeStatus({
@@ -128,6 +278,7 @@ router.patch(
 router.patch(
   '/admissions/:id/monitoring-interval',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icu.updateMonitoringInterval({
       tenantId: tenantOf(req),
@@ -146,6 +297,7 @@ router.patch(
 router.patch(
   '/admissions/:id',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icu.updateAdmissionFasting({
       tenantId: tenantOf(req),
@@ -160,6 +312,7 @@ router.patch(
 router.post(
   '/admissions/:id/discharge',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.dischargeAdmission({
@@ -201,6 +354,7 @@ router.put(
 router.get(
   '/admissions/:id/chart',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icuChart.getIcuChartView({
       tenantId: tenantOf(req),
@@ -214,6 +368,7 @@ router.get(
 router.get(
   '/admissions/:id/ventilation',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icuChart.listVentilationEpisodes({
       tenantId: tenantOf(req),
@@ -225,6 +380,7 @@ router.get(
 router.post(
   '/admissions/:id/ventilation',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.createVentilationEpisode({
@@ -242,6 +398,7 @@ router.post(
 router.patch(
   '/ventilation/:episodeId/stop',
   requireStaffOrAdmin,
+  guardIcuVentilationEpisode,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.stopVentilationEpisode({
@@ -260,6 +417,7 @@ router.patch(
 router.get(
   '/admissions/:id/weaning-trials',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icuChart.listWeaningTrials({
       tenantId: tenantOf(req),
@@ -271,6 +429,7 @@ router.get(
 router.post(
   '/admissions/:id/weaning-trials',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.recordWeaningTrial({
@@ -288,6 +447,7 @@ router.post(
 router.get(
   '/admissions/:id/lines',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icuChart.listLinePresence({
       tenantId: tenantOf(req),
@@ -300,6 +460,7 @@ router.get(
 router.post(
   '/admissions/:id/lines',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.startLinePresence({
@@ -317,6 +478,7 @@ router.post(
 router.patch(
   '/lines/:lineEventId/stop',
   requireStaffOrAdmin,
+  guardIcuLineEvent,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.stopLinePresence({
@@ -335,6 +497,7 @@ router.patch(
 router.get(
   '/admissions/:id/scoring-outputs',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icuChart.listScoringOutputs({
       tenantId: tenantOf(req),
@@ -347,6 +510,7 @@ router.get(
 router.post(
   '/admissions/:id/scoring-outputs',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.recordScoringOutput({
@@ -364,6 +528,7 @@ router.post(
 router.post(
   '/admissions/:id/device-observation-links',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icuChart.linkDeviceObservation({
@@ -401,6 +566,7 @@ router.put(
 router.get(
   '/admissions/:id/nicu-chart',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.getNicuPicuChartView({
       tenantId: tenantOf(req),
@@ -414,6 +580,7 @@ router.get(
 router.get(
   '/admissions/:id/feed-fluid',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listFeedFluidEntries({
       tenantId: tenantOf(req),
@@ -428,6 +595,7 @@ router.get(
 router.post(
   '/admissions/:id/feed-fluid',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordFeedFluidEntry({
@@ -445,6 +613,7 @@ router.post(
 router.get(
   '/admissions/:id/feed-fluid/balance',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.getFeedFluidBalance({
       tenantId: tenantOf(req),
@@ -458,6 +627,7 @@ router.get(
 router.get(
   '/admissions/:id/respiratory-support',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listRespiratorySupportObservations({
       tenantId: tenantOf(req),
@@ -471,6 +641,7 @@ router.get(
 router.post(
   '/admissions/:id/respiratory-support',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordRespiratorySupportObservation({
@@ -491,6 +662,7 @@ router.post(
 router.get(
   '/admissions/:id/cardioresp-events',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listCardiorespiratoryEvents({
       tenantId: tenantOf(req),
@@ -504,6 +676,7 @@ router.get(
 router.post(
   '/admissions/:id/cardioresp-events',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordCardiorespiratoryEvent({
@@ -521,6 +694,7 @@ router.post(
 router.get(
   '/admissions/:id/jaundice-phototherapy',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listJaundicePhototherapyEvents({
       tenantId: tenantOf(req),
@@ -534,6 +708,7 @@ router.get(
 router.post(
   '/admissions/:id/jaundice-phototherapy',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordJaundicePhototherapyEvent({
@@ -554,6 +729,7 @@ router.post(
 router.get(
   '/admissions/:id/thermal-observations',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listThermalObservations({
       tenantId: tenantOf(req),
@@ -567,6 +743,7 @@ router.get(
 router.post(
   '/admissions/:id/thermal-observations',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordThermalObservation({
@@ -588,6 +765,7 @@ router.post(
 router.patch(
   '/nicu/:resource/:id/verify',
   requireStaffOrAdmin,
+  guardIcuNicuVerify,
   wrap(async req =>
     nicuChart.verifyNicuObservation({
       tenantId: tenantOf(req),
@@ -602,6 +780,7 @@ router.patch(
 router.get(
   '/admissions/:id/newborn-context',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.getNewbornContext({
       tenantId: tenantOf(req),
@@ -613,6 +792,7 @@ router.get(
 router.post(
   '/admissions/:id/newborn-link',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.linkNewbornToAdmission({
@@ -654,6 +834,7 @@ router.put(
 router.get(
   '/admissions/:id/nicu-scores',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.listScoreOutputs({
       tenantId: tenantOf(req),
@@ -666,6 +847,7 @@ router.get(
 router.post(
   '/admissions/:id/nicu-scores',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await nicuChart.recordScoreOutput({
@@ -683,6 +865,7 @@ router.post(
 router.get(
   '/admissions/:id/growth-snapshot',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     nicuChart.getGrowthSnapshot({
       tenantId: tenantOf(req),
@@ -695,6 +878,7 @@ router.get(
 router.post(
   '/admissions/:id/flowsheet',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.logFlowsheet({
@@ -711,6 +895,7 @@ router.post(
 router.get(
   '/admissions/:id/flowsheet',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icu.listFlowsheet({
       tenantId: tenantOf(req),
@@ -723,6 +908,7 @@ router.get(
 router.get(
   '/admissions/:id/io-summary',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => icu.ioSummary({ tenantId: tenantOf(req), icu_admission_id: req.params.id }))
 );
 
@@ -730,6 +916,7 @@ router.get(
 router.post(
   '/admissions/:id/assessments',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.recordAssessment({
@@ -746,6 +933,7 @@ router.post(
 router.get(
   '/admissions/:id/assessments',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icu.listAssessments({
       tenantId: tenantOf(req),
@@ -760,6 +948,7 @@ router.get(
 router.post(
   '/admissions/:id/bundle',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req => {
     const tenantId = tenantOf(req);
     const row = await icu.upsertBundle({
@@ -776,6 +965,7 @@ router.post(
 router.get(
   '/admissions/:id/bundle',
   requireStaffOrAdmin,
+  guardIcuAdmissionParam,
   wrap(async req =>
     icu.getBundle({
       tenantId: tenantOf(req),

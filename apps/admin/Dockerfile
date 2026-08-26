@@ -63,9 +63,17 @@ RUN --mount=type=secret,id=sentry_auth_token,required=false \
 # ---- Runner Stage ----
 FROM ${NODE_IMAGE} AS runner
 
+# Bump SECURITY_PATCH_EPOCH to force the apk layer to re-execute. Both image
+# workflows build with a GHA layer cache, and an unchanged RUN on an unchanged
+# base digest is a cache HIT — the upgrade then replays its original result
+# forever and never fetches packages published since, so a Trivy finding whose
+# fix is already on the Alpine mirror can never clear (CVE-2026-14456 stuck
+# exactly this way on 2026-08-26). The echo makes the epoch part of the layer.
+ARG SECURITY_PATCH_EPOCH=2026-08-26.1
 RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
     apk add --no-cache curl && \
-    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
+    echo "security patch epoch: ${SECURITY_PATCH_EPOCH}"
 
 WORKDIR /app
 

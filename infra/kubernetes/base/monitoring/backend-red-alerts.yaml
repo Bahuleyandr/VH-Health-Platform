@@ -168,6 +168,43 @@ spec:
                      kubectl logs -n vhhealth -l job-name={{ $labels.job_name }}
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
+        - alert: LabThresholdReconciliationCronJobStale
+          expr: |
+            (
+              time() - max(kube_cronjob_status_last_schedule_time{
+                namespace="vhhealth",
+                cronjob="lab-threshold-exception-reconciliation"
+              }) > 900
+            )
+            or
+            absent(kube_cronjob_status_last_schedule_time{
+              namespace="vhhealth",
+              cronjob="lab-threshold-exception-reconciliation"
+            })
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "Laboratory threshold-exception reconciliation has not scheduled for more than 15 minutes"
+            description: "Unmatched laboratory results still retain owned tasks, but automatic re-evaluation against newly approved policy content is unavailable."
+            runbook: "docs/RUNBOOK_ONCALL.md#labthresholdreconciliationcronjobstale--labthresholdreconciliationcronjobfailing"
+
+        - alert: LabThresholdReconciliationCronJobFailing
+          expr: |
+            max(kube_job_status_failed{
+              namespace="vhhealth",
+              job_name=~"^lab-threshold-exception-reconciliation-.*"
+            }) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "Laboratory threshold-exception reconciliation is failing"
+            description: "At least one scheduled reconciliation job failed; inspect its durable fleet and tenant receipts before retrying."
+            runbook: "docs/RUNBOOK_ONCALL.md#labthresholdreconciliationcronjobstale--labthresholdreconciliationcronjobfailing"
+
     - name: backend-db
       interval: 30s
       rules:

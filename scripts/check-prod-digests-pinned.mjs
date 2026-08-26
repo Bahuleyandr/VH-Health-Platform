@@ -106,6 +106,15 @@ const HELD_APPS_ROOT_OCCURRENCES = Object.freeze([
   },
   {
     target: 'infra/kubernetes/apps',
+    resourceKind: 'CronJob',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'lab-threshold-exception-reconciliation',
+    container: 'lab-threshold-exception-reconciliation',
+    field: 'image',
+    ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/apps',
     resourceKind: 'Job',
     resourceNamespace: 'vhhealth',
     resourceName: 'vhhealth-backend-migrate',

@@ -102,6 +102,9 @@ jest.unstable_mockModule('../../middleware/sanitizeMiddleware.js', () => ({
 }));
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
   patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  // Per-route guards (re-audit M mount fix) — pass-through: this suite pins
+  // controller AppError propagation, not access decisions.
+  patientAccessGuard: () => (_req, _res, next) => next(),
 }));
 jest.unstable_mockModule('../../middleware/rejectMobileClinicalWriteMiddleware.js', () => ({
   rejectMobileClinicalWrite: (_req, _res, next) => next(),

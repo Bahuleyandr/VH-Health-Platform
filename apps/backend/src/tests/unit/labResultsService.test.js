@@ -19,6 +19,8 @@ const claimLabResultIngestCommandMock = jest.fn();
 const completeLabResultIngestCommandMock = jest.fn();
 const finaliseHttpIdempotencyInTxMock = jest.fn();
 const resolveCurrentHumanActorTxMock = jest.fn();
+const evaluateCriticalThresholdMock = jest.fn();
+const applyLabThresholdAssessmentTxMock = jest.fn();
 const criticalDetectionResults = new Map();
 
 const __prismaDefaultMock = {
@@ -92,6 +94,14 @@ jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => 
     supersedeCriticalAlertWithDiagnosticGenerationTxMock,
 }));
 
+jest.unstable_mockModule('../../services/lab/labCriticalThresholdService.js', () => ({
+  evaluateCriticalThreshold: evaluateCriticalThresholdMock,
+}));
+
+jest.unstable_mockModule('../../services/lab/labThresholdExceptionService.js', () => ({
+  applyLabThresholdAssessmentTx: applyLabThresholdAssessmentTxMock,
+}));
+
 jest.unstable_mockModule('../../services/diagnostics/diagnosticResultGenerationService.js', () => ({
   createLabDiagnosticGenerationTx: createLabDiagnosticGenerationTxMock,
 }));
@@ -146,6 +156,7 @@ describe('labResultsService critical detection', () => {
     emitCriticalLabAlertAcknowledgedMock.mockReset();
     executeRawUnsafeMock.mockResolvedValue(1);
     criticalDetectionResults.clear();
+    evaluateCriticalThresholdMock.mockReset();
     materializeLabCriticalAlertGenerationMock.mockReset();
     materializeLabCriticalAlertGenerationMock.mockImplementation(async ({
       resultId,
@@ -194,20 +205,17 @@ describe('labResultsService critical detection', () => {
       is_critical: false,
     };
     criticalDetectionResults.set(result.id, result);
-
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{
-        id: 17,
-        loinc_code: '10839-9',
-        test_code: 'TROPI',
-        critical_low: null,
-        critical_high: '0.04',
-        test_name: 'Troponin I',
-        unit: 'ng/mL',
-        applies_to: 'all',
-        match_rank: 0,
-      }])
-      .mockResolvedValueOnce([]);
+    evaluateCriticalThresholdMock.mockResolvedValueOnce({
+      matched: true,
+      breached: true,
+      breachedSide: 'high',
+      breachedValue: 0.04,
+      evaluatedValue: 0.85,
+      criticalityStatus: 'critical',
+      policyBundleId: '11111111-1111-4111-8111-111111111111',
+      policyRuleId: '22222222-2222-4222-8222-222222222222',
+      catalogEntryId: '33333333-3333-4333-8333-333333333333',
+    });
 
     const alerts = await detectCriticalsForResults({ tenantId, results: [result] });
 
@@ -215,10 +223,11 @@ describe('labResultsService critical detection', () => {
     expect(alerts[0].result_id).toBe(37);
     expect(result.is_critical).toBe(true);
 
-    const thresholdLookup = queryRawUnsafeMock.mock.calls[0];
-    expect(thresholdLookup[1]).toBe(tenantId);
-    expect(thresholdLookup[2]).toEqual(expect.arrayContaining(['10839-9', '6598-7']));
-    expect(thresholdLookup[3]).toEqual(expect.arrayContaining(['TROPI', 'TROP']));
+    expect(evaluateCriticalThresholdMock).toHaveBeenCalledWith({
+      client: __prismaDefaultMock,
+      tenantId,
+      result,
+    });
 
     expect(materializeLabCriticalAlertGenerationMock).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId, resultId: 37 }),
@@ -253,30 +262,22 @@ describe('labResultsService critical detection', () => {
       },
     ];
     results.forEach((result) => criticalDetectionResults.set(result.id, result));
-
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{
-        id: 18,
-        loinc_code: null,
-        test_code: 'WBC',
-        critical_low: '2',
-        critical_high: '30',
-        test_name: 'White blood cell count',
-        unit: '10^3/uL',
-        applies_to: 'all',
-        match_rank: 1,
-      }])
-      .mockResolvedValueOnce([{
-        id: 19,
-        loinc_code: null,
-        test_code: 'PLT',
-        critical_low: '30',
-        critical_high: '1000',
-        test_name: 'Platelet count',
-        unit: '10^3/uL',
-        applies_to: 'all',
-        match_rank: 1,
-      }]);
+    evaluateCriticalThresholdMock.mockImplementation(async ({ result }) => ({
+      matched: true,
+      breached: false,
+      breachedSide: null,
+      breachedValue: null,
+      evaluatedValue: result.test_code === 'WBC' ? 8.2 : 245,
+      conversion: 'per_microliter_to_thousands_per_microliter',
+      criticalityStatus: 'within_policy',
+      policyBundleId: '11111111-1111-4111-8111-111111111111',
+      policyRuleId: result.test_code === 'WBC'
+        ? '22222222-2222-4222-8222-222222222221'
+        : '22222222-2222-4222-8222-222222222222',
+      catalogEntryId: result.test_code === 'WBC'
+        ? '33333333-3333-4333-8333-333333333331'
+        : '33333333-3333-4333-8333-333333333332',
+    }));
 
     const alerts = await detectCriticalsForResults({ tenantId, results });
 
@@ -284,6 +285,7 @@ describe('labResultsService critical detection', () => {
     expect(results[0].is_critical).toBe(false);
     expect(results[1].is_critical).toBe(false);
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(evaluateCriticalThresholdMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -320,11 +322,10 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     // Sequence of $queryRawUnsafe calls inside recordResultManual for a
     // non-numeric value with no critical threshold and a booking_id:
     //   1-3) locked booking, patient, and investigation source validation
-    //   4) lab_critical_thresholds probe (non-numeric branch) → empty
-    //   5) lab_results dup-analyte probe (no prior finalised row) → empty
-    //   6) lab_results INSERT
-    //   7) investigation status advance
-    //   8) final result reload after atomic materialization.
+    //   4) lab_results dup-analyte probe (no prior finalised row) → empty
+    //   5) lab_results INSERT
+    //   6) investigation status advance; the materializer returns the exact
+    //      governed result without a second SQL reload.
     const insertedResult = {
       id: 101,
       tenant_id: tenantId,
@@ -340,6 +341,21 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
       status: 'preliminary',
       is_critical: false,
     };
+    const assessedResult = {
+      ...insertedResult,
+      criticality_status: 'threshold_unavailable',
+      threshold_policy_bundle_id: null,
+      threshold_policy_rule_id: null,
+      threshold_catalog_entry_id: null,
+      threshold_evaluated_at: new Date(),
+    };
+    materializeLabCriticalAlertGenerationMock.mockResolvedValueOnce({
+      created: false,
+      alert: null,
+      state: 'threshold_unavailable',
+      criticality: { matched: false, breached: false },
+      result: assessedResult,
+    });
     queryRawUnsafeMock
       .mockResolvedValueOnce([{
         id: 7,
@@ -357,10 +373,8 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
         status: 'COLLECTED',
       }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([insertedResult])
-      .mockResolvedValueOnce([{ id: 42 }])
-      .mockResolvedValueOnce([insertedResult]);
+      .mockResolvedValueOnce([{ id: 42 }]);
 
     const { result } = await recordResultManual({
       tenantId,
@@ -378,6 +392,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
 
     expect(result.investigation_id).toBe(42);
     expect(result.patient_name).toBe('Canonical Patient');
+    expect(result.criticality_status).toBe('threshold_unavailable');
 
     const bookingLock = queryRawUnsafeMock.mock.calls[0];
     expect(bookingLock[0]).toMatch(/FROM investigation_bookings AS booking/);
@@ -402,24 +417,37 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(canonicalInput.actorUid).toBe('lab-tech-uid');
     expect(canonicalInput.actorRole).toBe('LAB_TECHNICIAN');
     expect(canonicalInput.sourceTable).toBe('lab_results');
+    expect(canonicalInput.afterState).toMatchObject({
+      status: 'preliminary',
+      criticality_status: 'threshold_unavailable',
+      is_critical: false,
+    });
+    expect(canonicalInput.payload.threshold_assessment).toMatchObject({
+      matched: false,
+      breached: false,
+      policy_bundle_id: null,
+      policy_rule_id: null,
+      catalog_entry_id: null,
+    });
+    expect(canonicalInput.payload).not.toHaveProperty('criticality');
     expect(recordCanonicalClinicalEventMock.mock.calls[0][1]).toMatchObject({ db: __prismaDefaultMock });
 
-    // INSERT (call 6 — call 5 is the dup-analyte probe)
+    // INSERT (call 5 — call 4 is the dup-analyte probe)
     // carries investigation_id=42 as $2.
-    const insertCall = queryRawUnsafeMock.mock.calls[5];
+    const insertCall = queryRawUnsafeMock.mock.calls[4];
     expect(insertCall[0]).toMatch(/INSERT INTO lab_results/);
     expect(insertCall[0]).toMatch(/investigation_id/);
     expect(insertCall[2]).toBe(42);
     expect(insertCall[5]).toBe('Canonical Patient');
 
-    // The dup-analyte probe should also have happened (call 5).
-    const dupProbe = queryRawUnsafeMock.mock.calls[4];
+    // The dup-analyte probe should also have happened (call 4).
+    const dupProbe = queryRawUnsafeMock.mock.calls[3];
     expect(dupProbe[0]).toMatch(/FROM lab_results/);
     expect(dupProbe[0]).toMatch(/status IN/);
     expect(dupProbe[0]).toMatch(/tenant_id = \$3::uuid/);
     expect(dupProbe[3]).toBe(tenantId);
 
-    const statusAdvance = queryRawUnsafeMock.mock.calls[6];
+    const statusAdvance = queryRawUnsafeMock.mock.calls[5];
     expect(statusAdvance[0]).toMatch(/UPDATE investigations/);
     expect(statusAdvance[1]).toBe(42);
     expect(statusAdvance[2]).toEqual(
@@ -428,6 +456,76 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(statusAdvance[3]).toBe(tenantId);
     expect(statusAdvance[0]).toMatch(/SET status = 'IN_PROGRESS'/);
     expect(statusAdvance[0]).toMatch(/tenant_id = \$3::uuid/);
+  });
+
+  it('rolls back a manual non-numeric value covered by a governed numeric policy', async () => {
+    const insertedResult = {
+      id: 102,
+      tenant_id: tenantId,
+      booking_id: null,
+      investigation_id: 43,
+      patient_uid: patientUid,
+      patient_name: 'Canonical Patient',
+      test_code: 'TROPI',
+      test_name: 'Troponin I',
+      value_text: 'elevated',
+      value_numeric: null,
+      unit: 'ng/mL',
+      status: 'preliminary',
+      is_critical: false,
+    };
+    const assessedResult = {
+      ...insertedResult,
+      criticality_status: 'threshold_unavailable',
+      threshold_policy_bundle_id: '11111111-1111-4111-8111-111111111111',
+      threshold_policy_rule_id: null,
+      threshold_catalog_entry_id: '22222222-2222-4222-8222-222222222222',
+      threshold_evaluated_at: new Date(),
+    };
+    materializeLabCriticalAlertGenerationMock.mockResolvedValueOnce({
+      created: false,
+      alert: null,
+      state: 'threshold_unavailable',
+      criticality: {
+        matched: false,
+        breached: false,
+        unmatchedReason: 'non_numeric_value',
+        policyBundleId: assessedResult.threshold_policy_bundle_id,
+        catalogEntryId: assessedResult.threshold_catalog_entry_id,
+      },
+      result: assessedResult,
+    });
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        investigation_id: 43,
+        investigation_patient_uid: patientUid,
+        investigation_status: 'REQUESTED',
+        investigation_test_code: 'TROPI',
+        investigation_admission_id: null,
+        patient_name: 'Canonical Patient',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([insertedResult])
+      .mockResolvedValueOnce([{ id: 43 }]);
+
+    await expect(recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      performed_by_role: 'LAB_TECHNICIAN',
+      result: {
+        investigation_id: 43,
+        patient_uid: patientUid,
+        test_code: 'TROPI',
+        test_name: 'Troponin I',
+        value_text: 'elevated',
+        unit: 'ng/mL',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_NUMERIC_VALUE_REQUIRED',
+    });
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
+    expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
   });
 
   it('rejects an investigation that belongs to a different patient before mutation', async () => {

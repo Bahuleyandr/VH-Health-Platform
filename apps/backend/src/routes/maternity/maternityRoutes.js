@@ -4,11 +4,14 @@
 // /api/v1/maternity/*.
 
 import { Router } from 'express';
+import prisma from '../../lib/prisma.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import * as mat from '../../services/maternity/maternityService.js';
 import * as immun from '../../services/maternity/immunisationService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { positiveIntOrNull } from '../../middleware/routePatientAccessGuards.js';
 
 const router = Router();
 
@@ -64,8 +67,197 @@ async function ensurePregnancyAccess(req, res, pregnancyId) {
   return true;
 }
 
+// ── Patient-access guards (re-audit 2026-08, M: mount guards) ────────
+//
+// The MATERNITY_RECORD patientAccessGuard used to sit on the app.js mount.
+// A mount-level middleware runs BEFORE Express matches the route, so
+// req.params is empty there; most routes in this file carry the subject only
+// behind a path id (:id, :pregnancyId, :laborId, :deliveryId, :patientUid),
+// so resolvePatientForAccess found nothing and authorizePatientAccessRequest
+// returned no_patient_context without evaluating a policy — in shadow AND in
+// enforce. The mount guard DID read req.body, which is worse, not better: a
+// body-supplied decoy patient_uid on any POST/PATCH could be authorised
+// while the handler served the row behind the path id.
+//
+// The guard now sits on each single-subject route with an explicit
+// patientSelector that resolves THE ROW THE HANDLER IS ABOUT TO SERVE,
+// tenant-scoped, through the same admission/pregnancy joins the
+// maternityService handlers use (same pattern as
+// bcmaRoutes.guardWristbandView and the abdmHiuRoutes selector factories).
+//
+// THE SUBJECT IS THE MOTHER. Every maternity row hangs off a
+// maternity_pregnancies row and pregnancies.patient_uid (the mother) is the
+// clinical subject of the maternity episode — labour admissions, partograph
+// entries, deliveries, newborn/apgar rows and postnatal visits all resolve
+// to her through the same joins the service asserts before serving them
+// (assertPregnancyInTenant / assertDeliveryInTenant / assertNewbornInTenant).
+// The two exceptions are the immunisation-status routes
+// (POST /immunisations/up-to-date, GET /immunisations/status/:patientUid),
+// which take an arbitrary child's patient_uid directly — there the named
+// child IS the subject. Note the deliberate asymmetry with the D7 M-D write
+// rule: the immunisation seed/dose writers additionally require the
+// newborn's OWN minted identity inside immunisationService (fail-closed,
+// newbornIdentityRequired) — that write-subject rule is enforced by the
+// service and is not weakened by anchoring the ACCESS decision on the
+// mother, whose care-team/admission relationships are where labour-ward
+// staff hold their clinical link on day 0.
+//
+// requirePatientContext refuses instead of falling back when a selector
+// yields nothing: every guarded route's subject chain is NOT NULL
+// (pregnancies.patient_uid, and the service rejects a create whose body id
+// is missing), so a missing subject means a malformed id or a
+// missing/foreign row, never a legitimately subject-less request. In shadow
+// mode the refusal (like every denial) is audit-only. PATIENT self-access
+// (and guardian acting-as) is allowed by the policy engine itself, so the
+// existing requireStaffAdminOrSelfPatient / ensurePregnancyAccess gates keep
+// their behaviour for patients.
+//
+// Cross-patient boards and subject-less content keep the role gate only —
+// GET /labor-admissions/active (labour board), GET /immunisations/due
+// (worklist), GET /immunisations/catalogue, GET /ga (stateless calculator),
+// GET /packages (pricing), GET /anc-advice (content). A patient guard there
+// has no single subject to resolve and would be a control that can never
+// fire.
+//
+// Mode governance is carried over from the mount unchanged:
+// careTeamModeGoverned stays true, so the per-tenant
+// care_team_enforcement_mode flag ('shadow' by default) governs these
+// routes. MATERNITY_RECORD resolves to the
+// patient.maternity_paediatric.view policy
+// (accessPolicyRegistry.policyCodeForRecordType).
+
+// Delegates to the shared int4-capped parser. The local copy lacked the
+// int4 cap, so a 10-digit id reached the ::int bind and threw 22003 —
+// a guard 500 on malformed input, violating the never-throw contract.
+function positiveInt(value) {
+  return positiveIntOrNull(value);
+}
+
+const maternityGuard = (patientSelector) => patientAccessGuard('MATERNITY_RECORD', {
+  careTeamModeGoverned: true,
+  requirePatientContext: true,
+  requireResolvedPatient: true,
+  patientSelector,
+});
+
+// Mother behind a maternity_pregnancies row. A malformed id returns null
+// (clean refusal), never a throw.
+const motherFromPregnancyId = (idOf) => async (req) => {
+  const pregnancyId = positiveInt(idOf(req));
+  if (pregnancyId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM maternity_pregnancies
+      WHERE tenant_id = $1::uuid AND id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    pregnancyId,
+  );
+  return rows[0] ?? null;
+};
+
+// Mother behind a maternity_labor_admissions row (labor → pregnancy).
+const motherFromLaborId = (idOf) => async (req) => {
+  const laborId = positiveInt(idOf(req));
+  if (laborId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT p.patient_uid AS uid
+       FROM maternity_labor_admissions la
+       JOIN maternity_pregnancies p
+         ON p.id = la.pregnancy_id
+        AND p.tenant_id = la.tenant_id
+      WHERE la.tenant_id = $1::uuid AND la.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    laborId,
+  );
+  return rows[0] ?? null;
+};
+
+// Mother behind a maternity_deliveries row (delivery → pregnancy).
+const motherFromDeliveryId = (idOf) => async (req) => {
+  const deliveryId = positiveInt(idOf(req));
+  if (deliveryId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT p.patient_uid AS uid
+       FROM maternity_deliveries d
+       JOIN maternity_pregnancies p
+         ON p.id = d.pregnancy_id
+        AND p.tenant_id = d.tenant_id
+      WHERE d.tenant_id = $1::uuid AND d.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    deliveryId,
+  );
+  return rows[0] ?? null;
+};
+
+// Mother behind a maternity_newborns row (newborn → delivery → pregnancy).
+const motherFromNewbornId = (idOf) => async (req) => {
+  const newbornId = positiveInt(idOf(req));
+  if (newbornId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT p.patient_uid AS uid
+       FROM maternity_newborns n
+       JOIN maternity_deliveries d
+         ON d.id = n.delivery_id
+        AND d.tenant_id = n.tenant_id
+       JOIN maternity_pregnancies p
+         ON p.id = d.pregnancy_id
+        AND p.tenant_id = n.tenant_id
+      WHERE n.tenant_id = $1::uuid AND n.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    newbornId,
+  );
+  return rows[0] ?? null;
+};
+
+// Mother behind a newborn_immunisations row (immunisation → newborn →
+// delivery → pregnancy) — the same join chain immunisationService.recordDose
+// resolves before writing.
+const motherFromImmunisationId = (idOf) => async (req) => {
+  const immunisationId = positiveInt(idOf(req));
+  if (immunisationId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT p.patient_uid AS uid
+       FROM newborn_immunisations i
+       JOIN maternity_newborns n
+         ON n.id = i.newborn_id
+        AND n.tenant_id = i.tenant_id
+       JOIN maternity_deliveries d
+         ON d.id = n.delivery_id
+        AND d.tenant_id = n.tenant_id
+       JOIN maternity_pregnancies p
+         ON p.id = d.pregnancy_id
+        AND p.tenant_id = n.tenant_id
+      WHERE i.tenant_id = $1::uuid AND i.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    immunisationId,
+  );
+  return rows[0] ?? null;
+};
+
+// Route-shaped guard instances. Each binds the selector to the SAME
+// identifier its handler passes to the service, so the decision, the audit
+// row and the served row are the same patient by construction.
+const guardByBodyPatientUid = maternityGuard((req) => ({ uid: req.body?.patient_uid }));
+const guardByParamPatientUid = maternityGuard((req) => ({ uid: req.params?.patientUid }));
+const guardByPregnancyIdParam = maternityGuard(motherFromPregnancyId((req) => req.params?.id));
+const guardByPregnancyIdNamedParam = maternityGuard(motherFromPregnancyId((req) => req.params?.pregnancyId));
+const guardByPregnancyIdBody = maternityGuard(motherFromPregnancyId((req) => req.body?.pregnancy_id));
+const guardByLaborIdParam = maternityGuard(motherFromLaborId((req) => req.params?.id));
+const guardByLaborIdNamedParam = maternityGuard(motherFromLaborId((req) => req.params?.laborId));
+const guardByLaborIdBody = maternityGuard(motherFromLaborId((req) => req.body?.labor_admission_id));
+const guardByDeliveryIdParam = maternityGuard(motherFromDeliveryId((req) => req.params?.id));
+const guardByDeliveryIdNamedParam = maternityGuard(motherFromDeliveryId((req) => req.params?.deliveryId));
+const guardByDeliveryIdBody = maternityGuard(motherFromDeliveryId((req) => req.body?.delivery_id));
+const guardByNewbornIdParam = maternityGuard(motherFromNewbornId((req) => req.params?.id));
+const guardByImmunisationIdParam = maternityGuard(motherFromImmunisationId((req) => req.params?.id));
+
 // ── Pregnancy ────────────────────────────────────────────────────────
-router.post('/pregnancies', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/pregnancies', requireStaffOrAdmin, guardByBodyPatientUid, wrap(async (req) =>
   mat.createPregnancy({
     ...req.body,
     tenantId: tenantOf(req),
@@ -75,18 +267,18 @@ router.post('/pregnancies', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/pregnancies/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
+router.get('/pregnancies/patient/:patientUid', requireStaffAdminOrSelfPatient, guardByParamPatientUid, wrap(async (req) =>
   mat.listPregnanciesForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
   }),
 ));
 
-router.get('/pregnancies/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wrap(async (req) =>
   mat.getPregnancy({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
-router.patch('/pregnancies/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.patch('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wrap(async (req) =>
   mat.updatePregnancy({
     ...req.body,
     tenantId: tenantOf(req),
@@ -95,7 +287,7 @@ router.patch('/pregnancies/:id', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // ── ANC visits ───────────────────────────────────────────────────────
-router.post('/anc-visits', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/anc-visits', requireStaffOrAdmin, guardByPregnancyIdBody, wrap(async (req) =>
   mat.recordAncVisit({
     ...req.body,
     tenantId: tenantOf(req),
@@ -105,7 +297,7 @@ router.post('/anc-visits', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/anc-visits/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/anc-visits/pregnancy/:pregnancyId', requireStaffOrAdmin, guardByPregnancyIdNamedParam, wrap(async (req) =>
   mat.listAncVisits({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.pregnancyId,
@@ -113,7 +305,7 @@ router.get('/anc-visits/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async
 ));
 
 // ── Labor admission ──────────────────────────────────────────────────
-router.post('/labor-admissions', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/labor-admissions', requireStaffOrAdmin, guardByPregnancyIdBody, wrap(async (req) =>
   mat.admitToLabor({
     ...req.body,
     tenantId: tenantOf(req),
@@ -122,6 +314,8 @@ router.post('/labor-admissions', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// Cross-patient labour board — no single patient subject; role gate only
+// (see the guard block comment above).
 router.get('/labor-admissions/active', requireStaffOrAdmin, wrap(async (req) =>
   mat.listActiveLaborAdmissions({
     tenantId: tenantOf(req),
@@ -129,12 +323,12 @@ router.get('/labor-admissions/active', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/labor-admissions/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/labor-admissions/:id', requireStaffOrAdmin, guardByLaborIdParam, wrap(async (req) =>
   mat.getLaborAdmission({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
 // ── Partograph ───────────────────────────────────────────────────────
-router.post('/partograph', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/partograph', requireStaffOrAdmin, guardByLaborIdBody, wrap(async (req) =>
   mat.recordPartographEntry({
     ...req.body,
     tenantId: tenantOf(req),
@@ -144,7 +338,7 @@ router.post('/partograph', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/partograph/labor/:laborId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/partograph/labor/:laborId', requireStaffOrAdmin, guardByLaborIdNamedParam, wrap(async (req) =>
   mat.listPartographEntries({
     tenantId: tenantOf(req),
     labor_admission_id: req.params.laborId,
@@ -152,7 +346,7 @@ router.get('/partograph/labor/:laborId', requireStaffOrAdmin, wrap(async (req) =
 ));
 
 // ── Delivery summary ────────────────────────────────────────────────
-router.post('/deliveries', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/deliveries', requireStaffOrAdmin, guardByPregnancyIdBody, wrap(async (req) =>
   mat.recordDelivery({
     ...req.body,
     tenantId: tenantOf(req),
@@ -161,7 +355,7 @@ router.post('/deliveries', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/deliveries/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/deliveries/:id', requireStaffOrAdmin, guardByDeliveryIdParam, wrap(async (req) =>
   mat.getDelivery({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
@@ -170,7 +364,7 @@ router.get('/deliveries/:id', requireStaffOrAdmin, wrap(async (req) =>
 // guardian link for live/early_neonatal_death outcomes. Actor context is
 // pinned to the authenticated user AFTER the body spread — body-supplied
 // recorded_by/actor fields can never override it.
-router.post('/newborns', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/newborns', requireStaffOrAdmin, guardByDeliveryIdBody, wrap(async (req) =>
   mat.recordNewborn({
     ...req.body,
     tenantId: tenantOf(req),
@@ -180,18 +374,18 @@ router.post('/newborns', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/newborns/delivery/:deliveryId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/newborns/delivery/:deliveryId', requireStaffOrAdmin, guardByDeliveryIdNamedParam, wrap(async (req) =>
   mat.listNewbornsForDelivery({
     tenantId: tenantOf(req),
     delivery_id: req.params.deliveryId,
   }),
 ));
 
-router.get('/newborns/:id', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/newborns/:id', requireStaffOrAdmin, guardByNewbornIdParam, wrap(async (req) =>
   mat.getNewbornBundle({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
-router.post('/newborns/:id/apgar', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/newborns/:id/apgar', requireStaffOrAdmin, guardByNewbornIdParam, wrap(async (req) =>
   mat.recordApgar({
     ...req.body,
     tenantId: tenantOf(req),
@@ -203,7 +397,7 @@ router.post('/newborns/:id/apgar', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // ── Postnatal visits ────────────────────────────────────────────────
-router.post('/postnatal-visits', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/postnatal-visits', requireStaffOrAdmin, guardByDeliveryIdBody, wrap(async (req) =>
   mat.recordPostnatalVisit({
     ...req.body,
     tenantId: tenantOf(req),
@@ -213,7 +407,7 @@ router.post('/postnatal-visits', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/postnatal-visits/delivery/:deliveryId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/postnatal-visits/delivery/:deliveryId', requireStaffOrAdmin, guardByDeliveryIdNamedParam, wrap(async (req) =>
   mat.listPostnatalVisits({
     tenantId: tenantOf(req),
     delivery_id: req.params.deliveryId,
@@ -221,6 +415,7 @@ router.get('/postnatal-visits/delivery/:deliveryId', requireStaffOrAdmin, wrap(a
 ));
 
 // ── Newborn immunisations (Sprint 7 follow-through) ─────────────────
+// Vaccine catalogue — no patient subject; role gate only.
 router.get('/immunisations/catalogue', requireStaffOrAdmin, wrap(async (req) =>
   immun.listCatalogue({
     tenantId: tenantOf(req),
@@ -228,7 +423,7 @@ router.get('/immunisations/catalogue', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/newborns/:id/immunisations/seed', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/newborns/:id/immunisations/seed', requireStaffOrAdmin, guardByNewbornIdParam, wrap(async (req) =>
   immun.seedScheduleForNewborn({
     tenantId: tenantOf(req),
     newborn_id: req.params.id,
@@ -237,14 +432,14 @@ router.post('/newborns/:id/immunisations/seed', requireStaffOrAdmin, wrap(async 
   }),
 ));
 
-router.get('/newborns/:id/immunisations', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/newborns/:id/immunisations', requireStaffOrAdmin, guardByNewbornIdParam, wrap(async (req) =>
   immun.getScheduleForNewborn({
     tenantId: tenantOf(req),
     newborn_id: req.params.id,
   }),
 ));
 
-router.patch('/immunisations/:id/record', requireStaffOrAdmin, wrap(async (req) =>
+router.patch('/immunisations/:id/record', requireStaffOrAdmin, guardByImmunisationIdParam, wrap(async (req) =>
   immun.recordDose({
     ...req.body,
     tenantId: tenantOf(req),
@@ -254,6 +449,8 @@ router.patch('/immunisations/:id/record', requireStaffOrAdmin, wrap(async (req) 
   }),
 ));
 
+// Cross-patient due/overdue worklist — no single patient subject; role
+// gate only (see the guard block comment above).
 router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
   immun.listDueOrOverdue({
     tenantId: tenantOf(req),
@@ -267,7 +464,7 @@ router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
 // Replaces the 29-write per-dose entry path with one signed
 // clinical_notes row. Finding:
 //   2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes
-router.post('/immunisations/up-to-date', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/immunisations/up-to-date', requireStaffOrAdmin, guardByBodyPatientUid, wrap(async (req) =>
   immun.markScheduleUpToDate({
     tenantId: tenantOf(req),
     patient_uid: req.body?.patient_uid,
@@ -281,7 +478,7 @@ router.post('/immunisations/up-to-date', requireStaffOrAdmin, wrap(async (req) =
 ));
 
 // Read-side companion — patient app's immunisation card uses this.
-router.get('/immunisations/status/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/immunisations/status/:patientUid', requireStaffOrAdmin, guardByParamPatientUid, wrap(async (req) =>
   immun.getImmunisationStatus({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -299,7 +496,7 @@ router.get('/ga', requireStaffOrAdmin, (req, res) => {
 });
 
 // Active pregnancy lookup for the patient app + walk-in form.
-router.get('/pregnancies/active/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
+router.get('/pregnancies/active/:patientUid', requireStaffAdminOrSelfPatient, guardByParamPatientUid, wrap(async (req) =>
   mat.getActivePregnancyForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -307,7 +504,7 @@ router.get('/pregnancies/active/:patientUid', requireStaffAdminOrSelfPatient, wr
 ));
 
 // ANC timeline (visits + supplements + recent kicks) per pregnancy.
-router.get('/pregnancies/:id/timeline', requireStaffAdminOrPatient, wrap(async (req, res) => {
+router.get('/pregnancies/:id/timeline', requireStaffAdminOrPatient, guardByPregnancyIdParam, wrap(async (req, res) => {
   if (!await ensurePregnancyAccess(req, res, req.params.id)) return null;
   const timeline = await mat.getAncTimelineForPregnancy({
     tenantId: tenantOf(req),
@@ -319,7 +516,7 @@ router.get('/pregnancies/:id/timeline', requireStaffAdminOrPatient, wrap(async (
 }));
 
 // Patient-flavored timeline: resolves the active pregnancy first.
-router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) => {
+router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, guardByParamPatientUid, wrap(async (req) => {
   const timeline = await mat.getAncTimelineForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -330,7 +527,7 @@ router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap
 }));
 
 // Supplements
-router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/supplements', requireStaffOrAdmin, guardByPregnancyIdBody, wrap(async (req) =>
   mat.recordSupplement({
     ...req.body,
     tenantId: tenantOf(req),
@@ -340,7 +537,7 @@ router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/supplements/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/supplements/pregnancy/:pregnancyId', requireStaffOrAdmin, guardByPregnancyIdNamedParam, wrap(async (req) =>
   mat.listSupplements({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.pregnancyId,
@@ -349,7 +546,7 @@ router.get('/supplements/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(asyn
 ));
 
 // E-12 — prior-orders timeline for a pregnancy
-router.get('/pregnancies/:id/prior-orders', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/pregnancies/:id/prior-orders', requireStaffOrAdmin, guardByPregnancyIdParam, wrap(async (req) =>
   mat.listPriorOrdersForPregnancy({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.id,
@@ -357,7 +554,7 @@ router.get('/pregnancies/:id/prior-orders', requireStaffOrAdmin, wrap(async (req
 ));
 
 // Fetal kick log
-router.post('/fetal-kicks', requireStaffAdminOrPatient, wrap(async (req, res) => {
+router.post('/fetal-kicks', requireStaffAdminOrPatient, guardByPregnancyIdBody, wrap(async (req, res) => {
   if (!await ensurePregnancyAccess(req, res, req.body?.pregnancy_id)) return null;
   const recordedBy = isPatient(req.user?.role)
     ? req.user?.uid
@@ -371,7 +568,7 @@ router.post('/fetal-kicks', requireStaffAdminOrPatient, wrap(async (req, res) =>
   });
 }));
 
-router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffAdminOrPatient, wrap(async (req, res) => {
+router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffAdminOrPatient, guardByPregnancyIdNamedParam, wrap(async (req, res) => {
   if (!await ensurePregnancyAccess(req, res, req.params.pregnancyId)) return null;
   return mat.listFetalKicks({
     tenantId: tenantOf(req),

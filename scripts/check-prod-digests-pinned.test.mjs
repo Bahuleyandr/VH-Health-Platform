@@ -116,14 +116,14 @@ test('accepts only the exact documented zero app placeholders as held', () => {
     // in the prod root, so the PG18 cutover target cannot ride an ordinary sync.
     `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`,
   ]);
-  // 6 apps-root workload occurrences + the prod database hold + the same 6
+  // 7 apps-root workload occurrences + the prod database hold + the same 7
   // workloads mirrored by the staging app-tier overlay.
-  assert.equal(HELD_APP_OCCURRENCES.length, 13);
+  assert.equal(HELD_APP_OCCURRENCES.length, 15);
   assert.equal(
     HELD_APP_OCCURRENCES.filter(
       ({ target }) => target === 'infra/kubernetes/overlays/staging/apps',
     ).length,
-    6,
+    7,
   );
   const heldOccurrence = { ...HELD_APP_OCCURRENCES[1], line: 10 };
   const held = classifyImageOccurrence(heldOccurrence);
@@ -535,7 +535,7 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   assert.equal(result.active[0].occurrences, 2);
   assert.equal(result.activeOccurrences.length, 2);
   assert.equal(result.held.length, 4);
-  assert.equal(result.heldOccurrences.length, 13);
+  assert.equal(result.heldOccurrences.length, 15);
   assert.equal(result.verified.length, 1);
 });
 
@@ -548,7 +548,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       })),
       verify: async (image) => image,
     }),
-    /exact expected 13.*missing/,
+    /exact expected 15.*missing/,
   );
   await assert.rejects(
     validateProductionImages({
@@ -557,7 +557,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       ),
       verify: async (image) => image,
     }),
-    /exact expected 13.*extra/,
+    /exact expected 15.*extra/,
   );
 });
 

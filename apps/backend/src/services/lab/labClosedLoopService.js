@@ -29,10 +29,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { notifyCreatedCriticalLabAlerts } from './labResultsService.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
-import {
-  assertConfiguredCriticalAnalytesNumeric,
-  evaluateCriticalThreshold,
-} from './labCriticalThresholdService.js';
+import { evaluateCriticalThreshold } from './labCriticalThresholdService.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 import {
   calculateDelta,
@@ -43,6 +40,7 @@ import {
 import { requireTenantId } from '../tenant/tenantService.js';
 import { LAB_INTERFACE_INGEST_ROLES } from '../../utils/roleHelpers.js';
 import { applyLoincMappingEnrichment } from './labCodeMappingService.js';
+import { labThresholdAssessmentEvidence } from './labThresholdPolicyContract.js';
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const ASTM_PRE_RESULT_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED'];
@@ -68,24 +66,6 @@ function strictNumericOrNull(value) {
   if (!text || !STRICT_NUMERIC_PATTERN.test(text)) return null;
   const numeric = Number(text);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function thresholdAssessmentEvidence(criticality = {}) {
-  return {
-    matched: criticality.matched === true,
-    breached: criticality.breached === true,
-    threshold_id: criticality.thresholdId ?? null,
-    threshold_test_code: criticality.thresholdTestCode ?? null,
-    threshold_loinc_code: criticality.thresholdLoincCode ?? null,
-    threshold_unit: criticality.thresholdUnit ?? null,
-    threshold_applies_to: criticality.thresholdAppliesTo ?? null,
-    critical_low: criticality.criticalLow ?? null,
-    critical_high: criticality.criticalHigh ?? null,
-    breached_side: criticality.breachedSide ?? null,
-    breached_value: criticality.breachedValue ?? null,
-    evaluated_value: criticality.evaluatedValue ?? null,
-    conversion: criticality.conversion ?? null,
-  };
 }
 
 // ── ASTM E1394 parsing (pure) ──────────────────────────────────────────────
@@ -551,7 +531,7 @@ export async function verdictForResult({
     delta_pct: deltaPct,
     prior_value: prior,
     critical_threshold_matched: criticality?.matched === true,
-    threshold_assessment: thresholdAssessmentEvidence(criticality),
+    threshold_assessment: labThresholdAssessmentEvidence(criticality),
     ...decision,
   };
 }
@@ -1001,7 +981,7 @@ async function recordAstmResultCanonicalEvent({
       abnormal_flag: result.abnormal_flag,
       status: result.status,
       performed_by_lab: result.performed_by_lab,
-      threshold_assessment: thresholdAssessmentEvidence(criticality),
+      threshold_assessment: labThresholdAssessmentEvidence(criticality),
       autoverification_verdict: verdict,
       authenticated_actor_uid: actorUid,
       authenticated_actor_roles: actorRoles,
@@ -1012,7 +992,7 @@ async function recordAstmResultCanonicalEvent({
     metadata: {
       interface_message_id: messageId,
       interface_result_index: result.interface_result_index,
-      threshold_assessment: thresholdAssessmentEvidence(criticality),
+      threshold_assessment: labThresholdAssessmentEvidence(criticality),
       autoverification_verdict: verdict,
       authenticated_actor_uid: actorUid,
       authenticated_actor_roles: actorRoles,
@@ -1108,11 +1088,6 @@ async function ingestAstmInterfaceMessage({
       tx,
       tenantId,
       accession: parsed.accession,
-    });
-    await assertConfiguredCriticalAnalytesNumeric({
-      client: tx,
-      tenantId,
-      results: parsed.results,
     });
     const insertedResults = [];
     const verdicts = [];

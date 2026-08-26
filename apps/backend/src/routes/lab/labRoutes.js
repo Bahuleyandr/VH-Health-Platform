@@ -5,11 +5,13 @@
 // which is the inbound transport for analyzer ORU messages.
 
 import { Router } from 'express';
+import prisma from '../../lib/prisma.js';
 import * as lab from '../../services/lab/labResultsService.js';
 import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
 import labCodeMappingRoutes from './labCodeMappingRoutes.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
   getAuthenticatedActorRoles,
@@ -26,6 +28,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 // ── Terminology WP3 — analyzer-code → catalog/LOINC mapping curation ──────
 // CRUD + coverage for lab_analyzer_code_mappings (migration 721). Sub-router
 // keeps its own read (staff/admin) and write (terminology curator) gates.
+// No patient rows are involved, so it carries no patient-access guard
+// (deliberate).
 router.use('/code-mappings', labCodeMappingRoutes);
 
 function tenantOf(req) {
@@ -79,6 +83,254 @@ function requirePatientUidParam(req, res, next) {
   next();
 }
 
+// ── Per-route patient-access guards ─────────────────────────────────────────
+// The LAB_RESULT guard used to sit on this router's /api/v1/lab mount in
+// app.js. A mount-level middleware runs before Express matches the route, so
+// req.params was always empty there; every route that identifies its patient
+// through a path param (or through a resource id such as an investigation,
+// result, alert, or specimen) therefore resolved no patient and passed as
+// no_patient_context without a policy decision — in shadow AND in enforce.
+// The guard now runs per route, with an async selector that resolves the
+// patient behind the exact row the handler serves, tenant-scoped.
+//
+// requirePatientContext makes an unresolvable-but-present subject refuse in
+// enforce mode (and record an unresolved-deny audit row in shadow) instead of
+// silently passing, so an unknown id and an inaccessible patient are
+// indistinguishable to the caller (no existence oracle).
+//
+// Selector contract: malformed input returns null WITHOUT querying (the ids
+// bind to ::int casts, so an unvalidated value would turn into a Postgres cast
+// error → 500); resolvePatientForAccess re-verifies every returned {id/uid}
+// against users inside the request tenant. Routes with no single patient
+// subject (worklists, alert list, interface inbox, code-mapping curation) are
+// deliberately NOT patient-context-forced — see the per-route notes below.
+const labPatientGuard = (patientSelector) => patientAccessGuard('LAB_RESULT', {
+  careTeamModeGoverned: true,
+  requirePatientContext: true,
+  patientSelector,
+});
+
+const POSTGRES_INT4_MAX = 2_147_483_647;
+
+function positiveInt4(value) {
+  if (value == null) return null;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= POSTGRES_INT4_MAX ? parsed : null;
+}
+
+// :investigationId routes — the sample lifecycle handlers all resolve the
+// investigations row by id + tenant (investigationService), so the guard
+// resolves the same row's patient_uid.
+async function investigationPatientOf(req) {
+  const investigationId = positiveInt4(req.params?.investigationId);
+  if (investigationId === null) return null;
+  // investigations.patient_uid is NULLABLE: legacy rows link by patient_id or
+  // phone only. A uid-only selector returned {uid: null} for those rows, so in
+  // enforce mode every legacy row 403'd — a lockout on real data. Resolve
+  // through the same fallback chain investigationRoutes uses (uid, then
+  // patient_id, then registered-patient phone), all inside the tenant.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(u_uid.id, u_id.id, u_ph.id)   AS id,
+            COALESCE(u_uid.uid, u_id.uid, u_ph.uid) AS uid
+       FROM investigations i
+       LEFT JOIN users u_uid
+         ON u_uid.uid = i.patient_uid
+        AND u_uid.tenant_id = i.tenant_id
+        AND u_uid.role = 'PATIENT'
+       LEFT JOIN users u_id
+         ON u_id.id = i.patient_id
+        AND u_id.tenant_id = i.tenant_id
+        AND u_id.role = 'PATIENT'
+       LEFT JOIN users u_ph
+         ON u_ph.phone = i.phone
+        AND u_ph.tenant_id = i.tenant_id
+        AND u_ph.role = 'PATIENT'
+      WHERE i.tenant_id = $1::uuid
+        AND i.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    investigationId,
+  );
+  const row = rows[0];
+  if (!row || (row.id == null && row.uid == null)) return null;
+  return row;
+}
+
+// GET /samples/barcode/:barcode — same normalisation as
+// investigationService.getSampleByBarcode (trim + 40-char cap), same
+// tenant-scoped sample_barcode lookup.
+async function sampleBarcodePatientOf(req) {
+  const barcode = String(req.params?.barcode || '').trim().slice(0, 40);
+  if (!barcode) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM investigations
+      WHERE tenant_id = $1::uuid
+        AND sample_barcode = $2
+      LIMIT 1`,
+    tenantOf(req),
+    barcode,
+  );
+  return rows[0] ?? null;
+}
+
+// POST /orders — the handler identifies its subject in the body as
+// patient_id (users.id int) and/or patient_uid, exactly the pair it hands to
+// createInvestigationOrder. resolvePatientForAccess verifies the pair against
+// users within the tenant.
+function orderBodyPatientOf(req) {
+  const body = req.body || {};
+  // Mirror the handler's precedence EXACTLY: patient_id wins, and patient_uid
+  // is consulted only when patient_id is absent. Passing both let a
+  // patient_id=A & patient_uid=B request be AUTHORISED on B (the resolver's
+  // ambiguous OR + ORDER BY picks one) while the handler ORDERED for A — the
+  // wristband patient-confusion shape, through the body instead of the query.
+  if (body.patient_id != null) return { id: body.patient_id };
+  if (body.patient_uid) return { uid: body.patient_uid };
+  return null;
+}
+
+// POST /results — recordResultManual requires result.patient_uid.
+function manualResultPatientOf(req) {
+  const uid = req.body?.patient_uid;
+  return uid ? { uid } : null;
+}
+
+// GET /results/booking/:bookingId — the handler serves the lab_results rows of
+// that booking; a booking belongs to one patient, so the selector accepts the
+// rows' single distinct patient_uid and refuses (null) on zero rows or on a
+// cross-patient anomaly (LIMIT 2 exists only to detect ">1 distinct").
+async function bookingResultsPatientOf(req) {
+  const bookingId = positiveInt4(req.params?.bookingId);
+  if (bookingId === null) return null;
+  // Resolve through the BOOKING, not the result rows. A booking with no
+  // lab_results YET is the normal pre-processing state, and the handler
+  // answers it with an empty list — a result-row selector returned null there,
+  // so enforce mode 403'd a state the handler serves. The booking names
+  // exactly one patient, and that patient is the subject whether the answer
+  // is results or none yet.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT p.id, p.uid
+       FROM investigation_bookings b
+       JOIN users p
+         ON p.id = b.patient_id
+        AND p.tenant_id = b.tenant_id
+        AND p.role = 'PATIENT'
+      WHERE b.tenant_id = $1::uuid
+        AND b.id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    bookingId,
+  );
+  return rows[0] ?? null;
+}
+
+// GET /results/patient/:patientUid — the subject IS the path param (validated
+// by requirePatientUidParam just before this guard).
+function resultsPatientParamOf(req) {
+  return { uid: req.params?.patientUid };
+}
+
+// POST /pathologist/signoff — signOffResults derives the patient from the
+// tenant-owned lab_results selected by result_ids (the body patient_uid is a
+// compatibility assertion only), so the guard resolves the same rows' single
+// distinct patient. Mixed-patient id sets refuse (null); ids outside int4
+// bounds refuse without querying, mirroring normalizeSignoffResultIds.
+async function signoffResultsPatientOf(req) {
+  const raw = req.body?.result_ids;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const ids = raw.map(Number);
+  if (ids.some((id) => !Number.isSafeInteger(id) || id <= 0 || id > POSTGRES_INT4_MAX)) {
+    return null;
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT patient_uid AS uid
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND id = ANY($2::int[])
+      LIMIT 2`,
+    tenantOf(req),
+    ids,
+  );
+  return rows.length === 1 ? rows[0] : null;
+}
+
+// POST /alerts/critical/:id/ack — lab_critical_alerts carries patient_uid
+// directly (migration 151).
+async function criticalAlertPatientOf(req) {
+  const alertId = positiveInt4(req.params?.id);
+  if (alertId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM lab_critical_alerts
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    alertId,
+  );
+  return rows[0] ?? null;
+}
+
+// GET /specimens/:id/label — same id + tenant lookup labClosedLoopService
+// loadSpecimen performs.
+async function specimenPatientOf(req) {
+  const specimenId = positiveInt4(req.params?.id);
+  if (specimenId === null) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM lab_specimens
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+      LIMIT 1`,
+    tenantOf(req),
+    specimenId,
+  );
+  return rows[0] ?? null;
+}
+
+// POST /specimens/receive-scan — scanReceiveSpecimen matches the tube by
+// case-insensitive barcode within the tenant; so does the selector.
+async function specimenScanPatientOf(req) {
+  const barcode = String(req.body?.barcode || '').trim();
+  if (!barcode) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid AS uid
+       FROM lab_specimens
+      WHERE tenant_id = $1::uuid
+        AND UPPER(barcode) = UPPER($2)
+      LIMIT 1`,
+    tenantOf(req),
+    barcode,
+  );
+  return rows[0] ?? null;
+}
+
+const guardOrderCreate = labPatientGuard(orderBodyPatientOf);
+const guardInvestigationSample = labPatientGuard(investigationPatientOf);
+const guardSampleBarcode = labPatientGuard(sampleBarcodePatientOf);
+const guardManualResult = labPatientGuard(manualResultPatientOf);
+const guardBookingResults = labPatientGuard(bookingResultsPatientOf);
+const guardPatientResults = labPatientGuard(resultsPatientParamOf);
+const guardSignoff = labPatientGuard(signoffResultsPatientOf);
+const guardCriticalAlertAck = labPatientGuard(criticalAlertPatientOf);
+const guardSpecimenLabel = labPatientGuard(specimenPatientOf);
+const guardSpecimenScan = labPatientGuard(specimenScanPatientOf);
+
+// Test surface (labPathologyNursingRouteGuards.test.js) — not a public API.
+export const __patientAccessSelectors = {
+  investigationPatientOf,
+  sampleBarcodePatientOf,
+  orderBodyPatientOf,
+  manualResultPatientOf,
+  bookingResultsPatientOf,
+  resultsPatientParamOf,
+  signoffResultsPatientOf,
+  criticalAlertPatientOf,
+  specimenPatientOf,
+  specimenScanPatientOf,
+};
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -110,7 +362,7 @@ function requireOrderingStaff(req, res, next) {
   next();
 }
 
-router.post('/orders', requireOrderingStaff, wrap(async (req) => {
+router.post('/orders', requireOrderingStaff, guardOrderCreate, wrap(async (req) => {
   const body = req.body || {};
   // Resolve patient_id from patient_uid if the caller used the UUID
   // form (the documented lab-order shape per the swarm finding) — the
@@ -154,7 +406,7 @@ router.post('/orders', requireOrderingStaff, wrap(async (req) => {
 // D43 — expose the lab-facing sample lifecycle under /api/v1/lab so a
 // lab tech can collect a sample, print/scan the barcode, and reject a
 // bad specimen without discovering the older /investigations routes.
-router.post('/samples/:investigationId/collect', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/samples/:investigationId/collect', requireStaffOrAdmin, guardInvestigationSample, wrap(async (req) =>
   investigationService.markSampleCollected({
     id: req.params.investigationId,
     collected_by: req.user?.uid,
@@ -166,21 +418,21 @@ router.post('/samples/:investigationId/collect', requireStaffOrAdmin, wrap(async
   }),
 ));
 
-router.get('/samples/barcode/:barcode', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/samples/barcode/:barcode', requireStaffOrAdmin, guardSampleBarcode, wrap(async (req) =>
   investigationService.getSampleByBarcode({
     barcode: req.params.barcode,
     tenantId: tenantOf(req),
   }),
 ));
 
-router.get('/samples/:investigationId/barcode', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/samples/:investigationId/barcode', requireStaffOrAdmin, guardInvestigationSample, wrap(async (req) =>
   investigationService.getSampleByInvestigationId({
     id: req.params.investigationId,
     tenantId: tenantOf(req),
   }),
 ));
 
-router.post('/samples/:investigationId/reject', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/samples/:investigationId/reject', requireStaffOrAdmin, guardInvestigationSample, wrap(async (req) =>
   investigationService.rejectSample({
     id: req.params.investigationId,
     rejected_by: req.user?.uid,
@@ -194,6 +446,9 @@ router.post('/samples/:investigationId/reject', requireStaffOrAdmin, wrap(async 
 router.post(
   '/results',
   requireLabResultRecorder,
+  // Guard before the idempotency claim so a request denied in enforce mode
+  // never consumes an idempotency slot.
+  guardManualResult,
   requireIdempotencyKey({ required: true, scope: 'lab-result-record' }),
   wrap(async (req) =>
   lab.recordResultManual({
@@ -209,14 +464,14 @@ router.post(
   ),
 );
 
-router.get('/results/booking/:bookingId', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/results/booking/:bookingId', requireStaffOrAdmin, guardBookingResults, wrap(async (req) =>
   lab.getResultsForBooking({
     tenantId: tenantOf(req),
     booking_id: req.params.bookingId,
   }),
 ));
 
-router.get('/results/patient/:patientUid', requireStaffOrAdmin, requirePatientUidParam, wrap(async (req) =>
+router.get('/results/patient/:patientUid', requireStaffOrAdmin, requirePatientUidParam, guardPatientResults, wrap(async (req) =>
   lab.getResultsForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -226,6 +481,10 @@ router.get('/results/patient/:patientUid', requireStaffOrAdmin, requirePatientUi
 ));
 
 // ── IPD lab worklist (E-5) ──────────────────────────────────────────
+// The three worklist reads below (/worklist/ipd, /worklist,
+// /pathologist/pending) are tenant-wide queues with no single patient
+// subject — forcing patient context here would lock the bench out, so they
+// keep the mount RBAC + requireStaffOrAdmin gates only (deliberate).
 router.get('/worklist/ipd', requireStaffOrAdmin, wrap(async (req) =>
   lab.listIpdLabWorklist({
     tenantId: tenantOf(req),
@@ -302,6 +561,9 @@ router.post(
   requirePathologistTier,
   rejectCallerSignerIdentity,
   requireCurrentPathologistTier,
+  // Guard before the idempotency claim so a request denied in enforce mode
+  // never consumes an idempotency slot.
+  guardSignoff,
   requireIdempotencyKey({ required: true, scope: 'lab-pathologist-signoff' }),
   wrap(async (req) =>
   lab.signOffResults({
@@ -325,6 +587,9 @@ router.post(
 );
 
 // ── Critical alerts ──────────────────────────────────────────────────
+// The open-alert list is a tenant-wide escalation queue (no single subject) —
+// role gates only, deliberately. The per-alert ack below IS single-subject
+// and is guarded.
 router.get('/alerts/critical', requireStaffOrAdmin, wrap(async (req) =>
   lab.listOpenCriticalAlerts({
     tenantId: tenantOf(req),
@@ -332,7 +597,7 @@ router.get('/alerts/critical', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/alerts/critical/:id/ack', requireCriticalAlertAcknowledger, wrap(async (req) =>
+router.post('/alerts/critical/:id/ack', requireCriticalAlertAcknowledger, guardCriticalAlertAck, wrap(async (req) =>
   lab.acknowledgeAlert(req.params.id, {
     tenantId: tenantOf(req),
     acknowledged_by: req.user?.uid,
@@ -351,7 +616,7 @@ router.post('/alerts/critical/:id/ack', requireCriticalAlertAcknowledger, wrap(a
 // ── Roadmap B3 — closed-loop lab ───────────────────────────────────────────
 
 // Printable specimen label (Code 39 of the accession barcode).
-router.get('/specimens/:id/label', requireStaffOrAdmin, wrap(async (req, res) => {
+router.get('/specimens/:id/label', requireStaffOrAdmin, guardSpecimenLabel, wrap(async (req, res) => {
   const label = await labClosedLoop.getSpecimenLabel(
     Number.parseInt(req.params.id, 10),
     { actorUid: req.user?.uid || null, tenantId: tenantOf(req) },
@@ -366,7 +631,7 @@ router.get('/specimens/:id/label', requireStaffOrAdmin, wrap(async (req, res) =>
 }));
 
 // Scan-on-receipt: lab scans the tube barcode → collected/in_transit → received.
-router.post('/specimens/receive-scan', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/specimens/receive-scan', requireStaffOrAdmin, guardSpecimenScan, wrap(async (req) =>
   labClosedLoop.scanReceiveSpecimen({
     barcode: req.body.barcode,
     actorUid: req.user?.uid || null,
@@ -374,7 +639,8 @@ router.post('/specimens/receive-scan', requireStaffOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
   })));
 
-// Interface inbox (replay/triage surface).
+// Interface inbox (replay/triage surface) — a tenant-wide message list with
+// no single patient subject; role gates only, deliberately.
 router.get('/interface/messages', requireStaffOrAdmin, wrap(async (req) => ({
   messages: await labClosedLoop.listInterfaceMessages({
     status: req.query.status || null,

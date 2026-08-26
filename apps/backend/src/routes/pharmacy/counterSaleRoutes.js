@@ -22,9 +22,23 @@ import {
 import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  pharmacyOrderGuard,
+  selectCounterSalePatient,
+  selectPatientFromBodyUid,
+} from './pharmacyOrderPatientGuards.js';
 
 const router = Router();
 export const pharmacyCounterSaleWitnessApprovalRoutes = Router({ mergeParams: true });
+
+// Per-route patient access guards (see pharmacyOrderPatientGuards.js). A
+// counter sale is anonymous-by-design unless a registered patient is
+// attached, so none of these force patient context: the guard decides when
+// body.patient_uid (create/witness request) or the stored sale row (:id
+// read/void) names a registered patient, and stays out of the way of
+// anonymous walk-in sales.
+const guardSaleBodyPatient = pharmacyOrderGuard(selectPatientFromBodyUid);
+const guardSaleRowPatient = pharmacyOrderGuard(selectCounterSalePatient);
 
 export const COUNTER_SALE_SELL_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const COUNTER_SALE_VOID_ROLES = [ADMIN, PHARMACY_INCHARGE];
@@ -122,7 +136,7 @@ router.get('/items', requireRead, wrap(async (req) => ({
   }),
 })));
 
-router.post('/witness-approvals', requireSell, requireIdempotencyKey({
+router.post('/witness-approvals', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   required: true,
   scope: 'pharmacy_counter_sale_witness_request',
   retainOnServerError: true,
@@ -161,7 +175,7 @@ pharmacyCounterSaleWitnessApprovalRoutes.post('/', requireApprovalHost, requireI
 // durable idempotency_keys claim (unique on tenant/user/key/path) makes a
 // replay return the cached original sale and a concurrent duplicate a 409,
 // never a second sale.
-router.post('/', requireSell, requireIdempotencyKey({
+router.post('/', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   // retainOnServerError: this handler commits stock, money and the statutory
   // register, then assembles its response — a 5xx here does NOT mean "nothing
   // happened". Releasing the claim would let the transport's automatic replay
@@ -192,7 +206,7 @@ router.get('/', requireRead, wrap(async (req) => ({
   }),
 })));
 
-router.get('/:id', requireRead, wrap(async (req) => counterSales.getCounterSale({
+router.get('/:id', requireRead, guardSaleRowPatient, wrap(async (req) => counterSales.getCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
 })));
@@ -202,7 +216,7 @@ router.get('/:id', requireRead, wrap(async (req) => counterSales.getCounterSale(
 // required for the same reason as the sale: a void moves money (refund) and
 // stock (restock); a transport replay must return the original void result,
 // not race a second attempt.
-router.post('/:id/void', requireVoid, requireIdempotencyKey({
+router.post('/:id/void', requireVoid, guardSaleRowPatient, requireIdempotencyKey({
   // Same reasoning as the sale: a void moves money (refund) and stock
   // (restock), so a post-commit 5xx must not be replayed into a second void.
   required: true, scope: 'pharmacy_counter_sale_void', retainOnServerError: true,

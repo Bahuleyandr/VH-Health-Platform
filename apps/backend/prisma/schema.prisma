@@ -5482,6 +5482,11 @@ model facilities {
   facility_locations                                   facility_locations[]
   facility_rooms                                       facility_rooms[]
   lab_analyzers                                        lab_analyzers[]
+  lab_results                                          lab_results[]
+  lab_threshold_catalog_entries                        lab_threshold_catalog_entries[]
+  lab_threshold_catalog_states                         lab_threshold_catalog_states?
+  lab_threshold_policy_bundles                         lab_threshold_policy_bundles?
+  lab_threshold_unmatched_exceptions                   lab_threshold_unmatched_exceptions[]
   pathway_projector_inbox                              pathway_projector_inbox[]
   queue_display_profiles                               queue_display_profiles[]
   service_catalog                                      service_catalog[]
@@ -10390,6 +10395,7 @@ model tasks {
   lab_critical_alerts                         lab_critical_alerts[]                               @relation("lab_critical_alert_ack_task")
   lab_interface_messages                      lab_interface_messages?
   lab_oru_ingest_messages                     lab_oru_ingest_messages?
+  lab_threshold_unmatched_exceptions          lab_threshold_unmatched_exceptions[]
   pathway_projector_inbox                     pathway_projector_inbox[]
   task_comments                               task_comments[]
   parent_task_same_run                        tasks?                                              @relation("tasks_parent_same_run", fields: [tenant_id, parent_task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_parent_same_run")
@@ -10892,6 +10898,9 @@ model tenants {
   lab_result_ingest_commands                           lab_result_ingest_commands[]
   lab_specimen_status_history                          lab_specimen_status_history[]
   lab_specimens                                        lab_specimens[]
+  lab_threshold_catalog_entries                        lab_threshold_catalog_entries[]
+  lab_threshold_catalog_states                         lab_threshold_catalog_states[]
+  lab_threshold_policy_bundles                         lab_threshold_policy_bundles[]
   learning_assignments                                 learning_assignments[]
   learning_completions                                 learning_completions[]
   learning_modules                                     learning_modules[]
@@ -11878,6 +11887,17 @@ model users {
   lab_interface_messages_authenticated_actor                                                                                       lab_interface_messages[]                               @relation("lab_interface_messages_authenticated_actor")
   lab_oru_ingest_messages                                                                                                          lab_oru_ingest_messages[]
   lab_result_ingest_commands                                                                                                       lab_result_ingest_commands[]
+  lab_threshold_catalog_entries_lab_threshold_catalog_entries_tenant_id_created_byTousers                                          lab_threshold_catalog_entries[]                        @relation("lab_threshold_catalog_entries_tenant_id_created_byTousers")
+  lab_threshold_catalog_entries_lab_threshold_catalog_entries_tenant_id_retired_byTousers                                          lab_threshold_catalog_entries[]                        @relation("lab_threshold_catalog_entries_tenant_id_retired_byTousers")
+  lab_threshold_catalog_states                                                                                                     lab_threshold_catalog_states[]
+  lab_threshold_policy_bundles_lab_threshold_policy_bundles_tenant_id_activated_byTousers                                          lab_threshold_policy_bundles[]                         @relation("lab_threshold_policy_bundles_tenant_id_activated_byTousers")
+  lab_threshold_policy_bundles_lab_threshold_policy_bundles_tenant_id_approved_byTousers                                           lab_threshold_policy_bundles[]                         @relation("lab_threshold_policy_bundles_tenant_id_approved_byTousers")
+  lab_threshold_policy_bundles_lab_threshold_policy_bundles_tenant_id_created_byTousers                                            lab_threshold_policy_bundles[]                         @relation("lab_threshold_policy_bundles_tenant_id_created_byTousers")
+  lab_threshold_policy_bundles_lab_threshold_policy_bundles_tenant_id_rejected_byTousers                                           lab_threshold_policy_bundles[]                         @relation("lab_threshold_policy_bundles_tenant_id_rejected_byTousers")
+  lab_threshold_policy_bundles_lab_threshold_policy_bundles_tenant_id_submitted_byTousers                                          lab_threshold_policy_bundles[]                         @relation("lab_threshold_policy_bundles_tenant_id_submitted_byTousers")
+  lab_threshold_policy_rules                                                                                                       lab_threshold_policy_rules[]
+  lab_threshold_unmatched_exceptions_lab_threshold_unmatched_exceptions_tenant_id_assigned_to_uidTousers                           lab_threshold_unmatched_exceptions[]                   @relation("lab_threshold_unmatched_exceptions_tenant_id_assigned_to_uidTousers")
+  lab_threshold_unmatched_exceptions_lab_threshold_unmatched_exceptions_tenant_id_resolved_byTousers                               lab_threshold_unmatched_exceptions[]                   @relation("lab_threshold_unmatched_exceptions_tenant_id_resolved_byTousers")
   leave_applications                                                                                                               leave_applications[]
   leave_encashments                                                                                                                leave_encashments[]
   medical_records_medical_records_created_byTousers                                                                                medical_records[]                                      @relation("medical_records_created_byTousers")
@@ -13697,6 +13717,9 @@ model lab_critical_alerts {
   acknowledgement_task_id                     Int?
   generation_metadata                         Json                                         @default("{}")
   superseded_by_diagnostic_generation_id      String?                                      @db.Uuid
+  threshold_policy_bundle_id                  String?                                      @db.Uuid
+  threshold_policy_rule_id                    String?                                      @db.Uuid
+  threshold_catalog_entry_id                  String?                                      @db.Uuid
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   successor_reconciliation_receipts           lab_critical_alert_reconciliation_receipts[] @relation("lab_alert_receipt_successor_alert")
   acknowledgement_task                        tasks?                                       @relation("lab_critical_alert_ack_task", fields: [tenant_id, acknowledgement_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_acknowledgement_task")
@@ -13706,6 +13729,9 @@ model lab_critical_alerts {
   superseded_by_alert                         lab_critical_alerts?                         @relation("lab_critical_alert_supersession", fields: [tenant_id, superseded_by_alert_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_superseded_by_alert")
   superseded_alerts                           lab_critical_alerts?                         @relation("lab_critical_alert_supersession")
   superseded_by_signoff                       lab_pathologist_signoffs?                    @relation("lab_critical_alert_signoff", fields: [tenant_id, superseded_by_signoff_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_superseded_by_signoff")
+  lab_threshold_catalog_entries               lab_threshold_catalog_entries?               @relation(fields: [tenant_id, threshold_catalog_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_threshold_catalog_entry")
+  lab_threshold_policy_bundles                lab_threshold_policy_bundles?                @relation(fields: [tenant_id, threshold_policy_bundle_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_threshold_policy_bundle")
+  lab_threshold_policy_rules                  lab_threshold_policy_rules?                  @relation(fields: [tenant_id, threshold_policy_rule_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_critical_alert_threshold_policy_rule")
 
   @@unique([tenant_id, id], map: "ux_lab_critical_alerts_tenant_id")
   @@unique([tenant_id, result_id, generation_signoff_id], map: "idx_lab_critical_alert_generation_signoff", where: raw("(generation_signoff_id IS NOT NULL)"))
@@ -13717,50 +13743,58 @@ model lab_critical_alerts {
   @@index([tenant_id, result_id, id(sort: Desc)], map: "idx_lab_critical_alert_current_generation", where: raw("(superseded_at IS NULL)"))
   @@index([tenant_id, fired_at(sort: Desc)], map: "idx_critical_alerts_tenant_pending", where: raw("((acknowledged_at IS NULL) AND (superseded_at IS NULL))"))
   @@index([tenant_id, superseded_by_diagnostic_generation_id], map: "idx_lab_critical_alert_diagnostic_successor", where: raw("(superseded_by_diagnostic_generation_id IS NOT NULL)"))
+  @@index([tenant_id, threshold_policy_bundle_id, threshold_policy_rule_id, fired_at(sort: Desc)], map: "idx_lab_critical_alert_threshold_policy", where: raw("(threshold_policy_bundle_id IS NOT NULL)"))
 }
 
 /// Immutable, typed evidence for corrected/amended lab sign-offs that either
 /// required no alert or were found behind a later represented generation.
 /// This table contains check constraints and requires additional setup for migrations.
 model lab_critical_alert_reconciliation_receipts {
-  id                   BigInt                                       @id @default(autoincrement())
-  tenant_id            String                                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  result_id            Int
-  patient_uid          String                                       @db.Uuid
-  signoff_id           Int
-  signoff_decision     String                                       @db.VarChar(20)
-  signoff_signed_at    DateTime                                     @db.Timestamptz(6)
-  outcome              String                                       @db.VarChar(64)
-  source               String                                       @db.VarChar(100)
-  result_value_text    String?                                      @db.VarChar(255)
-  result_value_numeric Decimal?                                     @db.Decimal(15, 4)
-  result_unit          String?                                      @db.VarChar(40)
-  evaluated_value      Decimal?                                     @db.Decimal(15, 4)
-  threshold_id         Int?
-  threshold_test_code  String?                                      @db.VarChar(50)
-  threshold_loinc_code String?                                      @db.VarChar(20)
-  threshold_low        Decimal?                                     @db.Decimal(15, 4)
-  threshold_high       Decimal?                                     @db.Decimal(15, 4)
-  threshold_unit       String?                                      @db.VarChar(40)
-  threshold_applies_to String?                                      @db.VarChar(20)
-  threshold_conversion String?                                      @db.VarChar(100)
-  successor_signoff_id Int?
-  successor_alert_id   Int?
-  successor_receipt_id BigInt?
-  evidence             Json                                         @default("{}")
-  created_at           DateTime                                     @default(now()) @db.Timestamptz(6)
-  lab_result           lab_results                                  @relation("lab_alert_receipt_result", fields: [tenant_id, result_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_result")
-  signoff              lab_pathologist_signoffs                     @relation("lab_alert_receipt_signoff", fields: [tenant_id, signoff_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_signoff")
-  successor_alert      lab_critical_alerts?                         @relation("lab_alert_receipt_successor_alert", fields: [tenant_id, successor_alert_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_alert")
-  successor_receipt    lab_critical_alert_reconciliation_receipts?  @relation("lab_alert_receipt_successor_receipt", fields: [tenant_id, successor_receipt_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_receipt")
-  predecessor_receipts lab_critical_alert_reconciliation_receipts[] @relation("lab_alert_receipt_successor_receipt")
-  successor_signoff    lab_pathologist_signoffs?                    @relation("lab_alert_receipt_successor_signoff", fields: [tenant_id, successor_signoff_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_signoff")
-  threshold            lab_critical_thresholds?                     @relation("lab_alert_receipt_threshold", fields: [tenant_id, threshold_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_threshold")
+  id                            BigInt                                       @id @default(autoincrement())
+  tenant_id                     String                                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  result_id                     Int
+  patient_uid                   String                                       @db.Uuid
+  signoff_id                    Int
+  signoff_decision              String                                       @db.VarChar(20)
+  signoff_signed_at             DateTime                                     @db.Timestamptz(6)
+  outcome                       String                                       @db.VarChar(64)
+  source                        String                                       @db.VarChar(100)
+  result_value_text             String?                                      @db.VarChar(255)
+  result_value_numeric          Decimal?                                     @db.Decimal(15, 4)
+  result_unit                   String?                                      @db.VarChar(40)
+  evaluated_value               Decimal?                                     @db.Decimal(15, 4)
+  threshold_id                  Int?
+  threshold_test_code           String?                                      @db.VarChar(50)
+  threshold_loinc_code          String?                                      @db.VarChar(20)
+  threshold_low                 Decimal?                                     @db.Decimal(15, 4)
+  threshold_high                Decimal?                                     @db.Decimal(15, 4)
+  threshold_unit                String?                                      @db.VarChar(40)
+  threshold_applies_to          String?                                      @db.VarChar(20)
+  threshold_conversion          String?                                      @db.VarChar(100)
+  successor_signoff_id          Int?
+  successor_alert_id            Int?
+  successor_receipt_id          BigInt?
+  evidence                      Json                                         @default("{}")
+  created_at                    DateTime                                     @default(now()) @db.Timestamptz(6)
+  threshold_policy_bundle_id    String?                                      @db.Uuid
+  threshold_policy_rule_id      String?                                      @db.Uuid
+  threshold_catalog_entry_id    String?                                      @db.Uuid
+  lab_result                    lab_results                                  @relation("lab_alert_receipt_result", fields: [tenant_id, result_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_result")
+  signoff                       lab_pathologist_signoffs                     @relation("lab_alert_receipt_signoff", fields: [tenant_id, signoff_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_signoff")
+  successor_alert               lab_critical_alerts?                         @relation("lab_alert_receipt_successor_alert", fields: [tenant_id, successor_alert_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_alert")
+  successor_receipt             lab_critical_alert_reconciliation_receipts?  @relation("lab_alert_receipt_successor_receipt", fields: [tenant_id, successor_receipt_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_receipt")
+  predecessor_receipts          lab_critical_alert_reconciliation_receipts[] @relation("lab_alert_receipt_successor_receipt")
+  successor_signoff             lab_pathologist_signoffs?                    @relation("lab_alert_receipt_successor_signoff", fields: [tenant_id, successor_signoff_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_successor_signoff")
+  threshold                     lab_critical_thresholds?                     @relation("lab_alert_receipt_threshold", fields: [tenant_id, threshold_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_threshold")
+  lab_threshold_catalog_entries lab_threshold_catalog_entries?               @relation(fields: [tenant_id, threshold_catalog_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_threshold_catalog_entry")
+  lab_threshold_policy_bundles  lab_threshold_policy_bundles?                @relation(fields: [tenant_id, threshold_policy_bundle_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_threshold_policy_bundle")
+  lab_threshold_policy_rules    lab_threshold_policy_rules?                  @relation(fields: [tenant_id, threshold_policy_rule_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_alert_receipt_threshold_policy_rule")
 
   @@unique([tenant_id, id], map: "ux_lab_alert_receipt_tenant_id")
   @@unique([tenant_id, result_id, signoff_id], map: "ux_lab_alert_receipt_result_signoff")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_lab_alert_receipt_tenant_created")
   @@index([tenant_id, successor_signoff_id], map: "idx_lab_alert_receipt_successor_signoff", where: raw("(successor_signoff_id IS NOT NULL)"))
+  @@index([tenant_id, threshold_policy_bundle_id, threshold_policy_rule_id, created_at(sort: Desc)], map: "idx_lab_alert_receipt_threshold_policy", where: raw("(threshold_policy_bundle_id IS NOT NULL)"))
 }
 
 model lab_critical_thresholds {
@@ -13858,17 +13892,29 @@ model lab_results {
   interface_message_id                        Int?
   interface_result_index                      Int?
   admission_id                                Int?
+  facility_id                                 Int?
+  specimen_type                               String?                                       @db.VarChar(80)
+  criticality_status                          String                                        @default("unassessed") @db.VarChar(32)
+  threshold_policy_bundle_id                  String?                                       @db.Uuid
+  threshold_policy_rule_id                    String?                                       @db.Uuid
+  threshold_catalog_entry_id                  String?                                       @db.Uuid
+  threshold_evaluated_at                      DateTime?                                     @db.Timestamptz(6)
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts[]
   critical_alert_reconciliation_receipts      lab_critical_alert_reconciliation_receipts[]  @relation("lab_alert_receipt_result")
   lab_critical_alerts                         lab_critical_alerts[]
   admissions                                  admissions?                                   @relation(fields: [tenant_id, admission_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_lab_results_admission")
+  facilities                                  facilities?                                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_results_facility_tenant")
   lab_result_ingest_commands                  lab_result_ingest_commands?                   @relation(fields: [tenant_id, ingest_command_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_lab_results_ingest_command")
   lab_interface_messages                      lab_interface_messages?                       @relation(fields: [tenant_id, interface_message_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_results_interface_message_tenant")
   lab_oru_ingest_messages                     lab_oru_ingest_messages?                      @relation(fields: [tenant_id, oru_ingest_message_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_lab_results_oru_ingest_message")
+  lab_threshold_policy_bundles                lab_threshold_policy_bundles?                 @relation(fields: [tenant_id, threshold_policy_bundle_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_results_threshold_bundle")
+  lab_threshold_catalog_entries               lab_threshold_catalog_entries?                @relation(fields: [tenant_id, threshold_catalog_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_results_threshold_catalog_entry")
+  lab_threshold_policy_rules                  lab_threshold_policy_rules?                   @relation(fields: [tenant_id, threshold_policy_rule_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_results_threshold_rule")
   lab_analyzers                               lab_analyzers?                                @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
   investigations                              investigations?                               @relation(fields: [investigation_id], references: [id], onUpdate: NoAction)
   lab_analyzer_qc_runs                        lab_analyzer_qc_runs?                         @relation(fields: [qc_run_id], references: [id], onUpdate: NoAction)
   lab_specimens                               lab_specimens?                                @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
+  lab_threshold_unmatched_exceptions          lab_threshold_unmatched_exceptions?
 
   @@unique([tenant_id, id, patient_uid], map: "ux_lab_results_tenant_id_patient")
   @@unique([tenant_id, interface_message_id, interface_result_index], map: "uq_lab_results_interface_message_position", where: raw("((interface_message_id IS NOT NULL) AND (interface_result_index IS NOT NULL))"))
@@ -13888,6 +13934,7 @@ model lab_results {
   @@index([tenant_id, oru_ingest_message_id, hl7_segment_index], map: "idx_lab_results_oru_ingest_message", where: raw("(oru_ingest_message_id IS NOT NULL)"))
   @@index([tenant_id, ingest_command_id, id], map: "idx_lab_results_ingest_command", where: raw("(ingest_command_id IS NOT NULL)"))
   @@index([tenant_id, admission_id, id], map: "idx_lab_results_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@index([tenant_id, facility_id, criticality_status, received_at(sort: Desc), id(sort: Desc)], map: "idx_lab_results_threshold_policy")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -28763,6 +28810,194 @@ model notifiable_disease_notifications {
   @@index([tenant_id, date_of_diagnosis], map: "idx_notifiable_disease_pending", where: raw("((status)::text = 'draft'::text)"))
   @@index([tenant_id, program, date_of_diagnosis(sort: Desc)], map: "idx_notifiable_disease_program")
   @@index([tenant_id, status, date_of_diagnosis(sort: Desc)], map: "idx_notifiable_disease_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model lab_threshold_catalog_entries {
+  id                                                              String                                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                       String                                       @db.Uuid
+  facility_id                                                     Int
+  introduced_revision                                             Int
+  retired_revision                                                Int?
+  test_code                                                       String                                       @db.VarChar(50)
+  loinc_code                                                      String?                                      @db.VarChar(20)
+  test_name                                                       String                                       @db.VarChar(255)
+  specimen_type                                                   String                                       @db.VarChar(80)
+  evaluation_mode                                                 String                                       @default("numeric_threshold") @db.VarChar(24)
+  unit                                                            String?                                      @db.VarChar(40)
+  normalized_unit                                                 String?                                      @db.VarChar(40)
+  sex                                                             String?                                      @db.VarChar(10)
+  age_min_days                                                    Int?
+  age_max_days                                                    Int?
+  pregnancy_scope                                                 String                                       @default("all") @db.VarChar(20)
+  criticality_required                                            Boolean                                      @default(true)
+  exemption_reason                                                String?                                      @db.VarChar(1000)
+  created_by                                                      String                                       @db.Uuid
+  created_at                                                      DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  retired_by                                                      String?                                      @db.Uuid
+  retired_at                                                      DateTime?                                    @db.Timestamptz(6)
+  retirement_reason                                               String?                                      @db.VarChar(500)
+  metadata                                                        Json                                         @default("{}")
+  lab_critical_alert_reconciliation_receipts                      lab_critical_alert_reconciliation_receipts[]
+  lab_critical_alerts                                             lab_critical_alerts[]
+  lab_results                                                     lab_results[]
+  users_lab_threshold_catalog_entries_tenant_id_created_byTousers users                                        @relation("lab_threshold_catalog_entries_tenant_id_created_byTousers", fields: [tenant_id, created_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_catalog_entry_creator")
+  facilities                                                      facilities                                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_catalog_entry_facility")
+  users_lab_threshold_catalog_entries_tenant_id_retired_byTousers users?                                       @relation("lab_threshold_catalog_entries_tenant_id_retired_byTousers", fields: [tenant_id, retired_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_catalog_entry_retirer")
+  tenants                                                         tenants                                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_catalog_entry_tenant")
+  lab_threshold_policy_rules                                      lab_threshold_policy_rules[]
+  lab_threshold_unmatched_exceptions                              lab_threshold_unmatched_exceptions[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, facility_id, id], map: "uq_lab_threshold_catalog_entry_facility")
+  @@index([tenant_id, facility_id, introduced_revision, retired_revision], map: "idx_lab_threshold_catalog_entry_revision")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model lab_threshold_catalog_states {
+  tenant_id        String     @db.Uuid
+  facility_id      Int
+  current_revision Int        @default(0)
+  updated_by       String     @db.Uuid
+  updated_at       DateTime   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  users            users      @relation(fields: [tenant_id, updated_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_catalog_state_actor")
+  facilities       facilities @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_catalog_state_facility")
+  tenants          tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_catalog_state_tenant")
+
+  @@id([tenant_id, facility_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model lab_threshold_policy_bundles {
+  id                                                               String                                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                        String                                       @db.Uuid
+  facility_id                                                      Int
+  bundle_version                                                   Int
+  catalog_revision                                                 Int
+  lifecycle_status                                                 String                                       @default("draft") @db.VarChar(24)
+  source_reference                                                 String?                                      @db.VarChar(500)
+  content_sha256                                                   String?                                      @db.Char(64)
+  effective_from                                                   DateTime?                                    @db.Timestamptz(6)
+  effective_until                                                  DateTime?                                    @db.Timestamptz(6)
+  created_by                                                       String                                       @db.Uuid
+  created_at                                                       DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  submitted_by                                                     String?                                      @db.Uuid
+  submitted_at                                                     DateTime?                                    @db.Timestamptz(6)
+  approved_by                                                      String?                                      @db.Uuid
+  approved_at                                                      DateTime?                                    @db.Timestamptz(6)
+  approval_reason                                                  String?                                      @db.VarChar(1000)
+  approval_evidence_reference                                      String?                                      @db.VarChar(500)
+  approval_evidence_sha256                                         String?                                      @db.Char(64)
+  activated_by                                                     String?                                      @db.Uuid
+  activated_at                                                     DateTime?                                    @db.Timestamptz(6)
+  superseded_by_bundle_id                                          String?                                      @db.Uuid
+  superseded_at                                                    DateTime?                                    @db.Timestamptz(6)
+  rejected_by                                                      String?                                      @db.Uuid
+  rejected_at                                                      DateTime?                                    @db.Timestamptz(6)
+  rejection_reason                                                 String?                                      @db.VarChar(1000)
+  metadata                                                         Json                                         @default("{}")
+  updated_at                                                       DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  lab_critical_alert_reconciliation_receipts                       lab_critical_alert_reconciliation_receipts[]
+  lab_critical_alerts                                              lab_critical_alerts[]
+  lab_results                                                      lab_results[]
+  users_lab_threshold_policy_bundles_tenant_id_activated_byTousers users?                                       @relation("lab_threshold_policy_bundles_tenant_id_activated_byTousers", fields: [tenant_id, activated_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_activator")
+  users_lab_threshold_policy_bundles_tenant_id_approved_byTousers  users?                                       @relation("lab_threshold_policy_bundles_tenant_id_approved_byTousers", fields: [tenant_id, approved_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_approver")
+  users_lab_threshold_policy_bundles_tenant_id_created_byTousers   users                                        @relation("lab_threshold_policy_bundles_tenant_id_created_byTousers", fields: [tenant_id, created_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_creator")
+  facilities                                                       facilities                                   @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_facility")
+  users_lab_threshold_policy_bundles_tenant_id_rejected_byTousers  users?                                       @relation("lab_threshold_policy_bundles_tenant_id_rejected_byTousers", fields: [tenant_id, rejected_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_rejector")
+  users_lab_threshold_policy_bundles_tenant_id_submitted_byTousers users?                                       @relation("lab_threshold_policy_bundles_tenant_id_submitted_byTousers", fields: [tenant_id, submitted_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_submitter")
+  lab_threshold_policy_bundles                                     lab_threshold_policy_bundles?                @relation("lab_threshold_policy_bundlesTolab_threshold_policy_bundles", fields: [tenant_id, facility_id, superseded_by_bundle_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_successor")
+  other_lab_threshold_policy_bundles                               lab_threshold_policy_bundles?                @relation("lab_threshold_policy_bundlesTolab_threshold_policy_bundles")
+  tenants                                                          tenants                                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_policy_bundle_tenant")
+  lab_threshold_policy_rules                                       lab_threshold_policy_rules[]
+  lab_threshold_unmatched_exceptions                               lab_threshold_unmatched_exceptions[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, facility_id], map: "uq_lab_threshold_policy_bundle_active", where: raw("((lifecycle_status)::text = 'active'::text)"))
+  @@unique([tenant_id, facility_id, id], map: "uq_lab_threshold_policy_bundle_facility")
+  @@unique([tenant_id, facility_id, bundle_version], map: "uq_lab_threshold_policy_bundle_version")
+  @@unique([tenant_id, facility_id, superseded_by_bundle_id], map: "uq_lab_threshold_policy_bundle_successor_once")
+  @@index([tenant_id, facility_id, lifecycle_status, bundle_version(sort: Desc)], map: "idx_lab_threshold_policy_bundle_lifecycle")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model lab_threshold_policy_rules {
+  id                                         String                                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                  String                                       @db.Uuid
+  facility_id                                Int
+  bundle_id                                  String                                       @db.Uuid
+  catalog_entry_id                           String                                       @db.Uuid
+  reference_low                              Decimal?                                     @db.Decimal(15, 4)
+  reference_high                             Decimal?                                     @db.Decimal(15, 4)
+  critical_low                               Decimal?                                     @db.Decimal(15, 4)
+  critical_high                              Decimal?                                     @db.Decimal(15, 4)
+  notes                                      String?                                      @db.VarChar(2000)
+  created_by                                 String                                       @db.Uuid
+  created_at                                 DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at                                 DateTime                                     @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  lab_critical_alert_reconciliation_receipts lab_critical_alert_reconciliation_receipts[]
+  lab_critical_alerts                        lab_critical_alerts[]
+  lab_results                                lab_results[]
+  lab_threshold_policy_bundles               lab_threshold_policy_bundles                 @relation(fields: [tenant_id, facility_id, bundle_id], references: [tenant_id, facility_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lab_threshold_policy_rule_bundle")
+  lab_threshold_catalog_entries              lab_threshold_catalog_entries                @relation(fields: [tenant_id, facility_id, catalog_entry_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_rule_catalog")
+  users                                      users                                        @relation(fields: [tenant_id, created_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_policy_rule_creator")
+  lab_threshold_unmatched_exceptions         lab_threshold_unmatched_exceptions[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, bundle_id, catalog_entry_id], map: "uq_lab_threshold_policy_rule_bundle_entry")
+  @@unique([tenant_id, facility_id, id], map: "uq_lab_threshold_policy_rule_facility")
+  @@index([tenant_id, facility_id, bundle_id, catalog_entry_id], map: "idx_lab_threshold_policy_rule_runtime")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model lab_threshold_unmatched_exceptions {
+  id                                                                        String                         @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                 String                         @db.Uuid
+  facility_id                                                               Int?
+  result_id                                                                 Int
+  patient_uid                                                               String                         @db.Uuid
+  test_code                                                                 String                         @db.VarChar(50)
+  loinc_code                                                                String?                        @db.VarChar(20)
+  specimen_type                                                             String?                        @db.VarChar(80)
+  unit                                                                      String?                        @db.VarChar(40)
+  unmatched_reason                                                          String                         @db.VarChar(80)
+  severity                                                                  String                         @default("high") @db.VarChar(20)
+  lifecycle_status                                                          String                         @default("open") @db.VarChar(20)
+  assigned_role                                                             String                         @default("LAB_INCHARGE") @db.VarChar(50)
+  assigned_to_uid                                                           String?                        @db.Uuid
+  task_id                                                                   Int?
+  first_seen_at                                                             DateTime                       @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  last_seen_at                                                              DateTime                       @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  occurrence_count                                                          Int                            @default(1)
+  reconciliation_attempts                                                   Int                            @default(0)
+  last_reconciled_at                                                        DateTime?                      @db.Timestamptz(6)
+  resolved_by                                                               String?                        @db.Uuid
+  resolved_at                                                               DateTime?                      @db.Timestamptz(6)
+  resolution_reason                                                         String?                        @db.VarChar(1000)
+  resolved_bundle_id                                                        String?                        @db.Uuid
+  resolved_rule_id                                                          String?                        @db.Uuid
+  resolved_catalog_entry_id                                                 String?                        @db.Uuid
+  metadata                                                                  Json                           @default("{}")
+  users_lab_threshold_unmatched_exceptions_tenant_id_assigned_to_uidTousers users?                         @relation("lab_threshold_unmatched_exceptions_tenant_id_assigned_to_uidTousers", fields: [tenant_id, assigned_to_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_assignee")
+  lab_threshold_policy_bundles                                              lab_threshold_policy_bundles?  @relation(fields: [tenant_id, resolved_bundle_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_bundle")
+  lab_threshold_catalog_entries                                             lab_threshold_catalog_entries? @relation(fields: [tenant_id, resolved_catalog_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_catalog_entry")
+  facilities                                                                facilities?                    @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_facility")
+  users_lab_threshold_unmatched_exceptions_tenant_id_resolved_byTousers     users?                         @relation("lab_threshold_unmatched_exceptions_tenant_id_resolved_byTousers", fields: [tenant_id, resolved_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_resolver")
+  lab_results                                                               lab_results                    @relation(fields: [tenant_id, result_id, patient_uid], references: [tenant_id, id, patient_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_result")
+  lab_threshold_policy_rules                                                lab_threshold_policy_rules?    @relation(fields: [tenant_id, resolved_rule_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_rule")
+  tasks                                                                     tasks?                         @relation(fields: [tenant_id, task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_threshold_exception_task")
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, result_id], map: "uq_lab_threshold_exception_result")
+  @@unique([tenant_id, result_id, patient_uid], map: "uq_lab_threshold_exception_result_patient")
+  @@index([tenant_id, facility_id, lifecycle_status, first_seen_at(sort: Desc)], map: "idx_lab_threshold_exception_facility")
+  @@index([tenant_id, lifecycle_status, last_reconciled_at, first_seen_at, id], map: "idx_lab_threshold_exception_open", where: raw("((lifecycle_status)::text = 'open'::text)"))
 }
 
 enum transplant_organ_type {

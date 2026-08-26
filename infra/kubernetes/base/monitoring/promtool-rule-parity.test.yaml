@@ -911,6 +911,37 @@ tests:
         alertname: PostgresReplicationMetricAbsent
         exp_alerts: []
 
+  # SAFE-01: the automatic unmatched-result reconciliation loop must page when
+  # it stops scheduling or its Job fails. Owned clinical tasks remain open, so
+  # this test verifies liveness without pretending an absent sweep is healthy.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_status_last_schedule_time{namespace="vhhealth",cronjob="lab-threshold-exception-reconciliation"}'
+        values: '0x30'
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="lab-threshold-exception-reconciliation-10000001"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: LabThresholdReconciliationCronJobStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "Laboratory threshold-exception reconciliation has not scheduled for more than 15 minutes"
+              description: "Unmatched laboratory results still retain owned tasks, but automatic re-evaluation against newly approved policy content is unavailable."
+              runbook: "docs/RUNBOOK_ONCALL.md#labthresholdreconciliationcronjobstale--labthresholdreconciliationcronjobfailing"
+      - eval_time: 22m
+        alertname: LabThresholdReconciliationCronJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: "Laboratory threshold-exception reconciliation is failing"
+              description: "At least one scheduled reconciliation job failed; inspect its durable fleet and tenant receipts before retrying."
+              runbook: "docs/RUNBOOK_ONCALL.md#labthresholdreconciliationcronjobstale--labthresholdreconciliationcronjobfailing"
+
   # The C6.2 warm standby is identified by application_name, a LABEL column on
   # the same user-defined query — it survives both the metric rename and the
   # change of measure. 45s of replay_lag is over the 30s DR budget but under the

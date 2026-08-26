@@ -24,7 +24,24 @@ jest.unstable_mockModule('../../services/clinical/nursingAssessmentService.js', 
   listOverdueOrHighRisk: jest.fn(async () => []),
 }));
 
+// Pass-through guard mock, the same shape the ePrescription/investigation/
+// pharmacy propagation suites use: this suite pins the wrap()/AppError
+// envelope contract of the HANDLERS, so the lane-M patient guard (which
+// queries the real access engine) must not intercept first. The guard itself
+// is pinned by labPathologyNursingRouteGuards.test.js.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  phiAccessLogger: () => (_req, _res, next) => next(),
+}));
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+  // requireTenantId reached this suite via lane M: the route file now imports
+  // the shared guard helpers, whose chain pulls tenantService.requireTenantId.
+  // An ESM mock replaces the WHOLE module, so every named export a transitive
+  // importer touches must exist here or the suite dies at load.
+  requireTenantId: jest.fn((v) => v ?? '00000000-0000-4000-8000-000000000001'),
+  getTenantById: jest.fn(),
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 

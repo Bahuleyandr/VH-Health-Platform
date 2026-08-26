@@ -41,6 +41,10 @@ jest.unstable_mockModule('../../services/lab/labCriticalAlertService.js', () => 
   supersedeCriticalAlertWithDiagnosticGenerationTx: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/lab/labThresholdExceptionService.js', () => ({
+  applyLabThresholdAssessmentTx: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../services/lab/labResultIngestCommandService.js', () => ({
   claimLabResultIngestCommand: jest.fn(),
   completeLabResultIngestCommand: jest.fn(),

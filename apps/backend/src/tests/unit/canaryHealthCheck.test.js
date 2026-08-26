@@ -30,7 +30,7 @@ const { runCanaryChecks } = await import('../../utils/canaryHealthCheck.js');
 
 function mockQueries({
   stuck = 0, failedDead = 0, reconciliationRequired = 0, terminalDead = 0, criticalAlerts = 0,
-  thresholdUnconfiguredTenants = [], escalationUnconfiguredTenants = [],
+  thresholdUncoveredFacilities = [], escalationUnconfiguredTenants = [],
 } = {}) {
   queryRawUnsafeMock.mockImplementation(async (sql) => {
     if (/SELECT 1 AS ok/i.test(sql)) return [{ ok: 1 }];
@@ -48,9 +48,17 @@ function mockQueries({
         typeof t === 'string' ? { tenant_id: t, tenant_name: t } : t
       ));
     }
-    if (/FROM lab_critical_thresholds/i.test(sql)) {
-      return thresholdUnconfiguredTenants.map((t) => (
-        typeof t === 'string' ? { tenant_id: t, tenant_name: t } : t
+    if (/FROM lab_threshold_catalog_states/i.test(sql)) {
+      return thresholdUncoveredFacilities.map((facility) => (
+        typeof facility === 'string'
+          ? {
+            tenant_id: facility,
+            tenant_name: facility,
+            facility_id: 1,
+            facility_name: facility,
+            current_revision: 1,
+          }
+          : facility
       ));
     }
     if (/FROM clinical_alerts/i.test(sql)) return [{ count: String(criticalAlerts) }];
@@ -141,28 +149,32 @@ describe('runCanaryChecks — notification outbox dead letters (F7/F11)', () => 
   });
 });
 
-describe('canary: critical-lab-threshold coverage', () => {
-  // The tenancy defect the re-audit found: a tenant with no active thresholds
-  // can never raise a critical lab alert, and the result path cannot say so
-  // without adding a statement to the caller's transaction. The canary owns
-  // the question because it runs on its own connection.
-  test('reports ok when every active tenant holds thresholds', async () => {
-    mockQueries({ thresholdUnconfiguredTenants: [] });
+describe('canary: governed laboratory-policy coverage', () => {
+  test('reports ok when every facility catalogue revision has an effective bundle', async () => {
+    mockQueries({ thresholdUncoveredFacilities: [] });
     const res = await runCanaryChecks();
-    expect(res.lab_critical_threshold_coverage).toEqual({
-      status: 'ok', unconfigured_tenants: 0,
+    expect(res.lab_threshold_policy_coverage).toEqual({
+      status: 'ok', uncovered_facilities: 0,
     });
   });
 
-  test('warns and names the tenants that hold none', async () => {
+  test('warns with exact facility and catalogue revision evidence', async () => {
     mockQueries({
-      thresholdUnconfiguredTenants: [
-        { tenant_id: 'tenant-b', tenant_name: 'Hospital B' },
+      thresholdUncoveredFacilities: [
+        {
+          tenant_id: 'tenant-b',
+          tenant_name: 'Hospital B',
+          facility_id: 7,
+          facility_name: 'Main Lab',
+          current_revision: 3,
+        },
       ],
     });
     const res = await runCanaryChecks();
-    expect(res.lab_critical_threshold_coverage).toMatchObject({
-      status: 'warn', unconfigured_tenants: 1, tenants: ['tenant-b'],
+    expect(res.lab_threshold_policy_coverage).toMatchObject({
+      status: 'warn',
+      uncovered_facilities: 1,
+      facilities: [{ tenant_id: 'tenant-b', facility_id: 7, catalog_revision: 3 }],
     });
   });
 });

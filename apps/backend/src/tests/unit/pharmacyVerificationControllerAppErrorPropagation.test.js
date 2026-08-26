@@ -95,6 +95,17 @@ jest.unstable_mockModule('../../validators/pharmacy/orderValidators.js', () => (
   uidParamValidation: (_req, _res, next) => next(),
 }));
 
+// Per-route patient guards (re-audit M mount fix) — pass-through: this suite
+// pins controller AppError propagation, not access decisions.
+jest.unstable_mockModule('../../routes/pharmacy/pharmacyOrderPatientGuards.js', () => ({
+  pharmacyOrderGuard: () => (_req, _res, next) => next(),
+  selectOrderPatient: () => async () => null,
+  selectPatientByBodyPhone: async () => null,
+  selectCounterSalePatient: async () => null,
+  selectPatientFromBodyUid: () => null,
+  tenantOf: (req) => req.tenantId ?? null,
+}));
+
 const { default: pharmacyOrderRoutes } = await import('../../routes/pharmacy/orderRoutes.js');
 
 const app = express();

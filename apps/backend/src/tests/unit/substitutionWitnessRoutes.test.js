@@ -38,6 +38,17 @@ jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   },
 }));
 
+// Per-route patient guard (re-audit M mount fix) — pass-through: this suite
+// pins witness-approval mechanics, not access decisions.
+jest.unstable_mockModule('../../routes/pharmacy/pharmacyOrderPatientGuards.js', () => ({
+  pharmacyOrderGuard: () => (_req, _res, next) => next(),
+  selectOrderPatient: () => async () => null,
+  selectPatientByBodyPhone: async () => null,
+  selectCounterSalePatient: async () => null,
+  selectPatientFromBodyUid: () => null,
+  tenantOf: (req) => req.tenantId ?? null,
+}));
+
 const {
   default: substitutionWitnessRoutes,
   pharmacySubstitutionWitnessApprovalRoutes,
