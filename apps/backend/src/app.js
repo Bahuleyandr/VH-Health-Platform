@@ -1086,7 +1086,12 @@ app.use(
   appointmentRoutes
 );
 app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), patientAccessGuard('INVESTIGATION', { careTeamModeGoverned: true }), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+// Re-audit M: the INVESTIGATION patient-access guard moved INTO the router
+// (per-route selectors resolving the row each handler serves — see
+// routes/investigation/investigationRoutes.js). A mount-level guard runs
+// before route match, so path-keyed subjects never resolved here and it
+// decided nothing. phiAccessLogger stays at the mount.
+app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
 // Pharmacy inventory and stores/purchase routes are operational supply-chain
 // surfaces. Mount them before the broader pharmacy-order router so stores and
 // purchase users do not need patient pharmacy-order permissions.
@@ -1142,13 +1147,21 @@ app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHAR
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
 
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+// Re-audit M: the PHARMACY_ORDER patient-access guard moved INTO the router
+// (per-route selectors — see routes/pharmacy/pharmacyOrderPatientGuards.js);
+// the mount-level guard never resolved path-keyed subjects. phiAccessLogger
+// stays at the mount. Applies to this mount and the /api/v1/pharmacy alias.
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*
 // (summary/low-stock/expiring-soon/expired); the canonical mount at
 // /pharmacy-orders/inventory/* still serves existing clients.
-app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PRESCRIPTION', { careTeamModeGoverned: true }), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
+app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+// Re-audit M: the PRESCRIPTION patient-access guard moved INTO the router
+// (per-route selectors against e_prescriptions — see
+// routes/prescription/index.js); the mount-level guard never resolved
+// path-keyed subjects. phiAccessLogger stays at the mount.
+app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
 app.use('/api/v1/delivery', patientRateLimiter, requireRole(...DELIVERY_ROUTE_ROLES), deliveryRoutes);
 app.use('/api/v1/patient-flow', patientRateLimiter, requireRole(...PATIENT_FLOW_ROUTE_ROLES), phiAccessLogger('PATIENT_FLOW_CHECKIN'), patientFlowRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
@@ -1380,7 +1393,10 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 // stored-XSS protection previously covered only ~9 route files via opt-in
 // field lists; clinical notes/diagnoses/assessments reached storage raw.
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('NURSING_ASSESSMENT', { careTeamModeGoverned: true }), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+// NURSING_ASSESSMENT patient-access guard moved into nursingAssessmentRoutes.js as
+// per-route guards with patient selectors (a mount-level guard runs before route
+// matching — req.params was empty here, so it never resolved a patient or decided).
+app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_ENCOUNTER', { careTeamModeGoverned: true }), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
 
 // Results-inbox safety net (design §4.5) — the per-clinician inbox + acknowledge
@@ -1737,19 +1753,29 @@ app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStep
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
 // Anatomic pathology / cytology
-app.use('/api/v1/pathology', requireRole(...PATHOLOGY_ROUTE_ROLES), patientAccessGuard('PATHOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('PATHOLOGY'), pathologyRoutes);
+// PATHOLOGY patient-access guard moved into pathologyRoutes.js as per-route guards
+// with patient selectors (a mount-level guard runs before route matching —
+// req.params was empty here, so it never resolved a patient or decided).
+app.use('/api/v1/pathology', requireRole(...PATHOLOGY_ROUTE_ROLES), phiAccessLogger('PATHOLOGY'), pathologyRoutes);
 
 // Dietary / Nutrition — CAN-050: add the care-team-governed patient guard.
 app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+// Re-audit M: the OPERATING_THEATRE patient-access guard moved INTO theatreRoutes
+// (per-route selectors) — at the mount req.params is empty, so it never resolved
+// a patient and never decided anything.
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 // OR board shares the /theatre prefix but was mounted with role-only gating —
 // missing the patient-access guard and PHI logging its sibling has, so broad
 // theatre roles could read every patient's OR-board clinical state (and schedule
 // surgery) un-audited (Sol Ultra #9/#12). Mirror the theatreRoutes middleware.
-app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+// Re-audit M: the OPERATING_THEATRE guard moved INTO orBoardRoutes (per-route,
+// on the single-patient booking create; boards stay role-gated).
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPERATING_THEATRE'), orBoardRoutes);
+// Re-audit M: the ANESTHESIA_CHART guard moved INTO anesthesiaChartRoutes
+// (per-route selectors resolving the theatre case to its patient).
+app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 app.use('/api/v1/ctvs', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CTVS_PERFUSION', { careTeamModeGoverned: true }), phiAccessLogger('CTVS_PERFUSION'), ctvsPerfusionRoutes);
 app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), sanitizeAllBodyStrings, cssdRoutes);
 
@@ -1774,8 +1800,15 @@ app.use(
 app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patientAccessGuard('MICROBIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 // CAN-051: Form-F pregnancy/USG records are legally sensitive — add the
 // care-team-governed patient guard (was role + PHI logger only).
-app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
-app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
+// Re-audit 2026-08 (M): the CAN-051 mount guard never decided — mount
+// middleware runs before route match (empty req.params). The guard moved
+// INTO pcpndtRoutes as per-route patientAccessGuard('CLINICAL_WORKFLOW')
+// with row-resolving patientSelectors (same record type, still
+// careTeamModeGoverned).
+app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
+// Re-audit M: the ICU guard moved INTO icuRoutes (per-route selectors on every
+// admission-scoped route; census/settings/governance stay role-gated).
+app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/stroke-pathway', requireRole(...STROKE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STROKE_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STROKE_PATHWAY'), strokePathwayRoutes);
 app.use('/api/v1/stemi-pathway', requireRole(...STEMI_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('STEMI_PATHWAY', { careTeamModeGoverned: true }), phiAccessLogger('STEMI_PATHWAY'), stemiPathwayRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
@@ -1785,9 +1818,18 @@ app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAcce
 app.use('/api/v1/resuscitation', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('RESUSCITATION'), resuscitationRoutes);
 app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
-app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
-app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
-app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('CATH_LAB'), cathLabRoutes);
+// Re-audit 2026-08 (M): patient-access guard moved INTO
+// deathCertificationRoutes (per-route selectors resolve the deceased patient
+// behind each record :id) — the mount-level guard ran before route match and
+// never decided.
+app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
+// Re-audit M: the DIALYSIS guard moved INTO dialysisRoutes (per-route selectors
+// on roster/session/access routes; boards + machine surfaces stay role-gated).
+app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogger('DIALYSIS'), dialysisRoutes);
+// Re-audit M: the CLINICAL_WORKFLOW guard moved INTO cathLabRoutes +
+// cathSchedulingRoutes (per-route case/report selectors; catalogs and the day
+// list stay role-gated).
+app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), patientAccessGuard('BLOOD_BANK', { careTeamModeGoverned: true }), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
@@ -1827,14 +1869,20 @@ app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), ph
 // E6 — staff-side result release controls (hold with reason / release
 // early). Mounted BEFORE the generic /lab routers so their narrower
 // LAB_ROUTE_ROLES gate cannot shadow the clinical-staff gate here.
-app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
+// LAB_RESULT patient-access guard moved into resultReleaseRoutes.js as per-route
+// guards whose selector resolves the patient behind the :id result being
+// held/released (a mount-level guard never saw the path param, so it never decided).
+app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
 app.use('/api/v1/diagnostic-results/release', requireRole(...CLINICAL_STAFF_ROLES, 'PATHOLOGIST'), phiAccessLogger('DIAGNOSTIC_RESULT'), structuredDiagnosticReleaseRoutes);
 // Analyzer ingestion is mounted before the generic lab router because its
 // narrow route gate admits configured machine service accounts. The router
 // contains only the two ingest endpoints, so machine roles cannot reach lab
 // result reads, sign-off, alerts, or specimen operations.
 app.use('/api/v1/lab', requireRole(...LAB_INGEST_MOUNT_ROUTE_ROLES), labIngestRoutes);
-app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labRoutes);
+// LAB_RESULT patient-access guard moved into labRoutes.js as per-route guards with
+// patient selectors (a mount-level guard runs before route matching — req.params was
+// empty here, so path-param/resource-id routes never resolved a patient or decided).
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 // Gap-audit 2026-08 (PHI mounts): per-patient policies, preauth bundles, and
@@ -1887,7 +1935,11 @@ app.use(
 // Gap-audit 2026-08 (PHI mounts): PM-JAY beneficiaries/cases are looked up by
 // patient uid — an unlogged government-scheme PHI surface until now.
 app.use('/api/v1/pmjay', requireRole(...BILLING_ROUTE_ROLES), phiAccessLogger('PMJAY_CLAIM'), pmjayRoutes);
-app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('MATERNITY_RECORD', { careTeamModeGoverned: true }), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+// Re-audit 2026-08 (M): patient-access guard moved INTO maternityRoutes
+// (per-route selectors resolve the mother through the
+// pregnancy/labour/delivery joins) — the mount-level guard ran before route
+// match and never decided.
+app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access
 // to seed a returning child's schedule; doctors + nurses to record doses.
 app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), patientAccessGuard('PAEDIATRIC_IMMUNISATION', { careTeamModeGoverned: true }), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
@@ -1905,7 +1957,10 @@ app.use('/api/v1/portal/abdm/enrolment', patientRateLimiter, requireRole('PATIEN
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
-app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('DISCHARGE_SUMMARY', { careTeamModeGoverned: true }), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
+// Re-audit 2026-08 (M): patient-access guard moved INTO dischargeRoutes
+// (per-route selectors resolve the patient behind each summary/admission id)
+// — the mount-level guard ran before route match and never decided.
+app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 // CAN-035: incident + infection-control endpoints carry patient_uid/organism/

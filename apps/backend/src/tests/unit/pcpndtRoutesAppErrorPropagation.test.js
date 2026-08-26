@@ -36,6 +36,15 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 
+// Re-audit 2026-08 (M: mount guards): the router now carries per-route
+// patientAccessGuard middleware. This suite pins the route layer's own
+// contract, not authz — stub the guard factory to a pass-through so the real
+// accessDecisionService import graph (and its DB reads) stays out of scope.
+// Guard wiring + selectors are pinned by pcpndtRoutesPatientGuard.test.js.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+}));
+
 const { default: pcpndtRoutes } = await import('../../routes/compliance/pcpndtRoutes.js');
 
 const app = express();
