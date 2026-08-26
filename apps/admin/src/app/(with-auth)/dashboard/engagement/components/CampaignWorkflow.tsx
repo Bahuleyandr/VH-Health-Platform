@@ -373,9 +373,9 @@ export function CampaignWorkflow({
         </span>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        The backend enforces this order — dry run before approval, approval
-        by a distinct authenticated reviewer before queueing. Approval requires
-        a reason. Queueing hands eligible recipients to the notification outbox.
+        The backend enforces this order — dry run before approval, approval by a
+        distinct authenticated reviewer before queueing. Approval requires a
+        reason. Queueing hands eligible recipients to the notification outbox.
       </p>
 
       {preview && (
