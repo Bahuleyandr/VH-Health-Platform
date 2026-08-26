@@ -35,6 +35,11 @@ jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
     res.on('finish', () => phiPatientUids.push(req.phiContext?.patientUid ?? null));
     next();
   },
+  // Pass-through: labRoutes now applies patientAccessGuard per route (the
+  // 2026-08 mount-guard conversion). The guard's own decide/deny behavior is
+  // pinned by labPathologyNursingRouteGuards.test.js; this suite tests the
+  // handlers' error-envelope contract, which the guard must not intercept.
+  patientAccessGuard: () => (_req, _res, next) => next(),
 }));
 
 jest.unstable_mockModule('../../services/investigation/investigationService.js', () => ({}));
