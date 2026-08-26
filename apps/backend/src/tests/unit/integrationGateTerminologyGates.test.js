@@ -41,6 +41,16 @@ const isFacilityAssetsEnvEnabled = jest.fn();
 // Embedded-BI accessor (wt/bi-app): integrationGateService imports it by name,
 // so the mock module must export it even though these tests never enable it.
 const getAnalyticsBiSettings = jest.fn(async () => ({ enabled: false }));
+// Reaudit 2026-08-25 forward-slate gate deps (G1/G2/G3/G4). integrationGateService
+// imports these env probes + settings accessors by name; the mocks must export
+// them even though these terminology-focused tests never enable them.
+const isBirthNotificationEnvEnabled = jest.fn(() => false);
+const isPublicHealthRegistersEnvEnabled = jest.fn(() => false);
+const isGstEInvoiceEnvEnabled = jest.fn(() => false);
+const isSiemExportSchedulerEnvEnabled = jest.fn(() => false);
+const getBirthNotificationSettings = jest.fn(async () => ({ enabled: false }));
+const getPublicHealthRegistersSettings = jest.fn(async () => ({ enabled: false }));
+const getGstEInvoiceSettings = jest.fn(async () => ({ enabled: false }));
 const getTenantTerminologySettings = jest.fn();
 const isWhoIcdConfigured = jest.fn();
 const queryRawUnsafe = jest.fn();
@@ -82,6 +92,18 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
   isFacilityAssetsEnvEnabled,
 }));
+jest.unstable_mockModule('../../services/clinical/birthNotificationService.js', () => ({
+  isBirthNotificationEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/publicHealth/publicHealthService.js', () => ({
+  isPublicHealthRegistersEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/billing/gstEInvoiceService.js', () => ({
+  isGstEInvoiceEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/security/siemExportSchedulerService.js', () => ({
+  isSiemExportSchedulerEnvEnabled,
+}));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
   getAbdmEnrolmentSettings,
   getAbdmHiuSettings,
@@ -94,6 +116,10 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getDrugKbSettings,
   getAnalyticsBiSettings,
   getFacilityAssetsSettings,
+  // Forward-slate accessors (G1/G2/G4).
+  getBirthNotificationSettings,
+  getPublicHealthRegistersSettings,
+  getGstEInvoiceSettings,
 }));
 jest.unstable_mockModule('../../services/terminology/terminologySettingsService.js', () => ({
   getTenantTerminologySettings,

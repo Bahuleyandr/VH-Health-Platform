@@ -48541,6 +48541,9 @@
       "name": "biomed-cmms"
     },
     {
+      "name": "birth-notification"
+    },
+    {
       "name": "bloodbank"
     },
     {
@@ -48694,6 +48697,9 @@
       "name": "governance"
     },
     {
+      "name": "gst-einvoice"
+    },
+    {
       "name": "health"
     },
     {
@@ -48824,6 +48830,9 @@
     },
     {
       "name": "productivity"
+    },
+    {
+      "name": "public-health-register"
     },
     {
       "name": "quality"
@@ -81588,6 +81597,154 @@
         }
       }
     },
+    "/api/v1/billing/gst/einvoices": {
+      "get": {
+        "operationId": "get_api_v1_billing_gst_einvoices",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/gst/export/gl": {
+      "get": {
+        "operationId": "get_api_v1_billing_gst_export_gl",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/gst/export/tally": {
+      "get": {
+        "operationId": "get_api_v1_billing_gst_export_tally",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/gst/invoices/{invoiceId}/irn": {
+      "get": {
+        "operationId": "get_api_v1_billing_gst_invoices_by_invoiceId_irn",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_billing_gst_invoices_by_invoiceId_irn",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/billing/gst/invoices/{invoiceId}/irn/cancel": {
+      "post": {
+        "operationId": "post_api_v1_billing_gst_invoices_by_invoiceId_irn_cancel",
+        "tags": [
+          "gst-einvoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/billing/icd-cpt-map": {
       "get": {
         "operationId": "get_api_v1_billing_icd_cpt_map",
@@ -83344,6 +83501,154 @@
         "parameters": [
           {
             "name": "claimId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/birth-notification/notifications": {
+      "get": {
+        "operationId": "get_api_v1_birth_notification_notifications",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_birth_notification_notifications",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/birth-notification/notifications/overdue": {
+      "get": {
+        "operationId": "get_api_v1_birth_notification_notifications_overdue",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/birth-notification/notifications/{id}": {
+      "get": {
+        "operationId": "get_api_v1_birth_notification_notifications_by_id",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/birth-notification/notifications/{id}/form1": {
+      "get": {
+        "operationId": "get_api_v1_birth_notification_notifications_by_id_form1",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/birth-notification/notifications/{id}/transition": {
+      "post": {
+        "operationId": "post_api_v1_birth_notification_notifications_by_id_transition",
+        "tags": [
+          "birth-notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -137949,6 +138254,164 @@
         "operationId": "patch_api_v1_productivity_phrases_by_id",
         "tags": [
           "productivity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/public-health/exports/hmis": {
+      "get": {
+        "operationId": "get_api_v1_public_health_exports_hmis",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public-health/exports/idsp": {
+      "get": {
+        "operationId": "get_api_v1_public_health_exports_idsp",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public-health/exports/nikshay": {
+      "get": {
+        "operationId": "get_api_v1_public_health_exports_nikshay",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public-health/notifications": {
+      "get": {
+        "operationId": "get_api_v1_public_health_notifications",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_public_health_notifications",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public-health/notifications/{id}": {
+      "get": {
+        "operationId": "get_api_v1_public_health_notifications_by_id",
+        "tags": [
+          "public-health-register"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/public-health/notifications/{id}/transition": {
+      "post": {
+        "operationId": "post_api_v1_public_health_notifications_by_id_transition",
+        "tags": [
+          "public-health-register"
         ],
         "responses": {
           "200": {

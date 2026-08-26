@@ -27,6 +27,14 @@ const getPaymentGatewaySettings = jest.fn();
 const getSmsSettings = jest.fn();
 const getUhiSettings = jest.fn();
 const isFacilityAssetsEnvEnabled = jest.fn();
+// Reaudit 2026-08-25 forward slate (G1/G2/G3/G4) gate deps.
+const getBirthNotificationSettings = jest.fn();
+const getPublicHealthRegistersSettings = jest.fn();
+const getGstEInvoiceSettings = jest.fn();
+const isBirthNotificationEnvEnabled = jest.fn();
+const isPublicHealthRegistersEnvEnabled = jest.fn();
+const isGstEInvoiceEnvEnabled = jest.fn();
+const isSiemExportSchedulerEnvEnabled = jest.fn();
 const queryRawUnsafe = jest.fn();
 
 const ABDM_CONFIG = {
@@ -63,6 +71,19 @@ jest.unstable_mockModule('../../services/telemedicine/teleconsultProvisioningSer
 jest.unstable_mockModule('../../services/facility/facilityAssetService.js', () => ({
   isFacilityAssetsEnvEnabled,
 }));
+// Forward-slate service modules statically imported by integrationGateService.
+jest.unstable_mockModule('../../services/clinical/birthNotificationService.js', () => ({
+  isBirthNotificationEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/publicHealth/publicHealthService.js', () => ({
+  isPublicHealthRegistersEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/billing/gstEInvoiceService.js', () => ({
+  isGstEInvoiceEnvEnabled,
+}));
+jest.unstable_mockModule('../../services/security/siemExportSchedulerService.js', () => ({
+  isSiemExportSchedulerEnvEnabled,
+}));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   listTenants,
 }));
@@ -72,6 +93,9 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
   getAmbulanceGpsTrackingSettings,
   getAnalyticsBiSettings,
   getFacilityAssetsSettings,
+  getBirthNotificationSettings,
+  getPublicHealthRegistersSettings,
+  getGstEInvoiceSettings,
   getPaymentGatewaySettings,
   getSmsSettings,
   getUhiSettings,
@@ -99,6 +123,14 @@ const AUTH_KEY = 'CIPHERTEXT_AUTH_KEY_v1:deadbeef';
 
 function primeDefaults() {
   listTenants.mockResolvedValue({ tenants: [TENANT], count: 1 });
+  // Forward-slate gates default dark (env off, tenant off).
+  isBirthNotificationEnvEnabled.mockReturnValue(false);
+  isPublicHealthRegistersEnvEnabled.mockReturnValue(false);
+  isGstEInvoiceEnvEnabled.mockReturnValue(false);
+  isSiemExportSchedulerEnvEnabled.mockReturnValue(false);
+  getBirthNotificationSettings.mockResolvedValue({ enabled: false });
+  getPublicHealthRegistersSettings.mockResolvedValue({ enabled: false });
+  getGstEInvoiceSettings.mockResolvedValue({ enabled: false });
   isGatewayEnvEnabled.mockReturnValue(false);
   resolveGatewayContext.mockResolvedValue({
     enabled: false, reason: 'env_disabled', config: null,

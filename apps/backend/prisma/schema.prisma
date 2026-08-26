@@ -10556,6 +10556,8 @@ model tenants {
   biomed_work_order_recipients                         biomed_work_order_recipients[]
   biomed_work_order_updates                            biomed_work_order_updates[]
   biomed_work_orders                                   biomed_work_orders[]
+  birth_notification_serial_counter                    birth_notification_serial_counter?
+  birth_notifications                                  birth_notifications[]
   blood_bank_register_exports                          blood_bank_register_exports[]
   blood_requests                                       blood_requests[]
   blood_unit_discard_events                            blood_unit_discard_events[]
@@ -10811,6 +10813,7 @@ model tenants {
   gdpr_erasure_log                                     gdpr_erasure_log[]
   geofence_breaches                                    geofence_breaches[]
   growth_charts                                        growth_charts[]
+  gst_einvoice_documents                               gst_einvoice_documents[]
   hai_cases                                            hai_cases[]
   hand_hygiene_audits                                  hand_hygiene_audits[]
   hand_hygiene_moments                                 hand_hygiene_moments[]
@@ -10944,6 +10947,7 @@ model tenants {
   nicu_respiratory_support_observations                nicu_respiratory_support_observations[]
   nicu_thermal_environment_observations                nicu_thermal_environment_observations[]
   note_drafts                                          note_drafts[]
+  notifiable_disease_notifications                     notifiable_disease_notifications[]
   notification_delivery_cursors                        notification_delivery_cursors[]
   notification_delivery_log                            notification_delivery_log[]
   notification_events                                  notification_events[]
@@ -12986,6 +12990,7 @@ model billing_invoices {
   billing_payment_links       billing_payment_links[]
   billing_payments            billing_payments[]
   billing_refunds             billing_refunds[]
+  gst_einvoice_documents      gst_einvoice_documents[]
   patient_message_threads     patient_message_threads[]
   payment_gateway_orders      payment_gateway_orders[]
   pharmacy_counter_sales      pharmacy_counter_sales[]
@@ -14069,11 +14074,13 @@ model maternity_deliveries {
   tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  birth_notifications        birth_notifications[]
   maternity_labor_admissions maternity_labor_admissions?  @relation(fields: [labor_admission_id], references: [id], onUpdate: NoAction)
   maternity_pregnancies      maternity_pregnancies        @relation(fields: [pregnancy_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   maternity_newborns         maternity_newborns[]
   maternity_postnatal_visits maternity_postnatal_visits[]
 
+  @@unique([tenant_id, id], map: "ux_maternity_deliveries_tenant_id")
   @@index([delivery_datetime(sort: Desc)], map: "idx_maternity_deliveries_date")
   @@index([pregnancy_id], map: "idx_maternity_deliveries_pregnancy")
   @@index([tenant_id], map: "idx_maternity_deliveries_pph", where: raw("(pph_diagnosed = true)"))
@@ -14141,6 +14148,7 @@ model maternity_newborns {
   tenant_id                    String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  birth_notifications          birth_notifications?
   maternity_apgar_scores       maternity_apgar_scores[]
   maternity_deliveries         maternity_deliveries           @relation(fields: [delivery_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   maternity_postnatal_visits   maternity_postnatal_visits[]
@@ -14149,6 +14157,7 @@ model maternity_newborns {
 
   @@unique([delivery_id, birth_order], map: "uq_maternity_newborns_delivery_birth_order")
   @@unique([tenant_id, newborn_patient_uid], map: "uq_maternity_newborns_tenant_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_maternity_newborns_tenant_id")
   @@index([newborn_patient_uid], map: "idx_maternity_newborns_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
   @@index([tenant_id], map: "idx_maternity_newborns_tenant_id")
 }
@@ -14249,12 +14258,14 @@ model maternity_pregnancies {
   tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  birth_notifications        birth_notifications[]
   maternity_anc_visits       maternity_anc_visits[]
   maternity_deliveries       maternity_deliveries[]
   maternity_fetal_kicks      maternity_fetal_kicks[]
   maternity_labor_admissions maternity_labor_admissions[]
   maternity_supplements      maternity_supplements[]
 
+  @@unique([tenant_id, id], map: "ux_maternity_pregnancies_tenant_id")
   @@index([patient_uid, status], map: "idx_maternity_pregnancies_patient")
   @@index([edd_date], map: "idx_maternity_pregnancies_edd", where: raw("((status)::text = 'ongoing'::text)"))
   @@index([tenant_id], map: "idx_maternity_pregnancies_tenant_id")
@@ -28601,6 +28612,157 @@ model system_settings {
   key        String   @id
   value      String
   updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model birth_notification_serial_counter {
+  tenant_id   String  @id @db.Uuid
+  next_serial Int     @default(1)
+  tenants     tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model birth_notifications {
+  id                           Int                    @id @default(autoincrement())
+  tenant_id                    String                 @db.Uuid
+  newborn_id                   Int?
+  delivery_id                  Int?
+  pregnancy_id                 Int?
+  birth_serial                 String?                @db.VarChar(40)
+  child_name                   String?                @db.VarChar(160)
+  sex                          String                 @default("indeterminate") @db.VarChar(12)
+  date_of_birth                DateTime               @db.Date
+  time_of_birth                DateTime               @db.Time(6)
+  place_of_birth               String                 @default("hospital") @db.VarChar(40)
+  ward_or_unit                 String?                @db.VarChar(80)
+  birth_weight_g               Int?
+  birth_order                  Int                    @default(1)
+  is_multiple_birth            Boolean                @default(false)
+  delivery_type                String?                @db.VarChar(30)
+  gestational_age_weeks        Decimal?               @db.Decimal(4, 1)
+  outcome                      String                 @default("live") @db.VarChar(24)
+  mother_patient_uid           String                 @db.Uuid
+  mother_name                  String?                @db.VarChar(160)
+  mother_age_years             Int?
+  mother_aadhaar_last4         String?                @db.VarChar(8)
+  mother_education             String?                @db.VarChar(60)
+  mother_occupation            String?                @db.VarChar(80)
+  father_name                  String?                @db.VarChar(160)
+  father_aadhaar_last4         String?                @db.VarChar(8)
+  father_education             String?                @db.VarChar(60)
+  father_occupation            String?                @db.VarChar(80)
+  permanent_address            String?
+  address_at_birth             String?
+  informant_name               String?                @db.VarChar(160)
+  informant_relation           String?                @db.VarChar(60)
+  certified_by                 String?                @db.Uuid
+  certified_by_name            String?                @db.VarChar(160)
+  certifier_registration_no    String?                @db.VarChar(60)
+  certified_at                 DateTime?              @db.Timestamptz(6)
+  reporting_due_date           DateTime?              @default(dbgenerated("(date_of_birth + 21)")) @db.Date
+  notified_to_registrar_at     DateTime?              @db.Timestamptz(6)
+  registrar_office             String?                @db.VarChar(160)
+  registrar_acknowledgement_no String?                @db.VarChar(60)
+  registration_no              String?                @db.VarChar(60)
+  registered_at                DateTime?              @db.Timestamptz(6)
+  status                       String                 @default("draft") @db.VarChar(24)
+  cancel_reason                String?
+  notes                        String?
+  created_by                   String?                @db.Uuid
+  created_at                   DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime               @default(now()) @db.Timestamptz(6)
+  tenants                      tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  maternity_deliveries         maternity_deliveries?  @relation(fields: [tenant_id, delivery_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_delivery")
+  maternity_newborns           maternity_newborns?    @relation(fields: [tenant_id, newborn_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_newborn")
+  maternity_pregnancies        maternity_pregnancies? @relation(fields: [tenant_id, pregnancy_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_pregnancy")
+
+  @@unique([tenant_id, birth_serial])
+  @@unique([tenant_id, newborn_id], map: "ux_birth_notifications_newborn")
+  @@index([mother_patient_uid], map: "idx_birth_notifications_mother")
+  @@index([tenant_id, reporting_due_date], map: "idx_birth_notifications_pending_registrar", where: raw("((notified_to_registrar_at IS NULL) AND ((status)::text <> 'cancelled'::text))"))
+  @@index([tenant_id, status, date_of_birth(sort: Desc)], map: "idx_birth_notifications_status")
+  @@index([tenant_id, delivery_id], map: "ix_birth_notifications_tenant_delivery", where: raw("(delivery_id IS NOT NULL)"))
+  @@index([tenant_id, newborn_id], map: "ix_birth_notifications_tenant_newborn", where: raw("(newborn_id IS NOT NULL)"))
+  @@index([tenant_id, pregnancy_id], map: "ix_birth_notifications_tenant_pregnancy", where: raw("(pregnancy_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model gst_einvoice_documents {
+  id               BigInt           @id @default(autoincrement())
+  tenant_id        String           @db.Uuid
+  invoice_id       Int
+  provider         String           @default("mock") @db.VarChar(20)
+  seller_gstin     String?          @db.VarChar(20)
+  irn              String?          @unique(map: "ux_gst_einvoice_irn", where: raw("(irn IS NOT NULL)")) @db.VarChar(64)
+  ack_no           String?          @db.VarChar(40)
+  ack_date         DateTime?        @db.Timestamptz(6)
+  signed_invoice   String?
+  signed_qr_code   String?
+  status           String           @default("pending") @db.VarChar(20)
+  request_payload  Json             @default("{}")
+  response_payload Json             @default("{}")
+  error_code       String?          @db.VarChar(40)
+  error_message    String?
+  cancelled_at     DateTime?        @db.Timestamptz(6)
+  cancel_reason    String?          @db.VarChar(255)
+  cancelled_by     String?          @db.Uuid
+  generated_at     DateTime?        @db.Timestamptz(6)
+  created_by       String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  billing_invoices billing_invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, invoice_id], map: "ux_gst_einvoice_invoice_live", where: raw("((status)::text <> 'cancelled'::text)"))
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_gst_einvoice_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notifiable_disease_notifications {
+  id                  BigInt    @id @default(autoincrement())
+  tenant_id           String    @db.Uuid
+  patient_uid         String    @db.Uuid
+  admission_id        Int?
+  patient_name        String?   @db.VarChar(160)
+  patient_age_years   Int?
+  patient_sex         String?   @db.VarChar(12)
+  patient_phone       String?   @db.VarChar(20)
+  patient_address     String?
+  patient_district    String?   @db.VarChar(120)
+  patient_state       String?   @db.VarChar(80)
+  disease_code        String    @db.VarChar(40)
+  disease_name        String    @db.VarChar(160)
+  icd10_code          String?   @db.VarChar(10)
+  program             String    @default("idsp") @db.VarChar(20)
+  case_classification String    @default("suspected") @db.VarChar(20)
+  lab_confirmed       Boolean   @default(false)
+  specimen_type       String?   @db.VarChar(60)
+  lab_test            String?   @db.VarChar(120)
+  lab_result          String?   @db.VarChar(120)
+  date_of_onset       DateTime? @db.Date
+  date_of_diagnosis   DateTime  @db.Date
+  notified_at         DateTime? @db.Timestamptz(6)
+  program_details     Json      @default("{}")
+  external_ref        String?   @db.VarChar(80)
+  outcome             String?   @db.VarChar(24)
+  status              String    @default("draft") @db.VarChar(20)
+  reported_by         String?   @db.Uuid
+  reported_by_name    String?   @db.VarChar(160)
+  notes               String?
+  created_by          String?   @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patient_uid], map: "idx_notifiable_disease_patient")
+  @@index([tenant_id, date_of_diagnosis], map: "idx_notifiable_disease_pending", where: raw("((status)::text = 'draft'::text)"))
+  @@index([tenant_id, program, date_of_diagnosis(sort: Desc)], map: "idx_notifiable_disease_program")
+  @@index([tenant_id, status, date_of_diagnosis(sort: Desc)], map: "idx_notifiable_disease_status")
 }
 
 enum transplant_organ_type {

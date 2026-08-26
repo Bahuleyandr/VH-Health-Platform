@@ -331,6 +331,57 @@ export async function getFacilityAssetsSettings(tenantId) {
   return { enabled: raw.enabled === true };
 }
 
+// Birth notification / birth-certificate register (G4, migration 737).
+// Disabled by default — the register dark-ships like every #878-wave feature,
+// so a tenant opts in via a settings write only after the deployment sets
+// BIRTH_NOTIFICATION_ENABLED (env is the kill switch, this is the per-hospital
+// enable; birthNotificationService.requireBirthNotificationEnabled ANDs both).
+// Defensive like every accessor here: malformed config yields the disabled
+// default, never a throw.
+export async function getBirthNotificationSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.birthNotification;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// Statutory public-health notifiable-disease register + Nikshay/IDSP/HMIS
+// exports (G1, migration 739). Disabled by default; a tenant opts in via a
+// settings write only after the deployment sets PUBLIC_HEALTH_REGISTERS_ENABLED
+// (env kill switch; publicHealthService.requirePublicHealthRegistersEnabled
+// ANDs both). Defensive: malformed config yields the disabled default.
+export async function getPublicHealthRegistersSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.publicHealthRegisters;
+  const defaults = { enabled: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  return { enabled: raw.enabled === true };
+}
+
+// GST e-invoicing (IRN/IRP) + Tally/GL accounting export (G2, migration 738).
+// Disabled by default; a tenant opts in via a settings write only after the
+// deployment sets GST_EINVOICE_ENABLED (env kill switch;
+// gstEInvoiceService.requireGstEInvoiceEnabled ANDs both). The Tally/GL export
+// path is self-contained (no external credentials) but rides the same tenant
+// enable so a hospital turns the whole GST-compliance surface on together.
+// Defensive: malformed config yields the disabled default.
+export async function getGstEInvoiceSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.gstEInvoice;
+  const defaults = { enabled: false, provider: 'mock', sellerGstin: null, sellerLegalName: null };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  const provider = ['mock', 'sandbox', 'nic', 'gsp'].includes(String(raw.provider || '').trim())
+    ? String(raw.provider).trim()
+    : 'mock';
+  return {
+    enabled: raw.enabled === true,
+    provider,
+    sellerGstin: raw.sellerGstin ? String(raw.sellerGstin).trim() : null,
+    sellerLegalName: raw.sellerLegalName ? String(raw.sellerLegalName).trim() : null,
+  };
+}
+
 export async function getFrontDeskBiometricCaptureSettings(tenantId) {
   const settings = await getTenantSettings(tenantId);
   const raw = settings.biometricCapture?.frontDeskRegistration;
