@@ -2318,6 +2318,7 @@
   "periodTrackerSavedToast": "സൈക്കിൾ ട്രാക്കർ സംരക്ഷിച്ചു",
   "periodTrackerLastPeriodStart": "അവസാന പീരിയഡ് ആരംഭം",
   "periodTrackerTitle": "പീരിയഡ് ട്രാക്കർ",
+  "periodTrackerProfileUnavailable": "ഈ പ്രൊഫൈലിന് പീരിയഡ് ട്രാക്കിംഗ് ലഭ്യമല്ല.",
   "periodTrackerCycleDetails": "സൈക്കിൾ വിവരങ്ങൾ",
   "periodTrackerCycleLength": "സൈക്കിൾ ദൈർഘ്യം",
   "periodTrackerDays": "ദിവസങ്ങൾ",

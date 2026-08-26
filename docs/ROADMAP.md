@@ -1203,39 +1203,23 @@ removed, and none of the seven grantable flags describes wristband printing. The
 control the owner asked for is the audit trail, and it is unconditional. Revisit
 only if an owner asks for per-admin scoping of band printing specifically.
 
-### Engagement campaigns — no requester/approver separation exists; building one is a feature `[CODE]`
+### Engagement campaigns — distinct submitter/approver control enforced; version binding remains `[CODE]`
 
-*What the code does.* `approveCampaign`
-(`apps/backend/src/services/engagement/engagementCampaignService.js`) loads the
-campaign, checks the caller's **role** against `BROAD_APPROVAL_ROLES` (SUPER_ADMIN,
-ADMIN, QUALITY_OFFICER, CMO, CNO, MEDICAL_SUPERINTENDENT) when
-`approval_required_role = 'admin_quality'` and against `CARE_TEAM_APPROVAL_ROLES`
-(those plus the doctor and ward-incharge roles) otherwise, then moves the row
-`pending_approval → scheduled` and stamps `approved_by`/`approved_at` with
-whoever called. It never reads `submitted_by` or `created_by`.
-`submitCampaignForApproval` has no role gate of its own beyond the mount's
-`ENGAGEMENT_ROUTE_ROLES`. So a caller holding an approving role can submit a
-campaign and approve it themselves, and the platform records both stamps as the
-same person.
+`submitCampaignForApproval` now refuses a missing authenticated submitter and
+persists that identity. `approveCampaign` still applies the governed role set,
+then also requires an authenticated different actor and a non-empty reason. The
+Each status compare and its submitter-or-approver stamp commits with the matching
+transition audit row in one tenant transaction; a lost concurrent transition
+fails with a conflict instead of returning an empty success. The admin console
+keeps authority on the backend and requires the reason before opening its
+approval confirmation.
 
-*What was claimed.* Round 3 added three read endpoints and described them — in
-the published OpenAPI spec, in `routes/engagement/engagementListQueries.js`, in
-`routes/engagement/engagementRoutes.js`, and in the admin console's
-`CampaignsPanel.tsx` and `engagement/page.tsx` — as closing "a broken two-person
-control" for "the second approver, who is not the author". There is no such
-control to break. The reads are a genuine fix for a genuine hole (a campaign was
-addressable only by an id the caller already held, so no other session could open
-it), and that is now all they say.
-
-*Why the control is not built here.* Requester/approver separation is a policy
-choice with real operational consequences: the columns already exist
-(`engagement_campaigns.submitted_by`, `.approved_by`), so the code change is
-small, but a single-clinician site or an out-of-hours recall would be unable to
-send anything the moment it lands. The patient-merge two-person rule
-(`services/patient/patientMergeService.js`) is the shape to copy — including its
-handling of a NULL requester, which it refuses rather than waves through — but
-whether engagement campaigns warrant it, and whether it should apply to both
-`approval_required_role` tiers or only the broad one, is a product decision.
+The remaining FLOW-04 work is material-version binding: hash the approved
+campaign definition, expire approvals, and return any materially edited
+campaign to draft so an approval cannot survive a changed template, audience,
+channel, schedule, or rate policy. Until that follow-up closes, distinct-actor
+separation is real but should not be described as complete content approval
+integrity.
 
 ### ADT^A02 on first bed allocation — an interface-contract decision, so the capability string was narrowed instead `[CODE]` `[OPERATOR]`
 
@@ -1554,49 +1538,26 @@ ARB metadata marks the Aadhaar/OTP identity strings `LEGAL/IDENTITY`, and
 "human clinical review: pending". "ABHA", "OTP" and the Aadhaar term are kept
 in their standard forms in every locale rather than translated as common nouns.
 
-## Explicitly parked (re-audit lane L, 2026-08-25 — patient routes a link cannot reach)
+## Closed (re-audit lane L, 2026-08-26 — stable patient deep-link hydration)
 
-`DeepLinkService`'s allowlist is now a **partition** of `app_router.dart`'s
-route table: `deep_link_route_table_test.dart` parses the router source and
-fails unless every `GoRoute` path is either a link destination or carries a
-reason in `DeepLinkService.unreachableByLinkRoutes`. That closed the class the
-lane was pointed at — `/portal/discharge-summaries` (list and detail) and
-`/portal/diagnostic-results/:id` were real screens that a `vhhealth://app/…`
-link or a `route`-carrying push payload dead-ended on, purely because nobody
-remembered to add them.
+`DeepLinkService` still enforces a tested partition of `app_router.dart`, and
+the formerly transient appointment, teleconsult, and period-tracker routes are
+now real link destinations. Appointment routes hydrate the authenticated,
+tenant-scoped resource named by the positive numeric path ID when matching
+typed `state.extra` is absent. A 401, 403, or 404 never falls back to a stale
+authorized copy; a transport outage may use only the encrypted active-profile
+appointment feed and labels appointment detail as stale. Cold consult links
+re-enter the teleconsult lobby so live join state, consent, and device readiness
+must be re-established rather than fabricated from the URL.
 
-Four routes are dispositioned `needs-extra` rather than allowlisted, and that
-disposition is a **product limitation, not a bug fixed**:
-
-- `/appointments/:id`
-- `/teleconsult/appointments/:appointmentId/lobby`
-- `/teleconsult/appointments/:appointmentId/consult`
-- `/period-tracker`
-
-Each one's own `redirect` bounces it to a fallback (`/appointments`, `/home`)
-unless `state.extra` carries typed args — `TeleconsultRouteArgs`,
-`TeleconsultConsultArgs`, or `{eligible: true}`. A URL cannot carry `extra`, so
-allowlisting them would ship a destination that can never show what the link
-promises: the patient taps a notification about **one** appointment and silently
-lands on the list of **all** of them, with no indication that the app went
-somewhere else.
-
-*Patient-visible symptom, stated plainly.* There is no way to deep-link a
-patient to a specific appointment, to a teleconsult lobby, or into the period
-tracker. Everything about a single appointment — including a "your teleconsult
-starts in 10 minutes" push — can only reach `/appointments`.
-
-*Shape of the fix.* Make the three appointment routes self-sufficient: fetch
-the appointment (and its teleconsult lobby state) from the `:id` in the path
-when `state.extra` is absent, instead of redirecting. That is a real change to
-three route builders plus a loading/failure state each, and for the teleconsult
-lobby it also needs a decision about what a patient should see when the link is
-followed outside the join window. `/period-tracker` is different again: its
-`eligible` flag is an eligibility judgement made by the caller, so making the
-route self-sufficient means deciding where that judgement lives. Parked because
-each is a design decision, not an omission — and because the honest partial
-step, allowlisting the routes so the link "works", is precisely the silent
-wrong-destination outcome above.
+`/period-tracker` now rechecks the authenticated command-center profile and
+fails closed for missing, malformed, ineligible, signed-out, or unavailable
+authority. The existing `{eligible: true}` argument remains only a warm
+in-process optimization from the dashboard. Focused route tests cover custom
+scheme and notification parsing, malformed IDs, killed-process/no-extra
+hydration, expired or revoked access, deleted appointments, encrypted offline
+fallback, response-ID mismatch, and stale async responses after a route or
+profile change.
 
 ## Explicitly parked (re-audit lane L, 2026-08-25 — the offline notification badge reads zero)
 

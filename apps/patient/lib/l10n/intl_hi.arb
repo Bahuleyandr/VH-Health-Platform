@@ -1742,6 +1742,7 @@
   "periodTrackerSavedToast": "साइकिल ट्रैकर सहेजा गया",
   "periodTrackerLastPeriodStart": "आखिरी पीरियड शुरू",
   "periodTrackerTitle": "पीरियड ट्रैकर",
+  "periodTrackerProfileUnavailable": "इस प्रोफ़ाइल के लिए पीरियड ट्रैकिंग उपलब्ध नहीं है।",
   "periodTrackerCycleDetails": "साइकिल विवरण",
   "periodTrackerCycleLength": "साइकिल अवधि",
   "periodTrackerDays": "दिन",

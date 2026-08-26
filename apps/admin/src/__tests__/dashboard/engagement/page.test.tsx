@@ -246,10 +246,17 @@ describe("<EngagementPage /> authoring safety order", () => {
       expect(submitCampaignForApproval).toHaveBeenCalledWith(11, undefined),
     );
 
-    // pending_approval: approve unlocks behind a confirmation dialog.
+    // pending_approval: approval still requires a recorded reason.
     const approveButton = screen.getByRole("button", {
       name: "Approve campaign",
     });
+    expect(approveButton).toBeDisabled();
+    fireEvent.change(
+      screen.getByLabelText(
+        "Approval reason (required to approve; optional on submit)",
+      ),
+      { target: { value: "Audience and consent dry-run reviewed" } },
+    );
     await waitFor(() => expect(approveButton).toBeEnabled());
     expect(
       screen.getByRole("button", { name: "Queue due recipients" }),
@@ -258,7 +265,10 @@ describe("<EngagementPage /> authoring safety order", () => {
     expect(approveCampaign).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() =>
-      expect(approveCampaign).toHaveBeenCalledWith(11, undefined),
+      expect(approveCampaign).toHaveBeenCalledWith(
+        11,
+        "Audience and consent dry-run reviewed",
+      ),
     );
 
     // scheduled: queueing unlocks, also behind a confirmation dialog.
@@ -382,12 +392,22 @@ describe("<EngagementPage /> campaign listing", () => {
     const approveButton = screen.getByRole("button", {
       name: "Approve campaign",
     });
+    expect(approveButton).toBeDisabled();
+    fireEvent.change(
+      screen.getByLabelText(
+        "Approval reason (required to approve; optional on submit)",
+      ),
+      { target: { value: "Reviewed by the second approver" } },
+    );
     await waitFor(() => expect(approveButton).toBeEnabled());
 
     fireEvent.click(approveButton);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() =>
-      expect(approveCampaign).toHaveBeenCalledWith(77, undefined),
+      expect(approveCampaign).toHaveBeenCalledWith(
+        77,
+        "Reviewed by the second approver",
+      ),
     );
     // The transition re-reads the list rather than trusting local state alone.
     await waitFor(() =>

@@ -3119,6 +3119,10 @@ class AppLocalizationsTa extends AppLocalizations {
   String get periodTrackerTitle => 'மாதவிடாய் டிராக்கர்';
 
   @override
+  String get periodTrackerProfileUnavailable =>
+      'இந்த சுயவிவரத்திற்கு மாதவிடாய் கண்காணிப்பு கிடைக்கவில்லை.';
+
+  @override
   String get periodTrackerCycleDetails => 'சுழற்சி விவரங்கள்';
 
   @override

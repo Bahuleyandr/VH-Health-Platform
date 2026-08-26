@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
@@ -105,6 +105,25 @@ function nonEmptyText(value, field, max = 2000) {
 function optionalText(value, max = 2000) {
   const text = String(value || '').trim();
   return text ? text.slice(0, max) : null;
+}
+
+function approvalReasonText(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') {
+    throw AppError.badRequest(
+      'Approval reason must be a string',
+      'ENGAGEMENT_APPROVAL_REASON_INVALID',
+    );
+  }
+  const text = value.trim();
+  if (!text) return null;
+  if (text.length > 1000) {
+    throw AppError.badRequest(
+      'Approval reason must be at most 1000 characters',
+      'ENGAGEMENT_APPROVAL_REASON_INVALID',
+    );
+  }
+  return text;
 }
 
 function normalizeCampaignType(value) {
@@ -289,21 +308,25 @@ function requiredConsentType(campaign, settings) {
   return consentType;
 }
 
-async function auditCampaignTransition({ tenantId, actorUid, actorRole, campaignId, previousStatus, nextStatus, reason }) {
-  try {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO audit_logs
-         (uid, role, action, resource, resource_id, metadata, created_at)
-       VALUES ($1::uuid, $2, 'ENGAGEMENT_CAMPAIGN_STATUS_CHANGED', 'engagement_campaign',
-               $3, $4::jsonb, NOW())`,
-      uuidOrNull(actorUid),
-      actorRole || null,
-      String(campaignId),
-      JSON.stringify({ tenant_id: tenantId, previous_status: previousStatus, next_status: nextStatus, reason: reason || null }),
-    );
-  } catch (err) {
-    logger.warn('Engagement campaign audit write failed', { campaignId, error: err?.message });
-  }
+async function writeCampaignTransitionAudit(
+  tx,
+  { tenantId, actorUid, actorRole, campaignId, previousStatus, nextStatus, reason },
+) {
+  await tx.$executeRawUnsafe(
+    `INSERT INTO audit_logs
+       (uid, role, action, resource, resource_id, metadata, created_at)
+     VALUES ($1::uuid, $2, 'ENGAGEMENT_CAMPAIGN_STATUS_CHANGED', 'engagement_campaign',
+             $3, $4::jsonb, NOW())`,
+    uuidOrNull(actorUid),
+    actorRole || null,
+    String(campaignId),
+    JSON.stringify({
+      tenant_id: tenantId,
+      previous_status: previousStatus,
+      next_status: nextStatus,
+      reason: reason || null,
+    }),
+  );
 }
 
 export async function getEngagementSettings(tenantId) {
@@ -437,7 +460,7 @@ async function loadCampaignContext(tx, tenantId, campaignId) {
     `SELECT c.id, c.tenant_id, c.campaign_type, c.objective, c.status,
             c.template_id, c.channels, c.schedule_policy, c.rate_policy,
             c.audience_kind, c.approval_required_role, c.created_by,
-            c.submitted_at, c.approved_by, c.approved_at, c.scheduled_at,
+            c.submitted_by, c.submitted_at, c.approved_by, c.approved_at, c.scheduled_at,
             c.frozen_audience_hash, c.current_audience_snapshot_id,
             et.channel AS template_channel, et.allowed_variables,
             et.phi_classification, et.approved_at AS template_approved_at,
@@ -908,14 +931,24 @@ export async function materializeCampaignRecipients({ tenantId, campaignId, inpu
   });
 }
 
-async function updateCampaignStatus({ tenantId, campaignId, fromStatuses, nextStatus, actorUid, actorRole, reason }) {
+async function updateCampaignStatus({
+  tenantId,
+  campaignId,
+  fromStatuses,
+  nextStatus,
+  actorUid,
+  actorRole,
+  reason,
+  validateCampaign = null,
+}) {
   const tid = requireTenantId(tenantId);
   const rows = await setTenantTx(tid, async (tx) => {
     const campaign = await loadCampaignContext(tx, tid, campaignId);
     if (!fromStatuses.includes(campaign.status)) {
       throw AppError.invalidTransition(campaign.status, nextStatus, fromStatuses);
     }
-    return tx.$queryRawUnsafe(
+    if (validateCampaign) validateCampaign(campaign);
+    const transitioned = await tx.$queryRawUnsafe(
       `UPDATE engagement_campaigns
           SET status = $4::varchar,
               submitted_by = CASE WHEN $4::varchar = 'pending_approval' THEN $5::uuid ELSE submitted_by END,
@@ -937,27 +970,40 @@ async function updateCampaignStatus({ tenantId, campaignId, fromStatuses, nextSt
       nextStatus,
       uuidOrNull(actorUid),
     );
+    if (!transitioned[0]) {
+      throw AppError.conflict(
+        'Campaign status changed before the transition completed',
+        'ENGAGEMENT_CAMPAIGN_TRANSITION_CONFLICT',
+      );
+    }
+    await writeCampaignTransitionAudit(tx, {
+      tenantId: tid,
+      actorUid,
+      actorRole,
+      campaignId: campaign.id,
+      previousStatus: campaign.status,
+      nextStatus,
+      reason,
+    });
+    return transitioned;
   });
-  const row = jsonReady(rows[0]);
-  await auditCampaignTransition({
-    tenantId: tid,
-    actorUid,
-    actorRole,
-    campaignId,
-    previousStatus: fromStatuses.length === 1 ? fromStatuses[0] : null,
-    nextStatus,
-    reason,
-  });
-  return row;
+  return jsonReady(rows[0]);
 }
 
 export async function submitCampaignForApproval({ tenantId, campaignId, actorUid = null, actorRole = null, reason = null }) {
+  const submitterUid = uuidOrNull(actorUid);
+  if (!submitterUid) {
+    throw AppError.forbidden(
+      'Authenticated submitter identity is required',
+      'ENGAGEMENT_SUBMITTER_IDENTITY_REQUIRED',
+    );
+  }
   return updateCampaignStatus({
     tenantId,
     campaignId,
     fromStatuses: ['dry_run'],
     nextStatus: 'pending_approval',
-    actorUid,
+    actorUid: submitterUid,
     actorRole,
     reason,
   });
@@ -966,21 +1012,51 @@ export async function submitCampaignForApproval({ tenantId, campaignId, actorUid
 export async function approveCampaign({ tenantId, campaignId, actorUid = null, actorRole = null, reason = null }) {
   const tid = requireTenantId(tenantId);
   const role = String(actorRole || '').toUpperCase();
-  const campaign = await setTenant(tid, (tx) => loadCampaignContext(tx, tid, campaignId), { readOnly: true });
-  const allowed = campaign.approval_required_role === 'admin_quality'
-    ? BROAD_APPROVAL_ROLES
-    : CARE_TEAM_APPROVAL_ROLES;
-  if (!allowed.has(role)) {
-    throw AppError.forbidden('This role cannot approve the requested engagement campaign', 'ENGAGEMENT_APPROVAL_FORBIDDEN');
-  }
+  const approverUid = uuidOrNull(actorUid);
+  const approvalReason = approvalReasonText(reason);
   return updateCampaignStatus({
     tenantId: tid,
     campaignId,
     fromStatuses: ['pending_approval'],
     nextStatus: 'scheduled',
-    actorUid,
+    actorUid: approverUid,
     actorRole,
-    reason,
+    reason: approvalReason,
+    validateCampaign: (campaign) => {
+      const allowed = campaign.approval_required_role === 'admin_quality'
+        ? BROAD_APPROVAL_ROLES
+        : CARE_TEAM_APPROVAL_ROLES;
+      if (!allowed.has(role)) {
+        throw AppError.forbidden(
+          'This role cannot approve the requested engagement campaign',
+          'ENGAGEMENT_APPROVAL_FORBIDDEN',
+        );
+      }
+      if (!approverUid) {
+        throw AppError.forbidden(
+          'Authenticated approver identity is required',
+          'ENGAGEMENT_APPROVER_IDENTITY_REQUIRED',
+        );
+      }
+      if (!campaign.submitted_by) {
+        throw AppError.forbidden(
+          'Campaign submission identity is missing',
+          'ENGAGEMENT_SUBMITTER_IDENTITY_MISSING',
+        );
+      }
+      if (String(campaign.submitted_by).toLowerCase() === approverUid.toLowerCase()) {
+        throw AppError.forbidden(
+          'Campaign submitters cannot approve their own campaign',
+          'ENGAGEMENT_SELF_APPROVAL_FORBIDDEN',
+        );
+      }
+      if (!approvalReason) {
+        throw AppError.badRequest(
+          'Approval reason is required',
+          'ENGAGEMENT_APPROVAL_REASON_REQUIRED',
+        );
+      }
+    },
   });
 }
 

@@ -163,9 +163,9 @@ Builders are param-free unless noted.
 | `/notifications` | NotificationsScreen | Yes (bottom nav) |
 | `/settings` | SettingsScreen | Yes (bottom nav) |
 | `/appointments` | AppointmentsScreen | No |
-| `/appointments/:id` | AppointmentDetailScreen (teleconsult route args via `state.extra`) | No |
-| `/teleconsult/appointments/:appointmentId/lobby` | TeleconsultLobbyScreen (appointment + services via `state.extra`) | No |
-| `/teleconsult/appointments/:appointmentId/consult` | TeleconsultConsultScreen (consented lobby state via `state.extra`) | No |
+| `/appointments/:id` | AppointmentDetailScreen (hydrates the guarded stable ID; matching `state.extra` is a warm optimization) | No |
+| `/teleconsult/appointments/:appointmentId/lobby` | TeleconsultLobbyScreen (hydrates the guarded stable ID; matching `state.extra` is a warm optimization) | No |
+| `/teleconsult/appointments/:appointmentId/consult` | TeleconsultConsultScreen for a consented warm flow; a cold link hydrates the appointment and re-enters TeleconsultLobbyScreen | No |
 | `/pharmacy` | PharmacyScreen | No |
 | `/investigations` | InvestigationsScreen | No |
 | `/book-investigation` | BookInvestigationScreen | No |
@@ -202,7 +202,7 @@ Builders are param-free unless noted.
 | `/health/explanations/:id` | PatientExplainerDetailScreen | No |
 | `/health/consultation-notes/:id` | ConsultationNoteDetailScreen | No |
 | `/settings/record-access` | RecordAccessScreen | No |
-| `/period-tracker` | PeriodTrackerScreen (needs `extra['eligible'] == true`) | No |
+| `/period-tracker` | PeriodTrackerScreen after an authenticated command-center eligibility check (`extra['eligible'] == true` is a warm optimization) | No |
 | `/records` → `/health` | Redirect | — |
 | `/your-health` → `/health` | Redirect | — |
 | `/dashboard` → `/home` | Redirect | — |
@@ -213,6 +213,11 @@ either a link destination or carries a reason in
 `DeepLinkService.unreachableByLinkRoutes` — and
 `test/core/services/deep_link_route_table_test.dart` parses `app_router.dart` to
 hold it that way, so a new route cannot be silently unreachable by deep link.
+Appointment hydration never uses stale data after a 401, 403, or 404. During a
+transport outage it may render only the encrypted active-profile appointment
+feed copy with an as-of label. A cold teleconsult consult link always returns to
+the lobby so consent, join-window state, and device readiness are re-established
+from live authority before a call can start.
 
 ## API Endpoints Used
 | Feature | Endpoint | Method |

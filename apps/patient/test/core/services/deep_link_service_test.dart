@@ -48,6 +48,56 @@ void main() {
   });
 
   group('DeepLinkService notification routing', () {
+    test('accepts stable appointment and period-tracker destinations', () {
+      for (final route in <String>[
+        '/appointments/42',
+        '/teleconsult/appointments/42/lobby',
+        '/teleconsult/appointments/42/consult',
+        '/period-tracker',
+      ]) {
+        expect(
+          DeepLinkService.parseNotificationRoute({'route': route}),
+          route,
+          reason: route,
+        );
+      }
+
+      expect(
+        DeepLinkService.parseExternalRoute(
+          'vhhealth://app/teleconsult/appointments/42/lobby',
+        ),
+        '/teleconsult/appointments/42/lobby',
+      );
+    });
+
+    test('rejects malformed appointment hydration IDs and suffixes', () {
+      for (final route in <String>[
+        '/appointments/0',
+        '/appointments/-1',
+        '/appointments/+1',
+        '/appointments/999999999999999999999999999999999999999999',
+        '/appointments/not-a-number',
+        '/appointments/42/edit',
+        '/teleconsult/appointments/0/lobby',
+        '/teleconsult/appointments/-1/lobby',
+        '/teleconsult/appointments/999999999999999999999999999999999999999999/lobby',
+        '/teleconsult/appointments/42',
+        '/teleconsult/appointments/42/edit',
+        '/teleconsult/appointments/42/lobby/extra',
+      ]) {
+        expect(
+          DeepLinkService.parseNotificationRoute({'route': route}),
+          isNull,
+          reason: route,
+        );
+      }
+    });
+
+    test('rejects non-string route and type payloads without throwing', () {
+      expect(DeepLinkService.parseNotificationRoute({'route': 42}), isNull);
+      expect(DeepLinkService.parseNotificationRoute({'type': 42}), isNull);
+    });
+
     test('accepts every explicit allowlisted app route', () {
       expect(DeepLinkService.debugAllowedRoutes, isNotEmpty);
 

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import dotenv from 'dotenv';
 
+import { buildTestDatabaseSchemaResetSql } from './lib/testDatabaseReset.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 
@@ -593,11 +595,7 @@ function ensureCompatibilityTables() {
 
 function syncSchema() {
   console.log('Resetting local test database schema');
-  psql(database, `
-    DROP SCHEMA IF EXISTS public CASCADE;
-    CREATE SCHEMA public;
-    CREATE EXTENSION IF NOT EXISTS pgcrypto;
-  `);
+  psql(database, buildTestDatabaseSchemaResetSql());
   ensurePgvectorExtension();
 
   // Raw SQL migrations (000_baseline.sql + 001+) are the source of truth.

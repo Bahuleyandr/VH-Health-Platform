@@ -26,11 +26,11 @@ export type CampaignStatusFilter = EngagementCampaignStatus | "";
  * invisible and could not be opened. The lookup covers the case where someone
  * was given a campaign number that is not on the page the list currently shows.
  *
- * This makes a campaign findable by someone other than its author. It does NOT
- * make that separation a rule: the backend's approve step
- * (services/engagement/engagementCampaignService.js#approveCampaign) gates on
- * the caller's role alone and never compares the approver against
- * `submitted_by`, so the submitter may approve their own campaign.
+ * This makes a campaign findable by someone other than its author. The list
+ * does not authorize the transition; the backend's approve step
+ * (services/engagement/engagementCampaignService.js#approveCampaign) checks
+ * the caller's governed role and rejects an approver whose identity matches
+ * `submitted_by`.
  */
 export function CampaignsPanel({
   campaigns,
