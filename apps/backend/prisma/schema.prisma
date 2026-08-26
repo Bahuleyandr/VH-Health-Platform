@@ -14080,6 +14080,7 @@ model maternity_deliveries {
   maternity_newborns         maternity_newborns[]
   maternity_postnatal_visits maternity_postnatal_visits[]
 
+  @@unique([tenant_id, id], map: "ux_maternity_deliveries_tenant_id")
   @@index([delivery_datetime(sort: Desc)], map: "idx_maternity_deliveries_date")
   @@index([pregnancy_id], map: "idx_maternity_deliveries_pregnancy")
   @@index([tenant_id], map: "idx_maternity_deliveries_pph", where: raw("(pph_diagnosed = true)"))
@@ -14147,7 +14148,7 @@ model maternity_newborns {
   tenant_id                    String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
-  birth_notifications          birth_notifications[]
+  birth_notifications          birth_notifications?
   maternity_apgar_scores       maternity_apgar_scores[]
   maternity_deliveries         maternity_deliveries           @relation(fields: [delivery_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   maternity_postnatal_visits   maternity_postnatal_visits[]
@@ -14156,6 +14157,7 @@ model maternity_newborns {
 
   @@unique([delivery_id, birth_order], map: "uq_maternity_newborns_delivery_birth_order")
   @@unique([tenant_id, newborn_patient_uid], map: "uq_maternity_newborns_tenant_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_maternity_newborns_tenant_id")
   @@index([newborn_patient_uid], map: "idx_maternity_newborns_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
   @@index([tenant_id], map: "idx_maternity_newborns_tenant_id")
 }
@@ -14263,6 +14265,7 @@ model maternity_pregnancies {
   maternity_labor_admissions maternity_labor_admissions[]
   maternity_supplements      maternity_supplements[]
 
+  @@unique([tenant_id, id], map: "ux_maternity_pregnancies_tenant_id")
   @@index([patient_uid, status], map: "idx_maternity_pregnancies_patient")
   @@index([edd_date], map: "idx_maternity_pregnancies_edd", where: raw("((status)::text = 'ongoing'::text)"))
   @@index([tenant_id], map: "idx_maternity_pregnancies_tenant_id")
@@ -28669,16 +28672,19 @@ model birth_notifications {
   created_by                   String?                @db.Uuid
   created_at                   DateTime               @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime               @default(now()) @db.Timestamptz(6)
-  maternity_deliveries         maternity_deliveries?  @relation(fields: [delivery_id], references: [id], onUpdate: NoAction)
-  maternity_newborns           maternity_newborns?    @relation(fields: [newborn_id], references: [id], onUpdate: NoAction)
-  maternity_pregnancies        maternity_pregnancies? @relation(fields: [pregnancy_id], references: [id], onUpdate: NoAction)
   tenants                      tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  maternity_deliveries         maternity_deliveries?  @relation(fields: [tenant_id, delivery_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_delivery")
+  maternity_newborns           maternity_newborns?    @relation(fields: [tenant_id, newborn_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_newborn")
+  maternity_pregnancies        maternity_pregnancies? @relation(fields: [tenant_id, pregnancy_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_birth_notifications_pregnancy")
 
   @@unique([tenant_id, birth_serial])
   @@unique([tenant_id, newborn_id], map: "ux_birth_notifications_newborn")
   @@index([mother_patient_uid], map: "idx_birth_notifications_mother")
   @@index([tenant_id, reporting_due_date], map: "idx_birth_notifications_pending_registrar", where: raw("((notified_to_registrar_at IS NULL) AND ((status)::text <> 'cancelled'::text))"))
   @@index([tenant_id, status, date_of_birth(sort: Desc)], map: "idx_birth_notifications_status")
+  @@index([tenant_id, delivery_id], map: "ix_birth_notifications_tenant_delivery", where: raw("(delivery_id IS NOT NULL)"))
+  @@index([tenant_id, newborn_id], map: "ix_birth_notifications_tenant_newborn", where: raw("(newborn_id IS NOT NULL)"))
+  @@index([tenant_id, pregnancy_id], map: "ix_birth_notifications_tenant_pregnancy", where: raw("(pregnancy_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

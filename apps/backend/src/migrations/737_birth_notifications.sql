@@ -31,6 +31,16 @@ BEGIN;
 -- BIRTH NOTIFICATION (CRS Form 1)
 -- ════════════════════════════════════════════════════════════════════
 
+-- Parent-side (tenant_id, id) uniques for the composite provenance FKs below.
+-- newborn_id/delivery_id/pregnancy_id are keyed WITH the tenant (594 precedent,
+-- the same move 729 makes for its parents) so a notification in tenant A can
+-- never correlate a maternity record owned by tenant B. `id` is each parent's
+-- primary key, so (tenant_id, id) is a superset of an existing unique and the
+-- index build cannot fail on duplicate rows.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_maternity_newborns_tenant_id     ON maternity_newborns     (tenant_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_maternity_deliveries_tenant_id   ON maternity_deliveries   (tenant_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_maternity_pregnancies_tenant_id  ON maternity_pregnancies  (tenant_id, id);
+
 CREATE TABLE IF NOT EXISTS birth_notifications (
   id                          SERIAL PRIMARY KEY,
   tenant_id                   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -38,9 +48,12 @@ CREATE TABLE IF NOT EXISTS birth_notifications (
   -- Provenance — the maternity records this notification is derived from.
   -- newborn_id is the authoritative source; delivery_id/pregnancy_id are
   -- denormalised snapshots for register queries and print.
-  newborn_id                  INTEGER REFERENCES maternity_newborns(id) ON DELETE SET NULL,
-  delivery_id                 INTEGER REFERENCES maternity_deliveries(id) ON DELETE SET NULL,
-  pregnancy_id                INTEGER REFERENCES maternity_pregnancies(id) ON DELETE SET NULL,
+  -- Keyed WITH tenant_id via the table-level composite FKs below (594/729
+  -- precedent); ON DELETE SET NULL names only the child column because
+  -- tenant_id is NOT NULL.
+  newborn_id                  INTEGER,
+  delivery_id                 INTEGER,
+  pregnancy_id                INTEGER,
 
   -- Per-tenant CRS Form-1 serial, issued by the certifier on first certify.
   birth_serial                VARCHAR(40),
@@ -115,6 +128,13 @@ CREATE TABLE IF NOT EXISTS birth_notifications (
   UNIQUE (tenant_id, birth_serial),
   -- One notification per newborn record (multiples have distinct newborn_id).
   CONSTRAINT ux_birth_notifications_newborn UNIQUE (tenant_id, newborn_id),
+  -- Provenance FKs keyed WITH the tenant (594/729 precedent) so a notification
+  -- can never correlate a maternity record owned by another tenant. ON DELETE
+  -- SET NULL (col) is the PG15+ column-list form: only the child id is nulled,
+  -- never the NOT NULL tenant_id (a bare SET NULL would trip 23502).
+  CONSTRAINT fk_birth_notifications_newborn   FOREIGN KEY (tenant_id, newborn_id)   REFERENCES maternity_newborns    (tenant_id, id) ON UPDATE NO ACTION ON DELETE SET NULL (newborn_id),
+  CONSTRAINT fk_birth_notifications_delivery  FOREIGN KEY (tenant_id, delivery_id)  REFERENCES maternity_deliveries  (tenant_id, id) ON UPDATE NO ACTION ON DELETE SET NULL (delivery_id),
+  CONSTRAINT fk_birth_notifications_pregnancy FOREIGN KEY (tenant_id, pregnancy_id) REFERENCES maternity_pregnancies (tenant_id, id) ON UPDATE NO ACTION ON DELETE SET NULL (pregnancy_id),
   -- A registrar submission needs the office it was sent to.
   CONSTRAINT chk_birth_notification_registrar CHECK (
     notified_to_registrar_at IS NULL OR registrar_office IS NOT NULL
@@ -130,6 +150,11 @@ CREATE INDEX IF NOT EXISTS idx_birth_notifications_mother
 CREATE INDEX IF NOT EXISTS idx_birth_notifications_pending_registrar
   ON birth_notifications(tenant_id, reporting_due_date)
   WHERE notified_to_registrar_at IS NULL AND status <> 'cancelled';
+-- 717 FK-supporting-index convention: the referencing side of each composite
+-- provenance key, so a maternity-record delete does not seq-scan the register.
+CREATE INDEX IF NOT EXISTS ix_birth_notifications_tenant_newborn   ON birth_notifications (tenant_id, newborn_id)   WHERE newborn_id   IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_birth_notifications_tenant_delivery  ON birth_notifications (tenant_id, delivery_id)  WHERE delivery_id  IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_birth_notifications_tenant_pregnancy ON birth_notifications (tenant_id, pregnancy_id) WHERE pregnancy_id IS NOT NULL;
 
 ALTER TABLE birth_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE birth_notifications FORCE ROW LEVEL SECURITY;
