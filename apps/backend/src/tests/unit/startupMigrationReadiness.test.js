@@ -35,6 +35,23 @@ describe('production bootstrap and migration-writer ownership', () => {
     expect(configSource).toContain('RUN_MIGRATIONS: "false"');
   });
 
+  it('tolerates a missing runtime role only on explicit opt-in, which the PreSync job never grants', () => {
+    // The grants pass may treat exactly the configuration-absent skip as a
+    // loud no-op, and only when the environment opted in (single-DSN rigs).
+    expect(runtimeGrantScript).toContain("result.reason === 'no_runtime_role_configured'");
+    expect(runtimeGrantScript).toContain("process.env.RUNTIME_ROLE_GRANTS_OPTIONAL === 'true'");
+    // Everything else — unsafe role name, grant error, bad posture — must
+    // still fail regardless of the knob.
+    expect(runtimeGrantScript).toContain('runtime role grant pass skipped');
+    expect(runtimeGrantScript).toContain('runtime roles are absent, unsafe, or have write access');
+    // The canonical PreSync Job and the prod config never SET the knob (a
+    // documenting comment is fine, a live env entry is not): production keeps
+    // failing closed if the configmap ever loses AUTH_TENANT_RLS_RUNTIME_ROLE.
+    expect(jobSource).not.toMatch(/name:\s*['"]?RUNTIME_ROLE_GRANTS_OPTIONAL/);
+    expect(configSource).not.toMatch(/^\s*RUNTIME_ROLE_GRANTS_OPTIONAL:/m);
+    expect(configSource).toContain('AUTH_TENANT_RLS_RUNTIME_ROLE');
+  });
+
   it('keeps schema bootstrap authority in the migration runner', () => {
     expect(existsSync(legacyInitDbPath)).toBe(false);
     expect(packageScripts.join('\n')).not.toMatch(/\binit-db(?:\.js)?\b/);

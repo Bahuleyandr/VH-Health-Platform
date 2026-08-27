@@ -72,6 +72,14 @@
 # (the client is generated at image build; the runtime image has no npm/npx or
 # prisma CLI to regenerate it). scripts/backend-image-command-contract.test.mjs
 # pins this for every backend-image workload.
+#
+# Step 3 fails closed when no runtime role is configured. A hand-run copy of
+# this Job on a single-DSN environment (dalekdefender rig, local QA — no
+# configmap, no vhhealth_runtime login role in the DB) may set
+# RUNTIME_ROLE_GRANTS_OPTIONAL=true to turn exactly that configuration-absent
+# skip into a loud exit-0 no-op. This canonical Job deliberately does NOT set
+# it — prod aborts the sync if the configmap ever loses
+# AUTH_TENANT_RLS_RUNTIME_ROLE (pinned by startupMigrationReadiness.test.js).
 apiVersion: batch/v1
 kind: Job
 metadata:
