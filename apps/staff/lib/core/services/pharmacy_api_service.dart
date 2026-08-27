@@ -1,5 +1,19 @@
 import 'api_client.dart';
 
+class PharmacyWardIndentPage {
+  const PharmacyWardIndentPage({
+    required this.items,
+    required this.hasMore,
+    this.nextBeforeRequestedAt,
+    this.nextBeforeId,
+  });
+
+  final List<Map<String, dynamic>> items;
+  final bool hasMore;
+  final DateTime? nextBeforeRequestedAt;
+  final int? nextBeforeId;
+}
+
 /// Pharmacy order management API calls.
 class PharmacyApiService {
   PharmacyApiService._();
@@ -12,6 +26,14 @@ class PharmacyApiService {
   }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
+  }
+
+  static Future<Map<String, dynamic>> _getEnvelope(
+    String path, {
+    Map<String, String>? query,
+  }) async {
+    final resp = await ApiClient.get(path, queryParameters: query);
+    return _successEnvelope(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
@@ -33,14 +55,17 @@ class PharmacyApiService {
   }
 
   static Map<String, dynamic> _handle(ApiResponse resp) {
+    final raw = _successEnvelope(resp);
+    final data = raw['data'];
+    if (data is Map) return Map<String, dynamic>.from(data);
+    if (data is List) return {'data': data};
+    return raw;
+  }
+
+  static Map<String, dynamic> _successEnvelope(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = Map<String, dynamic>.from(resp.raw as Map);
-      if (raw['success'] == true) {
-        final data = raw['data'];
-        if (data is Map) return Map<String, dynamic>.from(data);
-        if (data is List) return {'data': data};
-        return raw;
-      }
+      if (raw['success'] == true) return raw;
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
   }
@@ -125,6 +150,7 @@ class PharmacyApiService {
     String? search,
     String? schedule,
     String? status,
+    int? catalogId,
   }) async {
     final resp = await _get(
       '/pharmacy/inventory/v2/items',
@@ -133,12 +159,77 @@ class PharmacyApiService {
         if (schedule != null && schedule.trim().isNotEmpty)
           'schedule': schedule.trim(),
         if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+        if (catalogId != null) 'catalog_id': '$catalogId',
       },
     );
     return _listFrom(resp, const [
       'items',
       'inventory',
     ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// GET /pharmacy/inventory/v2/batches — tenant batches for one inventory
+  /// item. Ward dispensing uses this instead of choosing stock by drug name.
+  static Future<List<Map<String, dynamic>>> getInventoryBatches({
+    required int itemId,
+    String status = 'in_stock',
+  }) async {
+    final resp = await _get(
+      '/pharmacy/inventory/v2/batches',
+      query: {'item_id': '$itemId', 'status': status},
+    );
+    return _listFrom(resp, const [
+      'batches',
+      'items',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// Starts the independently authenticated witness ceremony for a Schedule
+  /// X or narcotic ward dispense. [dispense] must be reused byte-for-byte by
+  /// the approval and final dispense calls.
+  static Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
+    required Map<String, dynamic> dispense,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy/inventory/v2/controlled-dispense/witness-approvals',
+      dispense,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates a second staff member without replacing the dispenser's
+  /// session, then approves the exact controlled-dispense payload.
+  static Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+    required String approvalId,
+    required Map<String, dynamic> dispense,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy/inventory/v2/controlled-dispense/witness-approvals/'
+      '$approvalId/approve',
+      {
+        'dispense': dispense,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Commits one controlled stock decrement and its statutory register row in
+  /// the backend's single tenant transaction.
+  static Future<Map<String, dynamic>> dispenseControlledInventory({
+    required Map<String, dynamic> dispense,
+    required String idempotencyKey,
+  }) async {
+    return _post(
+      '/pharmacy/inventory/v2/controlled-dispense',
+      dispense,
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   /// POST /pharmacy/inventory/v2/items — Stores/Purchase or Pharmacy Incharge.
@@ -224,6 +315,119 @@ class PharmacyApiService {
       query: {'status': ?status},
     );
     return _listFrom(resp, const ['orders', 'queue']);
+  }
+
+  // ─── Ward-to-pharmacy indents ───────────────────────────────────────────
+
+  /// GET /pharmacy-orders/ward-indents — the authoritative inpatient supply
+  /// queue introduced by MED-01.
+  static Future<List<Map<String, dynamic>>> listWardIndents({
+    int? wardId,
+    String? status,
+    int? admissionId,
+    String? patientUid,
+    bool overdueOnly = false,
+    String? worklist,
+    DateTime? beforeRequestedAt,
+    int? beforeId,
+    int limit = 100,
+  }) async {
+    final page = await listWardIndentPage(
+      wardId: wardId,
+      status: status,
+      admissionId: admissionId,
+      patientUid: patientUid,
+      overdueOnly: overdueOnly,
+      worklist: worklist,
+      beforeRequestedAt: beforeRequestedAt,
+      beforeId: beforeId,
+      limit: limit,
+    );
+    return page.items;
+  }
+
+  static Future<PharmacyWardIndentPage> listWardIndentPage({
+    int? wardId,
+    String? status,
+    int? admissionId,
+    String? patientUid,
+    bool overdueOnly = false,
+    String? worklist,
+    DateTime? beforeRequestedAt,
+    int? beforeId,
+    int limit = 100,
+  }) async {
+    if ((beforeRequestedAt == null) != (beforeId == null)) {
+      throw ArgumentError(
+        'beforeRequestedAt and beforeId must be supplied together',
+      );
+    }
+    final envelope = await _getEnvelope(
+      '/pharmacy-orders/ward-indents',
+      query: {
+        if (wardId != null) 'ward_id': '$wardId',
+        if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+        if (admissionId != null) 'admission_id': '$admissionId',
+        if (patientUid != null && patientUid.trim().isNotEmpty)
+          'patient_uid': patientUid.trim(),
+        if (overdueOnly) 'overdue_only': 'true',
+        if (worklist != null && worklist.trim().isNotEmpty)
+          'worklist': worklist.trim(),
+        if (beforeRequestedAt != null)
+          'before_requested_at': beforeRequestedAt.toUtc().toIso8601String(),
+        if (beforeId != null) 'before_id': '$beforeId',
+        'limit': '$limit',
+      },
+    );
+    final items = _listFrom(
+      {'data': envelope['data']},
+      const ['indents', 'ward_indents'],
+    ).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+    final meta = envelope['meta'] is Map
+        ? Map<String, dynamic>.from(envelope['meta'] as Map)
+        : const <String, dynamic>{};
+    final pagination = meta['pagination'] is Map
+        ? Map<String, dynamic>.from(meta['pagination'] as Map)
+        : const <String, dynamic>{};
+    final hasMore = pagination['has_more'] == true;
+    final nextRequestedAt = DateTime.tryParse(
+      pagination['before_requested_at']?.toString() ?? '',
+    );
+    final nextId = pagination['before_id'] is num
+        ? (pagination['before_id'] as num).toInt()
+        : int.tryParse(pagination['before_id']?.toString() ?? '');
+    if (hasMore && (nextRequestedAt == null || nextId == null)) {
+      throw const FormatException(
+        'Ward indent pagination response did not include a complete cursor',
+      );
+    }
+    return PharmacyWardIndentPage(
+      items: items,
+      hasMore: hasMore,
+      nextBeforeRequestedAt: nextRequestedAt,
+      nextBeforeId: nextId,
+    );
+  }
+
+  /// GET /pharmacy-orders/ward-indents/:id — items, owner/SLA projection,
+  /// event history, and controlled-handoff recovery evidence.
+  static Future<Map<String, dynamic>> getWardIndent(int id) {
+    return _get('/pharmacy-orders/ward-indents/$id');
+  }
+
+  /// POST one canonical ward-indent transition. The backend re-authorizes the
+  /// actor, requires this intent key, and rejects a stale [expectedVersion].
+  static Future<Map<String, dynamic>> mutateWardIndent(
+    int id, {
+    required String actionPath,
+    required int expectedVersion,
+    Map<String, dynamic> payload = const {},
+    required String idempotencyKey,
+  }) {
+    return _post('/pharmacy-orders/ward-indents/$id/$actionPath', {
+      ...payload,
+      'expected_version': expectedVersion,
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// POST /pharmacy-orders/orders/:id/confirm

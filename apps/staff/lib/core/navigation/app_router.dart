@@ -418,8 +418,20 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/pharmacy',
           name: 'pharmacy',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: PharmacyScreen()),
+          pageBuilder: (context, state) {
+            final query = state.uri.queryParameters;
+            final parsedIndentId = int.tryParse(query['indent_id'] ?? '');
+            return NoTransitionPage(
+              child: PharmacyScreen(
+                initialTab: query['tab'] == 'ward-indents'
+                    ? 'ward-indents'
+                    : null,
+                initialIndentId: parsedIndentId != null && parsedIndentId > 0
+                    ? parsedIndentId
+                    : null,
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/pharmacy/counter-sale',

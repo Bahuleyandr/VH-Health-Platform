@@ -15,10 +15,15 @@ import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
+import '../services/ward_indent_role_policy.dart';
 import '../widgets/dispense_substitution_sheet.dart';
+import '../widgets/ward_indent_workbench.dart';
 
 class PharmacyScreen extends StatefulWidget {
-  const PharmacyScreen({super.key});
+  const PharmacyScreen({super.key, this.initialTab, this.initialIndentId});
+
+  final String? initialTab;
+  final int? initialIndentId;
 
   @override
   State<PharmacyScreen> createState() => _PharmacyScreenState();
@@ -36,6 +41,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   String? _catalogError;
   String? _inventoryError;
   StaffRole _role = StaffRole.general;
+  String _rawRole = '';
   final TextEditingController _catalogSearchCtrl = TextEditingController();
   final TextEditingController _inventorySearchCtrl = TextEditingController();
 
@@ -48,8 +54,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   void initState() {
     super.initState();
     _loadRole();
-    _loadCatalog();
-    _loadInventory();
   }
 
   @override
@@ -79,16 +83,23 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _role == StaffRole.storesPurchaseIncharge ||
       _role.isAdminTier;
 
+  bool get _canViewWardIndents =>
+      WardIndentRolePolicy.canRead(rawRole: _rawRole, role: _role);
+
   Future<void> _loadRole() async {
-    final role = StaffRole.fromString(await ApiConfig.getRole());
+    final rawRole = await ApiConfig.getRole();
+    final role = StaffRole.fromString(rawRole);
     if (!mounted) return;
     setState(() {
       _role = role;
+      _rawRole = rawRole;
       if (!_canWorkPharmacyOrders) _loading = false;
     });
-    if (_canWorkPharmacyOrders) {
-      await _loadOrders();
-    }
+    await Future.wait([
+      _loadCatalog(),
+      if (_canViewInventory) _loadInventory(),
+      if (_canWorkPharmacyOrders) _loadOrders(),
+    ]);
   }
 
   void _startLocationSharing(int orderId) {
@@ -204,7 +215,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   }
 
   Future<void> _loadInventory({String? search}) async {
-    if (!_canViewInventory && _role != StaffRole.general) return;
+    if (!_canViewInventory) return;
     setState(() {
       _inventoryLoading = true;
       _inventoryError = null;
@@ -1546,6 +1557,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
         Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
       ],
+      if (_canViewWardIndents) Tab(text: s.lookup('ward_indent.tab')),
       Tab(
         text: s.format('s4.dynamic.pharmacy.formulary_count', {
           'count': _catalog.length,
@@ -1564,9 +1576,20 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         _buildOrderTab(_activeOrders, s.pharmacyEmptyActive),
         _buildOrderTab(_completedOrders, s.pharmacyEmptyDone),
       ],
+      if (_canViewWardIndents)
+        WardIndentWorkbench(
+          rawRole: _rawRole,
+          role: _role,
+          initialIndentId: widget.initialIndentId,
+        ),
       _buildFormularyTab(),
       if (_canViewInventory) _buildInventoryTab(),
     ];
+    final wardIndentTabIndex = _canWorkPharmacyOrders ? 3 : 0;
+    final initialTabIndex =
+        widget.initialTab == 'ward-indents' && _canViewWardIndents
+        ? wardIndentTabIndex
+        : 0;
     final summaryText = _canWorkPharmacyOrders
         ? s.format('s4.dynamic.pharmacy.orders_summary', {
             'newCount': _newOrders.length,
@@ -1668,7 +1691,12 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
           Expanded(
             child: DefaultTabController(
+              key: ValueKey(
+                'pharmacy-tabs-${tabViews.length}-$_rawRole-'
+                '${widget.initialTab ?? ''}',
+              ),
               length: tabViews.length,
+              initialIndex: initialTabIndex,
               child: Column(
                 children: [
                   TabBar(

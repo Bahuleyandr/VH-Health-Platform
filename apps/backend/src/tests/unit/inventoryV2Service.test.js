@@ -14,7 +14,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: setTenantTxMock,
 }));
 
-const { recordMovement } = await import('../../services/pharmacy/inventoryV2Service.js');
+const { listItems, recordMovement } = await import('../../services/pharmacy/inventoryV2Service.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
@@ -35,6 +35,32 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   setTenantTxMock.mockClear();
+});
+
+describe('inventoryV2Service.listItems', () => {
+  test('projects catalog and composition links for exact ward-indent stock joins', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listItems({ tenantId: TENANT, catalogId: 17, search: 'morphine' });
+
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toMatch(/catalog_id/);
+    expect(sql).toMatch(/composition_id/);
+    expect(sql).toMatch(/catalog_id = \$3::int/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      TENANT,
+      'active',
+      17,
+      '%morphine%',
+      100,
+    ]);
+  });
+
+  test('rejects an invalid exact catalog lookup before querying', async () => {
+    await expect(listItems({ tenantId: TENANT, catalogId: 'not-an-id' }))
+      .rejects.toMatchObject({ statusCode: 400 });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('inventoryV2Service.recordMovement', () => {

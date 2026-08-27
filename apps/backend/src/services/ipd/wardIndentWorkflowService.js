@@ -101,7 +101,10 @@ const RECONCILIATION_DISPOSITIONS = new Set([
   'damaged_in_transit',
   'documented_exception',
 ]);
+const TERMINAL_WARD_INDENT_STATUSES = ['rejected', 'cancelled', 'closed'];
+const WARD_INDENT_WORKLISTS = new Set(['open', 'terminal', 'owned', 'overdue']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function tenantOf(value) {
   return requireTenantId(value);
@@ -204,6 +207,77 @@ async function lockWardIndent(tx, indentId, tenantId) {
   return indent;
 }
 
+async function loadPendingControlledHandoffEvidence(tx, indent) {
+  if (indent.status !== 'controlled_handoff_required') return [];
+
+  const pending = indent.items.filter((item) => (
+    item.controlled_reference_id
+    && !item.controlled_movement_id
+    && !item.controlled_register_id
+  ));
+  if (!pending.length) return [];
+
+  const references = pending.map((item) => item.controlled_reference_id);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT movement.reference_id,
+            movement.id AS movement_id,
+            movement.quantity_delta,
+            register_entry.id AS register_id,
+            register_entry.quantity AS register_quantity,
+            inventory.catalog_id
+       FROM pharmacy_stock_movements movement
+       JOIN pharmacy_schedule_register register_entry
+         ON register_entry.tenant_id = movement.tenant_id
+        AND register_entry.reference_movement_id = movement.id
+       JOIN pharmacy_inventory_items inventory
+         ON inventory.tenant_id = movement.tenant_id
+        AND inventory.id = movement.inventory_item_id
+      WHERE movement.tenant_id = $1::uuid
+        AND movement.reference_type = 'controlled_dispense'
+        AND movement.movement_kind = 'issue'
+        AND movement.reference_id = ANY($2::text[])
+        AND register_entry.movement_kind = 'dispense'
+        AND register_entry.patient_uid IS NOT DISTINCT FROM $3::uuid
+        AND NOT EXISTS (
+          SELECT 1
+            FROM ward_indent_items claimed
+           WHERE claimed.tenant_id = movement.tenant_id
+             AND (
+               claimed.controlled_movement_id = movement.id
+               OR claimed.controlled_register_id = register_entry.id
+             )
+        )
+      ORDER BY movement.id`,
+    indent.tenant_id,
+    references,
+    indent.patient_uid || null,
+  );
+
+  return pending.map((item) => {
+    const approvedQuantity = Number(item.quantity_approved || 0);
+    const candidates = rows.filter((row) => (
+      row.reference_id === item.controlled_reference_id
+      && Number(row.catalog_id) === Number(item.pharmacy_catalog_id)
+      && Number(row.quantity_delta) === -Math.abs(approvedQuantity)
+      && Number(row.register_quantity) === Math.abs(approvedQuantity)
+    ));
+    if (candidates.length !== 1) {
+      return {
+        item_id: Number(item.id),
+        status: candidates.length > 1 ? 'ambiguous' : 'missing',
+        candidate_count: candidates.length,
+      };
+    }
+    return {
+      item_id: Number(item.id),
+      status: 'available',
+      candidate_count: 1,
+      movement_id: Number(candidates[0].movement_id),
+      register_id: Number(candidates[0].register_id),
+    };
+  });
+}
+
 function assertState(current, allowed, action) {
   if (!allowed.includes(current.status)) {
     throw AppError.conflict(
@@ -247,6 +321,10 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
     },
     orderBy: { started_at: 'desc' },
   });
+  const pendingControlledHandoffEvidence = await loadPendingControlledHandoffEvidence(
+    tx,
+    indent,
+  );
   return {
     ...indent,
     workflow: {
@@ -259,6 +337,7 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
           item_id: item.id,
           reference_id: item.controlled_reference_id,
         })),
+      pending_controlled_handoff_evidence: pendingControlledHandoffEvidence,
     },
   };
 }
@@ -1915,6 +1994,226 @@ export async function listWardIndents({
   admissionId = null,
   patientUid = null,
   overdueOnly = false,
+  worklist = null,
+  beforeRequestedAt = null,
+  beforeId = null,
+  actorRoleCodes = [],
+  limit = 50,
+  tenantId,
+} = {}) {
+  const page = await listWardIndentPage({
+    wardId,
+    status,
+    admissionId,
+    patientUid,
+    overdueOnly,
+    worklist,
+    beforeRequestedAt,
+    beforeId,
+    actorRoleCodes,
+    limit,
+    tenantId,
+  });
+  return page.items;
+}
+
+function wardIndentCursor(beforeRequestedAt, beforeId) {
+  const hasTimestamp = beforeRequestedAt != null && String(beforeRequestedAt).trim() !== '';
+  const hasId = beforeId != null && String(beforeId).trim() !== '';
+  if (hasTimestamp !== hasId) {
+    throw AppError.badRequest(
+      'before_requested_at and before_id must be supplied together',
+      'WARD_INDENT_CURSOR_INCOMPLETE',
+    );
+  }
+  if (!hasTimestamp) return null;
+  const timestamp = String(beforeRequestedAt).trim();
+  const requestedAt = new Date(timestamp);
+  if (!ISO_INSTANT_RE.test(timestamp) || Number.isNaN(requestedAt.getTime())) {
+    throw AppError.badRequest(
+      'before_requested_at must be an ISO-8601 timestamp',
+      'WARD_INDENT_CURSOR_INVALID',
+    );
+  }
+  return {
+    requestedAt,
+    id: positiveInt(beforeId, 'before_id'),
+  };
+}
+
+function wardIndentOwnerWhere(worklist, actorRoleCodes) {
+  if (worklist !== 'owned') return {};
+  const roles = [...new Set(
+    (Array.isArray(actorRoleCodes) ? actorRoleCodes : [actorRoleCodes])
+      .map((role) => String(role || '').trim().toUpperCase())
+      .filter(Boolean),
+  )];
+  if (!roles.length) {
+    throw AppError.forbidden(
+      'Authenticated role required for owned ward indent worklist',
+      'WARD_INDENT_OWNER_ROLE_REQUIRED',
+    );
+  }
+  return { owner_role_codes: { hasSome: roles } };
+}
+
+function wardIndentCursorWhere(cursor) {
+  if (!cursor) return {};
+  return {
+    OR: [
+      { requested_at: { lt: cursor.requestedAt } },
+      { requested_at: cursor.requestedAt, id: { lt: cursor.id } },
+    ],
+  };
+}
+
+function wardIndentStateWhere({ status, worklist, overdueOnly }) {
+  if (status && worklist) {
+    throw AppError.badRequest(
+      'status and worklist cannot be combined',
+      'WARD_INDENT_FILTER_CONFLICT',
+    );
+  }
+  if (overdueOnly && worklist && worklist !== 'overdue') {
+    throw AppError.badRequest(
+      'overdue_only cannot be combined with another worklist',
+      'WARD_INDENT_FILTER_CONFLICT',
+    );
+  }
+  if (worklist && !WARD_INDENT_WORKLISTS.has(worklist)) {
+    throw AppError.badRequest(
+      `Unknown ward indent worklist '${worklist}'`,
+      'WARD_INDENT_WORKLIST_INVALID',
+    );
+  }
+  if (status) return { status };
+  if (worklist === 'terminal') {
+    return { status: { in: TERMINAL_WARD_INDENT_STATUSES } };
+  }
+  if (overdueOnly || ['open', 'owned', 'overdue'].includes(worklist)) {
+    return { status: { notIn: TERMINAL_WARD_INDENT_STATUSES } };
+  }
+  return {};
+}
+
+async function enrichWardIndentRows(tx, rows, { overdueOnly }) {
+  if (!rows.length) return [];
+  const sourceIds = rows
+    .map((row) => row.active_sla_source_id)
+    .filter(Boolean);
+  const slas = sourceIds.length
+    ? await tx.workflow_sla_instances.findMany({
+        where: {
+          tenant_id: rows[0].tenant_id,
+          source_table: 'ward_indents',
+          source_id: { in: sourceIds },
+          status: {
+            in: overdueOnly ? ['breached', 'escalated'] : ['active', 'breached', 'escalated'],
+          },
+          completed_at: null,
+        },
+        orderBy: { started_at: 'desc' },
+      })
+    : [];
+  const slaByIndent = new Map();
+  for (const sla of slas) {
+    if (!slaByIndent.has(sla.source_id)) slaByIndent.set(sla.source_id, []);
+    slaByIndent.get(sla.source_id).push(sla);
+  }
+  return rows.map((row) => ({
+    ...row,
+    workflow: {
+      owner_role_codes: row.owner_role_codes || [],
+      active_slas: slaByIndent.get(row.active_sla_source_id) || [],
+    },
+  }));
+}
+
+async function findOverdueWardIndentRows(tx, {
+  tenantId,
+  wardId,
+  stateWhere,
+  admissionId,
+  patientUid,
+  cursor,
+  take,
+}) {
+  const params = [tenantId];
+  const clauses = [
+    'indent.tenant_id = $1::uuid',
+    `EXISTS (
+      SELECT 1
+        FROM workflow_sla_instances sla
+       WHERE sla.tenant_id = indent.tenant_id
+         AND sla.source_table = 'ward_indents'
+         AND sla.source_id = indent.active_sla_source_id
+         AND sla.status IN ('breached', 'escalated')
+         AND sla.completed_at IS NULL
+    )`,
+  ];
+  const addParam = (value, cast) => {
+    params.push(value);
+    return `$${params.length}${cast}`;
+  };
+  if (wardId) clauses.push(`indent.ward_id = ${addParam(Number(wardId), '::int')}`);
+  const state = stateWhere.status;
+  if (typeof state === 'string') {
+    clauses.push(`indent.status = ${addParam(state, '::text')}`);
+  } else if (state?.in) {
+    clauses.push(`indent.status = ANY(${addParam(state.in, '::text[]')})`);
+  } else if (state?.notIn) {
+    clauses.push(`NOT (indent.status = ANY(${addParam(state.notIn, '::text[]')}))`);
+  }
+  if (admissionId) {
+    clauses.push(`indent.admission_id = ${addParam(Number(admissionId), '::int')}`);
+  }
+  if (patientUid) {
+    clauses.push(`indent.patient_uid = ${addParam(patientUid, '::uuid')}`);
+  }
+  if (cursor) {
+    const timestampParam = addParam(cursor.requestedAt, '::timestamptz');
+    const idParam = addParam(cursor.id, '::int');
+    clauses.push(`(indent.requested_at, indent.id) < (${timestampParam}, ${idParam})`);
+  }
+  const limitParam = addParam(take, '::int');
+  const ids = await tx.$queryRawUnsafe(
+    `SELECT indent.id
+       FROM ward_indents indent
+      WHERE ${clauses.join('\n        AND ')}
+      ORDER BY indent.requested_at DESC, indent.id DESC
+      LIMIT ${limitParam}`,
+    ...params,
+  );
+  if (!ids.length) return [];
+  return tx.ward_indents.findMany({
+    where: {
+      tenant_id: tenantId,
+      id: { in: ids.map((row) => Number(row.id)) },
+    },
+    orderBy: [{ requested_at: 'desc' }, { id: 'desc' }],
+    include: { items: { orderBy: { id: 'asc' } } },
+  });
+}
+
+function wardIndentNextCursor(items, hasMore) {
+  if (!hasMore || items.length === 0) return null;
+  const last = items.at(-1);
+  return {
+    before_requested_at: last.requested_at.toISOString(),
+    before_id: last.id,
+  };
+}
+
+export async function listWardIndentPage({
+  wardId = null,
+  status = null,
+  admissionId = null,
+  patientUid = null,
+  overdueOnly = false,
+  worklist = null,
+  beforeRequestedAt = null,
+  beforeId = null,
+  actorRoleCodes = [],
   limit = 50,
   tenantId,
 } = {}) {
@@ -1923,52 +2222,61 @@ export async function listWardIndents({
   if (status && !WARD_INDENT_STATE_CONTRACT[status]) {
     throw AppError.badRequest(`Unknown ward indent status '${status}'`);
   }
+  const cleanWorklist = worklist ? String(worklist).trim().toLowerCase() : null;
+  const effectiveOverdueOnly = overdueOnly || cleanWorklist === 'overdue';
+  const initialCursor = wardIndentCursor(beforeRequestedAt, beforeId);
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   return setTenantTx(tid, async (tx) => {
-    const rows = await tx.ward_indents.findMany({
+    const stateWhere = wardIndentStateWhere({
+      status,
+      worklist: cleanWorklist,
+      overdueOnly: effectiveOverdueOnly,
+    });
+    const baseWhere = {
+      tenant_id: tid,
+      ...(wardId ? { ward_id: Number(wardId) } : {}),
+      ...stateWhere,
+      ...wardIndentOwnerWhere(cleanWorklist, actorRoleCodes),
+      ...(admissionId ? { admission_id: Number(admissionId) } : {}),
+      ...(cleanPatientUid ? { patient_uid: cleanPatientUid } : {}),
+    };
+    const findRows = (cursor, take) => tx.ward_indents.findMany({
       where: {
-        tenant_id: tid,
-        ...(wardId ? { ward_id: Number(wardId) } : {}),
-        ...(status ? { status } : {}),
-        ...(admissionId ? { admission_id: Number(admissionId) } : {}),
-        ...(cleanPatientUid ? { patient_uid: cleanPatientUid } : {}),
-        ...(overdueOnly && !status ? {
-          status: { notIn: ['rejected', 'cancelled', 'closed'] },
-        } : {}),
+        ...baseWhere,
+        ...wardIndentCursorWhere(cursor),
       },
-      orderBy: { requested_at: 'desc' },
-      take: safeLimit,
+      orderBy: [{ requested_at: 'desc' }, { id: 'desc' }],
+      take,
       include: { items: { orderBy: { id: 'asc' } } },
     });
-    if (!rows.length) return [];
-    const sourceIds = rows
-      .map((row) => row.active_sla_source_id)
-      .filter(Boolean);
-    const slas = await tx.workflow_sla_instances.findMany({
-      where: {
-        tenant_id: tid,
-        source_table: 'ward_indents',
-        source_id: { in: sourceIds },
-        status: { in: overdueOnly ? ['breached', 'escalated'] : ['active', 'breached', 'escalated'] },
-        completed_at: null,
-      },
-      orderBy: { started_at: 'desc' },
-    });
-    const slaByIndent = new Map();
-    for (const sla of slas) {
-      if (!slaByIndent.has(sla.source_id)) slaByIndent.set(sla.source_id, []);
-      slaByIndent.get(sla.source_id).push(sla);
+
+    let enriched;
+    if (!effectiveOverdueOnly) {
+      const rows = await findRows(initialCursor, safeLimit + 1);
+      enriched = await enrichWardIndentRows(tx, rows, { overdueOnly: false });
+    } else {
+      const rows = await findOverdueWardIndentRows(tx, {
+        tenantId: tid,
+        wardId,
+        stateWhere,
+        admissionId,
+        patientUid: cleanPatientUid,
+        cursor: initialCursor,
+        take: safeLimit + 1,
+      });
+      enriched = await enrichWardIndentRows(tx, rows, { overdueOnly: true });
     }
-    const enriched = rows.map((row) => ({
-      ...row,
-      workflow: {
-        owner_role_codes: row.owner_role_codes || [],
-        active_slas: slaByIndent.get(row.active_sla_source_id) || [],
+
+    const hasMore = enriched.length > safeLimit;
+    const items = enriched.slice(0, safeLimit);
+    return {
+      items,
+      pagination: {
+        has_more: hasMore,
+        limit: safeLimit,
+        ...wardIndentNextCursor(items, hasMore),
       },
-    }));
-    return overdueOnly
-      ? enriched.filter((row) => row.workflow.active_slas.length > 0)
-      : enriched;
+    };
   }, { readOnly: true });
 }
 
@@ -2002,5 +2310,6 @@ export default {
   cancelWardIndent,
   closeWardIndent,
   listWardIndents,
+  listWardIndentPage,
   getWardIndent,
 };

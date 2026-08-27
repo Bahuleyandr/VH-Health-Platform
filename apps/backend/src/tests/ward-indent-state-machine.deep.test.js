@@ -5,7 +5,9 @@ import {
   approveWardIndentSubstitution,
   closeWardIndent,
   createWardIndent,
+  getWardIndent,
   issueWardIndent,
+  listWardIndentPage,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   receiveWardIndent,
@@ -546,6 +548,14 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       performed_by_name: 'Issuing Pharmacist',
       reference_id: line.controlled_reference_id,
     });
+    const recoverable = await getWardIndent(indent.id, { tenantId: TENANT });
+    expect(recoverable.workflow.pending_controlled_handoff_evidence).toEqual([{
+      item_id: line.id,
+      status: 'available',
+      candidate_count: 1,
+      movement_id: dispense.movement.id,
+      register_id: dispense.register_entry.id,
+    }]);
     const handoff = await recordWardIndentControlledHandoff({
       indentId: indent.id,
       recordedBy: PHARMACIST,
@@ -559,6 +569,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       tenantId: TENANT,
     });
     expect(handoff.status).toBe('approved');
+    expect(handoff.workflow.pending_controlled_handoff_evidence).toEqual([]);
     await issueWardIndent({
       indentId: indent.id,
       issuedBy: PHARMACIST,
@@ -659,5 +670,184 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     expect(evidence.every((row) => row.patient_uid === PATIENT)).toBe(true);
     expect(evidence[1].reference_type).toBe('ward_indent_return');
     expect(Number(evidence[1].remaining_quantity)).toBe(19);
+  }, 60_000);
+
+  test('fails controlled-handoff recovery closed when matching evidence is ambiguous', async () => {
+    const indent = await createWardIndent({
+      wardId,
+      patientUid: PATIENT,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: controlled.catalogId,
+        item_name: controlled.name,
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER,
+      commandKey: `ambiguous-create-${RUN}`,
+      tenantId: TENANT,
+    });
+    await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: 1,
+      commandKey: `ambiguous-reserve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const approval = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: 2,
+      commandKey: `ambiguous-approve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const line = approval.items[0];
+    for (let index = 0; index < 2; index += 1) {
+      await dispenseControlled({
+        tenantId: TENANT,
+        inventory_item_id: controlled.inventoryItemId,
+        inventory_batch_id: controlled.batchId,
+        quantity: 1,
+        patient_uid: PATIENT,
+        patient_name: 'Ward Patient',
+        performed_by: PHARMACIST,
+        performed_by_name: 'Issuing Pharmacist',
+        reference_id: line.controlled_reference_id,
+      });
+    }
+
+    const ambiguous = await getWardIndent(indent.id, { tenantId: TENANT });
+    expect(ambiguous.workflow.pending_controlled_handoff_evidence).toEqual([{
+      item_id: line.id,
+      status: 'ambiguous',
+      candidate_count: 2,
+    }]);
+  }, 60_000);
+
+  test('pages every open indent and finds overdue work beyond the first 200 rows', async () => {
+    const pageWardId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 10, NOW(), NOW()) RETURNING id`,
+      TENANT,
+      `MED-02 Pagination Ward ${RUN}`,
+    ))[0].id);
+    const inserted = await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO ward_indents
+           (tenant_id, indent_number, ward_id, ward_name, indent_type, status,
+            requested_by, requested_at, patient_uid, owner_role_codes,
+            active_sla_source_id, last_transition_at, created_at, updated_at)
+         SELECT $1::uuid,
+                $2 || '-' || sequence::text,
+                $3::int,
+                'MED-02 Pagination Ward',
+                'pharmacy',
+                'requested',
+                $4::uuid,
+                TIMESTAMPTZ '2026-08-27T12:00:00.000Z'
+                  - (sequence * INTERVAL '1 minute'),
+                $5::uuid,
+                ARRAY['PHARMACY_STAFF']::text[],
+                $6 || ':' || sequence::text,
+                TIMESTAMPTZ '2026-08-27T12:00:00.000Z'
+                  - (sequence * INTERVAL '1 minute'),
+                NOW(),
+                NOW()
+           FROM generate_series(1, 205) AS sequence
+         RETURNING id, requested_at, active_sla_source_id`,
+        TENANT,
+        `MED02-PAGE-${RUN}`,
+        pageWardId,
+        REQUESTER,
+        PATIENT,
+        `ward-indent-page:${RUN}`,
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO ward_indent_events
+           (tenant_id, ward_indent_id, state_version, action, from_status,
+            to_status, actor_uid, owner_role_codes, details, occurred_at)
+         SELECT indent.tenant_id, indent.id, 1, 'created', NULL, 'requested',
+                $3::uuid, indent.owner_role_codes,
+                '{"med_02_pagination_fixture":true}'::jsonb,
+                indent.requested_at
+           FROM ward_indents indent
+          WHERE indent.tenant_id = $1::uuid
+            AND indent.ward_id = $2::int`,
+        TENANT,
+        pageWardId,
+        REQUESTER,
+      );
+      return rows;
+    });
+    const oldest = inserted.reduce((left, right) => (
+      left.requested_at < right.requested_at ? left : right
+    ));
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO workflow_sla_instances
+         (tenant_id, rule_code, patient_uid, source_table, source_id, status,
+          started_at, due_at, breached_at, assigned_role_codes)
+       VALUES ($1::uuid, 'ward_indent_pharmacy_response', $2::uuid,
+               'ward_indents', $3, 'breached', NOW() - INTERVAL '4 hours',
+               NOW() - INTERVAL '3 hours', NOW() - INTERVAL '3 hours',
+               ARRAY['PHARMACY_STAFF']::text[])`,
+      TENANT,
+      PATIENT,
+      oldest.active_sla_source_id,
+    );
+
+    const first = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'open',
+      limit: 100,
+    });
+    const second = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'open',
+      beforeRequestedAt: first.pagination.before_requested_at,
+      beforeId: first.pagination.before_id,
+      limit: 100,
+    });
+    const third = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'open',
+      beforeRequestedAt: second.pagination.before_requested_at,
+      beforeId: second.pagination.before_id,
+      limit: 100,
+    });
+    const ids = [...first.items, ...second.items, ...third.items].map((row) => row.id);
+    expect([first.items.length, second.items.length, third.items.length]).toEqual([100, 100, 5]);
+    expect(new Set(ids).size).toBe(205);
+    expect(first.pagination.has_more).toBe(true);
+    expect(second.pagination.has_more).toBe(true);
+    expect(third.pagination.has_more).toBe(false);
+
+    const pharmacyOwned = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'owned',
+      actorRoleCodes: ['PHARMACY_STAFF'],
+      limit: 100,
+    });
+    const nursingOwned = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'owned',
+      actorRoleCodes: ['NURSING_STAFF'],
+      limit: 100,
+    });
+    expect(pharmacyOwned.items).toHaveLength(100);
+    expect(pharmacyOwned.pagination.has_more).toBe(true);
+    expect(nursingOwned.items).toEqual([]);
+
+    const overdue = await listWardIndentPage({
+      tenantId: TENANT,
+      wardId: pageWardId,
+      worklist: 'overdue',
+      limit: 10,
+    });
+    expect(overdue.items.map((row) => row.id)).toEqual([oldest.id]);
+    expect(overdue.items[0].workflow.active_slas[0].status).toBe('breached');
   }, 60_000);
 });

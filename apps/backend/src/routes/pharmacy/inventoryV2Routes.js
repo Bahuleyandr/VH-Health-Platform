@@ -10,6 +10,7 @@ import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
   ADMIN,
   PHARMACY_INCHARGE,
+  PHARMACIST,
   PHARMACY_STAFF,
   STORES_PURCHASE_INCHARGE,
   hasRole,
@@ -37,6 +38,7 @@ export const PHARMACY_INVENTORY_READ_ROLES = [
   ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+  PHARMACIST,
   STORES_PURCHASE_INCHARGE,
 ];
 
@@ -44,6 +46,7 @@ export const PHARMACY_INVENTORY_MAINTAIN_ROLES = [
   ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+  PHARMACIST,
   STORES_PURCHASE_INCHARGE,
 ];
 
@@ -57,6 +60,7 @@ export const PHARMACY_CONTROLLED_DISPENSE_ROLES = [
   ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+  PHARMACIST,
 ];
 
 export const PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES = [
@@ -180,6 +184,7 @@ router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   search: req.query.q,
   schedule: req.query.schedule,
   status: req.query.status,
+  catalogId: req.query.catalog_id,
   limit: req.query.limit,
 })));
 
