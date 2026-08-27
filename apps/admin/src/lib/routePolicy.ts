@@ -3,7 +3,7 @@
 // DEFAULT-DENY route → role policy for the admin portal (audit finding
 // H6/M8, 2026-06-10). The old middleware was an ALLOWLIST covering ~15 of
 // ~95 routes; every unlisted page — including /dashboard/patients,
-// /dashboard/database (live DB browser), /dashboard/tenants, /feature-flags,
+// /dashboard/database (live DB browser), /dashboard/tenants,
 // /audit-explorer, /system-logs — was open to ANY authenticated role.
 //
 // Model:
@@ -71,6 +71,39 @@ export const SHIFT_MANAGEMENT_ROLES = [
   "CMO",
   "CNO",
   "MEDICAL_SUPERINTENDENT",
+];
+
+// Exact effective read-roles for the backend ward-indent worklist
+// (PR #935 state machine). The GET routes in
+// apps/backend/src/routes/pharmacy/wardIndentRoutes.js require
+// READ_ROLES = IP_FLOW_ROUTE_ROLES ∪ PHARMACY_ROUTE_ROLES, intersected with
+// the /api/v1/pharmacy-orders mount gate (PHARMACY_ORDER_ROUTE_ROLES in
+// app.js). PATIENT is in the mount gate but is not a portal role and is
+// deliberately excluded. Per-action routes are narrower (supply actions are
+// pharmacy/ADMIN, substitution decisions are doctor tiers, receipt is ward
+// nursing, reconciliation is incharge roles) — the backend enforces those
+// per-endpoint; this list gates who can open the worklist at all.
+export const WARD_INDENT_ROLES = [
+  "SUPER_ADMIN",
+  "ADMIN",
+  "PHARMACY_STAFF",
+  "PHARMACY_INCHARGE",
+  "PHARMACIST",
+  "DOCTOR",
+  "DUTY_DOCTOR",
+  "CONSULTANT",
+  "JUNIOR_DOCTOR",
+  "RESIDENT",
+  "SENIOR_DOCTOR",
+  "NURSING_STAFF",
+  "NURSING_INCHARGE",
+  "IP_STAFF_NURSE",
+  "IP_INCHARGE",
+  "ICU_NURSE",
+  "ICU_INCHARGE",
+  "ICU_STAFF",
+  "ADMISSION_OFFICER",
+  "IPD_COUNSELLOR",
 ];
 
 export interface RoutePolicy {
@@ -179,6 +212,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   bmw: { minRank: ADMIN_ONLY },
   "drug-returns": { minRank: ADMIN_ONLY },
   pharmacy: { minRank: ADMIN_ONLY },
+  // Ward-indent pharmacy worklist: exact raw-role parity with the backend
+  // ward-indent read surface (see WARD_INDENT_ROLES above).
+  "ward-indents": { roles: WARD_INDENT_ROLES },
   attendance: { minRank: ADMIN_ONLY },
   uploads: { minRank: ADMIN_ONLY },
   feedback: { minRank: ADMIN_ONLY },
@@ -202,7 +238,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   // live DB browser — backend databaseRoutes.js is SUPER_ADMIN-only too
   database: { minRank: SUPER_ADMIN_ONLY },
   tenants: { minRank: SUPER_ADMIN_ONLY },
-  "feature-flags": { minRank: SUPER_ADMIN_ONLY },
   // Dark-gate console: reads/flips the most sensitive per-tenant toggles
   // (payment gateway, SMS/DLT, ABDM) — SUPER_ADMIN-only end to end
   // (backend requireRole + proxy sentinel gate + this policy + nav).

@@ -210,8 +210,7 @@ const PERMISSION_GATES: PermissionGate[] = [
   // Enforcement is layered now, and the backend half is the authority. Each
   // of the mounts gated below carries its own SUPER_ADMIN check:
   //   - router.use(requireRole('SUPER_ADMIN')) at the top of
-  //     encryptionKeyRoutes, smartFhirRoutes, migrationToolkitRoutes and
-  //     featureFlagRoutes;
+  //     encryptionKeyRoutes, smartFhirRoutes and migrationToolkitRoutes;
   //   - per-route requireRole('SUPER_ADMIN') on both gdprRoutes routes and on
   //     the four continuity operations in admin/deviceRegistryRoutes;
   //   - an equivalent inline role check in admin/databaseRoutes;
@@ -265,11 +264,6 @@ const PERMISSION_GATES: PermissionGate[] = [
     // OWN tenant chrome — segment-bounded matching keeps them apart.
     permission: PLATFORM_SUPER_ADMIN,
     prefixes: ["api/v1/admin/tenants"],
-  },
-  {
-    // Platform feature flags (featureFlagRoutes).
-    permission: PLATFORM_SUPER_ADMIN,
-    prefixes: ["api/v1/admin/feature-flags"],
   },
   {
     // Continuity facility-context grants/enrol/revoke + device-loss

@@ -1,11 +1,12 @@
 // Re-audit finding G (authz, 2026-08-23) — SUPER_ADMIN rank was enforced on
 // page navigation only.
 //
-// routePolicy.ts marks eleven consoles SUPER_ADMIN-only and navConfig hides
+// routePolicy.ts marks ten consoles SUPER_ADMIN-only and navConfig hides
 // them, but middleware.ts checks rank exclusively in its /dashboard branch
 // (the /api/proxy branch verifies the token signature and the portal role and
 // stops there). Six of those consoles — encryption-keys, smart-fhir,
-// gdpr-erasure, migration-toolkit, feature-flags, continuity-facility-context
+// gdpr-erasure, migration-toolkit, feature-flags (console since retired),
+// continuity-facility-context
 // — had no proxy gate at all and, at the time, an ADMIN-tier backend mount, so
 // a plain ADMIN could call `/api/proxy/api/v1/admin/encryption-keys` (etc.)
 // straight through and get a 200. All six of those mounts have since gained a
@@ -102,7 +103,6 @@ const SUPER_ADMIN_CONSOLE_API_PREFIXES: Record<string, string[]> = {
   database: ["api/v1/admin/database"],
   "encryption-keys": ["api/v1/admin/encryption-keys"],
   entitlements: ["api/v1/admin/entitlements"],
-  "feature-flags": ["api/v1/admin/feature-flags"],
   "gdpr-erasure": ["api/v1/gdpr"],
   "integration-gates": ["api/v1/admin/integration-gates"],
   "migration-toolkit": ["api/v1/admin/migration-toolkit"],
@@ -282,7 +282,8 @@ afterEach(() => {
 describe("finding G — SUPER_ADMIN consoles are gated at /api/proxy, not just at /dashboard", () => {
   describe("part 1: the console → proxy-prefix map is complete", () => {
     it("found every SUPER_ADMIN-only console", () => {
-      expect(superAdminOnlyRoutes.length).toBeGreaterThanOrEqual(11);
+      // Ten since the feature-flags console retired (2026-08-27).
+      expect(superAdminOnlyRoutes.length).toBeGreaterThanOrEqual(10);
     });
 
     it("understands every declaration form the RoutePolicy type has", () => {
