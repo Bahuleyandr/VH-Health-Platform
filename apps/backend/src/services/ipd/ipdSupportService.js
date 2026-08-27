@@ -15,7 +15,47 @@ import { sendStaffNotifications } from '../notification/staffNotificationService
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { postAdvanceRefundEntry } from '../billing/ledger/ledgerPostings.js';
 import { deriveAdvanceBalanceFromLedgerTx } from '../billing/billingV2Service.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  approveWardIndent,
+  approveWardIndentSubstitution,
+  cancelWardIndent,
+  closeWardIndent,
+  findWardIndentCreateReplayTx,
+  getWardIndent,
+  initializeWardIndentWorkflowTx,
+  issueWardIndent,
+  listWardIndents,
+  markWardIndentShortSupply,
+  proposeWardIndentSubstitution,
+  receiveWardIndent,
+  reconcileWardIndent,
+  recordWardIndentControlledHandoff,
+  rejectWardIndent,
+  rejectWardIndentSubstitution,
+  reportWardIndentDiscrepancy,
+  requestWardIndentReturn,
+  reserveWardIndent,
+} from './wardIndentWorkflowService.js';
+
+export {
+  approveWardIndent,
+  approveWardIndentSubstitution,
+  cancelWardIndent,
+  closeWardIndent,
+  getWardIndent,
+  issueWardIndent,
+  listWardIndents,
+  markWardIndentShortSupply,
+  proposeWardIndentSubstitution,
+  receiveWardIndent,
+  reconcileWardIndent,
+  recordWardIndentControlledHandoff,
+  rejectWardIndent,
+  rejectWardIndentSubstitution,
+  reportWardIndentDiscrepancy,
+  requestWardIndentReturn,
+  reserveWardIndent,
+};
 
 // Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
 // unidentified patients and brought-in-dead RTA victims. The hospital must
@@ -47,15 +87,7 @@ function isUuid(s) {
 }
 
 const VALID_INDENT_TYPES = new Set(['pharmacy', 'consumables', 'linen', 'sterile_supplies']);
-const VALID_INDENT_TRANSITIONS = {
-  requested: new Set(['approved', 'rejected']),
-  approved:  new Set(['issued', 'rejected']),
-  issued:    new Set(['received']),
-  received:  new Set([]),
-  rejected:  new Set([]),
-};
-const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
-const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'];
+const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'];
 
 // Ward-indent pharmacy dispatch alert — OPERATOR-GATED, DEFAULT OFF.
 //
@@ -197,12 +229,18 @@ async function nextPassNumber(tx, _admissionId, _passIndex) {
   return `${prefix}${pad(nextSeq, 4)}`;
 }
 
-async function nextIndentNumber(tx) {
+async function nextIndentNumber(tx, tenantId) {
+  const tid = tenantOr(tenantId);
   const now = new Date();
   const ymd = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1, 2)}${pad(now.getUTCDate(), 2)}`;
   const prefix = `WI-${ymd}-`;
+  await tx.$queryRawUnsafe(
+    `SELECT 1::int AS locked
+       FROM (SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))) AS guard`,
+    `ward-indent-number:${tid}:${ymd}`,
+  );
   const last = await tx.ward_indents.findFirst({
-    where: { indent_number: { startsWith: prefix } },
+    where: { tenant_id: tid, indent_number: { startsWith: prefix } },
     orderBy: { indent_number: 'desc' },
     select: { indent_number: true },
   });
@@ -309,16 +347,6 @@ function catalogSearchTerms(medicationName, details) {
 function quantityFromMedicationDetails(details) {
   const qty = Number(details.quantity_requested ?? details.quantity ?? details.qty ?? details.units);
   return Number.isFinite(qty) && qty > 0 ? qty : 1;
-}
-
-function linkedClinicalOrderIds(items = []) {
-  const ids = new Set();
-  for (const item of items) {
-    for (const match of String(item.notes ?? '').matchAll(CLINICAL_ORDER_REF_RE)) {
-      ids.add(Number(match[1]));
-    }
-  }
-  return [...ids].filter(Number.isInteger);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -864,6 +892,7 @@ export async function listAdmissionPasses(admissionId, { tenantId = null } = {})
 export async function createWardIndent({
   wardId, admissionId = null, encounterId = null, patientUid = null,
   indentType = 'pharmacy', items, notes = null, requestedBy, tenantId = null,
+  commandKey = null,
 }) {
   const tid = tenantOr(tenantId);
   if (!VALID_INDENT_TYPES.has(indentType)) {
@@ -873,13 +902,47 @@ export async function createWardIndent({
     throw AppError.badRequest('items must be a non-empty array');
   }
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
-  for (const it of items) {
-    if (!it.item_name) throw AppError.badRequest('Each item requires item_name');
-    const q = Number(it.quantity_requested);
-    if (!Number.isFinite(q) || q <= 0) {
-      throw AppError.badRequest(`item ${it.item_name}: quantity_requested must be positive`);
+  if (!isUuid(requestedBy)) throw AppError.badRequest('requestedBy must be a UUID');
+  const normalizedItems = items.map((it, index) => {
+    const catalogId = it?.pharmacy_catalog_id == null
+      ? null
+      : Number(it.pharmacy_catalog_id);
+    if (catalogId != null && (!Number.isSafeInteger(catalogId) || catalogId <= 0)) {
+      throw AppError.badRequest(`item ${index + 1}: pharmacy_catalog_id must be a positive integer`);
     }
-  }
+    const clinicalOrderId = it?.clinical_order_id == null
+      ? null
+      : Number(it.clinical_order_id);
+    if (clinicalOrderId != null
+      && (!Number.isSafeInteger(clinicalOrderId) || clinicalOrderId <= 0)) {
+      throw AppError.badRequest(`item ${index + 1}: clinical_order_id must be a positive integer`);
+    }
+    const itemName = String(it?.item_name || '').trim();
+    if (!itemName && catalogId == null) throw AppError.badRequest('Each item requires item_name or pharmacy_catalog_id');
+    const q = Number(it.quantity_requested);
+    const normalizedQuantity = Math.round(q * 100) / 100;
+    if (
+      !Number.isFinite(q)
+      || q <= 0
+      || normalizedQuantity > 99999999.99
+      || Math.abs(q - normalizedQuantity) > Number.EPSILON
+    ) {
+      throw AppError.badRequest(`item ${itemName || catalogId}: quantity_requested must be positive with at most 2 places`);
+    }
+    const unitPrice = it?.unit_price == null ? null : Number(it.unit_price);
+    if (unitPrice != null && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+      throw AppError.badRequest(`item ${itemName || catalogId}: unit_price must be non-negative`);
+    }
+    return {
+      catalogId,
+      clinicalOrderId,
+      itemName,
+      quantity: normalizedQuantity,
+      unit: it?.unit ?? null,
+      unitPrice,
+      notes: it?.notes ?? null,
+    };
+  });
   if (encounterId != null && !isUuid(encounterId)) {
     throw AppError.badRequest('encounter_id must be a UUID');
   }
@@ -888,10 +951,8 @@ export async function createWardIndent({
   }
 
   // Closes finding 2026-05-17-inpatient-admission-pharmacy-05748c99.
-  // When admissionId is supplied, look the admission up out of band so a
-  // missing FK surfaces a 404 instead of a generic 500, and snapshot
-  // ward_id / patient_uid / encounter_id from the admission so the
-  // pharmacy queue can filter by patient without trusting the caller.
+  // Snapshot ward/patient/encounter from a locked admission inside the
+  // creation transaction so a concurrent discharge cannot race an indent.
   let resolvedWardId = wardId ?? null;
   let resolvedWardName = null;
   let resolvedPatientUid = patientUid;
@@ -902,37 +963,155 @@ export async function createWardIndent({
     if (!Number.isInteger(admissionInt) || admissionInt <= 0) {
       throw AppError.badRequest('admission_id must be a positive integer');
     }
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT a.id, a.patient_uid, a.encounter_id, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
-         FROM admissions a
-         LEFT JOIN beds  b ON b.id = a.bed_id
-         LEFT JOIN wards w ON w.id = b.ward_id
-        WHERE a.id = $1::int
-          AND a.tenant_id = $2::uuid`,
-      admissionInt, tid,
-    );
-    const admission = rows[0];
-    if (!admission) throw AppError.notFound('Admission not found');
     resolvedAdmissionId = admissionInt;
-    if (resolvedWardId == null) resolvedWardId = admission.ward_id ?? null;
-    if (resolvedWardName == null) resolvedWardName = admission.ward_name ?? null;
-    if (resolvedPatientUid == null) resolvedPatientUid = admission.patient_uid ?? null;
-    if (resolvedEncounterId == null) resolvedEncounterId = admission.encounter_id ?? null;
-  }
-  if (resolvedPatientUid != null) {
-    const patientRows = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
-      resolvedPatientUid, tid,
-    );
-    if (!patientRows.length) throw AppError.notFound('Patient not found');
   }
 
   return setTenantTx(tid, async (tx) => {
-    if (resolvedWardId && resolvedWardName == null) {
-      const ward = await tx.wards.findUnique({ where: { id: resolvedWardId }, select: { name: true } });
-      resolvedWardName = ward?.name ?? null;
+    const replay = await findWardIndentCreateReplayTx(tx, {
+      tenantId: tid,
+      commandKey,
+      actorUid: requestedBy,
+    });
+    if (replay) return replay;
+    if (resolvedAdmissionId != null) {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT a.id, a.patient_uid, a.encounter_id, a.status,
+                b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+           FROM admissions a
+           LEFT JOIN beds b
+             ON b.tenant_id = a.tenant_id
+            AND b.id = a.bed_id
+           LEFT JOIN wards w
+             ON w.tenant_id = a.tenant_id
+            AND w.id = b.ward_id
+          WHERE a.id = $1::int
+            AND a.tenant_id = $2::uuid
+          FOR SHARE OF a`,
+        resolvedAdmissionId, tid,
+      );
+      const admission = rows[0];
+      if (!admission) throw AppError.notFound('Admission not found');
+      if (['discharged', 'cancelled'].includes(String(admission.status || '').toLowerCase())) {
+        throw AppError.conflict(
+          'Ward indent cannot be created for an inactive admission',
+          'WARD_INDENT_ADMISSION_INACTIVE',
+        );
+      }
+      if (wardId != null && admission.ward_id != null
+        && Number(wardId) !== Number(admission.ward_id)) {
+        throw AppError.badRequest('ward_id does not match the admission ward');
+      }
+      if (patientUid != null && admission.patient_uid != null
+        && String(patientUid) !== String(admission.patient_uid)) {
+        throw AppError.badRequest('patient_uid does not match the admission patient');
+      }
+      if (encounterId != null && admission.encounter_id != null
+        && String(encounterId) !== String(admission.encounter_id)) {
+        throw AppError.badRequest('encounter_id does not match the admission encounter');
+      }
+      resolvedWardId = admission.ward_id ?? resolvedWardId;
+      resolvedWardName = admission.ward_name ?? resolvedWardName;
+      resolvedPatientUid = admission.patient_uid ?? resolvedPatientUid;
+      resolvedEncounterId = admission.encounter_id ?? resolvedEncounterId;
     }
-    const indentNumber = await nextIndentNumber(tx);
+    if (resolvedPatientUid != null) {
+      const patientRows = await tx.$queryRawUnsafe(
+        `SELECT uid
+           FROM users
+          WHERE uid = $1::uuid
+            AND tenant_id = $2::uuid
+            AND role = 'PATIENT'
+          LIMIT 1`,
+        resolvedPatientUid, tid,
+      );
+      if (!patientRows.length) throw AppError.notFound('Patient not found');
+    }
+    if (resolvedWardId) {
+      const ward = await tx.wards.findFirst({
+        where: { id: resolvedWardId, tenant_id: tid },
+        select: { name: true },
+      });
+      if (!ward) throw AppError.notFound('Ward not found');
+      resolvedWardName = ward.name;
+    }
+    const clinicalOrderIds = normalizedItems
+      .map((item) => item.clinicalOrderId)
+      .filter((id) => id != null);
+    if (new Set(clinicalOrderIds).size !== clinicalOrderIds.length) {
+      throw AppError.badRequest(
+        'A clinical order can be linked to only one ward-indent line',
+        'WARD_INDENT_DUPLICATE_CLINICAL_ORDER_LINK',
+      );
+    }
+    if (clinicalOrderIds.length) {
+      if (!resolvedPatientUid) {
+        throw AppError.badRequest(
+          'patient_uid or admission_id is required when linking a clinical order',
+          'WARD_INDENT_CLINICAL_ORDER_PATIENT_REQUIRED',
+        );
+      }
+      const linkedOrders = await tx.$queryRawUnsafe(
+        `SELECT clinical_order.id, clinical_order.patient_uid,
+                clinical_order.encounter_id, clinical_order.order_type
+           FROM clinical_orders clinical_order
+          WHERE clinical_order.tenant_id = $1::uuid
+            AND clinical_order.id = ANY($2::int[])
+          ORDER BY clinical_order.id
+          FOR SHARE`,
+        tid,
+        clinicalOrderIds,
+      );
+      const linkedById = new Map(linkedOrders.map((order) => [Number(order.id), order]));
+      for (const clinicalOrderId of clinicalOrderIds) {
+        const order = linkedById.get(clinicalOrderId);
+        if (!order || order.order_type !== 'medication') {
+          throw AppError.notFound(`Medication clinical order ${clinicalOrderId} not found`);
+        }
+        if (String(order.patient_uid) !== String(resolvedPatientUid)) {
+          throw AppError.badRequest(
+            `Clinical order ${clinicalOrderId} does not belong to the indent patient`,
+            'WARD_INDENT_CLINICAL_ORDER_PATIENT_MISMATCH',
+          );
+        }
+        if (order.encounter_id != null
+          && String(order.encounter_id) !== String(resolvedEncounterId)) {
+          throw AppError.badRequest(
+            `Clinical order ${clinicalOrderId} does not belong to the indent encounter`,
+            'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+          );
+        }
+      }
+      const existingLinks = await tx.$queryRawUnsafe(
+        `SELECT clinical_order_id
+           FROM ward_indent_items
+          WHERE tenant_id = $1::uuid
+            AND clinical_order_id = ANY($2::int[])
+          LIMIT 1`,
+        tid,
+        clinicalOrderIds,
+      );
+      if (existingLinks.length) {
+        throw AppError.conflict(
+          `Clinical order ${existingLinks[0].clinical_order_id} already has a ward indent`,
+          'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+        );
+      }
+    }
+    const catalogIds = [...new Set(normalizedItems
+      .map((item) => item.catalogId)
+      .filter((id) => id != null))];
+    const catalogs = catalogIds.length
+      ? await tx.pharmacy_catalog.findMany({
+          where: { tenant_id: tid, id: { in: catalogIds }, is_active: { not: false } },
+          select: { id: true, name: true, unit_price: true, price: true },
+        })
+      : [];
+    const catalogById = new Map(catalogs.map((catalog) => [Number(catalog.id), catalog]));
+    const missingCatalogIds = catalogIds.filter((id) => !catalogById.has(id));
+    if (missingCatalogIds.length) {
+      throw AppError.notFound(`Active catalog item ${missingCatalogIds[0]} not found`);
+    }
+    const indentNumber = await nextIndentNumber(tx, tid);
     const indent = await tx.ward_indents.create({
       data: {
         indent_number: indentNumber,
@@ -947,19 +1126,33 @@ export async function createWardIndent({
         notes,
         tenant_id: tid,
         items: {
-          create: items.map((it) => ({
-            pharmacy_catalog_id: it.pharmacy_catalog_id ?? null,
-            item_name: it.item_name,
-            quantity_requested: Number(it.quantity_requested),
-            unit: it.unit ?? null,
-            unit_price: it.unit_price != null ? Number(it.unit_price) : null,
-            notes: it.notes ?? null,
-          })),
+          create: normalizedItems.map((item) => {
+            const catalog = item.catalogId == null ? null : catalogById.get(item.catalogId);
+            const itemName = catalog?.name ?? item.itemName;
+            return {
+              pharmacy_catalog_id: item.catalogId,
+              original_pharmacy_catalog_id: item.catalogId,
+              clinical_order_id: item.clinicalOrderId,
+              item_name: itemName,
+              original_item_name: itemName,
+              quantity_requested: item.quantity,
+              unit: item.unit,
+              unit_price: catalog
+                ? Number(catalog.unit_price ?? catalog.price ?? 0)
+                : item.unitPrice,
+              notes: item.notes,
+            };
+          }),
         },
       },
       include: { items: true },
     });
-    return indent;
+    return initializeWardIndentWorkflowTx(tx, {
+      indent,
+      actorUid: requestedBy,
+      commandKey,
+      source: 'manual_request',
+    });
   });
 }
 
@@ -975,19 +1168,29 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
   const wildcardTerms = searchTerms.map((term) => `%${term}%`);
 
   const result = await setTenantTx(requireTenantId(order.tenant_id), async (tx) => {
+    const replay = await findWardIndentCreateReplayTx(tx, {
+      tenantId: order.tenant_id,
+      commandKey: `clinical-order:${order.id}`,
+      actorUid: order.ordered_by,
+    });
+    if (replay) return { indent: replay, created: false, admission: null };
     const existing = await tx.$queryRawUnsafe(
       `SELECT wi.id
          FROM ward_indents wi
-         JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
-        WHERE wii.notes LIKE $1
-          -- Explicit tenant_id filter: when the order carries a tenant, the
-          -- dedup match is hard-scoped to it (no cross-tenant fall-through).
-          -- A null tenant (legacy tenant-less clinical order) still matches
-          -- any tenant, preserving the prior COALESCE($2, wi.tenant_id) intent.
-          AND ($2::uuid IS NULL OR wi.tenant_id = $2::uuid)
+         JOIN ward_indent_items wii
+           ON wii.tenant_id = wi.tenant_id
+          AND wii.ward_indent_id = wi.id
+        WHERE wii.clinical_order_id = $1::int
+          AND wi.tenant_id = $2::uuid
+          AND wi.patient_uid = $3::uuid
+          AND wi.encounter_id = $4::uuid
+          AND wii.tenant_id = wi.tenant_id
         ORDER BY wi.created_at DESC
         LIMIT 1`,
-      `%clinical_order_id:${order.id}%`, order.tenant_id || null,
+      Number(order.id),
+      order.tenant_id,
+      order.patient_uid,
+      order.encounter_id,
     );
     if (existing.length) {
       const indent = await tx.ward_indents.findUnique({
@@ -1000,8 +1203,12 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
     const admissions = await tx.$queryRawUnsafe(
       `SELECT a.id, a.tenant_id, a.ward AS admission_ward, a.encounter_id, a.patient_uid, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
          FROM admissions a
-         LEFT JOIN beds b ON b.id = a.bed_id
-         LEFT JOIN wards w ON w.id = b.ward_id
+         LEFT JOIN beds b
+           ON b.tenant_id = a.tenant_id
+          AND b.id = a.bed_id
+         LEFT JOIN wards w
+           ON w.tenant_id = a.tenant_id
+          AND w.id = b.ward_id
         WHERE a.encounter_id = $1::uuid
           AND a.patient_uid = $2::uuid
           -- Explicit tenant_id filter (defense-in-depth): a non-null order
@@ -1012,7 +1219,8 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
           AND ($3::uuid IS NULL OR a.tenant_id = $3::uuid)
           AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
         ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
-        LIMIT 1`,
+        LIMIT 1
+        FOR SHARE OF a`,
       order.encounter_id,
       order.patient_uid,
       order.tenant_id || null,
@@ -1023,7 +1231,8 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
     const catalogMatches = await tx.$queryRawUnsafe(
       `SELECT id, name, COALESCE(unit_price, price) AS unit_price
          FROM pharmacy_catalog
-        WHERE COALESCE(is_active, TRUE) = TRUE
+        WHERE tenant_id = $5::uuid
+          AND COALESCE(is_active, TRUE) = TRUE
           AND (
             name ILIKE ANY($1::text[])
             OR generic_name ILIKE ANY($1::text[])
@@ -1069,9 +1278,10 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
       searchTerms,
       medicationRoute,
       volumeMl,
+      order.tenant_id,
     );
     const catalog = catalogMatches[0] ?? null;
-    const indentNumber = await nextIndentNumber(tx);
+    const indentNumber = await nextIndentNumber(tx, order.tenant_id);
 
     const indent = await tx.ward_indents.create({
       data: {
@@ -1089,7 +1299,10 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
         items: {
           create: [{
             pharmacy_catalog_id: catalog?.id ?? null,
+            original_pharmacy_catalog_id: catalog?.id ?? null,
+            clinical_order_id: Number(order.id),
             item_name: catalog?.name ?? medicationName,
+            original_item_name: catalog?.name ?? medicationName,
             quantity_requested: quantityFromMedicationDetails(details),
             unit: details.unit ?? null,
             unit_price: catalog?.unit_price != null ? Number(catalog.unit_price) : null,
@@ -1099,7 +1312,13 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
       },
       include: { items: true },
     });
-    return { indent, created: true, admission };
+    const initialized = await initializeWardIndentWorkflowTx(tx, {
+      indent,
+      actorUid: order.ordered_by,
+      commandKey: `clinical-order:${order.id}`,
+      source: 'clinical_medication_order',
+    });
+    return { indent: initialized, created: true, admission };
   });
 
   if (result?.created && result.indent) {
@@ -1162,286 +1381,6 @@ async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, 
   });
 }
 
-async function transitionWardIndent({
-  indentId, fromExpected, toStatus, actorUid, tenantId = null, extra = {},
-}) {
-  if (!indentId) throw AppError.badRequest('indentId is required');
-  if (!actorUid) throw AppError.badRequest('actorUid is required');
-  const tid = tenantOr(tenantId);
-
-  return setTenantTx(tid, async (tx) => {
-    const current = await tx.ward_indents.findFirst({
-      where: { id: indentId, tenant_id: tid },
-      select: { id: true, status: true },
-    });
-    if (!current) throw AppError.notFound('Ward indent not found');
-    const allowed = VALID_INDENT_TRANSITIONS[current.status] ?? new Set();
-    if (!allowed.has(toStatus)) {
-      throw AppError.badRequest(`Cannot transition ward indent from '${current.status}' to '${toStatus}'`);
-    }
-    if (fromExpected && current.status !== fromExpected) {
-      throw AppError.badRequest(`Expected current status '${fromExpected}', got '${current.status}'`);
-    }
-    const data = { status: toStatus, updated_at: new Date(), ...extra };
-    return tx.ward_indents.update({
-      where: { id: indentId },
-      data,
-      include: { items: true },
-    });
-  });
-}
-
-export async function approveWardIndent({ indentId, approvedBy, tenantId = null }) {
-  return transitionWardIndent({
-    indentId, fromExpected: 'requested', toStatus: 'approved', actorUid: approvedBy, tenantId,
-    extra: { approved_by: approvedBy, approved_at: new Date() },
-  });
-}
-
-export async function rejectWardIndent({ indentId, rejectedBy, reason, tenantId = null }) {
-  if (!reason || !String(reason).trim()) {
-    throw AppError.badRequest('rejection reason is required');
-  }
-  return transitionWardIndent({
-    indentId, fromExpected: null, toStatus: 'rejected', actorUid: rejectedBy, tenantId,
-    extra: { rejection_reason: reason, approved_by: rejectedBy, approved_at: new Date() },
-  });
-}
-
-// Classifies catalog ids through same-tenant inventory-v2 links. A positive
-// catalog-backed issue is unresolved when the catalog row is absent in this
-// tenant or has no inventory-v2 classification; callers must fail closed.
-async function classifyCatalogControl(db, tenantId, catalogIds) {
-  const ids = [...new Set(
-    (catalogIds || [])
-      .map(Number)
-      .filter((n) => Number.isSafeInteger(n) && n > 0),
-  )];
-  if (!ids.length) return { controlled: new Set(), unresolved: new Set() };
-  // ward_indent_items.pharmacy_catalog_id references pharmacy_catalog.id; the
-  // inventory-v2 items link back to the same catalog row through their own
-  // catalog_id FK, and carry the schedule_class / is_narcotic columns.
-  const placeholders = ids.map((_, i) => `$${i + 2}::int`).join(', ');
-  const rows = await db.$queryRawUnsafe(
-    `SELECT pc.id AS catalog_id,
-            COUNT(i.id)::int AS linked_item_count,
-            COALESCE(
-              BOOL_OR(i.schedule_class IN ('H1', 'X') OR i.is_narcotic = TRUE),
-              FALSE
-            ) AS is_controlled
-       FROM pharmacy_catalog pc
-       LEFT JOIN pharmacy_inventory_items i
-         ON i.tenant_id = pc.tenant_id
-        AND i.catalog_id = pc.id
-      WHERE pc.tenant_id = $1::uuid
-        AND pc.id IN (${placeholders})
-      GROUP BY pc.id`,
-    tenantId,
-    ...ids,
-  );
-  const classified = new Map(rows.map((row) => [Number(row.catalog_id), row]));
-  const controlled = new Set();
-  const unresolved = new Set();
-  for (const id of ids) {
-    const row = classified.get(id);
-    if (!row || Number(row.linked_item_count) <= 0) {
-      unresolved.add(id);
-    } else if (row.is_controlled === true) {
-      controlled.add(id);
-    }
-  }
-  return { controlled, unresolved };
-}
-
-/**
- * Issue an approved indent — decrements pharmacy_catalog stock for classified
- * catalog rows. Positive free-text/non-catalog lines fail closed because this
- * ledger cannot prove that they are non-controlled stock.
- */
-export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued, tenantId = null }) {
-  if (!indentId) throw AppError.badRequest('indentId is required');
-  if (!issuedBy) throw AppError.badRequest('issuedBy is required');
-  const tid = tenantOr(tenantId);
-
-  return setTenantTx(tid, async (tx) => {
-    const current = await tx.ward_indents.findFirst({
-      where: { id: indentId, tenant_id: tid },
-      include: { items: true },
-    });
-    if (!current) throw AppError.notFound('Ward indent not found');
-    if (current.status !== 'approved') {
-      throw AppError.badRequest(`Indent must be in 'approved' state to issue (currently '${current.status}')`);
-    }
-
-    // Apply per-item quantity_issued + decrement catalog stock.
-    const issuedMap = new Map(
-      Array.isArray(itemQuantitiesIssued)
-        ? itemQuantitiesIssued.map((x) => [x.item_id, Number(x.quantity_issued)])
-        : [],
-    );
-
-    // pharmacy_catalog is schedule-blind (no schedule_class / is_narcotic
-    // columns), so the register-mandatory controlled classes are detected via
-    // the inventory-v2 items that link back to the catalog row. Schedule H1
-    // (Rule 65(11A)) and Schedule X / narcotic stock must never leave the shelf
-    // through this ledger — it carries no statutory register row, witness, or
-    // batch lineage. Block the whole issue (before any decrement) and steer the
-    // controlled lines to the witnessed inventory-v2 flow (2026-08-25 reaudit
-    // BC-M3). Schedule H is register-recommended, not mandatory, so it is not
-    // blocked here to avoid stalling routine ward stock.
-    const catalogIdsToIssue = current.items
-      .filter((item) => item.pharmacy_catalog_id
-        && (issuedMap.get(item.id) ?? Number(item.quantity_requested)) > 0)
-      .map((item) => Number(item.pharmacy_catalog_id));
-    const hasUnclassifiedFreeTextIssue = current.items.some((item) => (
-      item.pharmacy_catalog_id == null
-      && (issuedMap.get(item.id) ?? Number(item.quantity_requested)) > 0
-    ));
-    const catalogControl = await classifyCatalogControl(tx, tid, catalogIdsToIssue);
-    if (catalogControl.controlled.size) {
-      throw AppError.conflict(
-        'Ward indent contains controlled (Schedule H1/X or narcotic) items that cannot be issued through the ward-indent catalog ledger; issue them through the controlled pharmacy flow (POST /api/v1/pharmacy/inventory/v2/controlled-dispense) so the statutory register and witness are recorded',
-        'WARD_INDENT_CONTROLLED_ITEM_BLOCKED',
-      );
-    }
-    if (hasUnclassifiedFreeTextIssue || catalogControl.unresolved.size) {
-      throw AppError.conflict(
-        'Ward indent contains items whose controlled-drug classification cannot be resolved for this facility; link every positive line to a catalog row and same-facility inventory item before issuing',
-        'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
-      );
-    }
-
-    for (const item of current.items) {
-      const qtyIssued = issuedMap.get(item.id) ?? Number(item.quantity_requested);
-      if (!Number.isFinite(qtyIssued) || qtyIssued < 0) continue;
-      await tx.ward_indent_items.update({
-        where: { id: item.id },
-        data: { quantity_issued: qtyIssued, updated_at: new Date() },
-      });
-      if (item.pharmacy_catalog_id && qtyIssued > 0) {
-        await tx.$queryRawUnsafe(
-          `UPDATE pharmacy_catalog
-              SET stock_quantity = GREATEST(COALESCE(stock_quantity, 0) - $1, 0),
-                  updated_at = NOW()
-            WHERE id = $2
-              AND tenant_id = $3::uuid`,
-          qtyIssued, item.pharmacy_catalog_id, tid,
-        );
-      }
-    }
-    const clinicalOrderIds = linkedClinicalOrderIds(current.items);
-    if (clinicalOrderIds.length) {
-      await tx.clinical_orders.updateMany({
-        where: {
-          id: { in: clinicalOrderIds },
-          tenant_id: tid,
-          order_type: 'medication',
-          status: { in: ['ordered', 'verified', 'in_progress'] },
-        },
-        data: {
-          status: 'verified',
-          verified_by: issuedBy,
-          verified_at: new Date(),
-          updated_at: new Date(),
-        },
-      });
-    }
-
-    const issued = await tx.ward_indents.update({
-      where: { id: indentId },
-      data: {
-        status: 'issued',
-        issued_by: issuedBy,
-        issued_at: new Date(),
-        updated_at: new Date(),
-      },
-      include: { items: true },
-    });
-
-    // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
-    // issuing a patient-linked ward indent is a patient-facing clinical write —
-    // it dispenses stock against the patient and flips the linked medication
-    // clinical_orders to 'verified'. Persist exactly one clinical_timeline_events
-    // row + one clinical_audit_events row IN THE SAME TRANSACTION as the state
-    // flip; a failed canonical write rolls the issue back (strict). Fixed
-    // insert-once keys are safe here: the 'approved' → 'issued' transition is
-    // one-way (guarded above), so this emit runs at most once per indent.
-    // Ward-stock indents with no linked patient are operational, not
-    // patient-facing — the canonical layer keys on patient_uid, so they skip.
-    if (issued.patient_uid) {
-      await recordCanonicalClinicalEvent({
-        tenantId: tid,
-        patientUid: String(issued.patient_uid),
-        encounterId: issued.encounter_id || null,
-        eventType: 'ward_indent.issued',
-        eventStatus: 'issued',
-        sourceTable: 'ward_indents',
-        sourceId: String(issued.id),
-        resourceType: 'ward_indent',
-        resourceId: String(issued.id),
-        actorUid: issuedBy,
-        occurredAt: issued.issued_at,
-        visibleToPatient: false,
-        summary: `Ward indent ${issued.indent_number} issued`,
-        payload: {
-          indent_id: issued.id,
-          indent_number: issued.indent_number,
-          indent_type: issued.indent_type,
-          ward_id: issued.ward_id,
-          ward_name: issued.ward_name,
-          admission_id: issued.admission_id,
-          item_count: issued.items?.length ?? 0,
-          verified_clinical_order_ids: clinicalOrderIds,
-        },
-        beforeState: { status: 'approved' },
-        afterState: {
-          status: 'issued',
-          verified_clinical_order_ids: clinicalOrderIds,
-        },
-        timelineIdempotencyKey: `ward_indents:${issued.id}:issued`,
-        auditIdempotencyKey: `ward_indents:${issued.id}:audit:issued`,
-      }, { db: tx, strict: true });
-    }
-
-    return issued;
-  });
-}
-
-export async function receiveWardIndent({ indentId, receivedBy, tenantId = null }) {
-  return transitionWardIndent({
-    indentId, fromExpected: 'issued', toStatus: 'received', actorUid: receivedBy, tenantId,
-    extra: { received_by: receivedBy, received_at: new Date() },
-  });
-}
-
-export async function listWardIndents({
-  wardId = null, status = null, admissionId = null, patientUid = null, limit = 50, tenantId = null,
-} = {}) {
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-  if (patientUid != null && !isUuid(patientUid)) {
-    throw AppError.badRequest('patient_uid must be a UUID');
-  }
-  return prisma.ward_indents.findMany({
-    where: {
-      ...(wardId ? { ward_id: wardId } : {}),
-      tenant_id: tenantOr(tenantId),
-      ...(status ? { status } : {}),
-      ...(admissionId ? { admission_id: admissionId } : {}),
-      ...(patientUid ? { patient_uid: patientUid } : {}),
-    },
-    orderBy: { requested_at: 'desc' },
-    take: safeLimit,
-    include: { items: true },
-  });
-}
-
-export async function getWardIndent(indentId, { tenantId = null } = {}) {
-  return prisma.ward_indents.findFirst({
-    where: { id: indentId, tenant_id: tenantOr(tenantId) },
-    include: { items: true },
-  });
-}
-
 export default {
   // deposits
   collectAdvanceDeposit,
@@ -1458,10 +1397,21 @@ export default {
   createWardIndent,
   createWardIndentForClinicalMedicationOrder,
   wardIndentDispatchSurfaceEnabled,
+  reserveWardIndent,
+  markWardIndentShortSupply,
+  proposeWardIndentSubstitution,
+  approveWardIndentSubstitution,
+  rejectWardIndentSubstitution,
   approveWardIndent,
   rejectWardIndent,
+  recordWardIndentControlledHandoff,
   issueWardIndent,
   receiveWardIndent,
+  requestWardIndentReturn,
+  reportWardIndentDiscrepancy,
+  reconcileWardIndent,
+  cancelWardIndent,
+  closeWardIndent,
   listWardIndents,
   getWardIndent,
 };

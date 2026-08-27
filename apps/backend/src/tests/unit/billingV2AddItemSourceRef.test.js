@@ -64,6 +64,7 @@ describe('billingV2Service.addInvoiceItem — source_ref integrity guard', () =>
   });
 
   it.each([
+    ['ward_indent', 'ward_indents'],
     ['dialysis_session', 'dialysis_sessions'],
     ['cath_procedure_log', 'cath_procedure_logs'],
     ['cath_consumable_usage', 'cath_case_consumable_usage'],

@@ -396,7 +396,7 @@ describe('Worker P IPD support authorization', () => {
 
     expect(wardIndentsFindFirstMock).toHaveBeenCalledWith({
       where: { id: 45, tenant_id: TENANT_ID },
-      include: { items: true },
+      include: { items: { orderBy: { id: 'asc' } } },
     });
   });
 });

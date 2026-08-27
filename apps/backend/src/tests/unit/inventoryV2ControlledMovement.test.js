@@ -18,12 +18,16 @@ const calls = { queries: [], executes: [] };
 // simply runs the callback against it, so the whole flow stays in one "tx".
 let itemRow = null;
 let batchRow = null;
+let patientRow = null;
 const consumeWitnessApprovalMock = jest.fn();
 const fakeTx = {
   async $queryRawUnsafe(sql, ...args) {
     calls.queries.push({ sql, args });
     if (/FROM pharmacy_inventory_items\s+WHERE id/i.test(sql)) {
       return itemRow ? [itemRow] : [];
+    }
+    if (/FROM users[\s\S]*role = 'PATIENT'/i.test(sql)) {
+      return patientRow ? [patientRow] : [];
     }
     if (/FROM pharmacy_inventory_batches[\s\S]*FOR UPDATE/i.test(sql)) {
       return [batchRow || {
@@ -88,6 +92,7 @@ beforeEach(() => {
   calls.executes = [];
   itemRow = null;
   batchRow = null;
+  patientRow = null;
   consumeWitnessApprovalMock.mockReset();
   consumeWitnessApprovalMock.mockImplementation(async ({ approvalId }) => {
     if (!approvalId) {
@@ -141,8 +146,8 @@ describe('recordMovement controlled-stock guard', () => {
     const reg = registerInserts();
     expect(reg).toHaveLength(1);
     expect(reg[0].args[4]).toBe('dispose'); // register movement_kind
-    expect(reg[0].args[10]).toBe('bbbbbbbb-0000-4000-8000-000000000002');
-    expect(reg[0].args[11]).toBe('Roster Nurse');
+    expect(reg[0].args[13]).toBe('bbbbbbbb-0000-4000-8000-000000000002');
+    expect(reg[0].args[14]).toBe('Roster Nurse');
     expect(result.register_entry).toMatchObject({ movement_kind: 'dispose' });
   });
 
@@ -200,6 +205,27 @@ describe('recordMovement controlled-stock guard', () => {
     const reg = registerInserts();
     expect(reg).toHaveLength(1);
     expect(reg[0].args[4]).toBe('receive');
+  });
+
+  test('patient-linked controlled return records authoritative patient identity', async () => {
+    const patientUid = 'dddddddd-0000-4000-8000-000000000004';
+    itemRow = { id: 7, schedule_class: 'H1', is_narcotic: false, unit_label: 'tab' };
+    patientRow = { uid: patientUid, name: 'Ward Patient', phone: '9000000000' };
+    await recordMovement({
+      ...base,
+      movement_kind: 'return',
+      patient_uid: patientUid,
+      reference_type: 'ward_indent_return',
+      reference_id: 'ward-indent-return:7:item:11',
+    });
+    const reg = registerInserts();
+    expect(reg).toHaveLength(1);
+    expect(reg[0].args[4]).toBe('return');
+    expect(reg[0].args.slice(8, 11)).toEqual([
+      patientUid,
+      'Ward Patient',
+      '9000000000',
+    ]);
   });
 
   test('non-controlled movement is unaffected — no register row written', async () => {

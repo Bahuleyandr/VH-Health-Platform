@@ -519,9 +519,11 @@ model admissions {
   radiology_orders                        radiology_orders[]
   resuscitation_events                    resuscitation_events[]
   trauma_activations                      trauma_activations[]
+  ward_indents                            ward_indents[]
 
   @@unique([tenant_id, migration_source_key], map: "ux_admissions_migration_source_key", where: raw("(migration_source_key IS NOT NULL)"))
   @@unique([tenant_id, id, patient_uid], map: "ux_admissions_tenant_id_patient")
+  @@unique([tenant_id, id], map: "ux_admissions_tenant_id_for_ward_indents")
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
   @@index([bed_pending_since], map: "idx_admissions_bed_pending")
@@ -4346,31 +4348,33 @@ model clinical_nursing_ambient_sessions {
 }
 
 model clinical_orders {
-  id            Int       @id @default(autoincrement())
-  order_number  String    @db.VarChar(80)
-  encounter_id  String?   @db.Uuid
-  patient_uid   String    @db.Uuid
-  order_type    String    @db.VarChar(50)
-  priority      String    @default("routine") @db.VarChar(50)
-  details       Json      @default("{}")
-  status        String    @default("ordered") @db.VarChar(50)
-  ordered_by    String?   @db.Uuid
-  verified_by   String?   @db.Uuid
-  verified_at   DateTime? @db.Timestamptz(6)
-  start_date    DateTime? @db.Timestamptz(6)
-  end_date      DateTime? @db.Timestamptz(6)
-  notes         String?
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
-  cancel_reason String?
-  cancelled_by  String?   @db.Uuid
-  completed_at  DateTime? @db.Timestamptz(6)
-  completed_by  String?   @db.Uuid
-  route         String?   @db.VarChar(20)
-  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_orders_tenant")
+  id                Int                @id @default(autoincrement())
+  order_number      String             @db.VarChar(80)
+  encounter_id      String?            @db.Uuid
+  patient_uid       String             @db.Uuid
+  order_type        String             @db.VarChar(50)
+  priority          String             @default("routine") @db.VarChar(50)
+  details           Json               @default("{}")
+  status            String             @default("ordered") @db.VarChar(50)
+  ordered_by        String?            @db.Uuid
+  verified_by       String?            @db.Uuid
+  verified_at       DateTime?          @db.Timestamptz(6)
+  start_date        DateTime?          @db.Timestamptz(6)
+  end_date          DateTime?          @db.Timestamptz(6)
+  notes             String?
+  created_at        DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime           @default(now()) @db.Timestamptz(6)
+  cancel_reason     String?
+  cancelled_by      String?            @db.Uuid
+  completed_at      DateTime?          @db.Timestamptz(6)
+  completed_by      String?            @db.Uuid
+  route             String?            @db.VarChar(20)
+  tenant_id         String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_orders_tenant")
+  ward_indent_items ward_indent_items?
 
   @@unique([tenant_id, order_number], map: "uniq_clinical_orders_tenant_order_number")
+  @@unique([tenant_id, id], map: "ux_clinical_orders_tenant_id_for_ward_indents")
   @@index([encounter_id, created_at(sort: Desc)], map: "idx_clinical_orders_encounter")
   @@index([order_type, created_at(sort: Desc)], map: "idx_clinical_orders_medication_created")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_clinical_orders_patient_created")
@@ -8301,41 +8305,44 @@ model pharmacy_activity_logs {
 }
 
 model pharmacy_catalog {
-  id                              Int                               @id @default(autoincrement())
-  name                            String                            @db.VarChar(255)
-  generic_name                    String?                           @db.VarChar(255)
-  category                        String?                           @default("other") @db.VarChar(100)
-  manufacturer                    String?                           @db.VarChar(255)
-  unit_price                      Decimal?                          @db.Decimal(12, 2)
-  price                           Decimal?                          @default(0) @db.Decimal(12, 2)
-  pack_size                       String?                           @db.VarChar(100)
-  requires_prescription           Boolean?                          @default(true)
-  in_stock                        Boolean?                          @default(true)
-  is_active                       Boolean?                          @default(true)
-  is_available                    Boolean?                          @default(true)
-  stock_quantity                  Int?                              @default(0)
-  stock                           Int?                              @default(0)
-  reorder_level                   Int?                              @default(10)
-  description                     String?
-  created_at                      DateTime?                         @default(now()) @db.Timestamptz(6)
-  updated_at                      DateTime?                         @default(now()) @db.Timestamptz(6)
-  tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  composition_id                  Int?
-  strength                        String?                           @db.VarChar(80)
-  strength_key                    String?                           @db.VarChar(120)
-  strength_components             Json?
-  form                            String?                           @db.VarChar(40)
-  form_key                        String?                           @db.VarChar(40)
-  release_key                     String?                           @db.VarChar(10)
-  route                           String?                           @db.VarChar(40)
-  composition_source              String?                           @db.VarChar(20)
-  composition_confidence          String?                           @db.VarChar(10)
-  parsed_notes                    String?
-  drug_composition_curation_queue drug_composition_curation_queue[]
-  drug_kb_catalog_links           drug_kb_catalog_links[]
-  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
-  drug_compositions               drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pharmacy_inventory_items        pharmacy_inventory_items[]
+  id                                                                                           Int                               @id @default(autoincrement())
+  name                                                                                         String                            @db.VarChar(255)
+  generic_name                                                                                 String?                           @db.VarChar(255)
+  category                                                                                     String?                           @default("other") @db.VarChar(100)
+  manufacturer                                                                                 String?                           @db.VarChar(255)
+  unit_price                                                                                   Decimal?                          @db.Decimal(12, 2)
+  price                                                                                        Decimal?                          @default(0) @db.Decimal(12, 2)
+  pack_size                                                                                    String?                           @db.VarChar(100)
+  requires_prescription                                                                        Boolean?                          @default(true)
+  in_stock                                                                                     Boolean?                          @default(true)
+  is_active                                                                                    Boolean?                          @default(true)
+  is_available                                                                                 Boolean?                          @default(true)
+  stock_quantity                                                                               Int?                              @default(0)
+  stock                                                                                        Int?                              @default(0)
+  reorder_level                                                                                Int?                              @default(10)
+  description                                                                                  String?
+  created_at                                                                                   DateTime?                         @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                   DateTime?                         @default(now()) @db.Timestamptz(6)
+  tenant_id                                                                                    String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  composition_id                                                                               Int?
+  strength                                                                                     String?                           @db.VarChar(80)
+  strength_key                                                                                 String?                           @db.VarChar(120)
+  strength_components                                                                          Json?
+  form                                                                                         String?                           @db.VarChar(40)
+  form_key                                                                                     String?                           @db.VarChar(40)
+  release_key                                                                                  String?                           @db.VarChar(10)
+  route                                                                                        String?                           @db.VarChar(40)
+  composition_source                                                                           String?                           @db.VarChar(20)
+  composition_confidence                                                                       String?                           @db.VarChar(10)
+  parsed_notes                                                                                 String?
+  drug_composition_curation_queue                                                              drug_composition_curation_queue[]
+  drug_kb_catalog_links                                                                        drug_kb_catalog_links[]
+  tenants                                                                                      tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
+  drug_compositions                                                                            drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacy_inventory_items                                                                     pharmacy_inventory_items[]
+  ward_indent_items_ward_indent_items_tenant_id_pharmacy_catalog_idTopharmacy_catalog          ward_indent_items[]               @relation("ward_indent_items_tenant_id_pharmacy_catalog_idTopharmacy_catalog")
+  ward_indent_items_ward_indent_items_tenant_id_original_pharmacy_catalog_idTopharmacy_catalog ward_indent_items[]               @relation("ward_indent_items_tenant_id_original_pharmacy_catalog_idTopharmacy_catalog")
+  ward_indent_items_ward_indent_items_tenant_id_proposed_pharmacy_catalog_idTopharmacy_catalog ward_indent_items[]               @relation("ward_indent_items_tenant_id_proposed_pharmacy_catalog_idTopharmacy_catalog")
 
   @@unique([tenant_id, id], map: "ux_pharmacy_catalog_tenant_id")
   @@index([is_active, is_available, in_stock], map: "idx_pharmacy_catalog_active")
@@ -8697,6 +8704,8 @@ model pharmacy_stock_movements {
   pharmacy_inventory_batches                                                                                       pharmacy_inventory_batches?         @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
   pharmacy_inventory_items                                                                                         pharmacy_inventory_items            @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                                                                                                          tenants                             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ward_indent_items                                                                                                ward_indent_items?
+  ward_indent_items_ward_indent_items_tenant_id_controlled_return_movement_idTopharmacy_stock_movements            ward_indent_items?                  @relation("ward_indent_items_tenant_id_controlled_return_movement_idTopharmacy_stock_movements")
 
   @@unique([tenant_id, id], map: "ux_pharmacy_stock_movements_tenant_id_for_cath")
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_item_time")
@@ -11223,7 +11232,9 @@ model tenants {
   virtual_ward_enrollments                             virtual_ward_enrollments[]
   virtual_ward_escalations                             virtual_ward_escalations[]
   vitals_chart                                         vitals_chart[]
+  ward_indent_events                                   ward_indent_events[]
   ward_indent_items                                    ward_indent_items[]
+  ward_indents                                         ward_indents[]
   wards                                                wards[]
   webhook_deliveries                                   webhook_deliveries[]
   webhook_subscriptions                                webhook_subscriptions[]
@@ -12037,6 +12048,7 @@ model users {
   guardian_user                                                                                                                    users?                                                 @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
   dependents                                                                                                                       users[]                                                @relation("users_guardian_user_fk")
   tenants                                                                                                                          tenants                                                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ward_indents                                                                                                                     ward_indents[]
   webhook_deliveries                                                                                                               webhook_deliveries[]
   webhook_subscriptions                                                                                                            webhook_subscriptions[]
 
@@ -12243,6 +12255,7 @@ model wards {
   downtime_snapshots_downtime_snapshots_tenant_id_facility_id_ward_idTowards downtime_snapshots[]    @relation("downtime_snapshots_tenant_id_facility_id_ward_idTowards")
   linen_laundry_cycles                                                       linen_laundry_cycles[]
   linen_ward_par_levels                                                      linen_ward_par_levels[]
+  ward_indents_ward_indents_tenant_id_ward_idTowards                         ward_indents[]          @relation("ward_indents_tenant_id_ward_idTowards")
   ward_indents                                                               ward_indents[]
   facilities                                                                 facilities?             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_wards_facility_tenant")
   tenants                                                                    tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wards_tenant")
@@ -12317,56 +12330,120 @@ model attendant_passes {
 }
 
 model ward_indents {
-  id               Int                 @id @default(autoincrement())
-  indent_number    String              @db.VarChar(40)
-  ward_id          Int?
-  ward_name        String?             @db.VarChar(80)
-  indent_type      String              @default("pharmacy") @db.VarChar(40)
-  status           String              @default("requested") @db.VarChar(20)
-  requested_by     String              @db.Uuid
-  requested_at     DateTime            @default(now()) @db.Timestamptz(6)
-  approved_by      String?             @db.Uuid
-  approved_at      DateTime?           @db.Timestamptz(6)
-  issued_by        String?             @db.Uuid
-  issued_at        DateTime?           @db.Timestamptz(6)
-  received_by      String?             @db.Uuid
-  received_at      DateTime?           @db.Timestamptz(6)
-  rejection_reason String?
-  notes            String?
-  tenant_id        String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at       DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime            @default(now()) @db.Timestamptz(6)
-  admission_id     Int?
-  encounter_id     String?             @db.Uuid
-  patient_uid      String?             @db.Uuid
-  items            ward_indent_items[]
-  ward             wards?              @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
+  id                                                                         Int                  @id @default(autoincrement())
+  indent_number                                                              String               @db.VarChar(40)
+  ward_id                                                                    Int?
+  ward_name                                                                  String?              @db.VarChar(80)
+  indent_type                                                                String               @default("pharmacy") @db.VarChar(40)
+  status                                                                     String               @default("requested") @db.VarChar(40)
+  requested_by                                                               String               @db.Uuid
+  requested_at                                                               DateTime             @default(now()) @db.Timestamptz(6)
+  approved_by                                                                String?              @db.Uuid
+  approved_at                                                                DateTime?            @db.Timestamptz(6)
+  issued_by                                                                  String?              @db.Uuid
+  issued_at                                                                  DateTime?            @db.Timestamptz(6)
+  received_by                                                                String?              @db.Uuid
+  received_at                                                                DateTime?            @db.Timestamptz(6)
+  rejection_reason                                                           String?
+  notes                                                                      String?
+  tenant_id                                                                  String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                                                                 DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                                                                 DateTime             @default(now()) @db.Timestamptz(6)
+  admission_id                                                               Int?
+  encounter_id                                                               String?              @db.Uuid
+  patient_uid                                                                String?              @db.Uuid
+  state_version                                                              Int                  @default(1)
+  owner_role_codes                                                           String[]             @default(["PHARMACY_STAFF", "PHARMACY_INCHARGE", "PHARMACIST"])
+  active_sla_source_id                                                       String?              @db.VarChar(120)
+  last_transition_at                                                         DateTime             @default(now()) @db.Timestamptz(6)
+  short_supply_reason                                                        String?
+  return_requested_by                                                        String?              @db.Uuid
+  return_requested_at                                                        DateTime?            @db.Timestamptz(6)
+  reconciliation_reason                                                      String?
+  reconciled_by                                                              String?              @db.Uuid
+  reconciled_at                                                              DateTime?            @db.Timestamptz(6)
+  cancelled_by                                                               String?              @db.Uuid
+  cancelled_at                                                               DateTime?            @db.Timestamptz(6)
+  cancellation_reason                                                        String?
+  closed_by                                                                  String?              @db.Uuid
+  closed_at                                                                  DateTime?            @db.Timestamptz(6)
+  closure_outcome                                                            String?              @db.VarChar(40)
+  closure_reason                                                             String?
+  ward_indent_events                                                         ward_indent_events[]
+  ward_indent_items_ward_indent_items_tenant_id_ward_indent_idToward_indents ward_indent_items[]  @relation("ward_indent_items_tenant_id_ward_indent_idToward_indents")
+  items                                                                      ward_indent_items[]
+  admissions                                                                 admissions?          @relation(fields: [tenant_id, admission_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indents_admission_tenant")
+  users                                                                      users?               @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indents_patient_tenant")
+  tenants                                                                    tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indents_tenant")
+  wards_ward_indents_tenant_id_ward_idTowards                                wards?               @relation("ward_indents_tenant_id_ward_idTowards", fields: [tenant_id, ward_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indents_ward_tenant")
+  ward                                                                       wards?               @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
 
   @@unique([tenant_id, indent_number], map: "uniq_ward_indents_tenant_indent_number")
+  @@unique([tenant_id, id], map: "ux_ward_indents_tenant_id")
   @@index([ward_id, status, requested_at(sort: Desc)])
   @@index([ward_id, status, requested_at(sort: Desc)], map: "idx_ward_indents_ward_status")
   @@index([admission_id], map: "idx_ward_indents_admission_id", where: raw("(admission_id IS NOT NULL)"))
   @@index([patient_uid], map: "idx_ward_indents_patient_uid", where: raw("(patient_uid IS NOT NULL)"))
-  @@index([status, requested_at], map: "idx_ward_indents_pending", where: raw("((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('approved'::character varying)::text, ('issued'::character varying)::text]))"))
+  @@index([tenant_id, status, requested_at], map: "idx_ward_indents_pending", where: raw("((status)::text = ANY ((ARRAY['requested'::character varying, 'reserved'::character varying, 'short_supply'::character varying, 'substitution_pending'::character varying, 'controlled_handoff_required'::character varying, 'approved'::character varying, 'issued'::character varying, 'partially_received'::character varying, 'received'::character varying, 'return_pending'::character varying, 'reconciliation_required'::character varying, 'reconciled'::character varying])::text[]))"))
   @@index([tenant_id], map: "idx_ward_indents_tenant_id")
 }
 
 model ward_indent_items {
-  id                  Int          @id @default(autoincrement())
-  ward_indent_id      Int
-  pharmacy_catalog_id Int?
-  item_name           String       @db.VarChar(255)
-  quantity_requested  Decimal      @db.Decimal(10, 2)
-  quantity_issued     Decimal?     @db.Decimal(10, 2)
-  unit                String?      @db.VarChar(20)
-  unit_price          Decimal?     @db.Decimal(10, 2)
-  notes               String?
-  created_at          DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime     @default(now()) @db.Timestamptz(6)
-  tenant_id           String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants             tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_tenant")
-  indent              ward_indents @relation(fields: [ward_indent_id], references: [id], onDelete: Cascade)
+  id                                                                                                               Int                         @id @default(autoincrement())
+  ward_indent_id                                                                                                   Int
+  pharmacy_catalog_id                                                                                              Int?
+  item_name                                                                                                        String                      @db.VarChar(255)
+  quantity_requested                                                                                               Decimal                     @db.Decimal(10, 2)
+  quantity_issued                                                                                                  Decimal?                    @db.Decimal(10, 2)
+  unit                                                                                                             String?                     @db.VarChar(20)
+  unit_price                                                                                                       Decimal?                    @db.Decimal(10, 2)
+  notes                                                                                                            String?
+  created_at                                                                                                       DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                       DateTime                    @default(now()) @db.Timestamptz(6)
+  tenant_id                                                                                                        String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  original_pharmacy_catalog_id                                                                                     Int?
+  original_item_name                                                                                               String?                     @db.VarChar(255)
+  quantity_reserved                                                                                                Decimal                     @default(0) @db.Decimal(10, 2)
+  quantity_approved                                                                                                Decimal                     @default(0) @db.Decimal(10, 2)
+  quantity_received                                                                                                Decimal                     @default(0) @db.Decimal(10, 2)
+  quantity_variance_resolved                                                                                       Decimal                     @default(0) @db.Decimal(10, 2)
+  quantity_return_requested                                                                                        Decimal                     @default(0) @db.Decimal(10, 2)
+  quantity_returned                                                                                                Decimal                     @default(0) @db.Decimal(10, 2)
+  reconciliation_disposition                                                                                       String?                     @db.VarChar(40)
+  reconciliation_note                                                                                              String?
+  fulfilment_status                                                                                                String                      @default("requested") @db.VarChar(40)
+  proposed_pharmacy_catalog_id                                                                                     Int?
+  proposed_item_name                                                                                               String?                     @db.VarChar(255)
+  proposed_quantity                                                                                                Decimal?                    @db.Decimal(10, 2)
+  clinical_order_id                                                                                                Int?
+  substitution_status                                                                                              String?                     @db.VarChar(20)
+  substitution_reason                                                                                              String?
+  substitution_proposed_by                                                                                         String?                     @db.Uuid
+  substitution_proposed_at                                                                                         DateTime?                   @db.Timestamptz(6)
+  substitution_decided_by                                                                                          String?                     @db.Uuid
+  substitution_decided_at                                                                                          DateTime?                   @db.Timestamptz(6)
+  controlled_reference_id                                                                                          String?                     @db.VarChar(120)
+  controlled_movement_id                                                                                           Int?
+  controlled_register_id                                                                                           Int?
+  controlled_return_movement_id                                                                                    Int?
+  controlled_return_register_id                                                                                    Int?
+  pharmacy_catalog_ward_indent_items_tenant_id_pharmacy_catalog_idTopharmacy_catalog                               pharmacy_catalog?           @relation("ward_indent_items_tenant_id_pharmacy_catalog_idTopharmacy_catalog", fields: [tenant_id, pharmacy_catalog_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_catalog_tenant")
+  clinical_orders                                                                                                  clinical_orders?            @relation(fields: [tenant_id, clinical_order_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_clinical_order_tenant")
+  pharmacy_stock_movements                                                                                         pharmacy_stock_movements?   @relation(fields: [tenant_id, controlled_movement_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_controlled_movement_tenant")
+  pharmacy_schedule_register                                                                                       pharmacy_schedule_register? @relation(fields: [tenant_id, controlled_register_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_controlled_register_tenant")
+  pharmacy_stock_movements_ward_indent_items_tenant_id_controlled_return_movement_idTopharmacy_stock_movements     pharmacy_stock_movements?   @relation("ward_indent_items_tenant_id_controlled_return_movement_idTopharmacy_stock_movements", fields: [tenant_id, controlled_return_movement_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_controlled_return_movement_tenant")
+  pharmacy_schedule_register_ward_indent_items_tenant_id_controlled_return_register_idTopharmacy_schedule_register pharmacy_schedule_register? @relation("ward_indent_items_tenant_id_controlled_return_register_idTopharmacy_schedule_register", fields: [tenant_id, controlled_return_register_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_controlled_return_register_tenant")
+  ward_indents_ward_indent_items_tenant_id_ward_indent_idToward_indents                                            ward_indents                @relation("ward_indent_items_tenant_id_ward_indent_idToward_indents", fields: [tenant_id, ward_indent_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ward_indent_items_indent_tenant")
+  pharmacy_catalog_ward_indent_items_tenant_id_original_pharmacy_catalog_idTopharmacy_catalog                      pharmacy_catalog?           @relation("ward_indent_items_tenant_id_original_pharmacy_catalog_idTopharmacy_catalog", fields: [tenant_id, original_pharmacy_catalog_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_original_catalog_tenant")
+  pharmacy_catalog_ward_indent_items_tenant_id_proposed_pharmacy_catalog_idTopharmacy_catalog                      pharmacy_catalog?           @relation("ward_indent_items_tenant_id_proposed_pharmacy_catalog_idTopharmacy_catalog", fields: [tenant_id, proposed_pharmacy_catalog_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_proposed_catalog_tenant")
+  tenants                                                                                                          tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_tenant")
+  indent                                                                                                           ward_indents                @relation(fields: [ward_indent_id], references: [id], onDelete: Cascade)
 
+  @@unique([tenant_id, clinical_order_id], map: "ux_ward_indent_items_clinical_order", where: raw("(clinical_order_id IS NOT NULL)"))
+  @@unique([tenant_id, controlled_movement_id], map: "ux_ward_indent_items_controlled_movement", where: raw("(controlled_movement_id IS NOT NULL)"))
+  @@unique([tenant_id, controlled_register_id], map: "ux_ward_indent_items_controlled_register", where: raw("(controlled_register_id IS NOT NULL)"))
+  @@unique([tenant_id, controlled_return_movement_id], map: "ux_ward_indent_items_controlled_return_movement", where: raw("(controlled_return_movement_id IS NOT NULL)"))
+  @@unique([tenant_id, controlled_return_register_id], map: "ux_ward_indent_items_controlled_return_register", where: raw("(controlled_return_register_id IS NOT NULL)"))
   @@index([ward_indent_id])
   @@index([ward_indent_id], map: "idx_ward_indent_items_indent")
   @@index([tenant_id], map: "idx_ward_indent_items_tenant_id")
@@ -12966,6 +13043,7 @@ model billing_invoice_items {
   @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_dialysis_session", where: raw("(((source_ref_type)::text = 'dialysis_session'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
   @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_cath_consumable", where: raw("(((source_ref_type)::text = 'cath_consumable_usage'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
   @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_cath_procedure", where: raw("(((source_ref_type)::text = 'cath_procedure_log'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
+  @@unique([tenant_id, source_ref_type, source_ref_id], map: "ux_billing_invoice_items_ward_indent", where: raw("(((source_ref_type)::text = 'ward_indent'::text) AND (source_ref_id IS NOT NULL) AND source_ref_active)"))
   @@index([invoice_id], map: "idx_invoice_items_invoice")
   @@index([invoice_id], map: "idx_billing_invoice_items_non_payable", where: raw("((tpa_decision)::text = ANY ((ARRAY['non_payable'::character varying, 'partial'::character varying])::text[]))"))
   @@index([source_ref_type, source_ref_id], map: "idx_billing_invoice_items_source_ref", where: raw("((source_ref_type IS NOT NULL) AND (source_ref_id IS NOT NULL))"))
@@ -14454,34 +14532,37 @@ model pharmacy_expiry_scan_cache {
 }
 
 model pharmacy_schedule_register {
-  id                      Int      @id @default(autoincrement())
-  tenant_id               String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_id             Int?
-  inventory_item_id       Int
-  inventory_batch_id      Int?
-  schedule_class          String   @db.VarChar(20)
-  movement_kind           String   @db.VarChar(40)
-  quantity                Decimal  @db.Decimal(14, 4)
-  unit_label              String?  @db.VarChar(40)
-  running_balance         Decimal  @db.Decimal(14, 4)
-  patient_uid             String?  @db.Uuid
-  prescription_id         Int?
-  prescription_number     String?  @db.VarChar(80)
-  prescriber_uid          String?  @db.Uuid
-  prescriber_name         String?  @db.VarChar(255)
-  prescriber_registration String?  @db.VarChar(80)
-  patient_id_proof_type   String?  @db.VarChar(40)
-  patient_id_proof_last4  String?  @db.VarChar(4)
-  performed_by            String   @db.Uuid
-  performed_by_name       String?  @db.VarChar(255)
-  witness_uid             String?  @db.Uuid
-  witness_name            String?  @db.VarChar(255)
-  reference_movement_id   Int?
-  notes                   String?
-  created_at              DateTime @default(now()) @db.Timestamptz(6)
-  patient_name            String?  @db.VarChar(255)
-  patient_phone           String?  @db.VarChar(20)
+  id                                                                                                      Int                @id @default(autoincrement())
+  tenant_id                                                                                               String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id                                                                                             Int?
+  inventory_item_id                                                                                       Int
+  inventory_batch_id                                                                                      Int?
+  schedule_class                                                                                          String             @db.VarChar(20)
+  movement_kind                                                                                           String             @db.VarChar(40)
+  quantity                                                                                                Decimal            @db.Decimal(14, 4)
+  unit_label                                                                                              String?            @db.VarChar(40)
+  running_balance                                                                                         Decimal            @db.Decimal(14, 4)
+  patient_uid                                                                                             String?            @db.Uuid
+  prescription_id                                                                                         Int?
+  prescription_number                                                                                     String?            @db.VarChar(80)
+  prescriber_uid                                                                                          String?            @db.Uuid
+  prescriber_name                                                                                         String?            @db.VarChar(255)
+  prescriber_registration                                                                                 String?            @db.VarChar(80)
+  patient_id_proof_type                                                                                   String?            @db.VarChar(40)
+  patient_id_proof_last4                                                                                  String?            @db.VarChar(4)
+  performed_by                                                                                            String             @db.Uuid
+  performed_by_name                                                                                       String?            @db.VarChar(255)
+  witness_uid                                                                                             String?            @db.Uuid
+  witness_name                                                                                            String?            @db.VarChar(255)
+  reference_movement_id                                                                                   Int?
+  notes                                                                                                   String?
+  created_at                                                                                              DateTime           @default(now()) @db.Timestamptz(6)
+  patient_name                                                                                            String?            @db.VarChar(255)
+  patient_phone                                                                                           String?            @db.VarChar(20)
+  ward_indent_items                                                                                       ward_indent_items?
+  ward_indent_items_ward_indent_items_tenant_id_controlled_return_register_idTopharmacy_schedule_register ward_indent_items? @relation("ward_indent_items_tenant_id_controlled_return_register_idTopharmacy_schedule_register")
 
+  @@unique([tenant_id, id], map: "ux_pharmacy_schedule_register_tenant_id")
   @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_schedule_register_item")
   @@index([tenant_id, schedule_class, created_at(sort: Desc)], map: "idx_schedule_register_tenant_class_time")
   @@index([patient_uid], map: "idx_schedule_register_patient", where: raw("(patient_uid IS NOT NULL)"))
@@ -28998,6 +29079,30 @@ model lab_threshold_unmatched_exceptions {
   @@unique([tenant_id, result_id, patient_uid], map: "uq_lab_threshold_exception_result_patient")
   @@index([tenant_id, facility_id, lifecycle_status, first_seen_at(sort: Desc)], map: "idx_lab_threshold_exception_facility")
   @@index([tenant_id, lifecycle_status, last_reconciled_at, first_seen_at, id], map: "idx_lab_threshold_exception_open", where: raw("((lifecycle_status)::text = 'open'::text)"))
+}
+
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ward_indent_events {
+  id               BigInt       @id @default(autoincrement())
+  tenant_id        String       @db.Uuid
+  ward_indent_id   Int
+  state_version    Int
+  action           String       @db.VarChar(60)
+  from_status      String?      @db.VarChar(40)
+  to_status        String       @db.VarChar(40)
+  actor_uid        String       @db.Uuid
+  owner_role_codes String[]     @default([])
+  reason           String?
+  command_key      String?      @db.VarChar(200)
+  details          Json         @default("{}")
+  occurred_at      DateTime     @default(now()) @db.Timestamptz(6)
+  ward_indents     ward_indents @relation(fields: [tenant_id, ward_indent_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_ward_indent_events_indent_tenant")
+  tenants          tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_events_tenant")
+
+  @@unique([tenant_id, command_key], map: "ux_ward_indent_events_command_key", where: raw("(command_key IS NOT NULL)"))
+  @@unique([tenant_id, ward_indent_id, state_version], map: "ux_ward_indent_events_version")
+  @@index([tenant_id, ward_indent_id, occurred_at(sort: Desc)], map: "idx_ward_indent_events_indent_time")
 }
 
 enum transplant_organ_type {

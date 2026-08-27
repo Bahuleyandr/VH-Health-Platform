@@ -113,6 +113,14 @@ const MANUAL_SEED_TABLES = new Set([
   'fhir_vital_observation_sets',
   'fhir_vital_observation_set_resources',
   'insurance_claim_caps',
+  // Migration 669 makes the current payroll attempt a required, deferrable
+  // back-reference from payroll_runs. Seed the circular run/attempt graph and
+  // its first payslip/document/result coherently below.
+  'payroll_runs',
+  'payroll_run_attempts',
+  'payroll_run_staff_results',
+  'payslips',
+  'payslip_documents',
   // Pillar-D workflow tables — domain CHECKs the auto-seeder can't
   // satisfy (ordered time windows, slot holds, XOR dosing, FDI tooth
   // codes, plan-anchored cycles). Seeded by seedPillarDWorkflowTables below.
@@ -445,6 +453,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   const tablePrefix = table.replace(/[^a-z0-9]+/gi, '_').slice(0, 28);
   const text = (value) => clip(value, maxLength);
 
+  if (column.data_type === 'ARRAY' || column.udt_name.startsWith('_')) return [];
   if (name === 'tenant_id') return ctx.tenantId;
   if (name === 'patient_uid') return ctx.patient.uid;
   if (name === 'doctor_uid' || name === 'surgeon' || name === 'anesthetist') return ctx.doctor.uid;
@@ -465,7 +474,9 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('bed_id')) return ctx.bedId;
   if (name.includes('pharmacy_order_id')) return ctx.pharmacyOrderId;
   if (name.includes('investigation_id')) return ctx.investigationId;
-  if (name.includes('claim_id')) return ctx.invoiceId;
+  if (name.includes('claim_id')) {
+    return column.udt_name === 'uuid' ? ctx.generatedUuid : ctx.invoiceId;
+  }
   if (name.includes('ot_schedule_id')) return ctx.otScheduleId;
   if (name.includes('care_plan_id')) return ctx.carePlanId;
   if (name.includes('chat_session_id')) return ctx.chatSessionId;
@@ -489,7 +500,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('number') && ['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'money'].includes(column.udt_name)) return 1;
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
-  if (name === 'sha256_hash' || name.endsWith('_sha256_hash')) return text('0'.repeat(64));
+  if (name.includes('sha256')) return text('0'.repeat(64));
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
   if (name.includes('name') || name.includes('title') || name.includes('label')) return text(`Seed ${tablePrefix}`);
@@ -602,6 +613,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // failure. Pin the safe branch deterministically.
   body_custody_events: {
     event_type: 'receive',
+  },
+  // mig 704 has the same catalog-order ambiguity: event_type appears in both
+  // its allowed-values CHECK and a conditional transition-evidence CHECK. If
+  // the latter is visited first, checkedValue() chooses status_changed while
+  // nullable to_status remains unset. Pin a non-transition event so the seed
+  // is deterministic on fresh PostgreSQL catalogs.
+  facility_asset_events: {
+    event_type: 'created',
   },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
@@ -857,6 +876,125 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   allergies: {
     allergen: 'Seed allergen (synthetic)',
   },
+  // The birth-notification schema currently declares VARCHAR(12) while its
+  // legacy default "indeterminate" is 13 characters. Use an explicitly valid
+  // value so fresh-DB coverage does not depend on that incompatible default.
+  birth_notifications: {
+    sex: 'female',
+    mother_patient_uid: (ctx) => ctx.patient.uid,
+  },
+  // Optional dependent linkage is real consent evidence, not synthetic seed
+  // material. A plain family contact remains a valid coverage row.
+  family_members: {
+    linked_dependent_uid: null,
+    linked_at: null,
+    link_consent_method: null,
+    link_consent_ref: null,
+  },
+  fhir_allergy_intolerance_receipts: {
+    resource_fingerprint: '4'.repeat(64),
+    payload_sha256: '5'.repeat(64),
+  },
+  hl7_inbound_clinical_receipts: {
+    sender_identity: 'VH-SEED-SENDER',
+    message_control_id: 'VH-SEED-INBOUND-CLINICAL',
+    message_type: 'ADT^A01',
+    payload_sha256: '6'.repeat(64),
+    detail_table: 'admissions',
+    detail_id: async () => firstTenantValue('admissions', 'id'),
+  },
+  mis_report_schedules: {
+    report_keys: ['daily-ops'],
+    cadence: 'daily',
+    recipients: ['seed-mis@example.test'],
+    send_weekday: null,
+    send_day_of_month: null,
+  },
+  mis_report_deliveries: {
+    report_keys: ['daily-ops'],
+    outcome: 'uncertain',
+    provider_message_id: null,
+  },
+  payment_gateway_orders: {
+    provider: 'dry_run',
+    environment: 'sandbox',
+    status: 'created',
+    reconciled_at: null,
+    reconciliation_note: null,
+    reconciled_by: null,
+  },
+  payment_gateway_refunds: {
+    provider: 'dry_run',
+    environment: 'sandbox',
+    status: 'initiated',
+    reconciled_at: null,
+    reconciliation_note: null,
+    reconciled_by: null,
+  },
+  payment_gateway_webhook_events: {
+    provider: 'dry_run',
+    environment: 'sandbox',
+    status: 'pending',
+  },
+  pharmacy_counter_sales: {
+    status: 'IN_PROGRESS',
+    void_refund_id: null,
+    voided_at: null,
+    voided_by: null,
+    void_reason: null,
+  },
+  staff_on_call_assignments: {
+    staff_id: (ctx) => ctx.staff.staffId,
+    staff_uid: (ctx) => ctx.staff.uid,
+    start_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    end_at: () => new Date('2026-05-04T17:00:00.000Z'),
+    is_active: true,
+    ended_at: null,
+  },
+  staff_shift_swap_requests: {
+    requester_id: (ctx) => ctx.staff.staffId,
+    requester_uid: (ctx) => ctx.staff.uid,
+    requester_assignment_id: null,
+    counterparty_id: (ctx) => ctx.secondStaff.staffId,
+    counterparty_uid: (ctx) => ctx.secondStaff.uid,
+    counterparty_assignment_id: null,
+    status: 'cancelled',
+    counterparty_responded_at: null,
+    decided_by: null,
+    decided_by_uid: null,
+    decided_at: null,
+    expires_at: () => new Date('2026-05-05T09:00:00.000Z'),
+  },
+  // Addenda are legal only after the parent procedure report is signed.
+  cath_procedure_reports: {
+    status: 'signed',
+    preliminary_by: (ctx) => ctx.doctor.uid,
+    preliminary_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    signed_by: (ctx) => ctx.doctor.uid,
+    signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+  },
+  ward_indents: {
+    admission_id: (ctx) => ctx.admissionId,
+    patient_uid: (ctx) => ctx.admissionPatientUid,
+    encounter_id: (ctx) => ctx.admissionEncounterId,
+    ward_id: (ctx) => ctx.wardId,
+    requested_by: (ctx) => ctx.staff.uid,
+  },
+  ward_indent_items: {
+    controlled_movement_id: null,
+    controlled_register_id: null,
+    controlled_return_movement_id: null,
+    controlled_return_register_id: null,
+  },
+  ward_indent_events: {
+    ward_indent_id: async () => firstTenantValue('ward_indents', 'id'),
+    state_version: async () => firstTenantValue('ward_indents', 'state_version'),
+    to_status: async () => firstTenantValue('ward_indents', 'status'),
+    actor_uid: (ctx) => ctx.staff.uid,
+    owner_role_codes: async () => firstTenantValue('ward_indents', 'owner_role_codes'),
+    from_status: null,
+    command_key: null,
+  },
 };
 
 function seedOverrideFor(table, columnName) {
@@ -891,13 +1029,10 @@ function primitiveValue(column, table, index, ctx, checksByTable) {
   return clip(`${SEED_TAG}_${table}_${column.column_name}_${index}`, column.character_maximum_length);
 }
 
-async function fkValue(fk, ctx) {
+async function fkValue(fk) {
   const preferred = await firstValue(fk.foreign_table_name, fk.foreign_column_name);
   if (preferred !== null && preferred !== undefined) return preferred;
-
-  if (fk.foreign_column_name === 'uid' || fk.foreign_column_name.endsWith('_uid')) return ctx.patient.uid;
-  if (fk.foreign_column_name === 'id') return 1;
-  return ctx.generatedUuid;
+  return undefined;
 }
 
 async function rowForTable(table, columns, metadata, ctx, index, relaxed = false) {
@@ -927,7 +1062,16 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
     if (!required && !fk && !hasOverride) continue;
 
     if (fk) {
-      row[column.column_name] = await fkValue(fk, ctx);
+      const value = await fkValue(fk);
+      if (value === undefined) {
+        if (required) {
+          throw new Error(
+            `Seed dependency ${fk.foreign_table_name}.${fk.foreign_column_name} is empty`,
+          );
+        }
+        continue;
+      }
+      row[column.column_name] = value;
       continue;
     }
 
@@ -1021,6 +1165,40 @@ async function seedCoreData() {
         [user.rows[0].uid, employeeId, name, position, department]
       );
     }
+
+    if (role === 'DOCTOR') {
+      const existingDoctor = await client.query(
+        `SELECT id
+           FROM doctors
+          WHERE tenant_id = $1::uuid
+            AND user_id = $2::integer
+          ORDER BY id
+          LIMIT 1`,
+        [DEFAULT_TENANT_ID, user.rows[0].id],
+      );
+      if (existingDoctor.rowCount) {
+        await client.query(
+          `UPDATE doctors
+              SET name = $1,
+                  department = $2,
+                  specialty = $3,
+                  is_available = TRUE,
+                  is_active = TRUE,
+                  updated_at = NOW()
+            WHERE id = $4
+              AND tenant_id = $5::uuid`,
+          [name, department, position, existingDoctor.rows[0].id, DEFAULT_TENANT_ID],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO doctors
+             (user_id, name, department, specialty, is_available, is_active,
+              updated_at, tenant_id)
+           VALUES ($1::integer, $2, $3, $4, TRUE, TRUE, NOW(), $5::uuid)`,
+          [user.rows[0].id, name, department, position, DEFAULT_TENANT_ID],
+        );
+      }
+    }
   }
 
   const patients = [
@@ -1081,7 +1259,7 @@ async function seedCoreData() {
     {
       phone: refreshed.patient.phone,
       patient_id: refreshed.patient.id,
-      doctor_id: refreshed.doctor.id,
+      doctor_id: refreshed.doctor.userId,
       doctor_name: refreshed.doctor.name,
       patient_name: refreshed.patient.name,
       appointment_date: new Date(),
@@ -1095,7 +1273,7 @@ async function seedCoreData() {
     {
       phone: '+918888880002',
       patient_id: refreshed.secondPatient.id,
-      doctor_id: refreshed.doctor.id,
+      doctor_id: refreshed.doctor.userId,
       doctor_name: refreshed.doctor.name,
       patient_name: refreshed.secondPatient.name,
       appointment_date: new Date(),
@@ -1160,7 +1338,7 @@ async function seedCoreData() {
     status: 'REQUESTED',
     priority: 'NORMAL',
     requested_by: afterAppointment.doctor.uid,
-    doctor_id: afterAppointment.doctor.id,
+    doctor_id: afterAppointment.doctor.userId,
     test_code: 'CBC',
     type: 'LAB',
     normal_range: 'Standard',
@@ -1186,7 +1364,7 @@ async function seedCoreData() {
 
   await insertIfTenantEmpty('medical_records', [{
     patient_id: afterInvestigation.patient.uid,
-    doctor_id: afterInvestigation.doctor.id,
+    doctor_id: afterInvestigation.doctor.userId,
     record_type: 'consultation',
     title: 'Seed consultation note',
     description: 'Stable vitals. Continue current medication.',
@@ -1253,7 +1431,7 @@ async function seedCoreData() {
   await insertIfTenantEmpty('e_prescriptions', [{
     appointment_id: afterAdmission.appointmentId,
     patient_id: afterAdmission.patient.id,
-    doctor_id: afterAdmission.doctor.id,
+    doctor_id: afterAdmission.doctor.userId,
     patient_uid: afterAdmission.patient.uid,
     doctor_uid: afterAdmission.doctor.uid,
     medication_name: 'Paracetamol',
@@ -1461,6 +1639,8 @@ async function getCoreRefs() {
     bedId: await firstTenantValue('beds', 'id'),
     appointmentId: await firstTenantValue('appointments', 'id'),
     admissionId: await firstTenantValue('admissions', 'id'),
+    admissionPatientUid: await firstTenantValue('admissions', 'patient_uid'),
+    admissionEncounterId: await firstTenantValue('admissions', 'encounter_id'),
     pharmacyOrderId: await firstTenantValue('pharmacy_orders', 'id'),
     investigationId: await firstTenantValue('investigations', 'id'),
     invoiceId: await firstTenantValue('invoices', 'id'),
@@ -1556,6 +1736,109 @@ async function summarize(failed) {
       admin: `admin / ${ADMIN_PASSWORD === STAFF_PASSWORD ? 'test1234' : '<VH_TEST_ADMIN_PASSWORD>'}`,
     },
   };
+}
+
+function assertComprehensiveSeedComplete(summary) {
+  const failures = summary.failed.map(({ table, error }) => `${table}: ${error}`);
+  if (summary.emptyAppTables.length > 0) {
+    failures.push(`unexpectedly empty tables: ${summary.emptyAppTables.join(', ')}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(`Comprehensive seed incomplete: ${failures.join('; ')}`);
+  }
+}
+
+async function seedPayrollAttemptGraph() {
+  const ctx = await getCoreRefs();
+  if (!ctx.staff?.uid) throw new Error('Payroll seed graph requires an active staff user.');
+
+  let run = await first(
+    'payroll_runs',
+    'id, attempt_token',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+  if (!run) {
+    const attemptToken = randomUUID();
+    const inserted = await client.query(
+      `INSERT INTO payroll_runs
+         (tenant_id, month, year, status, total_staff, total_gross,
+          total_net, total_deductions, failed_staff_count, attempt_token,
+          result_manifest_hash, document_manifest_hash, notes)
+       VALUES
+         ($1::uuid, 5, 2026, 'draft', 0, 0, 0, 0, 0, $2::uuid,
+          NULL, NULL, 'Synthetic local payroll attempt coverage')
+       RETURNING id, attempt_token`,
+      [DEFAULT_TENANT_ID, attemptToken],
+    );
+    run = inserted.rows[0];
+  }
+
+  await client.query(
+    `INSERT INTO payroll_run_attempts
+       (tenant_id, payroll_run_id, attempt_token, started_at, status,
+        expected_staff_count, succeeded_staff_count, failed_staff_count)
+     VALUES ($1::uuid, $2::integer, $3::uuid, $4::timestamptz,
+             'processing', 0, 0, 0)
+     ON CONFLICT DO NOTHING`,
+    [
+      DEFAULT_TENANT_ID,
+      run.id,
+      run.attempt_token,
+      new Date('2026-05-04T09:00:00.000Z'),
+    ],
+  );
+
+  let payslip = await first(
+    'payslips',
+    'id, payroll_run_id, generation_attempt_token, staff_uid, document_revision',
+    'tenant_id = $1::uuid AND payroll_run_id = $2::integer AND staff_uid = $3::uuid',
+    [DEFAULT_TENANT_ID, run.id, ctx.staff.uid],
+  );
+  if (!payslip) {
+    const inserted = await client.query(
+      `INSERT INTO payslips
+         (tenant_id, payroll_run_id, generation_attempt_token, staff_uid,
+          month, year, status, document_revision)
+       VALUES ($1::uuid, $2::integer, $3::uuid, $4::uuid,
+               5, 2026, 'draft', 1)
+       RETURNING id, payroll_run_id, generation_attempt_token, staff_uid,
+                 document_revision`,
+      [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid],
+    );
+    payslip = inserted.rows[0];
+  }
+
+  await client.query(
+    `INSERT INTO payroll_run_staff_results
+       (tenant_id, payroll_run_id, attempt_token, staff_uid, outcome)
+     VALUES ($1::uuid, $2::integer, $3::uuid, $4::uuid, 'pending')
+     ON CONFLICT DO NOTHING`,
+    [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid],
+  );
+
+  if (!(await tableCount('payslip_documents'))) {
+    await client.query(
+      `INSERT INTO payslip_documents
+         (tenant_id, payslip_id, payroll_run_id, attempt_token, staff_uid,
+          payslip_revision, version, object_key, credential_ciphertext,
+          content_sha256, status)
+       VALUES
+         ($1::uuid, $2::integer, $3::integer, $4::uuid, $5::uuid,
+          $6::integer, 1, $7, $8, $9, 'prepared')`,
+      [
+        DEFAULT_TENANT_ID,
+        payslip.id,
+        run.id,
+        run.attempt_token,
+        ctx.staff.uid,
+        payslip.document_revision,
+        'seed/payroll/payslip-2026-05.pdf',
+        'synthetic-test-credential-ciphertext',
+        '7'.repeat(64),
+      ],
+    );
+  }
 }
 
 async function seedCarePathwayWorkflowGraph() {
@@ -6098,6 +6381,7 @@ try {
   await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded } = await seedRemainingTables();
+  await seedPayrollAttemptGraph();
   await seedFhirVitalObservationReceiptGraph();
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
@@ -6123,14 +6407,10 @@ try {
   seeded.push(...finalSweep.seeded);
   const failed = finalSweep.failed;
   await assertNoActiveSyntheticWorkflowDefinitions();
-  await client.query('COMMIT');
-  await client.query('BEGIN');
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  await client.query('SET CONSTRAINTS ALL IMMEDIATE');
   const summary = await summarize(failed);
-  await client.query('ROLLBACK');
+  assertComprehensiveSeedComplete(summary);
+  await client.query('COMMIT');
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
 } catch (error) {
   await client.query('ROLLBACK').catch(() => {});

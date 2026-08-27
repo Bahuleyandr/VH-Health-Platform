@@ -26,11 +26,21 @@ import { wrapAsync } from '../../config/routeWrapper.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import {
   BILLING_ROUTE_ROLES,
   IP_FLOW_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
+  PHARMACY_SUPPLY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
+import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
+import {
+  wardIndentAdmissionGuard,
+  wardIndentCreateGuard,
+  wardIndentListGuard,
+  wardIndentRowGuard,
+} from '../pharmacy/wardIndentPatientGuards.js';
 
 const router = express.Router();
 
@@ -72,7 +82,50 @@ const WARD_INDENT_REQUEST_ROLES = [...new Set([
   ...IP_FLOW_ROUTE_ROLES,
   ...PHARMACY_ROUTE_ROLES,
 ])];
-const WARD_INDENT_SUPPLY_ROLES = PHARMACY_ROUTE_ROLES;
+const WARD_INDENT_SUPPLY_ROLES = [...new Set([
+  ...PHARMACY_ROUTE_ROLES,
+  ...PHARMACY_SUPPLY_ROUTE_ROLES,
+])];
+const WARD_INDENT_SUBSTITUTION_DECISION_ROLES = [...DOCTOR_TIERS];
+const WARD_INDENT_RECEIPT_ROLES = [
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ICU_STAFF',
+  'ER_STAFF',
+];
+const WARD_INDENT_RECONCILIATION_ROLES = [
+  'PHARMACY_INCHARGE',
+  'NURSING_INCHARGE',
+  'IP_INCHARGE',
+  'ICU_INCHARGE',
+];
+const WARD_INDENT_CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
+const guardWardIndentRow = wardIndentRowGuard((req) => req.params.indentId);
+
+function wardIndentIdempotency(scope, action = null) {
+  return requireIdempotencyKey({
+    required: true,
+    scope: `ward_indent_${scope}`,
+    retainOnServerError: true,
+    requestPathForIdempotency: action
+      ? (req) => `${WARD_INDENT_CANONICAL_BASE}/${encodeURIComponent(
+          String(req.params.indentId),
+        )}/${action}`
+      : WARD_INDENT_CANONICAL_BASE,
+  });
+}
+
+function wardIndentMutationContext(req) {
+  return {
+    expectedVersion: req.body?.expected_version ?? req.body?.state_version ?? null,
+    commandKey: req.get('idempotency-key') || null,
+    tenantId: tenantOf(req),
+  };
+}
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -191,125 +244,323 @@ router.post(
 
 // ── Ward indents ─────────────────────────────────────────────────────
 
+router.use('/ward-indents', sanitizeAllBodyStrings);
+
 router.post(
   '/ward-indents',
   requireRole(...WARD_INDENT_REQUEST_ROLES),
+  wardIndentCreateGuard(),
+  wardIndentIdempotency('create'),
   wrapAsync(async (req, res) => {
     const { ward_id, admission_id, encounter_id, patient_uid, indent_type, items, notes } = req.body ?? {};
     const indent = await ipdSupportService.createWardIndent({
-      wardId: ward_id ?? null,
-      admissionId: admission_id ?? null,
+      wardId: ward_id == null ? null : requireIntParam(ward_id, 'ward_id'),
+      admissionId: admission_id == null ? null : requireIntParam(admission_id, 'admission_id'),
       encounterId: encounter_id ?? null,
       patientUid: patient_uid ?? null,
       indentType: indent_type ?? 'pharmacy',
       items,
       notes: notes ?? null,
       requestedBy: req.user?.uid,
+      commandKey: req.get('idempotency-key'),
       tenantId: tenantOf(req),
     });
     success(res, { indent }, `Ward indent ${indent.indent_number} created`, HTTP_STATUS.CREATED);
-  })
+  }),
 );
 
 router.get(
   '/ward-indents',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  wardIndentListGuard(),
   wrapAsync(async (req, res) => {
-    const { ward_id, status, admission_id, patient_uid, limit } = req.query ?? {};
+    const { ward_id, status, admission_id, patient_uid, overdue_only, limit } = req.query ?? {};
     const indents = await ipdSupportService.listWardIndents({
-      wardId: ward_id ? Number.parseInt(ward_id, 10) : null,
+      wardId: ward_id ? requireIntParam(ward_id, 'ward_id') : null,
       status: status ?? null,
-      admissionId: admission_id ? Number.parseInt(admission_id, 10) : null,
+      admissionId: admission_id ? requireIntParam(admission_id, 'admission_id') : null,
       patientUid: patient_uid ?? null,
+      overdueOnly: ['1', 'true'].includes(String(overdue_only || '').toLowerCase()),
       limit: limit ? Number.parseInt(limit, 10) : 50,
       tenantId: tenantOf(req),
     });
     success(res, { indents }, 'Ward indents retrieved');
-  })
+  }),
 );
 
 router.get(
   '/admissions/:id/ward-indents',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  wardIndentAdmissionGuard((req) => req.params.id),
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
-    const { status, limit } = req.query ?? {};
+    const { status, overdue_only, limit } = req.query ?? {};
     const indents = await ipdSupportService.listWardIndents({
       admissionId,
       status: status ?? null,
+      overdueOnly: ['1', 'true'].includes(String(overdue_only || '').toLowerCase()),
       limit: limit ? Number.parseInt(limit, 10) : 50,
       tenantId: tenantOf(req),
     });
     success(res, { indents }, 'Ward indents for admission retrieved');
-  })
+  }),
 );
 
 router.get(
   '/ward-indents/:indentId',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  guardWardIndentRow,
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
-    const indent = await ipdSupportService.getWardIndent(indentId, { tenantId: tenantOf(req) });
+    const indent = await ipdSupportService.getWardIndent(indentId, {
+      tenantId: tenantOf(req),
+      eventLimit: req.query.event_limit ? Number(req.query.event_limit) : 100,
+    });
     if (!indent) return error(res, 'Ward indent not found', HTTP_STATUS.NOT_FOUND);
-    success(res, { indent }, 'Ward indent retrieved');
-  })
+    return success(res, { indent }, 'Ward indent retrieved');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/reserve',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('reserve', 'reserve'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.reserveWardIndent({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      reservedBy: req.user?.uid,
+      itemQuantitiesReserved: req.body?.item_quantities_reserved ?? req.body?.items ?? null,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent reserved');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/short-supply',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('short_supply', 'short-supply'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.markWardIndentShortSupply({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      markedBy: req.user?.uid,
+      reason: req.body?.reason ?? req.body?.short_supply_reason,
+      itemQuantitiesAvailable: req.body?.item_quantities_available ?? req.body?.items ?? null,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent short supply recorded');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/substitutions',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('substitution_propose', 'substitutions'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.proposeWardIndentSubstitution({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      proposedBy: req.user?.uid,
+      substitutions: req.body?.substitutions,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent substitution proposed');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/substitutions/approve',
+  requireRole(...WARD_INDENT_SUBSTITUTION_DECISION_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('substitution_approve', 'substitutions/approve'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.approveWardIndentSubstitution({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      decidedBy: req.user?.uid,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent substitution approved');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/substitutions/reject',
+  requireRole(...WARD_INDENT_SUBSTITUTION_DECISION_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('substitution_reject', 'substitutions/reject'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.rejectWardIndentSubstitution({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      decidedBy: req.user?.uid,
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent substitution rejected');
+  }),
 );
 
 router.post(
   '/ward-indents/:indentId/approve',
   requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('approve', 'approve'),
   wrapAsync(async (req, res) => {
-    const indentId = requireIntParam(req.params.indentId, 'indentId');
     const indent = await ipdSupportService.approveWardIndent({
-      indentId,
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
       approvedBy: req.user?.uid,
-      tenantId: tenantOf(req),
+      ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent approved');
-  })
+  }),
 );
 
 router.post(
   '/ward-indents/:indentId/reject',
   requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('reject', 'reject'),
   wrapAsync(async (req, res) => {
-    const indentId = requireIntParam(req.params.indentId, 'indentId');
-    const { reason } = req.body ?? {};
     const indent = await ipdSupportService.rejectWardIndent({
-      indentId,
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
       rejectedBy: req.user?.uid,
-      reason,
-      tenantId: tenantOf(req),
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent rejected');
-  })
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/controlled-handoff',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('controlled_handoff', 'controlled-handoff'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.recordWardIndentControlledHandoff({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      recordedBy: req.user?.uid,
+      itemEvidence: req.body?.item_evidence,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent controlled-drug handoff recorded');
+  }),
 );
 
 router.post(
   '/ward-indents/:indentId/issue',
   requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('issue', 'issue'),
   wrapAsync(async (req, res) => {
-    const indentId = requireIntParam(req.params.indentId, 'indentId');
-    const { item_quantities_issued } = req.body ?? {};
     const indent = await ipdSupportService.issueWardIndent({
-      indentId,
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
       issuedBy: req.user?.uid,
-      itemQuantitiesIssued: item_quantities_issued ?? null,
-      tenantId: tenantOf(req),
+      itemQuantitiesIssued: req.body?.item_quantities_issued ?? req.body?.items ?? null,
+      ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent issued');
-  })
+  }),
 );
 
 router.post(
   '/ward-indents/:indentId/receive',
-  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  requireRole(...WARD_INDENT_RECEIPT_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('receive', 'receive'),
   wrapAsync(async (req, res) => {
-    const indentId = requireIntParam(req.params.indentId, 'indentId');
     const indent = await ipdSupportService.receiveWardIndent({
-      indentId,
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
       receivedBy: req.user?.uid,
-      tenantId: tenantOf(req),
+      itemQuantitiesReceived: req.body?.item_quantities_received ?? req.body?.items ?? null,
+      ...wardIndentMutationContext(req),
     });
-    success(res, { indent }, 'Indent receipt acknowledged');
-  })
+    success(res, { indent }, 'Indent receipt recorded');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/returns',
+  requireRole(...WARD_INDENT_RECEIPT_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('return_request', 'returns'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.requestWardIndentReturn({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      requestedBy: req.user?.uid,
+      itemQuantitiesReturned: req.body?.item_quantities_returned ?? req.body?.items ?? null,
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent return requested');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/discrepancies',
+  requireRole(...WARD_INDENT_RECEIPT_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('discrepancy', 'discrepancies'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.reportWardIndentDiscrepancy({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      reportedBy: req.user?.uid,
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent reconciliation required');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/reconcile',
+  requireRole(...WARD_INDENT_RECONCILIATION_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('reconcile', 'reconcile'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.reconcileWardIndent({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      reconciledBy: req.user?.uid,
+      reason: req.body?.reason,
+      controlledReturnEvidence: req.body?.controlled_return_evidence ?? null,
+      itemReconciliations: req.body?.item_reconciliations ?? null,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent reconciled');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/cancel',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('cancel', 'cancel'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.cancelWardIndent({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      cancelledBy: req.user?.uid,
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent cancelled');
+  }),
+);
+
+router.post(
+  '/ward-indents/:indentId/close',
+  requireRole(...WARD_INDENT_RECONCILIATION_ROLES),
+  guardWardIndentRow,
+  wardIndentIdempotency('close', 'close'),
+  wrapAsync(async (req, res) => {
+    const indent = await ipdSupportService.closeWardIndent({
+      indentId: requireIntParam(req.params.indentId, 'indentId'),
+      closedBy: req.user?.uid,
+      reason: req.body?.reason,
+      ...wardIndentMutationContext(req),
+    });
+    success(res, { indent }, 'Indent closed');
+  }),
 );
 
 export default router;

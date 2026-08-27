@@ -1911,18 +1911,20 @@ describe('itemizeAdmissionInvoice', () => {
         package_price_minor: null,
         package_name: 'Cataract Package',
       }]],
-      // fetchExistingSourceKeys -> one existing pharmacy key to exercise the skip branch
-      ['SELECT source_ref_type, source_ref_id', [{ source_ref_type: 'pharmacy_order', source_ref_id: 999 }]],
+      // fetchExistingSourceLines -> one existing pharmacy key to exercise the skip branch
+      ['SELECT id, source_ref_type', [{ source_ref_type: 'pharmacy_order', source_ref_id: 999 }]],
       // pharmacy orders (one new + one already-existing(999) + one zero-priced)
       ['FROM pharmacy_orders', [
         { id: 201, order_number: 'PH-201', medication: 'Paracetamol', total_amount: '120', dispensed_at: '2026-06-02' },
         { id: 999, order_number: 'PH-999', medication: 'Existing', total_amount: '50', dispensed_at: '2026-06-02' },
         { id: 202, order_number: 'PH-202', medication: 'FreeSample', total_amount: '0', dispensed_at: '2026-06-02' },
       ]],
-      // ward indents (one billable, one zero-priced skip)
+      // ward indents (one charged, one zero-valued audit line)
       ['FROM ward_indents wi', [
         { id: 301, indent_number: 'WI-301', ward_name: 'W1', billable_at: '2026-06-03', total_amount: '125', item_summary: 'Saline x 1' },
         { id: 302, indent_number: 'WI-302', ward_name: 'W1', billable_at: '2026-06-03', total_amount: '0', item_summary: 'Nil' },
+        { id: 303, indent_number: 'WI-303', ward_name: 'W1', billable_at: '2026-06-03', total_amount: 'not-a-number', item_summary: 'Invalid' },
+        { id: 304, indent_number: 'WI-304', ward_name: 'W1', billable_at: '2026-06-03', total_amount: '-1', item_summary: 'Invalid' },
       ]],
       // investigations (one billable, one zero-priced skip)
       ['FROM investigations', [
@@ -1949,7 +1951,7 @@ describe('itemizeAdmissionInvoice', () => {
     expect(res.package_id).toBe(12);
     expect(res.summary.package).toBe(1);
     expect(res.summary.pharmacy).toBe(1); // 201 only (999 existing, 202 zero)
-    expect(res.summary.ward_indents).toBe(1); // 301 only
+    expect(res.summary.ward_indents).toBe(2); // 301 charged, 302 retained for audit traceability
     expect(res.summary.lab).toBe(1); // 401 only
     expect(res.summary.consults).toBe(1);
     expect(res.summary.theatre).toBe(1);
@@ -1961,6 +1963,146 @@ describe('itemizeAdmissionInvoice', () => {
     expect(tpaStampCall[1]).toBe('payable'); // package line decision
   });
 
+  it('keeps unchanged ward-indent lines and synchronizes changed lines in place', async () => {
+    const unchanged = {
+      id: 701,
+      source_ref_type: 'ward_indent',
+      source_ref_id: 301,
+      description: 'Pharmacy ward indent: WI-301',
+      category: 'pharmacy',
+      quantity: '1',
+      unit_price: '125',
+      gst_rate: '0',
+      line_subtotal: '125',
+      line_total: '125',
+      notes: 'W1 - Saline x 1',
+      tenant_id: TENANT,
+    };
+    const changed = {
+      ...unchanged,
+      id: 702,
+      source_ref_id: 302,
+      description: 'Pharmacy ward indent: WI-302',
+      notes: 'W1 - Old item x 1',
+    };
+    routeQueries(itemizerCommonRoutes([
+      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['FROM admissions a', [{
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
+        admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
+        ward: 'W1', bed_id: null, package_id: null, package_code: null,
+        package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
+      }]],
+      ['SELECT id, source_ref_type', [unchanged, changed]],
+      ['FROM ward_indents wi', [
+        { id: 301, indent_number: 'WI-301', ward_name: 'W1', total_amount: '125', item_summary: 'Saline x 1' },
+        { id: 302, indent_number: 'WI-302', ward_name: 'W1', total_amount: '125', item_summary: 'New item x 1' },
+      ]],
+      ['SELECT status, admission_id', [{ status: 'DRAFT', admission_id: ADMISSION }]],
+      ['UPDATE billing_invoice_items', [{
+        ...changed,
+        notes: 'W1 - New item x 1',
+        source_ref_active: true,
+      }]],
+    ]));
+
+    const res = await svc.itemizeAdmissionInvoice(1, {
+      tenantId: TENANT,
+      emit_package: false,
+      emit_pharmacy: false,
+      emit_lab: false,
+      emit_consults: false,
+      emit_theatre: false,
+    });
+
+    expect(res.summary).toMatchObject({
+      ward_indents: 0,
+      ward_indents_updated: 1,
+      skipped_existing: 1,
+    });
+    const updateCall = queryMock.mock.calls.find((c) => /UPDATE billing_invoice_items/.test(c[0]));
+    expect(updateCall).toBeTruthy();
+    expect(updateCall.slice(1)).toEqual([
+      'Pharmacy ward indent: WI-302',
+      'pharmacy',
+      1,
+      125,
+      0,
+      125,
+      'W1 - New item x 1',
+      702,
+      1,
+      TENANT,
+      'ward_indent',
+      302,
+    ]);
+  });
+
+  it.each([
+    {
+      name: 'invoice vanished while locking',
+      lockRows: [],
+      updateRows: null,
+      code: undefined,
+      statusCode: 404,
+    },
+    {
+      name: 'invoice stopped being a draft',
+      lockRows: [{ status: 'ISSUED', admission_id: ADMISSION }],
+      updateRows: null,
+      code: 'WARD_INDENT_BILLING_INVOICE_NOT_DRAFT',
+      statusCode: 409,
+    },
+    {
+      name: 'source line changed concurrently',
+      lockRows: [{ status: 'DRAFT', admission_id: ADMISSION }],
+      updateRows: [],
+      code: 'WARD_INDENT_BILLING_LINE_CHANGED',
+      statusCode: 409,
+    },
+  ])('fails closed when a synchronized $name', async ({ lockRows, updateRows, code, statusCode }) => {
+    const existing = {
+      id: 702,
+      source_ref_type: 'ward_indent',
+      source_ref_id: 302,
+      description: 'Pharmacy ward indent: WI-302',
+      category: 'pharmacy',
+      quantity: '1',
+      unit_price: '125',
+      gst_rate: '0',
+      line_subtotal: '125',
+      line_total: '125',
+      notes: 'W1 - Old item x 1',
+      tenant_id: TENANT,
+    };
+    const routes = [
+      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['FROM admissions a', [{
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
+        admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
+        ward: 'W1', bed_id: null, package_id: null, package_code: null,
+        package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
+      }]],
+      ['SELECT id, source_ref_type', [existing]],
+      ['FROM ward_indents wi', [{
+        id: 302, indent_number: 'WI-302', ward_name: 'W1',
+        total_amount: '125', item_summary: 'New item x 1',
+      }]],
+      ['SELECT status, admission_id', lockRows],
+    ];
+    if (updateRows) routes.push(['UPDATE billing_invoice_items', updateRows]);
+    routeQueries(itemizerCommonRoutes(routes));
+
+    await expect(svc.itemizeAdmissionInvoice(1, {
+      tenantId: TENANT,
+      emit_package: false,
+      emit_pharmacy: false,
+      emit_lab: false,
+      emit_consults: false,
+      emit_theatre: false,
+    })).rejects.toMatchObject({ statusCode, ...(code ? { code } : {}) });
+  });
+
   it('falls back to package_price_minor when estimated cost is null', async () => {
     routeQueries(itemizerCommonRoutes([
       ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
@@ -1970,7 +2112,7 @@ describe('itemizeAdmissionInvoice', () => {
         ward: 'W1', bed_id: null, package_id: 12, package_code: 'PKG-1',
         package_estimated_cost_minor: null, package_price_minor: '3000000', package_name: 'Pkg',
       }]],
-      ['SELECT source_ref_type, source_ref_id', []],
+      ['SELECT id, source_ref_type', []],
     ]));
     const res = await svc.itemizeAdmissionInvoice(1, {
       tenantId: TENANT,
@@ -1989,7 +2131,7 @@ describe('itemizeAdmissionInvoice', () => {
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
       }]],
-      ['SELECT source_ref_type, source_ref_id', []],
+      ['SELECT id, source_ref_type', []],
       // all emitters disabled below, so no source queries needed
     ]);
     const res = await svc.itemizeAdmissionInvoice(1, {
@@ -2009,7 +2151,7 @@ describe('itemizeAdmissionInvoice', () => {
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
       }]],
-      ['SELECT source_ref_type, source_ref_id', []],
+      ['SELECT id, source_ref_type', []],
       ['FROM investigations', [{ id: 401, test_name: 'CBC', cost: '300', completed_at: '2026-06-02' }]],
       // per-line addInvoiceItem chain
       ['status, patient_state, hospital_state, admission_id', [{

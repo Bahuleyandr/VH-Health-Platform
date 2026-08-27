@@ -12,6 +12,7 @@ import * as emr from '../../../scripts/openapi/schemas/emr.mjs';
 import * as clinicalAi from '../../../scripts/openapi/schemas/clinicalAi.mjs';
 import * as clinicalMar from '../../../scripts/openapi/schemas/clinicalMar.mjs';
 import * as pharmacy from '../../../scripts/openapi/schemas/pharmacy.mjs';
+import * as wardIndents from '../../../scripts/openapi/schemas/wardIndents.mjs';
 import * as users from '../../../scripts/openapi/schemas/users.mjs';
 import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
@@ -64,6 +65,7 @@ const MODULES = [
   clinicalAi,
   clinicalMar,
   pharmacy,
+  wardIndents,
   users,
   config,
   portal,
