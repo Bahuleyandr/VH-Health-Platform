@@ -16,6 +16,7 @@
 // hospital turns the whole GST-compliance surface on together.
 
 import prisma from '../../lib/prisma.js';
+import { escapeCsvField } from '../../utils/csv.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { requireGstEInvoiceEnabled } from './gstEInvoiceService.js';
 
@@ -31,11 +32,10 @@ function xe(value) {
     .replace(/"/g, '&quot;');
 }
 
-// CSV-escape (RFC 4180): quote and double embedded quotes.
-function ce(value) {
-  const s = String(value ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
+// CSV cell escape — the shared helper both RFC-4180-quotes AND neutralizes
+// spreadsheet formula injection (leading = + - @ tab/CR), since the GL CSV is
+// built for manual opening in Excel by the finance office.
+const ce = escapeCsvField;
 
 function tallyDate(d) {
   const dt = d ? new Date(d) : new Date();

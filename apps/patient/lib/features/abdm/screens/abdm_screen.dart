@@ -542,26 +542,28 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
     }
   }
 
-  Future<void> _confirmAction(
-    String action,
-    String consentId,
-    Future<void> Function(String) apiCall,
-  ) async {
+  Future<void> _confirmAction({
+    required String title,
+    required String body,
+    required String confirmLabel,
+    required String successMessage,
+    required String consentId,
+    required Future<void> Function(String) apiCall,
+  }) async {
+    final l = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('$action Consent?'),
-        content: Text(
-          'Are you sure you want to ${action.toLowerCase()} this consent request?',
-        ),
+        title: Text(title),
+        content: Text(body),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(action),
+            child: Text(confirmLabel),
           ),
         ],
       ),
@@ -573,7 +575,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           LiveRegionSnackBar.build(
-            message: 'Consent ${action.toLowerCase()}ed successfully',
+            message: successMessage,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -612,6 +614,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -717,23 +720,29 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       children: [
                         OutlinedButton(
                           onPressed: () => _confirmAction(
-                            'Deny',
-                            id,
-                            AbdmApiService.denyConsent,
+                            title: l.abdmConsentDenyConfirmTitle,
+                            body: l.abdmConsentDenyConfirmBody,
+                            confirmLabel: l.abdmConsentDenyAction,
+                            successMessage: l.abdmConsentDenySuccess,
+                            consentId: id,
+                            apiCall: AbdmApiService.denyConsent,
                           ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: colors.error,
                           ),
-                          child: const Text('Deny'),
+                          child: Text(l.abdmConsentDenyAction),
                         ),
                         const SizedBox(width: 8),
                         FilledButton(
                           onPressed: () => _confirmAction(
-                            'Grant',
-                            id,
-                            AbdmApiService.grantConsent,
+                            title: l.abdmConsentGrantConfirmTitle,
+                            body: l.abdmConsentGrantConfirmBody,
+                            confirmLabel: l.abdmConsentGrantAction,
+                            successMessage: l.abdmConsentGrantSuccess,
+                            consentId: id,
+                            apiCall: AbdmApiService.grantConsent,
                           ),
-                          child: const Text('Grant'),
+                          child: Text(l.abdmConsentGrantAction),
                         ),
                       ],
                     ),
@@ -744,14 +753,17 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       alignment: Alignment.centerRight,
                       child: OutlinedButton(
                         onPressed: () => _confirmAction(
-                          'Revoke',
-                          id,
-                          AbdmApiService.revokeConsent,
+                          title: l.abdmConsentRevokeConfirmTitle,
+                          body: l.abdmConsentRevokeConfirmBody,
+                          confirmLabel: l.abdmConsentRevokeAction,
+                          successMessage: l.abdmConsentRevokeSuccess,
+                          consentId: id,
+                          apiCall: AbdmApiService.revokeConsent,
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: colors.error,
                         ),
-                        child: const Text('Revoke'),
+                        child: Text(l.abdmConsentRevokeAction),
                       ),
                     ),
                   ],

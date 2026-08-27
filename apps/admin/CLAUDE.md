@@ -148,8 +148,8 @@ pages instead of creating long-lived scratch roadmaps.
 
 ## Testing
 
-- **Unit/component**: Jest. `npm test` — **140 suites / 1763 tests passing**
-  (measured 2026-08-25 on Node 26.5.0 — the pinned runtime for every JS stack
+- **Unit/component**: Jest. `npm test` — **141 suites / 1764 tests passing**
+  (measured 2026-08-27 on Node 26.5.0 — the pinned runtime for every JS stack
   in this repo; confirm `node --version` before treating a red run as signal,
   because the backend corpus is known to fabricate failures on older Node and
   nothing pins this one to a different interpreter). `testMatch` is
@@ -157,7 +157,7 @@ pages instead of creating long-lived scratch roadmaps.
   count. Re-derive both before editing this line — do not adjust the prose:
 
   ```bash
-  find src/__tests__ -name '*.test.ts' -o -name '*.test.tsx' | wc -l   # 140 suites
+  find src/__tests__ -name '*.test.ts' -o -name '*.test.tsx' | wc -l   # 141 suites
   npx jest --silent --ci                                               # authoritative test total
   ```
 

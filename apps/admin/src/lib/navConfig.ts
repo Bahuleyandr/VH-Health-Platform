@@ -27,6 +27,7 @@ import {
   ORDER_SET_STUDIO_ROLES,
   ROLE_RANK,
   SHIFT_MANAGEMENT_ROLES,
+  WARD_INDENT_ROLES,
 } from "@/lib/routePolicy";
 
 export type NavItem = {
@@ -402,6 +403,16 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredPermissions: ["pharmacyAdminRoutes"],
       },
       {
+        name: "Ward Indents",
+        href: "/dashboard/ward-indents",
+        // Exact raw-role parity with the backend ward-indent read surface
+        // (routePolicy WARD_INDENT_ROLES). Note for ADMIN accounts: the
+        // /api/proxy pharmacyAdminRoutes flag gate still scopes the API calls
+        // (api/v1/pharmacy-orders prefix) — allowedRoles cannot also express a
+        // flag requirement, and lower clinical tiers are backend-RBAC-governed.
+        allowedRoles: WARD_INDENT_ROLES,
+      },
+      {
         name: "Drug Returns",
         href: "/dashboard/drug-returns",
         requiredRole: "ADMIN",
@@ -607,11 +618,6 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         name: "Database",
         href: "/dashboard/database",
-        requiredRole: "SUPER_ADMIN",
-      },
-      {
-        name: "Feature Flags",
-        href: "/dashboard/feature-flags",
         requiredRole: "SUPER_ADMIN",
       },
       // Once-over train E: previously curl-only operator surfaces.

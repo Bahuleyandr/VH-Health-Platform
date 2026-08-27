@@ -115,6 +115,117 @@ function normalizeEnum(value, allowed, label, { required = false } = {}) {
   return text;
 }
 
+// ---------------------------------------------------------------------------
+// Controlled-substance discipline (Schedule H / H1 / X + narcotics)
+//
+// This service writes the SAME physical stock plane as inventoryV2Service
+// (pharmacy_inventory_batches / pharmacy_stock_movements, migration 123), so
+// it must honour the same statutory invariant (inventoryV2Service.js:640-649
+// and the 2026-08-25 reaudit BC-H1 fix): a controlled substance never moves
+// without its pharmacy_schedule_register row, controlled DECREMENTS only ever
+// happen on the witnessed inventory-v2 paths, and a controlled issue is a
+// patient dispense that belongs to /controlled-dispense. Until 2026-08-27 this
+// router was the last register-bypass door (Sol-verification finding N1):
+// /pharmacy-supply/stock-movements, /reserve-stock and the GRN receive flow
+// moved Schedule X stock with no schedule check, witness, or register row.
+// ---------------------------------------------------------------------------
+
+const CONTROLLED_SCHEDULES = ['H', 'H1', 'X'];
+const SUPPLY_DECREASING_MOVEMENTS = new Set([
+  'issue', 'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
+]);
+// Custody events this router is allowed to record for controlled stock, mapped
+// onto the register's own vocabulary (migration 150). Decrements are absent on
+// purpose — they carry the witness ceremony and live on inventory-v2 only.
+const SUPPLY_REGISTER_KIND_BY_MOVEMENT = Object.freeze({
+  receive: 'receive',
+  transfer_in: 'receive',
+  return: 'return',
+  adjust_increase: 'adjust',
+  recall: 'recall',
+});
+
+function isControlledSupplyItem(item) {
+  return CONTROLLED_SCHEDULES.includes(item?.schedule_class) || item?.is_narcotic === true;
+}
+
+async function loadSupplyMovementItem(db, tenantId, inventoryItemId) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, schedule_class, is_narcotic, unit_label
+       FROM pharmacy_inventory_items
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(inventoryItemId),
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
+function refuseControlledSupplyDecrement(movementKind) {
+  if (movementKind === 'issue') {
+    throw AppError.conflict(
+      'Controlled substances cannot be issued through the pharmacy-supply endpoints; use POST /api/v1/pharmacy/inventory/v2/controlled-dispense',
+      'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH',
+    );
+  }
+  throw AppError.conflict(
+    `Controlled-substance '${movementKind}' movements need the witnessed register path; use POST /api/v1/pharmacy/inventory/v2/movements`,
+    'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+  );
+}
+
+function requireControlledPerformer(performerUid) {
+  if (!performerUid) {
+    throw AppError.badRequest(
+      'performed_by is required for controlled stock movements',
+      'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    );
+  }
+  return performerUid;
+}
+
+/**
+ * Same-transaction statutory register append for the custody events this
+ * router may record on controlled stock (receipts, returns, upward
+ * adjustments, batch recalls). Mirrors inventoryV2Service's register INSERT:
+ * running balance is read inside the same tx so it reflects the movement that
+ * was just written.
+ */
+async function appendControlledSupplyRegisterTx(tx, {
+  tenantId, item, inventoryItemId, inventoryBatchId, movementKind,
+  quantity, performedBy, referenceMovementId = null, notes = null,
+}) {
+  const registerKind = SUPPLY_REGISTER_KIND_BY_MOVEMENT[movementKind];
+  if (!registerKind) refuseControlledSupplyDecrement(movementKind);
+  const balance = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
+       FROM pharmacy_inventory_batches
+      WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
+    Number(inventoryItemId),
+    tenantId,
+  );
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_schedule_register
+       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+        movement_kind, quantity, unit_label, running_balance,
+        performed_by, reference_movement_id, notes)
+     VALUES ($1::uuid, $2::int, $3, $4, $5, $6::numeric, $7, $8::numeric,
+             $9::uuid, $10::int, $11)
+     RETURNING id`,
+    tenantId,
+    Number(inventoryItemId),
+    inventoryBatchId ? Number(inventoryBatchId) : null,
+    item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+    registerKind,
+    Math.abs(Number(quantity)),
+    item.unit_label || null,
+    Number(balance[0].bal),
+    String(performedBy),
+    referenceMovementId ? Number(referenceMovementId) : null,
+    notes,
+  );
+  return rows[0];
+}
+
 function normalizeBoolean(value, fallback = null) {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'boolean') return value;
@@ -427,6 +538,69 @@ export async function addInventoryBatch({
   const cleanExpiry = normalizeDate(expiryDate, 'expiry_date', { required: true });
   const qty = normalizeQuantity(receivedQuantity, 'received_quantity', { min: 0, required: true });
 
+  // Controlled stock: the receipt is a statutory custody event — batch,
+  // movement and register row must land in one transaction, with a named
+  // performer (no missing-schema swallow on the movement either).
+  const controlledItem = await loadSupplyMovementItem(prisma, tid, itemId);
+  if (controlledItem && isControlledSupplyItem(controlledItem)) {
+    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
+    try {
+      return await setTenantTx(tid, async (tx) => {
+        const insertRows = await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_inventory_batches
+             (tenant_id, inventory_item_id, facility_id,
+              batch_number, lot_number, manufacture_date, expiry_date,
+              received_quantity, remaining_quantity, unit_cost_minor, mrp_minor,
+              supplier_id, goods_receipt_id, storage_location_id, status, metadata)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::date,
+                   $8, $8, $9, $10,
+                   $11, $12, $13, 'in_stock', $14::jsonb)
+           RETURNING ${BATCH_RETURNING}`,
+          tid, itemId,
+          facilityId ? normalizeId(facilityId, 'facility_id') : null,
+          cleanBatch, safeText(lotNumber, 120),
+          normalizeDate(manufactureDate, 'manufacture_date'),
+          cleanExpiry, qty,
+          normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 }),
+          normalizeBigInt(mrpMinor, 'mrp_minor', { min: 0, max: 1_000_000_000_000 }),
+          supplierId ? normalizeId(supplierId, 'supplier_id') : null,
+          goodsReceiptId ? normalizeId(goodsReceiptId, 'goods_receipt_id') : null,
+          storageLocationId ? normalizeId(storageLocationId, 'storage_location_id') : null,
+          JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+        );
+        const batch = insertRows[0];
+        const movementRows = await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_stock_movements
+             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+              quantity_delta, reference_type, reference_id, performed_by, notes)
+           VALUES ($1::uuid, $2, $3, 'receive', $4, $5, $6, $7::uuid, $8)
+           RETURNING id`,
+          tid, itemId, batch.id, qty,
+          goodsReceiptId ? 'goods_receipt' : null,
+          goodsReceiptId ? String(goodsReceiptId) : null,
+          performerUid,
+          `Batch ${batch.batch_number} received`,
+        );
+        await appendControlledSupplyRegisterTx(tx, {
+          tenantId: tid,
+          item: controlledItem,
+          inventoryItemId: itemId,
+          inventoryBatchId: batch.id,
+          movementKind: 'receive',
+          quantity: qty,
+          performedBy: performerUid,
+          referenceMovementId: movementRows[0]?.id || null,
+          notes: `Batch ${batch.batch_number} received`,
+        });
+        return batch;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) throw AppError.conflict('batch_number already exists for this item');
+      if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
+      throw err;
+    }
+  }
+
   try {
     const insertRows = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
@@ -560,6 +734,13 @@ export async function reserveStock({
 
   try {
     return await setTenantTx(tid, async (tx) => {
+      // Controlled stock never leaves the shelf through FEFO reservation: an
+      // issue is a witnessed patient dispense, every other decrement needs the
+      // inventory-v2 register ceremony. Fail closed before any batch lock.
+      const reservedItem = await loadSupplyMovementItem(tx, tid, itemId);
+      if (reservedItem && isControlledSupplyItem(reservedItem)) {
+        refuseControlledSupplyDecrement(cleanKind);
+      }
       const batches = await tx.$queryRawUnsafe(
         `SELECT id, batch_number, expiry_date, remaining_quantity
          FROM pharmacy_inventory_batches
@@ -695,6 +876,39 @@ export async function recallBatch({
     safeText(recallReference, 255), batchId, tid,
   );
   if (!rows[0]) throw AppError.notFound('Batch not found or not in a recallable state');
+
+  // Controlled stock: a recall pulls the batch's remaining quantity out of the
+  // dispensable balance — a custody event the statutory register must record,
+  // by a named performer, atomically with the movement row.
+  const recalledItem = await loadSupplyMovementItem(prisma, tid, rows[0].inventory_item_id);
+  if (recalledItem && isControlledSupplyItem(recalledItem)) {
+    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
+    await setTenantTx(tid, async (tx) => {
+      const movementRows = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_stock_movements
+           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+            quantity_delta, performed_by, notes)
+         VALUES ($1::uuid, $2, $3, 'recall', 0, $4::uuid, $5)
+         RETURNING id`,
+        tid, rows[0].inventory_item_id, batchId,
+        performerUid,
+        safeText(recallReference, 255),
+      );
+      await appendControlledSupplyRegisterTx(tx, {
+        tenantId: tid,
+        item: recalledItem,
+        inventoryItemId: rows[0].inventory_item_id,
+        inventoryBatchId: batchId,
+        movementKind: 'recall',
+        quantity: Number(rows[0].remaining_quantity) || 0,
+        performedBy: performerUid,
+        referenceMovementId: movementRows[0]?.id || null,
+        notes: safeText(recallReference, 255),
+      });
+    });
+    return rows[0];
+  }
+
   try {
     await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_stock_movements
@@ -956,6 +1170,54 @@ export async function appendStockMovement({
   const cleanKind = normalizeEnum(movementKind, MOVEMENT_KINDS, 'movement_kind', { required: true });
   const delta = Number(quantityDelta);
   if (!Number.isFinite(delta)) throw AppError.badRequest('quantity_delta must be numeric');
+
+  // Controlled stock: decrement kinds (and any negative delta) belong to the
+  // witnessed inventory-v2 paths; the custody events this ledger may record
+  // (receive / transfer_in / return / adjust_increase) get a same-tx statutory
+  // register row with a named performer.
+  const ledgerItem = await loadSupplyMovementItem(prisma, tid, itemId);
+  if (ledgerItem && isControlledSupplyItem(ledgerItem)) {
+    if (SUPPLY_DECREASING_MOVEMENTS.has(cleanKind) || delta < 0) {
+      refuseControlledSupplyDecrement(cleanKind);
+    }
+    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
+    try {
+      return await setTenantTx(tid, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_stock_movements
+             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+              quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10::jsonb)
+           RETURNING id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+                     quantity_delta, reference_type, reference_id, performed_by,
+                     notes, metadata, created_at`,
+          tid, itemId,
+          inventoryBatchId ? normalizeId(inventoryBatchId, 'inventory_batch_id') : null,
+          cleanKind, delta,
+          safeText(referenceType, 60), safeText(referenceId, 120),
+          performerUid,
+          safeText(notes),
+          JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+        );
+        await appendControlledSupplyRegisterTx(tx, {
+          tenantId: tid,
+          item: ledgerItem,
+          inventoryItemId: itemId,
+          inventoryBatchId: inventoryBatchId ? normalizeId(inventoryBatchId, 'inventory_batch_id') : null,
+          movementKind: cleanKind,
+          quantity: delta,
+          performedBy: performerUid,
+          referenceMovementId: rows[0]?.id || null,
+          notes: safeText(notes),
+        });
+        return rows[0];
+      });
+    } catch (err) {
+      if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
+      throw err;
+    }
+  }
+
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_stock_movements
@@ -1266,6 +1528,12 @@ export async function receivePurchaseOrderLine({
     const itemId = Number(lines[0].inventory_item_id);
     const parentPoId = Number(lines[0].purchase_order_id);
 
+    // Controlled stock: a GRN receipt is a statutory custody event — it needs
+    // a named performer and a same-tx pharmacy_schedule_register row.
+    const receivedItem = await loadSupplyMovementItem(tx, tid, itemId);
+    const controlledReceipt = receivedItem && isControlledSupplyItem(receivedItem);
+    if (controlledReceipt) requireControlledPerformer(performerUid);
+
     // 2. Insert the new batch.
     let batch;
     try {
@@ -1312,14 +1580,30 @@ export async function receivePurchaseOrderLine({
     );
 
     // 5. Append the 'receive' stock-movement ledger entry.
-    await tx.$queryRawUnsafe(
+    const receiveMovementRows = await tx.$queryRawUnsafe(
       `INSERT INTO pharmacy_stock_movements
          (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
           quantity_delta, reference_type, reference_id, performed_by, notes)
-       VALUES ($1::uuid, $2, $3, 'receive', $4, 'goods_receipt', $5, $6::uuid, $7)`,
+       VALUES ($1::uuid, $2, $3, 'receive', $4, 'goods_receipt', $5, $6::uuid, $7)
+       RETURNING id`,
       tid, itemId, batch.id, qty, String(grnId), performerUid,
       `Received via GRN ${grnId}, batch ${cleanBatch}`,
     );
+
+    // 5b. Controlled stock: same-tx statutory register receipt row.
+    if (controlledReceipt) {
+      await appendControlledSupplyRegisterTx(tx, {
+        tenantId: tid,
+        item: receivedItem,
+        inventoryItemId: itemId,
+        inventoryBatchId: batch.id,
+        movementKind: 'receive',
+        quantity: qty,
+        performedBy: performerUid,
+        referenceMovementId: receiveMovementRows[0]?.id || null,
+        notes: `Received via GRN ${grnId}, batch ${cleanBatch}`,
+      });
+    }
 
     // 6. Recompute PO progress and auto-transition the parent header.
     const aggRows = await tx.$queryRawUnsafe(
@@ -1484,6 +1768,10 @@ export const __testing__ = {
   BATCH_STATUSES,
   PO_STATUSES,
   EXPIRY_SEVERITIES,
+  CONTROLLED_SCHEDULES,
+  SUPPLY_DECREASING_MOVEMENTS,
+  SUPPLY_REGISTER_KIND_BY_MOVEMENT,
+  isControlledSupplyItem,
 };
 
 export default {

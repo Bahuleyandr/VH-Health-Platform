@@ -97,20 +97,75 @@ describe('generateIrn', () => {
     settingsMock.mockResolvedValue({ enabled: true, provider: 'mock', sellerGstin: '32AAAAA0000A1Z0', sellerLegalName: 'VH' });
   });
 
-  test('stores a generated document for an issued invoice', async () => {
+  // Sequence the tx mocks for one full generateIrn run. priorCount is what the
+  // per-invoice generation COUNT(*) reports (cancelled rows included). The
+  // INSERT mock echoes the bound irn param back so assertions see the real IRN.
+  function mockGenerateSequence({ priorCount = 0 } = {}) {
     txQueryMock
-      .mockResolvedValueOnce([INVOICE])          // loadInvoice
-      .mockResolvedValueOnce([])                 // existing (none) FOR UPDATE
-      .mockResolvedValueOnce(ITEMS)              // loadInvoiceItems
-      .mockResolvedValueOnce([{ id: 1, invoice_id: 7, status: 'generated', irn: 'x'.repeat(64) }]); // insert
+      .mockResolvedValueOnce([INVOICE])           // loadInvoice
+      .mockResolvedValueOnce([])                  // live (non-cancelled) row FOR UPDATE — none
+      .mockResolvedValueOnce([{ n: priorCount }]) // generation count
+      .mockResolvedValueOnce(ITEMS)               // loadInvoiceItems
+      .mockImplementationOnce(async (...args) => [
+        { id: 1, invoice_id: 7, status: 'generated', irn: args[5], seller_gstin: args[4] },
+      ]);                                         // insert
+  }
+  const insertCall = () => txQueryMock.mock.calls[4];
+
+  test('stores a generated document for an issued invoice', async () => {
+    mockGenerateSequence();
     const row = await svc.generateIrn({ tenantId: TENANT, invoiceId: 7 });
     expect(row.status).toBe('generated');
     expect(row.invoice_id).toBe(7);
+    expect(row.irn).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test('rejects a DRAFT invoice', async () => {
     txQueryMock.mockResolvedValueOnce([{ ...INVOICE, status: 'DRAFT' }]);
     await expect(svc.generateIrn({ tenantId: TENANT, invoiceId: 7 }))
       .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('regenerate after cancel succeeds with a NEW, distinct IRN', async () => {
+    mockGenerateSequence({ priorCount: 0 });
+    const first = await svc.generateIrn({ tenantId: TENANT, invoiceId: 7 });
+    const firstPayload = JSON.parse(insertCall()[11]);
+
+    // The cancelled row keeps its IRN and still counts toward the generation
+    // number, so the second document's canonical payload — and therefore the
+    // deterministic mock IRN — must differ.
+    txQueryMock.mockReset();
+    mockGenerateSequence({ priorCount: 1 });
+    const second = await svc.generateIrn({ tenantId: TENANT, invoiceId: 7 });
+    const secondPayload = JSON.parse(insertCall()[11]);
+
+    expect(first.irn).toMatch(/^[0-9a-f]{64}$/);
+    expect(second.irn).toMatch(/^[0-9a-f]{64}$/);
+    expect(second.irn).not.toBe(first.irn);
+    expect(firstPayload._meta.generation).toBe(1);
+    expect(secondPayload._meta.generation).toBe(2);
+  });
+
+  test('unique-violation on irn surfaces 409 GST_EINVOICE_IRN_CONFLICT, not a 500', async () => {
+    const uniqueErr = Object.assign(
+      new Error('duplicate key value violates unique constraint "ux_gst_einvoice_irn"'),
+      { code: 'P2010', meta: { code: '23505' } },
+    );
+    txQueryMock
+      .mockResolvedValueOnce([INVOICE])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ n: 1 }])
+      .mockResolvedValueOnce(ITEMS)
+      .mockRejectedValueOnce(uniqueErr);
+    await expect(svc.generateIrn({ tenantId: TENANT, invoiceId: 7 }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'GST_EINVOICE_IRN_CONFLICT' });
+  });
+
+  test('seller_gstin stores NULL when unconfigured — never the hospital state name', async () => {
+    settingsMock.mockResolvedValue({ enabled: true, provider: 'mock', sellerLegalName: 'VH' });
+    mockGenerateSequence();
+    const row = await svc.generateIrn({ tenantId: TENANT, invoiceId: 7 });
+    expect(insertCall()[4]).toBeNull();
+    expect(row.seller_gstin).not.toBe('Kerala');
   });
 });

@@ -451,21 +451,6 @@ export const systemSettingsValidator = [
   }),
 ];
 
-/** Feature flag upsert — POST /admin/feature-flags (routes/admin/featureFlagRoutes.js → featureFlagService.setFlag). */
-export const featureFlagValidator = [
-  requiredString('name', 100),
-  optionalString('description', 500),
-  optionalBool('enabled'),
-  body('rollout_percentage').optional({ nullable: true })
-    .isInt({ min: 0, max: 100 }).withMessage('rollout_percentage must be an integer between 0 and 100')
-    .toInt(),
-  optionalArray('allowed_roles'),
-  body('allowed_roles.*')
-    .isString().withMessage('each allowed role must be a string')
-    .trim()
-    .isLength({ min: 1, max: 100 }).withMessage('each allowed role must be between 1 and 100 characters'),
-];
-
 /** Legacy doctor directory create — POST /doctor (routes/doctor/adminDoctorRoutes.js → adminDoctorController.addDoctor). */
 export const doctorCreateValidator = [
   requiredString('name', 255),

@@ -20,10 +20,13 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { escapeCsvField } from '../../utils/csv.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Controlled disease vocabulary — must stay in lockstep with the CHECK in
 // migration 739. Each entry maps to its default programme + ICD-10.
@@ -102,10 +105,10 @@ function cleanText(value, max = null) {
   return max ? text.slice(0, max) : text;
 }
 
-function ce(value) {
-  const s = String(value ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
+// CSV cell escape — the shared helper both RFC-4180-quotes AND neutralizes
+// spreadsheet formula injection (leading = + - @ tab/CR), since these files
+// are built for manual opening in Excel (Nikshay/IDSP/HMIS uploads).
+const ce = escapeCsvField;
 
 function normalizeLimit(value, fallback = 100, max = 1000) {
   const parsed = Number.parseInt(value, 10);
@@ -120,6 +123,9 @@ export async function createNotification({ tenantId, ...body }) {
   const tid = tenantOr(tenantId);
 
   if (!body.patient_uid) throw AppError.badRequest('patient_uid required');
+  if (!UUID_RE.test(String(body.patient_uid))) {
+    throw AppError.badRequest('patient_uid must be a UUID', 'PUBLIC_HEALTH_PATIENT_UID_INVALID');
+  }
   if (!body.date_of_diagnosis) throw AppError.badRequest('date_of_diagnosis required');
   const diseaseCode = cleanText(body.disease_code);
   const disease = NOTIFIABLE_DISEASES[diseaseCode];
@@ -136,6 +142,24 @@ export async function createNotification({ tenantId, ...body }) {
   }
 
   return setTenantTx(tid, async (tx) => {
+    // Tenant-scoped patient resolution (inventoryV2Service precedent): a
+    // statutory register row must reference a real patient of THIS tenant —
+    // never a dangling or cross-tenant UUID.
+    const patients = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        LIMIT 1`,
+      tid, String(body.patient_uid));
+    if (!patients[0]) {
+      throw AppError.notFound(
+        'Notification patient was not found in this tenant',
+        'PUBLIC_HEALTH_PATIENT_NOT_FOUND',
+      );
+    }
+
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO notifiable_disease_notifications
          (tenant_id, patient_uid, admission_id, patient_name, patient_age_years,

@@ -6,7 +6,6 @@ class ProductEntitlementKeys {
   static const mobilePatientPortal = 'mobile.patient_portal';
   static const mobileStaffWorkbench = 'mobile.staff_workbench';
   static const adminOperations = 'admin.operations';
-  static const adminFeatureFlags = 'admin.feature_flags';
   static const developerApiClients = 'developer.api_clients';
   static const commercialBillingPackages = 'commercial.billing_packages';
 

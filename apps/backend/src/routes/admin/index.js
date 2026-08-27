@@ -28,7 +28,6 @@ import carePathwayReconciliationRoutes from './carePathwayReconciliationRoutes.j
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import entitlementRoutes from './entitlementRoutes.js';
 import integrationGateRoutes from './integrationGateRoutes.js';
-import featureFlagRoutes from './featureFlagRoutes.js';
 import identitySsoRoutes from './identitySsoRoutes.js';
 import interfaceEngineRoutes from './interfaceEngineRoutes.js';
 import { deliveryRouter, integrationRouter, subscriptionRouter } from './integrationRoutes.js';
@@ -245,7 +244,6 @@ router.use('/analytics', analyticsRoutes);
 // admin.operations entitlement gate — see the comment there.
 // SUPER_ADMIN-only dark-gate console read (route-level requireRole inside).
 router.use('/integration-gates', integrationGateRoutes);
-router.use('/feature-flags', requireEntitlement(ENTITLEMENT_FEATURE_KEYS.adminFeatureFlags), featureFlagRoutes);
 router.use('/executive-kpi', executiveKpiRoutes);
 router.use('/patient-identifiers', patientIdentifierRoutes);
 router.use('/patient-merges', patientMergeRoutes);

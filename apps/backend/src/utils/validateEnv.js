@@ -797,6 +797,37 @@ export const envSchema = Joi.object({
     .default('false')
     .label('FACILITY_ASSETS_ENABLED'),
 
+  // #878-wave (G-slate) statutory/compliance dark-gate kill switches. All four
+  // default OFF (dark-shipped), and each register/service additionally requires
+  // its per-tenant tenants.settings.* flag, ANDed, fail closed. No credentials
+  // involved — enabling requires no additional env keys.
+  // Public-health notifiable-disease register + Nikshay/IDSP/HMIS export files
+  // (publicHealthService, migration 739).
+  PUBLIC_HEALTH_REGISTERS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PUBLIC_HEALTH_REGISTERS_ENABLED'),
+  // GST e-invoicing (IRN / IRP) + the Tally/GL exports that ride the same gate
+  // (gstEInvoiceService, migration 738). Live GSP providers additionally need
+  // owner-side credentials configured per tenant.
+  GST_EINVOICE_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('GST_EINVOICE_ENABLED'),
+  // Birth notification / CRS Form 1 register (birthNotificationService,
+  // migration 737).
+  BIRTH_NOTIFICATION_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('BIRTH_NOTIFICATION_ENABLED'),
+  // SIEM export scheduler cron (siemExportSchedulerService via
+  // utils/scheduler.js). Per-tenant enablement is an active siem_export_targets
+  // row rather than a settings flag.
+  SIEM_EXPORT_SCHEDULER_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('SIEM_EXPORT_SCHEDULER_ENABLED'),
+
   // SMS gateway (migrations 699/700). Unset = dry-run everywhere (DEFAULT
   // OFF); 'logger' is the explicit deployment-wide kill switch (tenant
   // configs ignored); 'msg91'/'twilio' enable an env-credential fallback for

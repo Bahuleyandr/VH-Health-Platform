@@ -63,6 +63,21 @@ test('exportTallyXml emits an IMPORTDATA envelope with one voucher per invoice',
   expect(out.content).toContain('INV-1');
 });
 
+test('exportGlCsv neutralizes spreadsheet formula injection in cells', async () => {
+  queryUnsafeMock.mockResolvedValueOnce([{
+    ...INVOICES[0],
+    invoice_number: '=HYPERLINK("http://evil")',
+    invoice_type: '+cmd',
+    patient_name: '@SUM(A1:A9)',
+  }]);
+  const out = await svc.exportGlCsv({ tenantId: TENANT });
+  // Formula-leading cells are prefixed with a single quote (and RFC-4180
+  // quoted where needed) so Excel renders literal text, never a formula.
+  expect(out.content).toContain('"\'=HYPERLINK(""http://evil"")"');
+  expect(out.content).toContain("'+cmd");
+  expect(out.content).not.toContain(',=HYPERLINK');
+});
+
 test('exportGlCsv escapes commas and balances columns', async () => {
   queryUnsafeMock.mockResolvedValueOnce(INVOICES);
   const out = await svc.exportGlCsv({ tenantId: TENANT });

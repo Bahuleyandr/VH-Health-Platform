@@ -129,7 +129,6 @@ describe("finding G round 2 — path spelling cannot walk around the proxy gate"
   describe("case variance resolves to the same gate", () => {
     it.each([
       ["api/v1/admin/Entitlements/tenants/t-1", PLATFORM_SUPER_ADMIN],
-      ["api/v1/admin/Feature-Flags", PLATFORM_SUPER_ADMIN],
       ["api/v1/admin/Encryption-Keys/rotate", PLATFORM_SUPER_ADMIN],
       ["api/v1/admin/SMART-FHIR/apps", PLATFORM_SUPER_ADMIN],
       ["api/v1/admin/Migration-Toolkit/jobs", PLATFORM_SUPER_ADMIN],
@@ -251,11 +250,11 @@ describe("finding G round 2 — path spelling cannot walk around the proxy gate"
       "NURSING_STAFF",
       "RECEPTIONIST",
       "HR_STAFF",
-    ])("%s is denied the feature-flags console", async (role) => {
+    ])("%s is denied the live DB browser console", async (role) => {
       mockBackend([]);
 
       const res = await GET(
-        request("api/v1/admin/feature-flags", tokenWithRole(role)),
+        request("api/v1/admin/database", tokenWithRole(role)),
       );
 
       expect(res.status).toBe(403);
@@ -270,7 +269,7 @@ describe("finding G round 2 — path spelling cannot walk around the proxy gate"
       mockBackend([]);
 
       const res = await GET(
-        request("api/v1/admin/Feature-Flags", tokenWithRole("DOCTOR")),
+        request("api/v1/admin/Database", tokenWithRole("DOCTOR")),
       );
 
       expect(res.status).toBe(403);
@@ -303,7 +302,7 @@ describe("finding G round 2 — path spelling cannot walk around the proxy gate"
       mockBackend([]);
 
       const res = await GET(
-        request("api/v1/admin/feature-flags", tokenWithRole("SUPER_ADMIN")),
+        request("api/v1/admin/database", tokenWithRole("SUPER_ADMIN")),
       );
 
       expect(res.status).toBe(200);

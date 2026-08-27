@@ -50323,9 +50323,6 @@
       "name": "facility-risk"
     },
     {
-      "name": "feature-flag"
-    },
-    {
       "name": "feedback"
     },
     {
@@ -67965,74 +67962,6 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/admin/feature-flags": {
-      "get": {
-        "operationId": "get_api_v1_admin_feature_flags",
-        "tags": [
-          "feature-flag"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "operationId": "post_api_v1_admin_feature_flags",
-        "tags": [
-          "feature-flag"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/feature-flags/{name}": {
-      "delete": {
-        "operationId": "delete_api_v1_admin_feature_flags_by_name",
-        "tags": [
-          "feature-flag"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/admin/follow-ups": {
