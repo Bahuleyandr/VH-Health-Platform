@@ -9,6 +9,7 @@ import {
   recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { createTask } from '../workflow/taskService.js';
 
 const PHARMACY_OWNERS = [
   ROLES.PHARMACY_STAFF,
@@ -560,6 +561,57 @@ async function classifyCatalogControl(tx, tenantId, catalogIds) {
     }
   }
   return out;
+}
+
+/**
+ * Resolve each catalog id to its linked pharmacy_inventory_items row (lowest
+ * id when several link) so ward traffic can be written into the
+ * pharmacy_stock_movements audit ledger. classifyCatalogControl has already
+ * guaranteed every ward-indent catalog item carries at least one linked
+ * inventory classification.
+ */
+async function resolveLinkedInventoryItems(tx, tenantId, catalogIds) {
+  const ids = [...new Set(catalogIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!ids.length) return new Map();
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT catalog_id, MIN(id)::int AS inventory_item_id
+       FROM pharmacy_inventory_items
+      WHERE tenant_id = $1::uuid
+        AND catalog_id = ANY($2::int[])
+      GROUP BY catalog_id`,
+    tenantId,
+    ids,
+  );
+  return new Map(rows.map((row) => [Number(row.catalog_id), Number(row.inventory_item_id)]));
+}
+
+/**
+ * Ward issue/return traffic previously mutated only the pharmacy_catalog
+ * counter, leaving the pharmacy_stock_movements audit ledger blind to ward
+ * consumption (Sol-verification finding N4). Non-controlled ward movements now
+ * append a ledger row per item in the same transaction. inventory_batch_id
+ * stays NULL by design: ward stock is tracked on the catalog counter, not the
+ * batch/FEFO plane — this restores the movement audit trail without changing
+ * availability semantics. (Controlled lines never reach here; they carry
+ * witnessed inventory-v2 movement + register evidence.)
+ */
+async function appendWardMovementLedgerTx(tx, {
+  tenantId, indentId, inventoryItemId, movementKind, quantityDelta, performedBy, note,
+}) {
+  if (!inventoryItemId) return;
+  await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_stock_movements
+       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes)
+     VALUES ($1::uuid, $2::int, NULL, $3, $4::numeric, 'ward_indent', $5, $6::uuid, $7)`,
+    tenantId,
+    Number(inventoryItemId),
+    movementKind,
+    quantityDelta,
+    String(indentId),
+    performedBy ? String(performedBy) : null,
+    note || null,
+  );
 }
 
 async function lockCatalogRows(tx, tenantId, catalogIds) {
@@ -1358,6 +1410,11 @@ export async function issueWardIndent({
         .filter((item) => !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled)
         .map((item) => Number(item.pharmacy_catalog_id));
       await lockCatalogRows(tx, current.tenant_id, nonControlledCatalogIds);
+      const inventoryItemByCatalog = await resolveLinkedInventoryItems(
+        tx,
+        current.tenant_id,
+        nonControlledCatalogIds,
+      );
 
       for (const item of current.items) {
         const approvedQuantity = Number(item.quantity_approved);
@@ -1398,6 +1455,15 @@ export async function issueWardIndent({
               { item_id: item.id },
             );
           }
+          await appendWardMovementLedgerTx(tx, {
+            tenantId: current.tenant_id,
+            indentId: current.id,
+            inventoryItemId: inventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
+            movementKind: 'issue',
+            quantityDelta: -issuedQuantity,
+            performedBy: issuedBy,
+            note: `Ward indent ${current.indent_number || current.id} item ${item.id} issued to ${current.ward_name || 'ward'}`,
+          });
         }
         await tx.ward_indent_items.update({
           where: { id: item.id },
@@ -1667,15 +1733,17 @@ export async function reconcileWardIndent({
           throw AppError.badRequest(`Return evidence ${itemId} is not required for this indent`);
         }
       }
-      await lockCatalogRows(
+      const returnCatalogIds = current.items
+        .filter((item) => (
+          Number(item.quantity_return_requested) > Number(item.quantity_returned)
+          && !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled
+        ))
+        .map((item) => Number(item.pharmacy_catalog_id));
+      await lockCatalogRows(tx, current.tenant_id, returnCatalogIds);
+      const returnInventoryItemByCatalog = await resolveLinkedInventoryItems(
         tx,
         current.tenant_id,
-        current.items
-          .filter((item) => (
-            Number(item.quantity_return_requested) > Number(item.quantity_returned)
-            && !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled
-          ))
-          .map((item) => Number(item.pharmacy_catalog_id)),
+        returnCatalogIds,
       );
       let returnedItemCount = 0;
       let varianceItemCount = 0;
@@ -1746,6 +1814,15 @@ export async function reconcileWardIndent({
             current.tenant_id,
           );
           if (!rows[0]) throw AppError.notFound(`Catalog item ${item.pharmacy_catalog_id} not found`);
+          await appendWardMovementLedgerTx(tx, {
+            tenantId: current.tenant_id,
+            indentId: current.id,
+            inventoryItemId: returnInventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
+            movementKind: 'return',
+            quantityDelta: outstanding,
+            performedBy: reconciledBy,
+            note: `Ward indent ${current.indent_number || current.id} item ${item.id} returned from ${current.ward_name || 'ward'}`,
+          });
         }
         await tx.ward_indent_items.update({
           where: { id: item.id },
@@ -1765,6 +1842,89 @@ export async function reconcileWardIndent({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: { fulfilment_status: 'reconciled', updated_at: new Date() },
       });
+
+      // Post-issue billing truth (Sol-verification finding N2): the itemizer
+      // only re-synchronizes ward-indent charges while the admission invoice
+      // is still DRAFT — a return reconciled after the invoice was ISSUED
+      // leaves the patient charged for stock that came back, with nothing
+      // flagging it. Issued invoices are immutable here (billingV2 refuses
+      // post-issue line edits), so the delta is surfaced as an owned
+      // high-priority billing review task in the same transaction instead of
+      // being silently absorbed.
+      const billingAdjustments = [];
+      if (returnedItemCount > 0) {
+        const billedLines = await tx.$queryRawUnsafe(
+          `SELECT bii.id AS line_id, bii.line_total, bi.id AS invoice_id, bi.status
+             FROM billing_invoice_items bii
+             JOIN billing_invoices bi
+               ON bi.id = bii.invoice_id
+              AND bi.tenant_id = bii.tenant_id
+            WHERE bii.tenant_id = $1::uuid
+              AND bii.source_ref_type = 'ward_indent'
+              AND bii.source_ref_id::text = $2::text
+              AND bii.source_ref_active = TRUE`,
+          current.tenant_id,
+          String(current.id),
+        );
+        const staleBilledLines = billedLines.filter((line) => line.status !== 'DRAFT');
+        if (staleBilledLines.length) {
+          const expectedRows = await tx.$queryRawUnsafe(
+            `SELECT COALESCE(SUM(
+                      GREATEST(
+                        COALESCE(wii.quantity_issued, wii.quantity_requested, 0)
+                          - COALESCE(wii.quantity_returned, 0),
+                        0
+                      )
+                      * COALESCE(wii.unit_price, pc.unit_price, pc.price, 0)
+                    ), 0)::numeric AS expected_amount
+               FROM ward_indent_items wii
+               LEFT JOIN pharmacy_catalog pc
+                 ON pc.tenant_id = wii.tenant_id
+                AND pc.id = wii.pharmacy_catalog_id
+              WHERE wii.tenant_id = $1::uuid
+                AND wii.ward_indent_id = $2::int`,
+            current.tenant_id,
+            current.id,
+          );
+          const expectedAmount = Number(expectedRows[0]?.expected_amount || 0);
+          for (const line of staleBilledLines) {
+            const billedAmount = Number(line.line_total || 0);
+            const overcharge = Math.round((billedAmount - expectedAmount) * 100) / 100;
+            if (overcharge <= 0) continue;
+            await createTask({
+              tenantId: current.tenant_id,
+              taskKind: 'review',
+              title: `Ward indent ${current.indent_number || current.id}: post-issue return needs a billing credit`,
+              description: `Invoice ${line.invoice_id} (${line.status}) charges ${billedAmount.toFixed(2)} for ward indent ${current.indent_number || current.id}, but reconciled returns reduce the net charge to ${expectedAmount.toFixed(2)}. Raise the ${overcharge.toFixed(2)} credit/refund for the patient — the issued invoice cannot be edited in place.`,
+              patientUid: current.patient_uid || null,
+              relatedResourceType: 'ward_indent_billing_adjustment',
+              relatedResourceId: String(current.id),
+              priority: 'high',
+              assignedToRole: ROLES.BILLING_INCHARGE,
+              createdBy: reconciledBy,
+              metadata: {
+                ward_indent_id: Number(current.id),
+                invoice_id: Number(line.invoice_id),
+                invoice_status: line.status,
+                billing_line_id: Number(line.line_id),
+                billed_amount: billedAmount,
+                expected_amount: expectedAmount,
+                overcharge_amount: overcharge,
+              },
+              tx,
+              onConflictResourceDoNothing: true,
+            });
+            billingAdjustments.push({
+              invoice_id: Number(line.invoice_id),
+              invoice_status: line.status,
+              billed_amount: billedAmount,
+              expected_amount: expectedAmount,
+              overcharge_amount: overcharge,
+            });
+          }
+        }
+      }
+
       return {
         toStatus: 'reconciled',
         indentData: {
@@ -1776,6 +1936,7 @@ export async function reconcileWardIndent({
           returned_item_count: returnedItemCount,
           variance_item_count: varianceItemCount,
           controlled_return_references: controlledReturnReferences,
+          billing_adjustments_flagged: billingAdjustments,
         },
       };
     },

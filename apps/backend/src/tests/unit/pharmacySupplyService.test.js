@@ -180,6 +180,7 @@ describe('addInventoryBatch', () => {
   });
 
   it('inserts batch + appends receive movement', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, batch_number: 'B1', inventory_item_id: 5, received_quantity: 100, remaining_quantity: 100,
     }]);
@@ -189,10 +190,11 @@ describe('addInventoryBatch', () => {
       expiryDate: '2026-12-31', receivedQuantity: 100,
     });
     expect(batch.id).toBe(1);
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
   });
 
   it('throws conflict on duplicate (item, batch)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, schedule_class: null, is_narcotic: false }]); // controlled classification
     queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
     await expect(addInventoryBatch({
       tenantId: TENANT, inventoryItemId: 1, batchNumber: 'B1',
@@ -204,6 +206,7 @@ describe('addInventoryBatch', () => {
 describe('reserveStock — FEFO', () => {
   it('consumes oldest-expiry batches first and returns breakdown', async () => {
     // Two batches: B1 expires 2026-06-01 (50 left), B2 expires 2026-12-01 (100 left)
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
       { id: 11, batch_number: 'B2', expiry_date: '2026-12-01', remaining_quantity: 100 },
@@ -223,13 +226,14 @@ describe('reserveStock — FEFO', () => {
       { batch_id: 11, batch_number: 'B2', quantity_taken: 30 },
     ]);
     expect(transactionMock).toHaveBeenCalledTimes(1);
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FOR UPDATE/);
-    expect(queryUnsafeMock.mock.calls[0][0]).toContain(
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain(
       "expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date",
     );
   });
 
   it('reports short_by when stock insufficient', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 5 },
     ]);
@@ -243,6 +247,7 @@ describe('reserveStock — FEFO', () => {
   });
 
   it('throws conflict on concurrent batch update', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
     ]);
@@ -254,6 +259,7 @@ describe('reserveStock — FEFO', () => {
   });
 
   it('fails the transaction when a movement insert fails', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-06-01', remaining_quantity: 50 },
     ]);
@@ -271,6 +277,7 @@ describe('reserveStock — FEFO', () => {
   });
 
   it('reuses committed FEFO movements without consuming stock twice', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 11, batch_number: 'B2', expiry_date: '2026-12-01', remaining_quantity: 70 },
     ]);
@@ -299,11 +306,12 @@ describe('reserveStock — FEFO', () => {
       consumed: [{ batch_id: 10, batch_number: 'B1', quantity_taken: 30 }],
       idempotent_replay: true,
     });
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
     expect(transactionMock).toHaveBeenCalledTimes(1);
   });
 
   it('recovers a FEFO unique-index race from the winning movement', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 10, batch_number: 'B1', expiry_date: '2026-12-01', remaining_quantity: 50 },
     ]);
@@ -334,7 +342,7 @@ describe('reserveStock — FEFO', () => {
       idempotent_replay: true,
     });
     expect(transactionMock).toHaveBeenCalledTimes(2);
-    expect(queryUnsafeMock.mock.calls[2][0]).toContain('ON CONFLICT DO NOTHING');
+    expect(queryUnsafeMock.mock.calls[3][0]).toContain('ON CONFLICT DO NOTHING');
   });
 
   it('rejects unknown movement_kind', async () => {
@@ -358,12 +366,13 @@ describe('recallBatch', () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'recalled', recall_reference: 'CDSCO-2026-04', inventory_item_id: 5,
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([]); // movement insert
     const row = await recallBatch({
       tenantId: TENANT, id: 1, recallReference: 'CDSCO-2026-04', performedBy: USER,
     });
     expect(row.status).toBe('recalled');
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/movement_kind/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/movement_kind/);
   });
 
   it('throws 404 when already recalled', async () => {
@@ -473,6 +482,7 @@ describe('appendStockMovement', () => {
   });
 
   it('inserts a movement row', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, schedule_class: null, is_narcotic: false }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, movement_kind: 'adjust_decrease' }]);
     const row = await appendStockMovement({
       tenantId: TENANT, inventoryItemId: 5, movementKind: 'adjust_decrease',
@@ -618,6 +628,7 @@ describe('receivePurchaseOrderLine', () => {
       id: 5, purchase_order_id: 10, inventory_item_id: 7,
       ordered_quantity: 100, received_quantity: 0,
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 50, batch_number: 'B1', inventory_item_id: 7,
       received_quantity: 50, remaining_quantity: 50, status: 'in_stock',
@@ -652,11 +663,11 @@ describe('receivePurchaseOrderLine', () => {
     expect(result.purchase_order_item.received_quantity).toBe(50);
     expect(result.purchase_order.status).toBe('partially_received');
 
-    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO pharmacy_inventory_batches/);
-    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/UPDATE pharmacy_purchase_order_items/);
-    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/INSERT INTO pharmacy_goods_receipt_items/);
-    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
-    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/'receive'/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO pharmacy_inventory_batches/);
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/UPDATE pharmacy_purchase_order_items/);
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_goods_receipt_items/);
+    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/'receive'/);
   });
 
   it('refuses to over-receive (received_quantity + delta > ordered → 409)', async () => {
@@ -664,6 +675,7 @@ describe('receivePurchaseOrderLine', () => {
       id: 5, purchase_order_id: 10, inventory_item_id: 7,
       ordered_quantity: 100, received_quantity: 80,
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 51, batch_number: 'B2', inventory_item_id: 7,
       received_quantity: 50, remaining_quantity: 50,
@@ -685,6 +697,7 @@ describe('receivePurchaseOrderLine', () => {
       id: 5, purchase_order_id: 10, inventory_item_id: 7,
       ordered_quantity: 100, received_quantity: 80,
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, schedule_class: null, is_narcotic: false, unit_label: 'tab' }]); // controlled classification
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 52, batch_number: 'B3', inventory_item_id: 7,
       received_quantity: 20, remaining_quantity: 20,
@@ -709,9 +722,236 @@ describe('receivePurchaseOrderLine', () => {
     });
 
     expect(result.purchase_order.status).toBe('fully_received');
-    const parentUpdateArgs = queryUnsafeMock.mock.calls[6];
+    const parentUpdateArgs = queryUnsafeMock.mock.calls[7];
     expect(parentUpdateArgs[0]).toMatch(/UPDATE pharmacy_purchase_orders/);
     expect(parentUpdateArgs[1]).toBe('fully_received');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Controlled-substance discipline (N1) — schedule H/H1/X + narcotics must not
+// move through pharmacy-supply without the statutory register, and decrements
+// are refused entirely (witnessed inventory-v2 paths only).
+// ---------------------------------------------------------------------------
+
+describe('controlled-substance discipline (N1)', () => {
+  const CONTROLLED_ITEM = { id: 7, schedule_class: 'X', is_narcotic: true, unit_label: 'amp' };
+  const H1_ITEM = { id: 7, schedule_class: 'H1', is_narcotic: false, unit_label: 'tab' };
+
+  it('exposes the schedule vocabulary through __testing__', () => {
+    expect(__testing__.CONTROLLED_SCHEDULES).toEqual(['H', 'H1', 'X']);
+    expect(__testing__.SUPPLY_DECREASING_MOVEMENTS.has('issue')).toBe(true);
+    expect(__testing__.SUPPLY_DECREASING_MOVEMENTS.has('receive')).toBe(false);
+    expect(__testing__.SUPPLY_REGISTER_KIND_BY_MOVEMENT.receive).toBe('receive');
+    expect(__testing__.SUPPLY_REGISTER_KIND_BY_MOVEMENT.issue).toBeUndefined();
+    expect(__testing__.isControlledSupplyItem({ schedule_class: 'H' })).toBe(true);
+    expect(__testing__.isControlledSupplyItem({ schedule_class: null, is_narcotic: true })).toBe(true);
+    expect(__testing__.isControlledSupplyItem({ schedule_class: 'OTC', is_narcotic: false })).toBe(false);
+  });
+
+  it('reserveStock refuses a controlled issue with the dispense-path steer (409)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]);
+
+    await expect(reserveStock({
+      tenantId: TENANT, inventoryItemId: 7, quantity: 2,
+    })).rejects.toMatchObject({
+      statusCode: 409, code: 'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH',
+    });
+    // Fails closed before any batch lock: only the classification query ran.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserveStock refuses a controlled non-issue decrement with the register-path steer (409)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([H1_ITEM]);
+
+    await expect(reserveStock({
+      tenantId: TENANT, inventoryItemId: 7, quantity: 2, movementKind: 'transfer_out',
+    })).rejects.toMatchObject({
+      statusCode: 409, code: 'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+    });
+  });
+
+  it('appendStockMovement refuses controlled decrement kinds (409)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]);
+
+    await expect(appendStockMovement({
+      tenantId: TENANT, inventoryItemId: 7, movementKind: 'adjust_decrease', quantityDelta: 5,
+    })).rejects.toMatchObject({
+      statusCode: 409, code: 'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+    });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('appendStockMovement refuses a controlled negative delta even on an increasing kind (409)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([H1_ITEM]);
+
+    await expect(appendStockMovement({
+      tenantId: TENANT, inventoryItemId: 7, movementKind: 'return', quantityDelta: -3,
+    })).rejects.toMatchObject({
+      statusCode: 409, code: 'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+    });
+  });
+
+  it('appendStockMovement requires a named performer for controlled custody events (400)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([H1_ITEM]);
+
+    await expect(appendStockMovement({
+      tenantId: TENANT, inventoryItemId: 7, movementKind: 'receive', quantityDelta: 10,
+    })).rejects.toMatchObject({
+      statusCode: 400, code: 'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    });
+  });
+
+  it('appendStockMovement writes movement + running balance + register row in one tx for a controlled receive', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([H1_ITEM]); // classification
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 900, tenant_id: TENANT, inventory_item_id: 7, inventory_batch_id: null,
+      movement_kind: 'receive', quantity_delta: 10,
+    }]); // movement INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{ bal: '40' }]); // in-tx running balance
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 77 }]); // register INSERT
+
+    const result = await appendStockMovement({
+      tenantId: TENANT, inventoryItemId: 7, movementKind: 'receive',
+      quantityDelta: 10, performedBy: USER,
+    });
+
+    expect(result.id).toBe(900);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/SUM\(remaining_quantity\)/);
+    const registerArgs = queryUnsafeMock.mock.calls[3];
+    expect(registerArgs[0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
+    expect(registerArgs[4]).toBe('H1');        // schedule snapshot
+    expect(registerArgs[5]).toBe('receive');   // register kind
+    expect(registerArgs[6]).toBe(10);          // quantity (abs)
+    expect(registerArgs[8]).toBe(40);          // running balance from the same tx
+    expect(registerArgs[9]).toBe(USER);        // named performer
+    expect(registerArgs[10]).toBe(900);        // reference_movement_id
+  });
+
+  it('addInventoryBatch requires a performer for a controlled receipt (400)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]);
+
+    await expect(addInventoryBatch({
+      tenantId: TENANT, inventoryItemId: 7, batchNumber: 'CX1',
+      expiryDate: '2027-06-30', receivedQuantity: 10,
+    })).rejects.toMatchObject({
+      statusCode: 400, code: 'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('addInventoryBatch lands batch + movement + register atomically for controlled stock', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]); // classification (plain prisma)
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 60, batch_number: 'CX1', inventory_item_id: 7,
+      received_quantity: 10, remaining_quantity: 10, status: 'in_stock',
+    }]); // batch INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 901 }]); // movement INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{ bal: '10' }]); // running balance
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 78 }]); // register INSERT
+
+    const batch = await addInventoryBatch({
+      tenantId: TENANT, inventoryItemId: 7, batchNumber: 'CX1',
+      expiryDate: '2027-06-30', receivedQuantity: 10, performedBy: USER,
+    });
+
+    expect(batch.id).toBe(60);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO pharmacy_inventory_batches/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
+    expect(queryUnsafeMock.mock.calls[4][4]).toBe('X'); // schedule snapshot
+  });
+
+  it('recallBatch requires a performer for a controlled recall (400)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 61, inventory_item_id: 7, remaining_quantity: 12, status: 'recalled',
+    }]); // UPDATE
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]); // classification
+
+    await expect(recallBatch({
+      tenantId: TENANT, id: 61, recallReference: 'CDSCO alert',
+    })).rejects.toMatchObject({
+      statusCode: 400, code: 'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    });
+  });
+
+  it('recallBatch appends a register recall row carrying the pulled quantity', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 61, inventory_item_id: 7, remaining_quantity: 12, status: 'recalled',
+    }]); // UPDATE
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]); // classification
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 902 }]); // movement INSERT (tx)
+    queryUnsafeMock.mockResolvedValueOnce([{ bal: '0' }]); // running balance
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 79 }]); // register INSERT
+
+    const result = await recallBatch({
+      tenantId: TENANT, id: 61, recallReference: 'CDSCO alert', performedBy: USER,
+    });
+
+    expect(result.id).toBe(61);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    const registerArgs = queryUnsafeMock.mock.calls[4];
+    expect(registerArgs[0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
+    expect(registerArgs[5]).toBe('recall');
+    expect(registerArgs[6]).toBe(12); // the batch's remaining quantity leaves custody
+    expect(registerArgs[9]).toBe(USER);
+  });
+
+  it('receivePurchaseOrderLine requires a performer for a controlled GRN receipt (400)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, inventory_item_id: 7,
+      ordered_quantity: 100, received_quantity: 0,
+    }]); // PO line
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]); // classification
+
+    await expect(receivePurchaseOrderLine({
+      tenantId: TENANT, purchaseOrderItemId: 5, goodsReceiptId: 22,
+      batchNumber: 'CX2', expiryDate: '2027-01-01', receivedQuantity: 50,
+    })).rejects.toMatchObject({
+      statusCode: 400, code: 'CONTROLLED_MOVEMENT_PERFORMER_REQUIRED',
+    });
+  });
+
+  it('receivePurchaseOrderLine appends a register receipt row for controlled stock', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, inventory_item_id: 7,
+      ordered_quantity: 100, received_quantity: 0,
+    }]); // PO line
+    queryUnsafeMock.mockResolvedValueOnce([CONTROLLED_ITEM]); // classification
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 50, batch_number: 'CX2', inventory_item_id: 7,
+      received_quantity: 50, remaining_quantity: 50, status: 'in_stock',
+    }]); // batch INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, ordered_quantity: 100, received_quantity: 50,
+    }]); // PO line bump
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 100, inventory_batch_id: 50 }]); // GRN item
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 903 }]); // receive movement
+    queryUnsafeMock.mockResolvedValueOnce([{ bal: '50' }]); // running balance
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 80 }]); // register INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 50, partial_count: 1,
+    }]); // aggregate
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'partially_received' }]); // parent PO
+
+    const result = await receivePurchaseOrderLine({
+      tenantId: TENANT, purchaseOrderItemId: 5, goodsReceiptId: 22,
+      batchNumber: 'CX2', expiryDate: '2027-01-01', receivedQuantity: 50,
+      performedBy: USER,
+    });
+
+    expect(result.batch.id).toBe(50);
+    expect(result.purchase_order.status).toBe('partially_received');
+    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const registerArgs = queryUnsafeMock.mock.calls[7];
+    expect(registerArgs[0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
+    expect(registerArgs[5]).toBe('receive');
+    expect(registerArgs[6]).toBe(50);
+    expect(registerArgs[9]).toBe(USER);
+    expect(registerArgs[10]).toBe(903);
   });
 });
 
