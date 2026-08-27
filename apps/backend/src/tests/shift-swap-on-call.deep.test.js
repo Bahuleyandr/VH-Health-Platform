@@ -6,7 +6,9 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { expireStaleShiftSwapRequests } from '../services/staff/shiftSwapService.js';
 import { __testing__ as escalationTesting } from '../services/workflow/escalationEngineService.js';
 
@@ -142,6 +144,19 @@ describe('shift swap + on-call roster', () => {
   }, HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
+    await waitForAuditLogDrain();
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM audit_log WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+      FOREIGN_TENANT,
+      ESCALATION_TENANT
+    );
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM audit_logs WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+      FOREIGN_TENANT,
+      ESCALATION_TENANT
+    );
     await prisma.$executeRawUnsafe(
       `DELETE FROM staff_shift_swap_request_audit WHERE swap_request_id IN (
          SELECT id FROM staff_shift_swap_requests
