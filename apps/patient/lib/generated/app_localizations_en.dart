@@ -1369,6 +1369,53 @@ class AppLocalizationsEn extends AppLocalizations {
   String get abdmNoConsents => 'No consent requests';
 
   @override
+  String get abdmConsentGrantAction => 'Grant';
+
+  @override
+  String get abdmConsentDenyAction => 'Deny';
+
+  @override
+  String get abdmConsentRevokeAction => 'Revoke';
+
+  @override
+  String get abdmConsentGrantConfirmTitle => 'Grant Consent?';
+
+  @override
+  String get abdmConsentDenyConfirmTitle => 'Deny Consent?';
+
+  @override
+  String get abdmConsentRevokeConfirmTitle => 'Revoke Consent?';
+
+  @override
+  String get abdmConsentGrantConfirmBody =>
+      'Are you sure you want to grant this consent request?';
+
+  @override
+  String get abdmConsentDenyConfirmBody =>
+      'Are you sure you want to deny this consent request?';
+
+  @override
+  String get abdmConsentRevokeConfirmBody =>
+      'Are you sure you want to revoke this consent?';
+
+  @override
+  String get abdmConsentGrantSuccess => 'Consent granted successfully';
+
+  @override
+  String get abdmConsentDenySuccess => 'Consent request denied';
+
+  @override
+  String get abdmConsentRevokeSuccess => 'Consent revoked successfully';
+
+  @override
+  String get askDoubtIntro =>
+      'Send your question to our care team. Every message is read. We do not reply inside the app — if follow-up is needed, our team will contact you by phone or at your next visit.';
+
+  @override
+  String get askDoubtSuccess =>
+      'Your question has been sent. Our care team reads every message and will contact you by phone or at your next visit if follow-up is needed.';
+
+  @override
   String get medicationRemindersTitle => 'Medication Reminders';
 
   @override

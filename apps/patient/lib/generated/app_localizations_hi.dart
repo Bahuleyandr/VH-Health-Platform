@@ -1376,6 +1376,53 @@ class AppLocalizationsHi extends AppLocalizations {
   String get abdmNoConsents => 'कोई सहमति अनुरोध नहीं';
 
   @override
+  String get abdmConsentGrantAction => 'सहमति दें';
+
+  @override
+  String get abdmConsentDenyAction => 'अस्वीकार करें';
+
+  @override
+  String get abdmConsentRevokeAction => 'वापस लें';
+
+  @override
+  String get abdmConsentGrantConfirmTitle => 'सहमति दें?';
+
+  @override
+  String get abdmConsentDenyConfirmTitle => 'सहमति अस्वीकार करें?';
+
+  @override
+  String get abdmConsentRevokeConfirmTitle => 'सहमति वापस लें?';
+
+  @override
+  String get abdmConsentGrantConfirmBody =>
+      'क्या आप वाकई इस सहमति अनुरोध को स्वीकृत करना चाहते हैं?';
+
+  @override
+  String get abdmConsentDenyConfirmBody =>
+      'क्या आप वाकई इस सहमति अनुरोध को अस्वीकार करना चाहते हैं?';
+
+  @override
+  String get abdmConsentRevokeConfirmBody =>
+      'क्या आप वाकई इस सहमति को वापस लेना चाहते हैं?';
+
+  @override
+  String get abdmConsentGrantSuccess => 'सहमति सफलतापूर्वक दी गई';
+
+  @override
+  String get abdmConsentDenySuccess => 'सहमति अनुरोध अस्वीकार किया गया';
+
+  @override
+  String get abdmConsentRevokeSuccess => 'सहमति सफलतापूर्वक वापस ली गई';
+
+  @override
+  String get askDoubtIntro =>
+      'अपना प्रश्न हमारी देखभाल टीम को भेजें। हर संदेश पढ़ा जाता है। हम ऐप में जवाब नहीं देते — यदि आगे की कार्रवाई आवश्यक हो, तो हमारी टीम फोन पर या आपकी अगली विज़िट पर आपसे संपर्क करेगी।';
+
+  @override
+  String get askDoubtSuccess =>
+      'आपका प्रश्न भेज दिया गया है। हमारी देखभाल टीम हर संदेश पढ़ती है और आवश्यक होने पर फोन पर या आपकी अगली विज़िट पर आपसे संपर्क करेगी।';
+
+  @override
   String get medicationRemindersTitle => 'दवा रिमाइंडर';
 
   @override

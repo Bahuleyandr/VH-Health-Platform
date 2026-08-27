@@ -1215,6 +1215,62 @@
   "abdmVerify": "Verify ABHA",
   "abdmConsents": "Consents",
   "abdmNoConsents": "No consent requests",
+  "abdmConsentGrantAction": "Grant",
+  "@abdmConsentGrantAction": {
+    "description": "ABDM consent action button (grant). hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentDenyAction": "Deny",
+  "@abdmConsentDenyAction": {
+    "description": "ABDM consent action button (deny). hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentRevokeAction": "Revoke",
+  "@abdmConsentRevokeAction": {
+    "description": "ABDM consent action button (revoke). hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentGrantConfirmTitle": "Grant Consent?",
+  "@abdmConsentGrantConfirmTitle": {
+    "description": "ABDM consent grant confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentDenyConfirmTitle": "Deny Consent?",
+  "@abdmConsentDenyConfirmTitle": {
+    "description": "ABDM consent deny confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentRevokeConfirmTitle": "Revoke Consent?",
+  "@abdmConsentRevokeConfirmTitle": {
+    "description": "ABDM consent revoke confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentGrantConfirmBody": "Are you sure you want to grant this consent request?",
+  "@abdmConsentGrantConfirmBody": {
+    "description": "ABDM consent grant confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentDenyConfirmBody": "Are you sure you want to deny this consent request?",
+  "@abdmConsentDenyConfirmBody": {
+    "description": "ABDM consent deny confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentRevokeConfirmBody": "Are you sure you want to revoke this consent?",
+  "@abdmConsentRevokeConfirmBody": {
+    "description": "ABDM consent revoke confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentGrantSuccess": "Consent granted successfully",
+  "@abdmConsentGrantSuccess": {
+    "description": "Snackbar after an ABDM consent is granted. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentDenySuccess": "Consent request denied",
+  "@abdmConsentDenySuccess": {
+    "description": "Snackbar after an ABDM consent request is denied. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "abdmConsentRevokeSuccess": "Consent revoked successfully",
+  "@abdmConsentRevokeSuccess": {
+    "description": "Snackbar after an ABDM consent is revoked. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "askDoubtIntro": "Send your question to our care team. Every message is read. We do not reply inside the app — if follow-up is needed, our team will contact you by phone or at your next visit.",
+  "@askDoubtIntro": {
+    "description": "Ask a Doubt intro: one-way message flow — the care team reads every message and follows up by phone or at the next visit; no in-app reply. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "askDoubtSuccess": "Your question has been sent. Our care team reads every message and will contact you by phone or at your next visit if follow-up is needed.",
+  "@askDoubtSuccess": {
+    "description": "Snackbar after an Ask a Doubt question is sent; must not promise an in-app reply. hi/ta/te/ml values are machine-translated and marked for review."
+  },
   "medicationRemindersTitle": "Medication Reminders",
   "medicationReminderAdd": "Add Reminder",
   "medicationReminderName": "Medication Name",

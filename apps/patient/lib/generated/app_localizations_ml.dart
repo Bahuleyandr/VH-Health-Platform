@@ -1394,6 +1394,53 @@ class AppLocalizationsMl extends AppLocalizations {
   String get abdmNoConsents => 'സമ്മത അഭ്യർത്ഥനകളൊന്നുമില്ല';
 
   @override
+  String get abdmConsentGrantAction => 'സമ്മതം നൽകുക';
+
+  @override
+  String get abdmConsentDenyAction => 'നിരസിക്കുക';
+
+  @override
+  String get abdmConsentRevokeAction => 'പിൻവലിക്കുക';
+
+  @override
+  String get abdmConsentGrantConfirmTitle => 'സമ്മതം നൽകണോ?';
+
+  @override
+  String get abdmConsentDenyConfirmTitle => 'സമ്മതം നിരസിക്കണോ?';
+
+  @override
+  String get abdmConsentRevokeConfirmTitle => 'സമ്മതം പിൻവലിക്കണോ?';
+
+  @override
+  String get abdmConsentGrantConfirmBody =>
+      'ഈ സമ്മത അഭ്യർത്ഥനയ്ക്ക് സമ്മതം നൽകണമെന്ന് ഉറപ്പാണോ?';
+
+  @override
+  String get abdmConsentDenyConfirmBody =>
+      'ഈ സമ്മത അഭ്യർത്ഥന നിരസിക്കണമെന്ന് ഉറപ്പാണോ?';
+
+  @override
+  String get abdmConsentRevokeConfirmBody =>
+      'ഈ സമ്മതം പിൻവലിക്കണമെന്ന് ഉറപ്പാണോ?';
+
+  @override
+  String get abdmConsentGrantSuccess => 'സമ്മതം വിജയകരമായി നൽകി';
+
+  @override
+  String get abdmConsentDenySuccess => 'സമ്മത അഭ്യർത്ഥന നിരസിച്ചു';
+
+  @override
+  String get abdmConsentRevokeSuccess => 'സമ്മതം വിജയകരമായി പിൻവലിച്ചു';
+
+  @override
+  String get askDoubtIntro =>
+      'നിങ്ങളുടെ ചോദ്യം ഞങ്ങളുടെ പരിചരണ ടീമിന് അയയ്ക്കുക. ഓരോ സന്ദേശവും വായിക്കപ്പെടുന്നു. ആപ്പിൽ ഞങ്ങൾ മറുപടി നൽകുന്നില്ല — തുടർനടപടി ആവശ്യമെങ്കിൽ, ഞങ്ങളുടെ ടീം ഫോണിലൂടെയോ നിങ്ങളുടെ അടുത്ത സന്ദർശനത്തിലോ നിങ്ങളെ ബന്ധപ്പെടും.';
+
+  @override
+  String get askDoubtSuccess =>
+      'നിങ്ങളുടെ ചോദ്യം അയച്ചു. ഞങ്ങളുടെ പരിചരണ ടീം ഓരോ സന്ദേശവും വായിക്കുന്നു; ആവശ്യമെങ്കിൽ ഫോണിലൂടെയോ നിങ്ങളുടെ അടുത്ത സന്ദർശനത്തിലോ നിങ്ങളെ ബന്ധപ്പെടും.';
+
+  @override
   String get medicationRemindersTitle => 'മരുന്ന് ഓർമ്മപ്പെടുത്തലുകൾ';
 
   @override

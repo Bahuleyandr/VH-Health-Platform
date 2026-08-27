@@ -1389,6 +1389,53 @@ class AppLocalizationsTe extends AppLocalizations {
   String get abdmNoConsents => 'సమ్మతి అభ్యర్థనలు లేవు';
 
   @override
+  String get abdmConsentGrantAction => 'సమ్మతి ఇవ్వండి';
+
+  @override
+  String get abdmConsentDenyAction => 'తిరస్కరించండి';
+
+  @override
+  String get abdmConsentRevokeAction => 'ఉపసంహరించండి';
+
+  @override
+  String get abdmConsentGrantConfirmTitle => 'సమ్మతి ఇవ్వాలా?';
+
+  @override
+  String get abdmConsentDenyConfirmTitle => 'సమ్మతిని తిరస్కరించాలా?';
+
+  @override
+  String get abdmConsentRevokeConfirmTitle => 'సమ్మతిని ఉపసంహరించాలా?';
+
+  @override
+  String get abdmConsentGrantConfirmBody =>
+      'ఈ సమ్మతి అభ్యర్థనకు సమ్మతి ఇవ్వాలనుకుంటున్నారా?';
+
+  @override
+  String get abdmConsentDenyConfirmBody =>
+      'ఈ సమ్మతి అభ్యర్థనను తిరస్కరించాలనుకుంటున్నారా?';
+
+  @override
+  String get abdmConsentRevokeConfirmBody =>
+      'ఈ సమ్మతిని ఉపసంహరించాలనుకుంటున్నారా?';
+
+  @override
+  String get abdmConsentGrantSuccess => 'సమ్మతి విజయవంతంగా ఇవ్వబడింది';
+
+  @override
+  String get abdmConsentDenySuccess => 'సమ్మతి అభ్యర్థన తిరస్కరించబడింది';
+
+  @override
+  String get abdmConsentRevokeSuccess => 'సమ్మతి విజయవంతంగా ఉపసంహరించబడింది';
+
+  @override
+  String get askDoubtIntro =>
+      'మీ ప్రశ్నను మా సంరక్షణ బృందానికి పంపండి. ప్రతి సందేశం చదవబడుతుంది. యాప్‌లో మేము సమాధానం ఇవ్వము — తదుపరి చర్య అవసరమైతే, మా బృందం ఫోన్ ద్వారా లేదా మీ తదుపరి సందర్శనలో మిమ్మల్ని సంప్రదిస్తుంది.';
+
+  @override
+  String get askDoubtSuccess =>
+      'మీ ప్రశ్న పంపబడింది. మా సంరక్షణ బృందం ప్రతి సందేశాన్ని చదువుతుంది; అవసరమైతే ఫోన్ ద్వారా లేదా మీ తదుపరి సందర్శనలో మిమ్మల్ని సంప్రదిస్తుంది.';
+
+  @override
   String get medicationRemindersTitle => 'మందుల రిమైండర్లు';
 
   @override
@@ -3275,7 +3322,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get labOrdersBy => 'లోపు';
 
   @override
-  String get labOrdersScheduled => 'షెడ్యూల్ చేయப்பட்டது';
+  String get labOrdersScheduled => 'షెడ్యూల్ చేయబడింది';
 
   @override
   String get labOrdersNoCollectionInstructions =>
