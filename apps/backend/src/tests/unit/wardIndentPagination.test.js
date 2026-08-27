@@ -14,6 +14,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: tx,
   prismaReadOnly: tx,
   setTenantTx: async (_tenantId, operation) => operation(tx),
+  // The mock replaces the whole module; wardIndentWorkflowService's import
+  // chain reaches isTenantTransactionClient since the N2 billing
+  // reconciliation (PR #938). Same shape as workerPAuthorization's mock.
+  isTenantTransactionClient: () => true,
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
