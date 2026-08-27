@@ -1039,7 +1039,27 @@ async function dispatchPostCreateSideEffects(order) {
   }
 
   if (order.order_type === 'medication' && order.encounter_id) {
-    await createWardIndentForClinicalMedicationOrder(order).catch(async (err) => {
+    const medicationDetails = order.details && typeof order.details === 'object'
+      ? order.details
+      : {};
+    const supplyPerDose = Number(
+      medicationDetails.supply_quantity_per_dose
+        ?? medicationDetails.dispense_units_per_dose
+        ?? medicationDetails.units_per_dose,
+    );
+    let projectedSupplyQuantity = null;
+    if (Number.isFinite(supplyPerDose) && supplyPerDose > 0) {
+      try {
+        projectedSupplyQuantity = buildMarEntriesFromOrderDetails(medicationDetails, {
+          startDate: order.start_date,
+        }).length * supplyPerDose;
+      } catch {
+        projectedSupplyQuantity = null;
+      }
+    }
+    await createWardIndentForClinicalMedicationOrder(order, {
+      projectedSupplyQuantity,
+    }).catch(async (err) => {
       // BE-H1: the order committed but the ward stock request was not raised —
       // log loudly AND escalate durably (outbox alert + failed audit row).
       logger.error(`Failed to create ward indent for medication order ${order.order_number}: ${err.message}`);
@@ -1452,6 +1472,13 @@ export function buildMarEntryFromOrderDetails(details, { startDate } = {}) {
     route: details.route,
     notes: details.prn_reason || null,
   };
+  const supplyQuantityPerDose = details.supply_quantity_per_dose
+    ?? details.dispense_units_per_dose
+    ?? details.units_per_dose
+    ?? null;
+  if (supplyQuantityPerDose != null) {
+    entry.supply_quantity_per_dose = supplyQuantityPerDose;
+  }
   if (frequency) {
     entry.frequency = frequency;
     entry.start_time = startTime;
@@ -1510,6 +1537,9 @@ export function buildMarEntriesFromOrderDetails(details, { startDate } = {}) {
         route: details.route,
         scheduled_time: combineDateAndClock(safeStart, clock, day),
         notes,
+        ...(details.supply_quantity_per_dose != null
+          ? { supply_quantity_per_dose: details.supply_quantity_per_dose }
+          : {}),
       });
     }
   }

@@ -1193,6 +1193,35 @@ export async function ensureTenantRlsRuntimeRoleGrants() {
   }
   const sql = `
 DO $$
+DECLARE
+  med03_relation TEXT;
+  med03_sequence TEXT;
+  med03_trigger_function TEXT;
+  med03_mutable_relations CONSTANT TEXT[] := ARRAY[
+    'ward_indent_inventory_allocations',
+    'billing_credit_notes'
+  ];
+  med03_append_only_relations CONSTANT TEXT[] := ARRAY[
+    'ward_indent_inventory_movement_links',
+    'mar_supply_consumptions',
+    'mar_administration_command_receipts',
+    'mar_transition_command_receipts',
+    'mar_supply_reconciliation_links',
+    'ward_indent_financial_events',
+    'billing_credit_note_events'
+  ];
+  med03_trigger_functions CONSTANT TEXT[] := ARRAY[
+    'medication_administration_require_order_context',
+    'ward_indent_apply_inventory_movement_link',
+    'mar_supply_apply_custody_consumption',
+    'mar_administration_command_receipt_validate',
+    'mar_transition_command_receipt_validate',
+    'mar_supply_apply_reconciliation_link',
+    'ward_indent_validate_financial_event_lineage',
+    'billing_credit_note_require_context',
+    'billing_credit_note_require_lifecycle_event',
+    'ward_medication_tasks_sync_workflow_sla_compat'
+  ];
 BEGIN
   PERFORM pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true);
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
@@ -1210,6 +1239,69 @@ BEGIN
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
       GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+      -- MED-03 evidence tables are either lifecycle-controlled or immutable.
+      -- Reapply their narrow ACLs after every broad startup grant so a role
+      -- reconciled after migration 744 cannot regain DELETE/UPDATE/setval.
+      FOREACH med03_relation IN ARRAY med03_mutable_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            med03_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',
+            med03_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH med03_relation IN ARRAY med03_append_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            med03_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT ON TABLE public.%I TO %I',
+            med03_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH med03_relation IN ARRAY (
+        med03_mutable_relations || med03_append_only_relations
+      )
+      LOOP
+        med03_sequence := med03_relation || '_id_seq';
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_sequence)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %I',
+            med03_sequence,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT USAGE, SELECT ON SEQUENCE public.%I TO %I',
+            med03_sequence,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH med03_trigger_function IN ARRAY med03_trigger_functions
+      LOOP
+        IF pg_catalog.to_regprocedure(
+          pg_catalog.format('public.%I()', med03_trigger_function)
+        ) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION public.%I() FROM %I',
+            med03_trigger_function,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
       -- Migration 631 intentionally exposes this append-only receipt through
       -- column-scoped INSERT only. Reapply that fence after every broad grant.
       IF pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts') IS NOT NULL THEN

@@ -37,7 +37,7 @@ const INVOICE_DETAIL_COLUMNS = `
   admission_id, doctor_uid, department, invoice_type,
   patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
   igst_amount, discount_amount, discount_reason, discount_approved_by,
-  total_amount, amount_paid, amount_due, status, notes, created_by,
+  total_amount, credit_note_amount, amount_paid, amount_due, status, notes, created_by,
   issued_at, voided_at, voided_by, void_reason, tenant_id, created_at, updated_at
 `;
 
@@ -177,7 +177,7 @@ const BILLING_INVOICE_PUBLIC_COLUMNS = `
   admission_id, doctor_uid, department, invoice_type,
   patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
   igst_amount, discount_amount, discount_reason, discount_approved_by,
-  total_amount, amount_paid, amount_due, status, notes, created_by,
+  total_amount, credit_note_amount, amount_paid, amount_due, status, notes, created_by,
   issued_at, voided_at, voided_by, void_reason, tenant_id,
   created_at, updated_at
 `;
@@ -301,7 +301,7 @@ async function nextInvoiceNumber(tenantId, db = prisma) {
   return `INV-${fy}-${padded}`;
 }
 
-async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAlert = true } = {}) {
+export async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAlert = true } = {}) {
   const aggregates = await db.$queryRawUnsafe(
     `SELECT
        COALESCE(SUM(line_subtotal), 0)::numeric AS subtotal,
@@ -320,14 +320,16 @@ async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAlert = t
   // discount preserved from the existing row; we read it back so we
   // can recompute total + due correctly.
   const inv = await db.$queryRawUnsafe(
-    `SELECT discount_amount, amount_paid FROM billing_invoices WHERE id = $1::int`,
+    `SELECT discount_amount, credit_note_amount, amount_paid
+       FROM billing_invoices WHERE id = $1::int`,
     invoiceId,
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   const discount = Number(inv[0].discount_amount || 0);
   const total = toFixed2(subtotal + cgst + sgst + igst - discount);
+  const credited = Number(inv[0].credit_note_amount || 0);
   const paid = Number(inv[0].amount_paid || 0);
-  const due = toFixed2(total - paid);
+  const due = toFixed2(Math.max(0, total - credited - paid));
 
   await db.$executeRawUnsafe(
     `UPDATE billing_invoices
@@ -369,7 +371,7 @@ async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAlert = t
     }
   }
 
-  return { subtotal, cgst, sgst, igst, discount, total, paid, due };
+  return { subtotal, cgst, sgst, igst, discount, total, credited, paid, due };
 }
 
 /**
@@ -395,12 +397,13 @@ async function recomputeInvoicePaymentStateTx(tx, invoiceId) {
   );
   const paid = Number(aggr[0].paid);
   const inv = await tx.$queryRawUnsafe(
-    `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
+    `SELECT total_amount, credit_note_amount FROM billing_invoices WHERE id = $1::int`,
     normalizedInvoiceId,
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   const total = Number(inv[0].total_amount);
-  const due = toFixed2(total - paid);
+  const credited = Number(inv[0].credit_note_amount || 0);
+  const due = toFixed2(Math.max(0, total - credited - paid));
   let status = 'PARTIAL';
   if (due <= 0.005) status = 'PAID';
   else if (paid <= 0.005) status = 'ISSUED';
@@ -433,13 +436,14 @@ export async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
     normalizedInvoiceId,
   );
   const inv = await tx.$queryRawUnsafe(
-    `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
+    `SELECT total_amount, credit_note_amount FROM billing_invoices WHERE id = $1::int`,
     normalizedInvoiceId,
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   const total = Number(inv[0].total_amount);
+  const credited = Number(inv[0].credit_note_amount || 0);
   const due = toFixed2(Number(arRows[0].due_paise) / 100);
-  const paid = toFixed2(total - due);
+  const paid = toFixed2(Math.max(0, total - credited - due));
   let status = 'PARTIAL';
   if (due <= 0.005) status = 'PAID';
   else if (paid <= 0.005) status = 'ISSUED';
@@ -627,9 +631,9 @@ export async function createDraftInvoice({
      VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11::uuid, $12::uuid)
      RETURNING id, invoice_number, patient_uid, patient_name, patient_phone,
                admission_id, doctor_uid, department, invoice_type,
-               patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
-               igst_amount, discount_amount, total_amount, amount_paid,
-               amount_due, status, notes, tenant_id, created_at`,
+                patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
+                igst_amount, discount_amount, total_amount, credit_note_amount, amount_paid,
+                amount_due, status, notes, tenant_id, created_at`,
     String(patient_uid),
     patient_name || null,
     patient_phone || null,
@@ -1382,7 +1386,8 @@ export async function listInvoices({
   const safePage = boundedInteger(page, { fallback: 1, min: 1, max: 501 });
   const offset = Math.min((safePage - 1) * safeLimit, 10_000);
   const sql = `SELECT id, invoice_number, patient_uid, patient_name, invoice_type,
-                      total_amount, amount_paid, amount_due, status, admission_id,
+                       total_amount, credit_note_amount, amount_paid, amount_due,
+                       status, admission_id,
                       tenant_id, issued_at, created_at
                  FROM billing_invoices
                  ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -1395,7 +1400,10 @@ export async function listInvoices({
     try {
       const cap = await resolveAdmissionTpaCap(row.admission_id, row.tenant_id);
       if (!cap || cap.cumulative_approved <= 0) return { ...row, tpa_utilisation: null };
-      const total = Number(row.total_amount ?? 0);
+      const total = Math.max(
+        0,
+        Number(row.total_amount ?? 0) - Number(row.credit_note_amount ?? 0),
+      );
       const utilisationPct = (total / cap.cumulative_approved) * 100;
       let utilisationStatus = 'within_cap';
       if (utilisationPct >= 100) utilisationStatus = 'over_cap';
@@ -1865,6 +1873,20 @@ async function sumActiveInvoiceRefunds(tx, invoiceId, { excludeRefundId = null }
   return Number(rows[0].total || 0);
 }
 
+async function isAppliedCreditNoteRefundTx(tx, refundId, tenantId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT 1::int AS linked
+       FROM billing_credit_notes
+      WHERE tenant_id = $1::uuid
+        AND refund_id = $2::int
+        AND status = 'applied'
+      LIMIT 1`,
+    requireTenantId(tenantId),
+    Number(refundId),
+  );
+  return rows.length === 1;
+}
+
 export async function raiseRefund({
   patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenantId,
 }) {
@@ -1958,27 +1980,36 @@ export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
     ...params,
   );
   let refund;
+  let creditNoteLinked = false;
   if (wiring.sameTx) {
     // Enforce: UPDATE + ledger post in one tx so a ledger failure rolls back the approval.
     refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const rows = await doApprove(tx);
       if (!rows.length) throw AppError.notFound('Refund not found or not pending');
-      await postRefundApproveEntry({ refund: rows[0], tenantId: requireTenantId(tenantId), tx });
-      // Phase 4-3: refund-approve restored PATIENT_AR (invoice) / reduced
-      // PATIENT_ADVANCE (advance) — ledger timing puts the refund's column effect
-      // HERE (at approve), not at payout. Derive the affected cache column.
-      if (rows[0].advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, rows[0].advance_id, { exhaustedStatus: 'REFUNDED' });
-      else if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
+      creditNoteLinked = await isAppliedCreditNoteRefundTx(tx, rows[0].id, tenantId);
+      if (!creditNoteLinked) {
+        await postRefundApproveEntry({ refund: rows[0], tenantId: requireTenantId(tenantId), tx });
+        // Phase 4-3: refund-approve restored PATIENT_AR (invoice) / reduced
+        // PATIENT_ADVANCE (advance) — ledger timing puts the refund's column effect
+        // HERE (at approve), not at payout. Derive the affected cache column.
+        if (rows[0].advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, rows[0].advance_id, { exhaustedStatus: 'REFUNDED' });
+        else if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
+      }
       return rows[0];
     });
   } else {
     const rows = await doApprove(prisma);
     if (!rows.length) throw AppError.notFound('Refund not found or not pending');
     refund = rows[0];
+    creditNoteLinked = await setTenantTx(
+      requireTenantId(tenantId),
+      (tx) => isAppliedCreditNoteRefundTx(tx, refund.id, tenantId),
+      { readOnly: true },
+    );
   }
   // Shadow: post-commit best-effort REFUND_APPROVE (credit REFUNDS_PAYABLE /
   // debit PATIENT_AR|PATIENT_ADVANCE). Off: skip.
-  if (wiring.postCommit) {
+  if (wiring.postCommit && !creditNoteLinked) {
     try {
       await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
     } catch (ledgerErr) {
@@ -2129,14 +2160,23 @@ async function settleRefundPaid(refundId, {
     // If linked to an invoice: reduce the invoice's amount_paid (SHADOW/OFF only;
     // under enforce the refund already hit PATIENT_AR at approve). Lock first.
     if (!wiring.sameTx && refund.invoice_id) {
-      const inv = await lockBillingInvoice(tx, refund.invoice_id, tenantId, 'amount_paid, total_amount');
+      const inv = await lockBillingInvoice(
+        tx,
+        refund.invoice_id,
+        tenantId,
+        'amount_paid, total_amount, credit_note_amount',
+      );
       if (inv) {
         await tx.$executeRawUnsafe(
           `UPDATE billing_invoices
               SET amount_paid = GREATEST(amount_paid - $1::numeric, 0),
-                  amount_due = total_amount - GREATEST(amount_paid - $1::numeric, 0),
+                  amount_due = GREATEST(
+                    total_amount - credit_note_amount - GREATEST(amount_paid - $1::numeric, 0),
+                    0
+                  ),
                   status = CASE
-                             WHEN total_amount - GREATEST(amount_paid - $1::numeric, 0) <= 0.005 THEN 'PAID'
+                             WHEN total_amount - credit_note_amount
+                                  - GREATEST(amount_paid - $1::numeric, 0) <= 0.005 THEN 'PAID'
                              WHEN GREATEST(amount_paid - $1::numeric, 0) <= 0.005 THEN 'ISSUED'
                              ELSE 'PARTIAL'
                            END,
@@ -2870,7 +2910,7 @@ export async function outstandingBills({ days_old, department, limit = 100 } = {
   params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, invoice_number, patient_uid, patient_name, patient_phone,
-            department, total_amount, amount_paid, amount_due,
+            department, total_amount, credit_note_amount, amount_paid, amount_due,
             status, issued_at,
             EXTRACT(DAY FROM NOW() - COALESCE(issued_at, created_at))::int AS days_outstanding
        FROM billing_invoices

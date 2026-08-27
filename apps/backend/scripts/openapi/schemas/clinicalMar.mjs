@@ -40,6 +40,10 @@ export const schemas = {
       scheduled_time: { type: 'string', format: 'date-time', nullable: true },
       administered_at: { type: 'string', format: 'date-time', nullable: true },
       administered_by: { type: 'string', format: 'uuid', nullable: true },
+      held_at: { type: 'string', format: 'date-time', nullable: true },
+      held_by: { type: 'string', format: 'uuid', nullable: true },
+      missed_at: { type: 'string', format: 'date-time', nullable: true },
+      missed_by: { type: 'string', format: 'uuid', nullable: true },
       // Free-form (no medication_administrations status CHECK): scheduled →
       // administered | missed | held. Plain string on purpose.
       status: { type: 'string' },
@@ -141,10 +145,12 @@ export const schemas = {
     properties: {
       patient_uid: { type: 'string', format: 'uuid' },
       prescription_id: { type: 'integer', nullable: true },
-      // Each entry is a dose to schedule; shape is flexible (medication_name,
-      // dose/dosage, route, scheduled_time, …) so LOOSE items.
+      // The public route is now a readiness probe only. Medication rows are
+      // scheduled from POST /emr/orders so CPOE, ward custody, billing, and
+      // clinical-order identity cannot be bypassed.
       medications: {
         type: 'array',
+        maxItems: 0,
         items: { type: 'object', additionalProperties: true },
       },
     },
@@ -194,9 +200,8 @@ export const schemas = {
 };
 
 export const operations = {
-  // POST /mar/schedule → array of scheduled MAR rows (201; empty array when no
-  // medications are staged yet). The generator keys every response under 200,
-  // so the contract test asserts the body and checks the 201 status separately.
+  // POST /mar/schedule → readiness-only empty array (201). Non-empty requests
+  // fail closed and must use the governed /emr/orders workflow.
   'POST /api/v1/clinical/mar/schedule': {
     request: 'MarScheduleRequest',
     response: 'MarRecordListResponse',

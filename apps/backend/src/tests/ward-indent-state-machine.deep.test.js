@@ -44,14 +44,57 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   let unclassified;
 
   async function cleanup() {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM task_comments WHERE tenant_id = $1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks WHERE tenant_id = $1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid AND source_table = 'ward_indents'`,
+        TENANT,
+      );
+    }).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM notification_outbox WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
     await deleteWithAuditBypass(
       prisma,
-      `DELETE FROM ward_indent_events WHERE tenant_id = $1::uuid`,
+      `DELETE FROM billing_credit_note_events WHERE tenant_id = $1::uuid`,
       TENANT,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM workflow_sla_instances
-        WHERE tenant_id = $1::uuid AND source_table = 'ward_indents'`,
+      `DELETE FROM billing_credit_notes WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM ward_indent_financial_events WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM mar_supply_consumptions WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM ward_indent_inventory_movement_links WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_allocations WHERE tenant_id = $1::uuid`,
+      TENANT,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM ward_indent_events WHERE tenant_id = $1::uuid`,
       TENANT,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
@@ -103,7 +146,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
 
   async function seedCatalog(name, stock, {
     scheduleClass = 'OTC',
-    withBatch = false,
+    withBatch = true,
   } = {}) {
     const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
@@ -133,11 +176,12 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
            (tenant_id, inventory_item_id, batch_number, expiry_date,
             received_quantity, remaining_quantity, status)
          VALUES ($1::uuid, $2, $3, (NOW() + INTERVAL '365 days')::date,
-                 20, 20, 'in_stock')
+                 $4, $4, 'in_stock')
          RETURNING id`,
         TENANT,
         Number(inventory.id),
         `MED01-BATCH-${RUN}`,
+        stock,
       ))[0].id);
     }
     return {
@@ -360,9 +404,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       expectedVersion: 1,
       commandKey: `unclassified-reserve-${RUN}`,
       tenantId: TENANT,
-    })).rejects.toMatchObject({
-      code: 'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
-    });
+    })).rejects.toMatchObject({ code: 'WARD_INDENT_INVENTORY_MAPPING_REQUIRED' });
 
     const freeTextIndent = await createWardIndent({
       wardId,

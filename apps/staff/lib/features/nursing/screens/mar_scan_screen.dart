@@ -61,14 +61,51 @@ bool marIsIdentityMismatch(Map<String, dynamic> rights) {
   return rights['patient'] == false || rights['drug'] == false;
 }
 
+const _marSupplyHardStopStatuses = <String>{
+  'order_link_required',
+  'ward_item_required',
+  'ward_item_ambiguous',
+  'reconciliation_required',
+};
+
+@visibleForTesting
+String marSupplyStatus(Map<String, dynamic>? state) {
+  return state?['status']?.toString().trim().toLowerCase() ?? 'unknown';
+}
+
+@visibleForTesting
+bool marSupplyIsHardBlocked(Map<String, dynamic>? state) {
+  final status = marSupplyStatus(state);
+  return status == 'unknown' || _marSupplyHardStopStatuses.contains(status);
+}
+
+@visibleForTesting
+bool marSupplyRequiresQuantity(Map<String, dynamic>? state) {
+  return marSupplyStatus(state) == 'quantity_required';
+}
+
+@visibleForTesting
+bool marSupplyRequiresOverrideReason(Map<String, dynamic>? state) {
+  return const {
+    'custody_unavailable',
+    'substitution_acknowledgement_required',
+  }.contains(marSupplyStatus(state));
+}
+
 class _MarScanScreenState extends State<MarScanScreen> {
   _Step _step = _Step.scanWristband;
   String? _patientUid;
   String? _barcode;
 
   Map<String, dynamic>? _verifyResult;
+  Map<String, dynamic>? _supplyState;
   bool _busy = false;
   String? _errorMessage;
+
+  final TextEditingController _supplyQuantityController =
+      TextEditingController();
+  final TextEditingController _supplyOverrideController =
+      TextEditingController();
 
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -78,6 +115,8 @@ class _MarScanScreenState extends State<MarScanScreen> {
   @override
   void dispose() {
     _scannerController.dispose();
+    _supplyQuantityController.dispose();
+    _supplyOverrideController.dispose();
     super.dispose();
   }
 
@@ -111,12 +150,19 @@ class _MarScanScreenState extends State<MarScanScreen> {
         await _runVerifyOffline();
         return;
       }
-      final result = await MedicalApiService.verify5Rights(
-        maId: widget.maId,
-        scannedPatientUid: _patientUid!,
-        scannedBarcode: _barcode!,
-      );
-      setState(() => _verifyResult = result);
+      final results = await Future.wait<Map<String, dynamic>>([
+        MedicalApiService.verify5Rights(
+          maId: widget.maId,
+          scannedPatientUid: _patientUid!,
+          scannedBarcode: _barcode!,
+        ),
+        MedicalApiService.getMarSupplyState(maId: widget.maId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _verifyResult = results[0];
+        _supplyState = results[1];
+      });
     } catch (e) {
       setState(
         () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
@@ -152,6 +198,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
           'route': dose['route'],
         },
       };
+      _supplyState = null;
     });
   }
 
@@ -165,13 +212,46 @@ class _MarScanScreenState extends State<MarScanScreen> {
         await _administerOffline();
         return;
       }
+      if (marSupplyIsHardBlocked(_supplyState)) {
+        setState(
+          () =>
+              _errorMessage = AppStrings.of(context)
+                  .lookup('mar_scan.supply.hard_stop_error'),
+        );
+        return;
+      }
+      num? supplyQuantity;
+      if (marSupplyRequiresQuantity(_supplyState)) {
+        supplyQuantity = num.tryParse(_supplyQuantityController.text.trim());
+        if (supplyQuantity == null || supplyQuantity <= 0) {
+          setState(
+            () =>
+                _errorMessage = AppStrings.of(context)
+                    .lookup('mar_scan.supply.quantity_error'),
+          );
+          return;
+        }
+      }
+      String? supplyOverrideReason;
+      if (marSupplyRequiresOverrideReason(_supplyState)) {
+        final reason = _supplyOverrideController.text.trim();
+        if (!_isMeaningfulText(reason)) {
+          setState(
+            () =>
+                _errorMessage = AppStrings.of(context)
+                    .lookup('mar_scan.supply.override_error'),
+          );
+          return;
+        }
+        supplyOverrideReason = reason;
+      }
       await MedicalApiService.administerWithScan(
         maId: widget.maId,
         scannedPatientUid: _patientUid!,
         scannedBarcode: _barcode!,
         overrideReason: overrideReason,
-        // Record the true bedside time; harmless online — the server COALESCEs.
-        administeredAt: DateTime.now().toUtc(),
+        supplyOverrideReason: supplyOverrideReason,
+        supplyQuantity: supplyQuantity,
       );
       if (!mounted) return;
       setState(() => _step = _Step.done);
@@ -227,6 +307,9 @@ class _MarScanScreenState extends State<MarScanScreen> {
       _patientUid = null;
       _barcode = null;
       _verifyResult = null;
+      _supplyState = null;
+      _supplyQuantityController.clear();
+      _supplyOverrideController.clear();
       _errorMessage = null;
     });
   }
@@ -339,6 +422,15 @@ class _MarScanScreenState extends State<MarScanScreen> {
           _rightRow(s.marScanRightDose, rights['dose'] == true),
           _rightRow(s.marScanRightRoute, rights['route'] == true),
           _rightRow(s.marScanRightTime, rights['time'] == true),
+          if (ConnectivitySyncService.instance.isOnline &&
+              _supplyState != null) ...[
+            const SizedBox(height: 16),
+            _MarSupplyPanel(
+              state: _supplyState!,
+              quantityController: _supplyQuantityController,
+              overrideController: _supplyOverrideController,
+            ),
+          ],
           const SizedBox(height: 20),
           if (marIsIdentityMismatch(rights))
             // Wrong-patient / wrong-drug: hard-stop, no override (audit F-H1).
@@ -352,6 +444,8 @@ class _MarScanScreenState extends State<MarScanScreen> {
                 label: Text(s.offlineClinicalFallbackTitle),
               ),
             )
+          else if (marSupplyIsHardBlocked(_supplyState))
+            _marSupplyHardStopPanel(s)
           else if (allPassed)
             SizedBox(
               width: double.infinity,
@@ -376,6 +470,34 @@ class _MarScanScreenState extends State<MarScanScreen> {
             Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
           ],
           TextButton(onPressed: _reset, child: Text(s.marScanScanAgain)),
+        ],
+      ),
+    );
+  }
+
+  Widget _marSupplyHardStopPanel(AppStrings s) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.errorRed.withValues(alpha: 0.10),
+        border: Border.all(color: AppTheme.errorRed),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.inventory_2_outlined, color: AppTheme.errorRed),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              s.lookup('mar_scan.supply.blocked'),
+              style: const TextStyle(
+                color: AppTheme.errorRed,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -500,6 +622,129 @@ class _MarScanScreenState extends State<MarScanScreen> {
             ElevatedButton(onPressed: _reset, child: Text(s.marScanTryAgain)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MarSupplyPanel extends StatelessWidget {
+  const _MarSupplyPanel({
+    required this.state,
+    required this.quantityController,
+    required this.overrideController,
+  });
+
+  final Map<String, dynamic> state;
+  final TextEditingController quantityController;
+  final TextEditingController overrideController;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final status = marSupplyStatus(state);
+    final blocked = marSupplyIsHardBlocked(state);
+    final available = status == 'available';
+    final color = available
+        ? AppTheme.successGreen
+        : blocked
+        ? AppTheme.errorRed
+        : AppTheme.warningOnSurface;
+    final allocations = (state['allocations'] as List? ?? const [])
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList(growable: false);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.inventory_2_outlined, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.lookup('mar_scan.supply.title'),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            s.lookup('mar_scan.supply.status.$status'),
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+          if (state['available_quantity'] != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.format('mar_scan.supply.available_quantity', {
+                'quantity': state['available_quantity'],
+              }),
+            ),
+          ],
+          if (state['supply_quantity_per_dose'] != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              s.format('mar_scan.supply.required_quantity', {
+                'quantity': state['supply_quantity_per_dose'],
+              }),
+            ),
+          ],
+          for (final allocation in allocations) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.format('mar_scan.supply.batch_line', {
+                'name':
+                    allocation['display_name'] ?? allocation['sku_code'] ?? '-',
+                'batch':
+                    allocation['batch_number'] ??
+                    allocation['lot_number'] ??
+                    '-',
+                'quantity': allocation['available_quantity'] ?? '-',
+              }),
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+          if (marSupplyRequiresQuantity(state)) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: quantityController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: s.lookup('mar_scan.supply.quantity_label'),
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+          if (marSupplyRequiresOverrideReason(state)) ...[
+            const SizedBox(height: 12),
+            Text(
+              s.lookup('mar_scan.supply.override_warning'),
+              style: TextStyle(color: color, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: overrideController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: s.lookup('mar_scan.supply.override_reason_label'),
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

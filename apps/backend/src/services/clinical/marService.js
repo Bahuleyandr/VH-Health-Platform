@@ -8,6 +8,18 @@ import {
 } from './canonicalClinicalPlatformService.js';
 import { BCMA_CONFIG, MAR_SCHEDULE_LIMITS } from '../../config/pharmacyConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { consumeMarSupplyTx } from './marSupplyService.js';
+import {
+  finaliseMarHttpIdempotencyTx,
+  findMarAdministrationCommandReplayTx,
+  fingerprintMarAdministrationRequest,
+  recordMarAdministrationCommandReceiptTx,
+} from './marAdministrationCommandService.js';
+import {
+  findMarTransitionCommandReplayTx,
+  fingerprintMarTransitionRequest,
+  recordMarTransitionCommandReceiptTx,
+} from './marTransitionCommandService.js';
 
 // ===================================================================
 // Medication Administration Record (MAR) Service
@@ -74,6 +86,21 @@ function normalizeRoute(raw) {
   // No route word found — return the cleaned string so the allowlist check
   // still rejects genuinely invalid routes with a loud 400.
   return cleaned;
+}
+
+function normalizeSupplyQuantity(value, fieldName = 'supply_quantity_per_dose') {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  const normalized = Math.round(parsed * 10000) / 10000;
+  if (
+    !Number.isFinite(parsed)
+    || parsed <= 0
+    || Math.abs(parsed - normalized) > 1e-9
+    || normalized > 9999999999.9999
+  ) {
+    throw AppError.badRequest(`${fieldName} must be positive with at most four decimal places`);
+  }
+  return normalized;
 }
 
 // Frequency-to-schedule expansion. Doctors store prescriptions with a
@@ -196,7 +223,8 @@ async function recordCanonicalMarEvent({
       administered_at: record.administered_at || null,
       previous_status: previousStatus,
       status,
-      source_clinical_order_id: sourceClinicalOrderId || null,
+      source_clinical_order_id: sourceClinicalOrderId || record.clinical_order_id || null,
+      supply_quantity_per_dose: record.supply_quantity_per_dose || null,
       notes: record.notes || null,
       hold_reason: record.hold_reason || null,
       refusal_reason: record.refusal_reason || null,
@@ -229,20 +257,52 @@ async function recordCanonicalMarEvent({
 // Used both as the friendly Phase-0 pre-check and as the winner lookup after
 // a 23505 on migration 642's uniq_mar_scheduled_dose backstop index (which is
 // exact-equality on scheduled_time, a subset of this window).
-async function findScheduledSibling(patientUid, med) {
+async function findScheduledSibling(tenantId, patientUid, med) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
+    `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+            scheduled_time, status, administered_by::text, notes,
+            tenant_id::text, clinical_order_id, supply_quantity_per_dose,
+            created_at
        FROM medication_administrations
-      WHERE patient_uid = $1::uuid
-        AND medication_name = $2
-        AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
-        AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND medication_name = $3
+        AND scheduled_time >= ($4::timestamptz - INTERVAL '1 minute')
+        AND scheduled_time < ($4::timestamptz + INTERVAL '1 minute')
         AND status <> 'cancelled'
-      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
+      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $4::timestamptz))) ASC, id ASC
       LIMIT 1`,
-    patientUid, med.medication_name, med.scheduled_time,
+    tenantId, patientUid, med.medication_name, med.scheduled_time,
   );
   return rows[0] || null;
+}
+
+function assertScheduledSiblingCompatible(row, {
+  clinicalOrderId,
+  supplyQuantityPerDose,
+}) {
+  const orderMatches = clinicalOrderId == null
+    ? row.clinical_order_id == null
+    : Number(row.clinical_order_id) === Number(clinicalOrderId);
+  const existingQuantity = normalizeSupplyQuantity(row.supply_quantity_per_dose);
+  const quantityMatches = existingQuantity == null && supplyQuantityPerDose == null
+    || existingQuantity != null && supplyQuantityPerDose != null
+      && Math.abs(existingQuantity - supplyQuantityPerDose) <= 1e-9;
+  if (!orderMatches || !quantityMatches) {
+    throw AppError.conflict(
+      'An existing MAR dose in this clinical slot is linked to different order or supply evidence',
+      'MAR_SCHEDULE_IDENTITY_CONFLICT',
+      {
+        medication_administration_id: Number(row.id),
+        existing_clinical_order_id: row.clinical_order_id == null
+          ? null : Number(row.clinical_order_id),
+        requested_clinical_order_id: clinicalOrderId == null
+          ? null : Number(clinicalOrderId),
+        existing_supply_quantity_per_dose: existingQuantity,
+        requested_supply_quantity_per_dose: supplyQuantityPerDose,
+      },
+    );
+  }
 }
 
 /**
@@ -304,6 +364,15 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     if (!VALID_ROUTES.includes(normalizedRoute)) {
       throw AppError.badRequest(`Invalid route: ${med.route}. Must be one of: ${VALID_ROUTES.join(', ')}`);
     }
+    const clinicalOrderId = med.clinical_order_id
+      ?? context.sourceClinicalOrderId
+      ?? null;
+    if (clinicalOrderId != null && (!Number.isSafeInteger(Number(clinicalOrderId)) || Number(clinicalOrderId) <= 0)) {
+      throw AppError.badRequest('clinical_order_id must be a positive integer');
+    }
+    const supplyQuantityPerDose = normalizeSupplyQuantity(
+      med.supply_quantity_per_dose ?? context.supplyQuantityPerDose ?? null,
+    );
 
     // F-2 — idempotency guard (Phase 0, pre-flight on plain prisma). If an
     // active (non-cancelled) row already exists for the same patient +
@@ -313,8 +382,9 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     // Findings:
     // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
     // 2026-05-20-emergency-walk-in-nurse-7622bcce.
-    const dup = await findScheduledSibling(patientUid, med);
+    const dup = await findScheduledSibling(tenantId, patientUid, med);
     if (dup) {
+      assertScheduledSiblingCompatible(dup, { clinicalOrderId, supplyQuantityPerDose });
       results.push(dup);
       continue;
     }
@@ -328,9 +398,14 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       row = await setTenantTx(tenantId, async (tx) => {
         const rows = await tx.$queryRawUnsafe(
           `INSERT INTO medication_administrations
-             (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
-           RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
+             (patient_uid, prescription_id, medication_name, dose, route,
+              scheduled_time, notes, status, clinical_order_id,
+              supply_quantity_per_dose)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled',
+                   $8::int, $9::numeric)
+           RETURNING id, patient_uid, medication_name, dose, dosage, route,
+                     scheduled_time, status, administered_by, notes, tenant_id,
+                     clinical_order_id, supply_quantity_per_dose, created_at`,
           patientUid,
           prescriptionId || null,
           med.medication_name,
@@ -338,6 +413,8 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
           normalizedRoute,
           med.scheduled_time,
           med.notes || null,
+          clinicalOrderId == null ? null : Number(clinicalOrderId),
+          supplyQuantityPerDose,
         );
         await recordCanonicalMarEvent({
           record: rows[0],
@@ -345,7 +422,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
           actorUid: context.actorUid,
           actorRole: context.actorRole,
           encounterId: context.encounterId,
-          sourceClinicalOrderId: context.sourceClinicalOrderId,
+          sourceClinicalOrderId: clinicalOrderId,
           payload: {
             prescription_id: prescriptionId || null,
           },
@@ -363,8 +440,9 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       // for the dedupe (the winner's transaction already emitted the row's
       // one event, and this call created nothing).
       if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
-        const winner = await findScheduledSibling(patientUid, med);
+        const winner = await findScheduledSibling(tenantId, patientUid, med);
         if (winner) {
+          assertScheduledSiblingCompatible(winner, { clinicalOrderId, supplyQuantityPerDose });
           results.push(winner);
           continue;
         }
@@ -380,6 +458,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
 
 export const MAR_ADMINISTRATION_MODES = Object.freeze({
   ONLINE_NO_SCAN: 'online_no_scan',
+  ONLINE_BARCODE_SCAN: 'online_barcode_scan',
   RETROSPECTIVE_PAPER_BACK_ENTRY: 'retrospective_paper_back_entry',
 });
 
@@ -443,6 +522,7 @@ export async function inspectMedicationAdministrationTx(tx, {
     `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
             scheduled_time, administered_at, administered_by::text, status,
             notes, witness_uid::text, override_reason, tenant_id::text,
+            clinical_order_id, supply_quantity_per_dose,
             created_at, updated_at, patient_scanned_at, medication_scanned_at
        FROM medication_administrations
       WHERE tenant_id = $1::uuid AND id = $2::integer
@@ -570,6 +650,9 @@ export async function recordMedicationAdministrationTx(tx, {
   expectedAdmissionId = null,
   expectedEncounterId = null,
   mode = MAR_ADMINISTRATION_MODES.ONLINE_NO_SCAN,
+  commandKey = null,
+  supplyQuantity = null,
+  supplyOverrideReason = null,
   inspection = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
@@ -596,6 +679,16 @@ export async function recordMedicationAdministrationTx(tx, {
     throw AppError.conflict('Medication inspection context changed', 'MAR_INSPECTION_CONTEXT_MISMATCH');
   }
 
+  const supply = await consumeMarSupplyTx(tx, {
+    tenantId: tid,
+    administration: checked.row,
+    recordedBy: administeredBy,
+    administrationMode: mode,
+    commandKey,
+    supplyQuantity,
+    supplyOverrideReason,
+  });
+
   let rows;
   try {
     rows = await tx.$queryRawUnsafe(
@@ -613,6 +706,7 @@ export async function recordMedicationAdministrationTx(tx, {
         RETURNING id, patient_uid::text, medication_name, dose, dosage, route,
                   scheduled_time, administered_at, status, administered_by::text,
                   notes, witness_uid::text, override_reason, tenant_id::text,
+                  clinical_order_id, supply_quantity_per_dose,
                   created_at, updated_at, patient_scanned_at, medication_scanned_at`,
       mode === MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY
         ? checked.occurredAt
@@ -633,7 +727,12 @@ export async function recordMedicationAdministrationTx(tx, {
   if (rows.length !== 1) {
     throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
   }
-  return { disposition: 'recorded', record: rows[0], previousStatus: checked.row.status };
+  return {
+    disposition: 'recorded',
+    record: { ...rows[0], supply_state: supply },
+    previousStatus: checked.row.status,
+    supply,
+  };
 }
 
 /**
@@ -673,14 +772,81 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     tid = requireTenantId(tenantRows[0].tenant_id);
   }
 
+  const commandKey = options.commandKey || null;
+  const commandIdentity = commandKey ? {
+    tenantId: tid,
+    medicationAdministrationId: id,
+    actorUid: administeredBy,
+    commandScope: 'mar_administer',
+    commandKey,
+    requestBodySha256: options.requestFingerprint || fingerprintMarAdministrationRequest({
+      notes: notes || null,
+      witness_uid: witnessUid || null,
+      override_reason: noScanOverrideReason,
+      supply_override_reason: options.supplyOverrideReason || null,
+      supply_quantity: options.supplyQuantity ?? null,
+    }),
+    administrationMode: MAR_ADMINISTRATION_MODES.ONLINE_NO_SCAN,
+  } : null;
+
+  const finaliseCommandTx = async (tx, responseData) => {
+    if (!commandIdentity) return responseData;
+    const committedResponse = await recordMarAdministrationCommandReceiptTx(tx, {
+      ...commandIdentity,
+      responseData,
+    });
+    await finaliseMarHttpIdempotencyTx(tx, {
+      claimId: options.httpIdempotencyClaimId || null,
+      tenantId: tid,
+      actorUid: administeredBy,
+      commandKey,
+      requestBodySha256: commandIdentity.requestBodySha256,
+      responseData: committedResponse,
+      requestId: options.requestId || null,
+    });
+    return committedResponse;
+  };
+
   const result = await setTenantTx(tid, async (tx) => {
+    if (commandIdentity) {
+      const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+      if (replay) {
+        await finaliseMarHttpIdempotencyTx(tx, {
+          claimId: options.httpIdempotencyClaimId || null,
+          tenantId: tid,
+          actorUid: administeredBy,
+          commandKey,
+          requestBodySha256: commandIdentity.requestBodySha256,
+          responseData: replay,
+          requestId: options.requestId || null,
+        });
+        return replay;
+      }
+    }
     const inspection = await inspectMedicationAdministrationTx(tx, {
       tenantId: tid,
       medicationAdministrationId: id,
       administeredBy,
       witnessUid,
     });
-    if (inspection.disposition !== 'apply') throw inspectionError(inspection);
+    if (inspection.disposition !== 'apply') {
+      if (commandIdentity) {
+        const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+        if (replay) {
+          await finaliseMarHttpIdempotencyTx(tx, {
+            claimId: options.httpIdempotencyClaimId || null,
+            tenantId: tid,
+            actorUid: administeredBy,
+            commandKey,
+            requestBodySha256: commandIdentity.requestBodySha256,
+            responseData: replay,
+            requestId: options.requestId || null,
+          });
+          return replay;
+        }
+      }
+      throw inspectionError(inspection);
+    }
     const applied = await recordMedicationAdministrationTx(tx, {
       tenantId: tid,
       medicationAdministrationId: id,
@@ -688,6 +854,9 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
       notes,
       witnessUid,
       overrideReason: noScanOverrideReason,
+      commandKey,
+      supplyQuantity: options.supplyQuantity ?? null,
+      supplyOverrideReason: options.supplyOverrideReason || null,
       inspection,
     });
     if (noScanOverrideReason) {
@@ -729,94 +898,217 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
       eventType: 'mar.administered',
       actorUid: administeredBy,
       previousStatus: applied.previousStatus,
-      payload: noScanOverrideReason
-        ? { scanner_used: false, no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
-        : { scanner_used: false },
+      payload: {
+        scanner_used: false,
+        ...(noScanOverrideReason
+          ? { no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
+          : {}),
+        mar_supply: applied.supply,
+      },
       db: tx,
     });
-    return applied.record;
+    return finaliseCommandTx(tx, applied.record);
   });
 
   logger.info(`Medication ${id} administered by ${administeredBy}`);
   return result;
 }
 
-/**
- * Record a missed medication dose.
- * @param {number} id
- * @param {string} reason
- * @returns {Object} Updated record
- */
-export async function recordMissed(id, reason, missedBy = null) {
-  // Phase 0 — pre-flight existence/state check on plain prisma.
-  const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, status, tenant_id FROM medication_administrations WHERE id = $1',
-    id
-  );
+async function recordMarTransition({
+  id,
+  reason,
+  actorUid,
+  transitionAction,
+  commandScope,
+  responseMessage,
+  options,
+}) {
+  const cleanReason = String(reason || '').trim();
+  if (!cleanReason) {
+    throw AppError.badRequest(
+      transitionAction === 'held'
+        ? 'Hold reason is required'
+        : 'Missed medication reason is required',
+    );
+  }
+  if (transitionAction === 'held' && !actorUid) {
+    throw AppError.badRequest('Holding nurse identity is required');
+  }
 
-  if (existing.length === 0) {
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, status, tenant_id::text
+       FROM medication_administrations
+      WHERE id = $1::integer
+      LIMIT 1`,
+    id,
+  );
+  if (!existing[0]) {
     throw AppError.notFound('Medication administration record not found');
   }
-
-  if (existing[0].status !== 'scheduled') {
-    throw AppError.invalidTransition(existing[0].status, 'missed', ['scheduled']);
+  const tenantId = requireTenantId(existing[0].tenant_id);
+  if (options.tenantId && requireTenantId(options.tenantId) !== tenantId) {
+    throw AppError.notFound('Medication administration record not found');
+  }
+  if (!options.commandKey && String(existing[0].status || '').toLowerCase() !== 'scheduled') {
+    throw AppError.invalidTransition(existing[0].status, transitionAction, ['scheduled']);
   }
 
-  const tenantId = requireTenantId(existing[0].tenant_id);
+  const commandIdentity = options.commandKey ? {
+    tenantId,
+    medicationAdministrationId: id,
+    actorUid,
+    commandScope,
+    transitionAction,
+    commandKey: options.commandKey,
+    requestBodySha256: options.requestFingerprint || fingerprintMarTransitionRequest({
+      reason: cleanReason,
+    }),
+  } : null;
 
-  // Phase 1 — atomic: the missed-dose state flip + its canonical mar.missed
-  // timeline + audit event commit together. A missed dose is a safety event;
-  // emitting the canonical row on `tx` (was swallowed outside the tx) means a
-  // canonical-write failure rolls the state change back rather than losing it.
+  const finaliseCommandTx = async (tx, responseData) => {
+    if (!commandIdentity) return responseData;
+    const committedResponse = await recordMarTransitionCommandReceiptTx(tx, {
+      ...commandIdentity,
+      responseData,
+    });
+    await finaliseMarHttpIdempotencyTx(tx, {
+      claimId: options.httpIdempotencyClaimId || null,
+      tenantId,
+      actorUid,
+      commandKey: options.commandKey,
+      requestBodySha256: commandIdentity.requestBodySha256,
+      responseData: committedResponse,
+      requestId: options.requestId || null,
+      message: responseMessage,
+    });
+    return committedResponse;
+  };
+
   const row = await setTenantTx(tenantId, async (tx) => {
-    // Concurrency guard (mirrors recordMedicationAdministrationTx /
-    // marFiveRightsService.administerWithScan). The Phase-0 status check above
-    // read the row UNLOCKED and OUTSIDE this tx; that read is not a safe basis
-    // for the state flip. Lock the row FOR UPDATE and re-check status inside
-    // the tx so a nurse marking an overdue dose missed serializes against a
-    // concurrent administration — the loser sees status='administered' and is
-    // rejected with a 409 instead of silently flipping a given dose to missed.
+    if (commandIdentity) {
+      const replay = await findMarTransitionCommandReplayTx(tx, commandIdentity);
+      if (replay) {
+        await finaliseMarHttpIdempotencyTx(tx, {
+          claimId: options.httpIdempotencyClaimId || null,
+          tenantId,
+          actorUid,
+          commandKey: options.commandKey,
+          requestBodySha256: commandIdentity.requestBodySha256,
+          responseData: replay,
+          requestId: options.requestId || null,
+          message: responseMessage,
+        });
+        return replay;
+      }
+    }
+
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, status
          FROM medication_administrations
         WHERE tenant_id = $1::uuid AND id = $2::integer
         FOR UPDATE`,
-      tenantId, id,
+      tenantId,
+      id,
     );
     const locked = lockedRows[0];
     if (!locked) throw AppError.notFound('Medication administration record not found');
     if (String(locked.status || '').toLowerCase() !== 'scheduled') {
+      if (commandIdentity) {
+        const replay = await findMarTransitionCommandReplayTx(tx, commandIdentity);
+        if (replay) {
+          await finaliseMarHttpIdempotencyTx(tx, {
+            claimId: options.httpIdempotencyClaimId || null,
+            tenantId,
+            actorUid,
+            commandKey: options.commandKey,
+            requestBodySha256: commandIdentity.requestBodySha256,
+            responseData: replay,
+            requestId: options.requestId || null,
+            message: responseMessage,
+          });
+          return replay;
+        }
+      }
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
 
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE medication_administrations
-       SET status = 'missed', notes = COALESCE($2, notes)
-       WHERE tenant_id = $3::uuid AND id = $1
-         AND lower(status) = 'scheduled'
-       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-                 status, administered_by, notes, tenant_id, created_at, updated_at`,
-      id, reason, tenantId
-    );
-    // Lost race despite the lock (defense in depth): the status guard matched
-    // 0 rows. Reject rather than emit a canonical event for a write that
-    // never happened.
+    const rows = transitionAction === 'missed'
+      ? await tx.$queryRawUnsafe(
+        `UPDATE medication_administrations
+            SET status = 'missed',
+                notes = COALESCE($2, notes),
+                missed_by = $3::uuid,
+                missed_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $4::uuid
+            AND id = $1::integer
+            AND lower(status) = 'scheduled'
+          RETURNING id, patient_uid::text, medication_name, dose, dosage, route,
+                    scheduled_time, administered_at, status, administered_by::text,
+                    notes, hold_reason, held_by::text, held_at,
+                    missed_by::text, missed_at, tenant_id::text,
+                    created_at, updated_at`,
+        id,
+        cleanReason,
+        actorUid || null,
+        tenantId,
+      )
+      : await tx.$queryRawUnsafe(
+        `UPDATE medication_administrations
+            SET status = 'held',
+                hold_reason = $2,
+                held_by = $3::uuid,
+                held_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $4::uuid
+            AND id = $1::integer
+            AND lower(status) = 'scheduled'
+          RETURNING id, patient_uid::text, medication_name, dose, dosage, route,
+                    scheduled_time, administered_at, status, administered_by::text,
+                    notes, hold_reason, held_by::text, held_at,
+                    missed_by::text, missed_at, tenant_id::text,
+                    created_at, updated_at`,
+        id,
+        cleanReason,
+        actorUid,
+        tenantId,
+      );
     if (rows.length !== 1) {
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
     await recordCanonicalMarEvent({
       record: rows[0],
-      eventType: 'mar.missed',
-      actorUid: missedBy,
+      eventType: `mar.${transitionAction}`,
+      actorUid,
       previousStatus: locked.status,
-      payload: { reason },
+      payload: { reason: cleanReason },
       db: tx,
     });
-    return rows[0];
+    return finaliseCommandTx(tx, rows[0]);
   });
 
-  logger.info(`Medication ${id} marked as missed`);
+  logger.info(`Medication ${id} marked ${transitionAction} by ${actorUid || 'unknown actor'}`);
   return row;
+}
+
+/**
+ * Record a missed medication dose.
+ * @param {number} id
+ * @param {string} reason
+ * @param {string|null} missedBy
+ * @param {Object} [options]
+ * @returns {Object} Updated record
+ */
+export async function recordMissed(id, reason, missedBy = null, options = {}) {
+  return recordMarTransition({
+    id,
+    reason,
+    actorUid: missedBy,
+    transitionAction: 'missed',
+    commandScope: 'mar_miss',
+    responseMessage: 'Missed medication recorded',
+    options,
+  });
 }
 
 /**
@@ -824,83 +1116,19 @@ export async function recordMissed(id, reason, missedBy = null) {
  * @param {number} id
  * @param {string} reason
  * @param {string} heldBy - Staff UID
+ * @param {Object} [options]
  * @returns {Object} Updated record
  */
-export async function holdMedication(id, reason, heldBy) {
-  if (!reason) {
-    throw AppError.badRequest('Hold reason is required');
-  }
-
-  // Phase 0 — pre-flight existence/state check on plain prisma.
-  const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, status, tenant_id FROM medication_administrations WHERE id = $1',
-    id
-  );
-
-  if (existing.length === 0) {
-    throw AppError.notFound('Medication administration record not found');
-  }
-
-  if (existing[0].status !== 'scheduled') {
-    throw AppError.invalidTransition(existing[0].status, 'held', ['scheduled']);
-  }
-
-  const tenantId = requireTenantId(existing[0].tenant_id);
-
-  // Phase 1 — atomic: the hold state flip + its canonical mar.held timeline +
-  // audit event commit together. Emitting on `tx` (was swallowed outside the tx)
-  // means a canonical-write failure rolls the hold back rather than losing the
-  // safety record.
-  const row = await setTenantTx(tenantId, async (tx) => {
-    // Concurrency guard (mirrors recordMedicationAdministrationTx /
-    // marFiveRightsService.administerWithScan). Without it, a hold racing an
-    // administration could flip an administered dose back to 'held' AND
-    // overwrite administered_by with the holding nurse, destroying the
-    // administering nurse's attribution. Lock FOR UPDATE, re-check status
-    // inside the tx, and reject the loser with a 409 — the administered
-    // record (status + administered_by) is preserved untouched.
-    const lockedRows = await tx.$queryRawUnsafe(
-      `SELECT id, status
-         FROM medication_administrations
-        WHERE tenant_id = $1::uuid AND id = $2::integer
-        FOR UPDATE`,
-      tenantId, id,
-    );
-    const locked = lockedRows[0];
-    if (!locked) throw AppError.notFound('Medication administration record not found');
-    if (String(locked.status || '').toLowerCase() !== 'scheduled') {
-      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
-    }
-
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE medication_administrations
-       SET status = 'held', hold_reason = $2, administered_by = $3::uuid
-       WHERE tenant_id = $4::uuid AND id = $1
-         AND lower(status) = 'scheduled'
-       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-                 status, administered_by, hold_reason, notes, tenant_id,
-                 created_at, updated_at`,
-      id, reason, heldBy, tenantId
-    );
-    // Lost race despite the lock (defense in depth): the status guard matched
-    // 0 rows. Reject rather than emit a canonical event for a write that
-    // never happened.
-    if (rows.length !== 1) {
-      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
-    }
-    await recordCanonicalMarEvent({
-      record: rows[0],
-      eventType: 'mar.held',
-      actorUid: heldBy,
-      previousStatus: locked.status,
-      payload: { reason },
-      db: tx,
-    });
-    return rows[0];
+export async function holdMedication(id, reason, heldBy, options = {}) {
+  return recordMarTransition({
+    id,
+    reason,
+    actorUid: heldBy,
+    transitionAction: 'held',
+    commandScope: 'mar_hold',
+    responseMessage: 'Medication held',
+    options,
   });
-
-  logger.info(`Medication ${id} held by ${heldBy}: ${reason}`);
-  return row;
 }
 
 /**

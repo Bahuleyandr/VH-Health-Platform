@@ -608,7 +608,14 @@ export async function recordMovementTx(tx, {
       await tx.$executeRawUnsafe(
         `UPDATE pharmacy_inventory_batches
             SET remaining_quantity = remaining_quantity + $1::numeric,
-                status = CASE WHEN remaining_quantity + $1::numeric <= 0 THEN 'depleted' ELSE status END,
+                status = CASE
+                  WHEN remaining_quantity + $1::numeric <= 0 THEN 'depleted'
+                  WHEN $5::text = 'return'
+                    AND status = 'depleted'
+                    AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+                    THEN 'in_stock'
+                  ELSE status
+                END,
                 updated_at = NOW()
           WHERE id = $2::int
             AND tenant_id = $3::uuid
@@ -617,6 +624,7 @@ export async function recordMovementTx(tx, {
         inventoryBatchId,
         tenantId,
         inventoryItemId,
+        movement_kind,
       );
     }
     return { movement: rows[0], increasing, decreasing };

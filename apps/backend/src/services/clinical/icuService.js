@@ -521,10 +521,11 @@ export async function dischargeAdmission({
 // re-running this on admission is safe and also picks up any ER medication
 // order that never reached the MAR. Finding:
 // 2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff.
-async function carryErMedicationsToMar(visit) {
+async function carryErMedicationsToMar(visit, { tenantId, actorUid } = {}) {
   if (!visit?.encounter_id || !visit?.patient_uid) return [];
   const orders = await prisma.clinical_orders.findMany({
     where: {
+      tenant_id: tenantOr(tenantId),
       encounter_id: visit.encounter_id,
       order_type: 'medication',
       status: { notIn: ['cancelled', 'discontinued'] }
@@ -537,6 +538,10 @@ async function carryErMedicationsToMar(visit) {
     const medication_name = d.medication_name || d.drug_name;
     const dose = d.dose || d.dosage;
     const route = d.route;
+    const supplyQuantityPerDose = d.supply_quantity_per_dose
+      ?? d.dispense_units_per_dose
+      ?? d.units_per_dose
+      ?? null;
     // scheduleMedications requires name + dose + route; skip ER orders
     // that were filed without a chartable shape rather than 400 the whole
     // carry-over.
@@ -547,11 +552,20 @@ async function carryErMedicationsToMar(visit) {
       dose,
       route,
       scheduled_time: new Date(when).toISOString(),
-      notes: 'Carried over from ER visit on ICU admission'
+      notes: 'Carried over from ER visit on ICU admission',
+      clinical_order_id: order.id,
+      ...(supplyQuantityPerDose != null
+        ? { supply_quantity_per_dose: supplyQuantityPerDose }
+        : {}),
     });
   }
   if (!meds.length) return [];
-  return scheduleMedications(visit.patient_uid, null, meds);
+  return scheduleMedications(visit.patient_uid, null, meds, {
+    tenantId: tenantOr(tenantId),
+    actorUid: actorUid || visit.attending_doctor_uid || null,
+    actorRole: 'DOCTOR',
+    encounterId: visit.encounter_id,
+  });
 }
 
 // "Admit from ER" — create an ICU admission that inherits the ER visit's
@@ -571,7 +585,8 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
   // Phase 0 — pre-flight on plain prisma: the ER visit must exist and
   // carry a registered patient before it can be admitted to ICU.
   const visitRows = await prisma.$queryRawUnsafe(
-    `SELECT id, encounter_id, patient_uid, chief_complaint, attending_doctor_uid
+    `SELECT id, encounter_id, patient_uid, chief_complaint, attending_doctor_uid,
+            tenant_id
        FROM emergency_visits
       WHERE id = $1 AND tenant_id = $2::uuid`,
     visitId,
@@ -601,7 +616,10 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
   // block the admission itself.
   let carried_mar = [];
   try {
-    carried_mar = await carryErMedicationsToMar(visit);
+    carried_mar = await carryErMedicationsToMar(visit, {
+      tenantId: visit.tenant_id,
+      actorUid: body.admitting_doctor_uid || visit.attending_doctor_uid || null,
+    });
   } catch (err) {
     logger.warn(`ER→ICU MAR carry-over failed for emergency visit ${visit.id}: ${err.message}`);
   }

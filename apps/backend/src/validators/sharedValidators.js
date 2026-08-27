@@ -190,6 +190,14 @@ export const marScheduleValidator = [
   requiredUUID('patient_uid'),
   optionalArray('medications'),
   body('medications.*').isObject().withMessage('each medication must be an object'),
+  body('medications.*.clinical_order_id')
+    .optional({ nullable: true })
+    .isInt({ min: 1 }).withMessage('clinical_order_id must be a positive integer')
+    .toInt(),
+  body('medications.*.supply_quantity_per_dose')
+    .optional({ nullable: true })
+    .isFloat({ gt: 0 }).withMessage('supply_quantity_per_dose must be positive')
+    .toFloat(),
 ];
 
 /** MAR administration — POST /clinical/mar/:id/administer (clinicalRoutes.js). */
@@ -197,6 +205,8 @@ export const marAdministerValidator = [
   paramId('id'),
   optionalString('notes', 500),
   optionalString('override_reason', 500),
+  optionalString('supply_override_reason', 500),
+  optionalNumber('supply_quantity', { min: Number.MIN_VALUE }),
   optionalUUID('witness_uid'),
 ];
 

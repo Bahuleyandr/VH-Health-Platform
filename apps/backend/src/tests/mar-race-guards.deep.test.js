@@ -29,6 +29,7 @@ const marService = await import('../services/clinical/marService.js');
 const PATIENT_UID = randomUUID();
 const ADMINISTERING_NURSE = randomUUID();
 const SECOND_NURSE = randomUUID();
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const SCHED_BASE = '2026-07-02T08:00:00Z';
 const DRUG = `MAR_RACE_${randomUUID().slice(0, 8)}`;
 
@@ -133,9 +134,32 @@ async function administerWhileBlocked(id, raceLoser) {
 }
 
 d('MAR missed/hold race guards — S6-06 (Phase-3 deep review)', () => {
-  beforeAll(cleanup);
+  beforeAll(async () => {
+    await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $3::uuid, 'MAR Race Administering Nurse',
+          'NURSING_STAFF', TRUE, 'active', NOW()),
+         ($2::uuid, $3::uuid, 'MAR Race Second Nurse',
+          'NURSING_STAFF', TRUE, 'active', NOW())`,
+      ADMINISTERING_NURSE,
+      SECOND_NURSE,
+      TENANT_ID,
+    );
+  });
   beforeEach(cleanup);
-  afterAll(async () => { await cleanup(); await prisma.$disconnect().catch(() => {}); });
+  afterAll(async () => {
+    await cleanup();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $3::uuid AND uid IN ($1::uuid, $2::uuid)`,
+      ADMINISTERING_NURSE,
+      SECOND_NURSE,
+      TENANT_ID,
+    ).catch(() => {});
+    await prisma.$disconnect().catch(() => {});
+  });
 
   it('recordMissed racing an administration returns 409 and does not overwrite the administered record', async () => {
     const id = await seedScheduledDose();

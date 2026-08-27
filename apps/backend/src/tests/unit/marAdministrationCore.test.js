@@ -2,11 +2,17 @@ import { readFileSync } from 'node:fs';
 
 import { jest } from '@jest/globals';
 
-import {
+const consumeMarSupplyTxMock = jest.fn();
+
+jest.unstable_mockModule('../../services/clinical/marSupplyService.js', () => ({
+  consumeMarSupplyTx: consumeMarSupplyTxMock,
+}));
+
+const {
   inspectMedicationAdministrationTx,
   MAR_ADMINISTRATION_MODES,
   recordMedicationAdministrationTx,
-} from '../../services/clinical/marService.js';
+} = await import('../../services/clinical/marService.js');
 
 const IDS = Object.freeze({
   actor: '10000000-0000-4000-8000-000000000001',
@@ -88,6 +94,11 @@ function paperInput(overrides = {}) {
 }
 
 describe('shared MAR administration transaction core', () => {
+  beforeEach(() => {
+    consumeMarSupplyTxMock.mockReset();
+    consumeMarSupplyTxMock.mockResolvedValue({ status: 'matched', quantity: 1 });
+  });
+
   test('applies a paper fact with exact admission, checker, occurrence, and no electronic override', async () => {
     const tx = createTx();
     const input = paperInput();
@@ -105,8 +116,15 @@ describe('shared MAR administration transaction core', () => {
         override_reason: null,
         patient_scanned_at: null,
         medication_scanned_at: null,
+        supply_state: { status: 'matched', quantity: 1 },
       },
     });
+    expect(consumeMarSupplyTxMock).toHaveBeenCalledWith(tx, expect.objectContaining({
+      tenantId: IDS.tenant,
+      administration: inspection.row,
+      recordedBy: IDS.actor,
+      administrationMode: MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY,
+    }));
 
     const updateCall = tx.$queryRawUnsafe.mock.calls.find(([sql]) => sql.includes('UPDATE medication_administrations'));
     expect(updateCall[0]).toContain("lower(status) IN ('scheduled', 'held')");

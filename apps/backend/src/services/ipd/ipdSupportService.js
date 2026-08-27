@@ -37,6 +37,7 @@ import {
   requestWardIndentReturn,
   reserveWardIndent,
 } from './wardIndentWorkflowService.js';
+import { listWardIndentInventoryCandidates } from './wardIndentMedicationClosureService.js';
 
 export {
   approveWardIndent,
@@ -47,6 +48,7 @@ export {
   issueWardIndent,
   listWardIndentPage,
   listWardIndents,
+  listWardIndentInventoryCandidates,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   receiveWardIndent,
@@ -307,9 +309,11 @@ function catalogSearchTerms(medicationName, details) {
   return [...terms];
 }
 
-function quantityFromMedicationDetails(details) {
+function quantityFromMedicationDetails(details, projectedQuantity = null) {
   const qty = Number(details.quantity_requested ?? details.quantity ?? details.qty ?? details.units);
-  return Number.isFinite(qty) && qty > 0 ? qty : 1;
+  if (Number.isFinite(qty) && qty > 0) return qty;
+  const projected = Number(projectedQuantity);
+  return Number.isFinite(projected) && projected > 0 ? projected : 1;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1119,7 +1123,9 @@ export async function createWardIndent({
   });
 }
 
-export async function createWardIndentForClinicalMedicationOrder(order) {
+export async function createWardIndentForClinicalMedicationOrder(order, {
+  projectedSupplyQuantity = null,
+} = {}) {
   if (!order || order.order_type !== 'medication' || !order.encounter_id) return null;
 
   const details = parseClinicalOrderDetails(order.details);
@@ -1266,7 +1272,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
             clinical_order_id: Number(order.id),
             item_name: catalog?.name ?? medicationName,
             original_item_name: catalog?.name ?? medicationName,
-            quantity_requested: quantityFromMedicationDetails(details),
+            quantity_requested: quantityFromMedicationDetails(details, projectedSupplyQuantity),
             unit: details.unit ?? null,
             unit_price: catalog?.unit_price != null ? Number(catalog.unit_price) : null,
             notes: `clinical_order_id:${order.id}; order_number:${order.order_number}`,
@@ -1381,5 +1387,6 @@ export default {
   closeWardIndent,
   listWardIndentPage,
   listWardIndents,
+  listWardIndentInventoryCandidates,
   getWardIndent,
 };

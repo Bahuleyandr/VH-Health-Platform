@@ -31435,6 +31435,26 @@
             "format": "uuid",
             "nullable": true
           },
+          "held_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "held_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "missed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "missed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
           "status": {
             "type": "string"
           },
@@ -31566,6 +31586,7 @@
           },
           "medications": {
             "type": "array",
+            "maxItems": 0,
             "items": {
               "type": "object",
               "additionalProperties": true
@@ -98359,6 +98380,74 @@
         }
       }
     },
+    "/api/v1/clinical/mar/{id}/supply": {
+      "get": {
+        "operationId": "get_api_v1_clinical_mar_by_id_supply",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical/mar/{id}/supply-overrides/{consumptionId}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_clinical_mar_by_id_supply_overrides_by_consumptionId_reconcile",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "consumptionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/clinical/news2/patient/{patientUid}": {
       "get": {
         "operationId": "get_api_v1_clinical_news2_patient_by_patientUid",
@@ -134393,6 +134482,44 @@
         }
       }
     },
+    "/api/v1/pharmacy-orders/ward-indents/{id}/items/{itemId}/inventory-candidates": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_ward_indents_by_id_items_by_itemId_inventory_candidates",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy-orders/ward-indents/{id}/receive": {
       "post": {
         "operationId": "post_api_v1_pharmacy_orders_ward_indents_by_id_receive",
@@ -139444,6 +139571,44 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/{id}/items/{itemId}/inventory-candidates": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_ward_indents_by_id_items_by_itemId_inventory_candidates",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/pharmacy/ward-indents/{id}/receive": {

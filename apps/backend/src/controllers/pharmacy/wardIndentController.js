@@ -14,6 +14,7 @@ import {
   createWardIndent,
   getWardIndent,
   issueWardIndent,
+  listWardIndentInventoryCandidates,
   listWardIndentPage,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
@@ -141,6 +142,21 @@ export async function getIndent(req, res) {
   }
 }
 
+export async function listInventoryCandidates(req, res) {
+  try {
+    const indentId = positiveInt(req.params.id, 'indent_id');
+    const itemId = positiveInt(req.params.itemId, 'ward_indent_item_id');
+    const candidates = await listWardIndentInventoryCandidates(itemId, {
+      tenantId: tenantOf(req),
+      wardIndentId: indentId,
+    });
+    return success(res, candidates, 'Ward indent inventory candidates retrieved');
+  } catch (err) {
+    logger.error('Ward indent inventory candidate list failed:', err);
+    return relayAppError(res, err, 'Failed to list ward indent inventory candidates');
+  }
+}
+
 export async function createIndent(req, res) {
   try {
     const body = req.body || {};
@@ -170,6 +186,7 @@ export const reserveIndent = actionHandler({
     ...common,
     reservedBy: actorUid,
     itemQuantitiesReserved: bodyArray(req, 'item_quantities_reserved'),
+    inventorySelections: bodyArray(req, 'inventory_selections'),
   }),
 });
 
@@ -181,6 +198,7 @@ export const markShortSupply = actionHandler({
     markedBy: actorUid,
     reason: req.body?.reason ?? req.body?.short_supply_reason,
     itemQuantitiesAvailable: bodyArray(req, 'item_quantities_available'),
+    inventorySelections: bodyArray(req, 'inventory_selections'),
   }),
 });
 
@@ -197,9 +215,10 @@ export const proposeSubstitution = actionHandler({
 export const approveSubstitution = actionHandler({
   operation: 'approve substitution for',
   message: 'Ward indent substitution approved',
-  invoke: ({ actorUid, ...common }) => approveWardIndentSubstitution({
+  invoke: ({ req, actorUid, ...common }) => approveWardIndentSubstitution({
     ...common,
     decidedBy: actorUid,
+    inventorySelections: bodyArray(req, 'inventory_selections'),
   }),
 });
 
@@ -259,6 +278,7 @@ export const receiveIndent = actionHandler({
     ...common,
     receivedBy: actorUid,
     itemQuantitiesReceived: bodyArray(req, 'item_quantities_received'),
+    substitutionAcknowledgements: bodyArray(req, 'substitution_acknowledgements'),
   }),
 });
 
@@ -292,6 +312,7 @@ export const reconcileIndent = actionHandler({
     reason: req.body?.reason,
     controlledReturnEvidence: req.body?.controlled_return_evidence,
     itemReconciliations: req.body?.item_reconciliations,
+    allocationReturns: req.body?.allocation_returns,
   }),
 });
 

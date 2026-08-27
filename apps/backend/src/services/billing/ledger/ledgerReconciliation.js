@@ -70,8 +70,11 @@ export async function applyArOpeningBalances(tenantId) {
  * - eventsDrift: INDEPENDENT ledger-vs-events oracle — for fully ledger-era
  *                invoices (those with an INVOICE_ISSUE entry), the ledger
  *                receivable must equal the amount recomputed from the raw event
- *                tables (total − Σpayments − Σsettlements + Σapproved invoice
- *                refunds). This is the meaningful cross-check under enforce,
+ *                tables (total − Σpayments − Σsettlements − Σapplied
+ *                receivable credits + Σapproved standalone invoice refunds).
+ *                Credit-note-linked refunds are excluded because the medication
+ *                credit posting already established their payable. This is the
+ *                meaningful cross-check under enforce,
  *                where the column comparison is tautological. Cutover /
  *                opening-balance invoices have no event baseline, so they are
  *                excluded.
@@ -98,11 +101,31 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
               bal.ledger_paise,
               EXISTS (SELECT 1 FROM ledger_entries e WHERE e.idempotency_key = 'issue-inv-' || i.id) AS ledger_era,
               ROUND((
-                i.total_amount
-                - COALESCE((SELECT SUM(p.amount) FROM billing_payments p WHERE p.invoice_id = i.id AND p.reversed = false), 0)
-                - COALESCE((SELECT SUM(s.amount) FROM billing_advance_settlements s WHERE s.invoice_id = i.id), 0)
-                + COALESCE((SELECT SUM(r.amount) FROM billing_refunds r WHERE r.invoice_id = i.id AND r.approval_status IN ('APPROVED','PAID')), 0)
-              ) * 100)::bigint AS events_due_paise
+                 i.total_amount
+                 - COALESCE((SELECT SUM(p.amount) FROM billing_payments p WHERE p.invoice_id = i.id AND p.reversed = false), 0)
+                 - COALESCE((SELECT SUM(s.amount) FROM billing_advance_settlements s WHERE s.invoice_id = i.id), 0)
+                 - COALESCE((
+                     SELECT SUM(note.receivable_credit_minor)::numeric / 100
+                       FROM billing_credit_notes note
+                      WHERE note.invoice_id = i.id
+                        AND note.tenant_id = i.tenant_id
+                        AND note.status = 'applied'
+                   ), 0)
+                 + COALESCE((
+                     SELECT SUM(r.amount)
+                       FROM billing_refunds r
+                      WHERE r.invoice_id = i.id
+                        AND r.tenant_id = i.tenant_id
+                        AND r.approval_status IN ('APPROVED','PAID')
+                        AND NOT EXISTS (
+                          SELECT 1
+                            FROM billing_credit_notes note
+                           WHERE note.tenant_id = r.tenant_id
+                             AND note.refund_id = r.id
+                             AND note.status = 'applied'
+                        )
+                   ), 0)
+               ) * 100)::bigint AS events_due_paise
          FROM billing_invoices i
          LEFT JOIN (
            SELECT b.invoice_id, SUM(b.balance_paise)::bigint AS ledger_paise

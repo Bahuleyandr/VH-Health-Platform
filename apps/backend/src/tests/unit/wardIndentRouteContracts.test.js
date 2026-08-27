@@ -43,6 +43,7 @@ jest.unstable_mockModule('../../middleware/sanitizeMiddleware.js', () => ({
 const controllerNames = [
   'listIndents',
   'getIndent',
+  'listInventoryCandidates',
   'createIndent',
   'reserveIndent',
   'markShortSupply',
@@ -181,6 +182,26 @@ describe('authoritative pharmacy ward-indent router', () => {
     expect(metadata('/', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
     expect(metadata('/:id', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
     expect(metadata('/', 'post', '__roles')[0]).not.toContain('STORES_PURCHASE_INCHARGE');
+  });
+
+  test('inventory candidates are tenant/patient guarded and read-only', () => {
+    const candidates = metadata(
+      '/:id/items/:itemId/inventory-candidates',
+      'get',
+      '__patientGuard',
+    );
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        recordType: 'PHARMACY_ORDER',
+        careTeamModeGoverned: true,
+        hasSelector: true,
+      }),
+    ]);
+    expect(metadata(
+      '/:id/items/:itemId/inventory-candidates',
+      'get',
+      '__roles',
+    )[0]).toContain('PHARMACY_INCHARGE');
   });
 });
 

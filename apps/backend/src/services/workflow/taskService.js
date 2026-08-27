@@ -128,6 +128,9 @@ const ED_CLOSURE_TASK_CREATION_AUTHORITY = Symbol(
 const LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY = Symbol(
   'LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY',
 );
+const WARD_MEDICATION_TASK_CREATION_AUTHORITY = Symbol(
+  'WARD_MEDICATION_TASK_CREATION_AUTHORITY',
+);
 const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
   'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
 );
@@ -141,6 +144,18 @@ const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1'
 const ED_DESTINATION_HANDOFF_TASK_CONTRACT = 'ed_destination_handoff_review_v1';
 const ED_CLOSURE_TASK_CONTRACT = 'ed_closure_review_v1';
 const LAB_THRESHOLD_EXCEPTION_TASK_CONTRACT = 'lab_threshold_policy_exception_v1';
+const WARD_MEDICATION_TASK_CONTRACT = 'ward_medication_obligation_v1';
+const WARD_MEDICATION_SLA_RULES = new Set([
+  'ward_indent_pharmacy_response',
+  'ward_indent_substitution_authorization',
+  'ward_indent_controlled_handoff',
+  'ward_indent_pharmacy_issue',
+  'ward_indent_ward_receipt',
+  'ward_indent_reconciliation',
+  'ward_indent_mar_supply_reconciliation',
+  'ward_indent_credit_note_review',
+  'ward_indent_notification_coverage',
+]);
 
 function requiredTaskFactoryTx(tx, code, message) {
   if (!tx?.$queryRawUnsafe) {
@@ -222,6 +237,7 @@ function assertProtectedTaskCreationAllowed({
       ED_CLOSURE_TASK_CREATION_AUTHORITY,
       PENDING_RESULT_TASK_CREATION_AUTHORITY,
       LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY,
+      WARD_MEDICATION_TASK_CREATION_AUTHORITY,
     ].includes(authority)
   ) {
     throw AppError.conflict(
@@ -690,6 +706,11 @@ async function assertTaskSlaSourceBinding({
       );
       valid = Boolean(deathRecord[0]);
     }
+  } else if (sla && WARD_MEDICATION_SLA_RULES.has(String(sla.rule_code))) {
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && Boolean(taskResourceType && taskResourceId)
+      && sourceTable === taskResourceType
+      && sourceId === taskResourceId;
   }
 
   if (!valid) {
@@ -996,6 +1017,71 @@ export async function createTask({
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
   }
+}
+
+export async function createWardMedicationObligationTaskTx({
+  tenantId = null,
+  taskKind = 'review',
+  title,
+  description = null,
+  patientUid = null,
+  encounterId = null,
+  relatedResourceType,
+  relatedResourceId,
+  priority = 'high',
+  assignedToRole,
+  createdBy = null,
+  workflowSlaInstanceId,
+  stageOccurrenceKey,
+  metadata = null,
+  tx,
+} = {}) {
+  const db = requiredTaskFactoryTx(
+    tx,
+    'WARD_MEDICATION_TASK_TRANSACTION_REQUIRED',
+    'Ward medication obligation tasks require the caller transaction',
+  );
+  const slaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  if (!slaId) {
+    throw AppError.internal(
+      'Ward medication obligation tasks require a linked workflow SLA',
+      'WARD_MEDICATION_TASK_SLA_REQUIRED',
+    );
+  }
+  const cleanMetadata = normalizeTaskMetadata(metadata);
+  const cleanCanonicalEncounterId = maybeUuid(encounterId, 'encounter_id');
+  const ruleCode = safeText(cleanMetadata?.sla_key, 120);
+  if (!WARD_MEDICATION_SLA_RULES.has(ruleCode)) {
+    throw AppError.internal(
+      'Ward medication obligation task has an unregistered SLA rule',
+      'WARD_MEDICATION_TASK_SLA_UNREGISTERED',
+    );
+  }
+  return createTask({
+    tenantId,
+    taskKind,
+    title,
+    description,
+    patientUid,
+    relatedResourceType,
+    relatedResourceId,
+    priority,
+    assignedToRole,
+    createdBy,
+    workflowSlaInstanceId: slaId,
+    slaCompletionSemantics: 'domain_evidence',
+    stageOccurrenceKey,
+    metadata: {
+      ...cleanMetadata,
+      ...(cleanCanonicalEncounterId
+        ? { canonical_encounter_id: cleanCanonicalEncounterId }
+        : {}),
+      task_contract: WARD_MEDICATION_TASK_CONTRACT,
+    },
+    protectedTaskCreationAuthority: WARD_MEDICATION_TASK_CREATION_AUTHORITY,
+    tx: db,
+    onConflictResourceDoNothing: true,
+  });
 }
 
 export async function createPendingResultTrackingTaskTx({
@@ -2927,6 +3013,227 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       resource_id: String(rows[0].id),
       occurred_at: new Date(rows[0].event_at_epoch_ms).toISOString(),
       recorded_at: new Date(rows[0].created_at_epoch_ms).toISOString(),
+    };
+  },
+  ward_indent_transition: async ({ tenantId, taskRow, evidenceResourceType, evidenceResourceId, db }) => {
+    if (
+      evidenceResourceType !== 'ward_indent_event'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind === 'notification_coverage'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const indentId = String(taskRow?.metadata?.ward_indent_id || '').trim();
+    const stateVersion = Number(taskRow?.metadata?.state_version);
+    const currentState = safeText(taskRow?.metadata?.current_state, 40);
+    if (
+      !/^[1-9]\d*$/.test(evidenceId)
+      || !/^[1-9]\d*$/.test(indentId)
+      || !Number.isSafeInteger(stateVersion)
+      || stateVersion <= 0
+      || !currentState
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT event.id, event.action, event.from_status, event.to_status,
+              event.state_version, event.occurred_at,
+              (EXTRACT(EPOCH FROM event.occurred_at) * 1000)::double precision AS occurred_at_epoch_ms
+         FROM ward_indent_events event
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = event.tenant_id
+          AND sla.id = $6::uuid
+        WHERE event.tenant_id = $1::uuid
+          AND event.id::text = $2::text
+          AND event.ward_indent_id::text = $3::text
+          AND event.state_version > $4::int
+          AND event.from_status = $5::text
+          AND sla.rule_code = ANY($7::text[])
+          AND sla.source_table = $8::text
+          AND sla.source_id = $9::text
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      indentId,
+      stateVersion,
+      currentState,
+      taskRow.workflow_sla_instance_id,
+      [...WARD_MEDICATION_SLA_RULES],
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].occurred_at_epoch_ms).toISOString();
+    return {
+      kind: 'ward_indent_transition',
+      resource_type: 'ward_indent_event',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      action: rows[0].action,
+      from_status: rows[0].from_status,
+      to_status: rows[0].to_status,
+      state_version: Number(rows[0].state_version),
+    };
+  },
+  billing_credit_note_decision: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'billing_credit_note_event'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind !== 'credit_note_review'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const creditNoteId = String(taskRow?.metadata?.credit_note_id || '').trim();
+    if (!/^[1-9]\d*$/.test(evidenceId) || !/^[1-9]\d*$/.test(creditNoteId)) return null;
+    const rows = await db.$queryRawUnsafe(
+      `SELECT event.id, event.credit_note_id, event.event_type, event.occurred_at,
+              (EXTRACT(EPOCH FROM event.occurred_at) * 1000)::double precision AS occurred_at_epoch_ms
+         FROM billing_credit_note_events event
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = event.tenant_id
+          AND sla.id = $4::uuid
+        WHERE event.tenant_id = $1::uuid
+          AND event.id::text = $2::text
+          AND event.credit_note_id::text = $3::text
+          AND event.event_type IN ('approved', 'rejected')
+          AND sla.rule_code = 'ward_indent_credit_note_review'
+          AND sla.source_table = $5::text
+          AND sla.source_id = $6::text
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      creditNoteId,
+      taskRow.workflow_sla_instance_id,
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].occurred_at_epoch_ms).toISOString();
+    return {
+      kind: 'billing_credit_note_decision',
+      resource_type: 'billing_credit_note_event',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      credit_note_id: String(rows[0].credit_note_id),
+      decision: rows[0].event_type,
+    };
+  },
+  mar_supply_reconciled: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'mar_supply_reconciliation_link'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind !== 'mar_supply_reconciliation'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const medicationAdministrationId = String(
+      taskRow?.metadata?.medication_administration_id || '',
+    ).trim();
+    if (
+      !/^[1-9]\d*$/.test(evidenceId)
+      || !/^[1-9]\d*$/.test(medicationAdministrationId)
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT link.id, link.unmatched_consumption_id, link.created_at,
+              consumption.medication_administration_id,
+              (EXTRACT(EPOCH FROM link.created_at) * 1000)::double precision
+                AS created_at_epoch_ms
+         FROM mar_supply_reconciliation_links link
+         JOIN mar_supply_consumptions consumption
+           ON consumption.tenant_id = link.tenant_id
+          AND consumption.id = link.unmatched_consumption_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = link.tenant_id
+          AND sla.id = $5::uuid
+        WHERE link.tenant_id = $1::uuid
+          AND link.id::text = $2::text
+          AND consumption.medication_administration_id::text = $3::text
+          AND consumption.evidence_status = 'unmatched_override'
+          AND consumption.reconciliation_task_id = $4::int
+          AND sla.rule_code = 'ward_indent_mar_supply_reconciliation'
+          AND sla.source_table = $6::text
+          AND sla.source_id = $7::text
+          AND (
+            SELECT COALESCE(SUM(all_links.quantity), 0)
+              FROM mar_supply_reconciliation_links all_links
+             WHERE all_links.tenant_id = consumption.tenant_id
+               AND all_links.unmatched_consumption_id = consumption.id
+          ) = consumption.quantity
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      medicationAdministrationId,
+      Number(taskRow.id),
+      taskRow.workflow_sla_instance_id,
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].created_at_epoch_ms).toISOString();
+    return {
+      kind: 'mar_supply_reconciled',
+      resource_type: 'mar_supply_reconciliation_link',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      unmatched_consumption_id: String(rows[0].unmatched_consumption_id),
+      medication_administration_id: String(rows[0].medication_administration_id),
+    };
+  },
+  notification_coverage_restored: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'notification_outbox'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind !== 'notification_coverage'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    if (!/^[1-9]\d*$/.test(evidenceId)) return null;
+    const rows = await db.$queryRawUnsafe(
+      `SELECT outbox.id, outbox.created_at, outbox.recipient_id,
+              (EXTRACT(EPOCH FROM outbox.created_at) * 1000)::double precision AS created_at_epoch_ms
+         FROM notification_outbox outbox
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = outbox.tenant_id
+          AND sla.id = $3::uuid
+        WHERE outbox.tenant_id = $1::uuid
+          AND outbox.id::text = $2::text
+          AND outbox.recipient_id IS NOT NULL
+          AND outbox.payload->>'coverage_task_id' = $4::text
+          AND sla.rule_code = 'ward_indent_notification_coverage'
+          AND sla.source_table = $5::text
+          AND sla.source_id = $6::text
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      taskRow.workflow_sla_instance_id,
+      String(taskRow.id),
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].created_at_epoch_ms).toISOString();
+    return {
+      kind: 'notification_coverage_restored',
+      resource_type: 'notification_outbox',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      recipient_id: String(rows[0].recipient_id),
     };
   },
 });
@@ -6465,6 +6772,7 @@ export const __testing__ = {
 
 export default {
   createTask,
+  createWardMedicationObligationTaskTx,
   createLabThresholdExceptionReviewTaskTx,
   createPendingResultTrackingTaskTx,
   createPendingResultOwnerActionTaskTx,

@@ -1,10 +1,11 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
-import { param, query, validationResult } from 'express-validator';
+import { body, param, query, validationResult } from 'express-validator';
 import multer from 'multer';
 import * as handoverService from '../../services/clinical/handoverService.js';
 import * as marService from '../../services/clinical/marService.js';
 import * as marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
+import * as marSupplyService from '../../services/clinical/marSupplyService.js';
 import * as drugChartService from '../../services/clinical/drugChartService.js';
 import * as news2Service from '../../services/clinical/news2Service.js';
 import * as voiceSoapService from '../../services/ai/voiceSoapService.js';
@@ -84,6 +85,13 @@ const MEDICATION_ADMINISTRATION_ROLES = new Set([
   'ICU_NURSE',
   'ICU_INCHARGE',
 ]);
+const MAR_SUPPLY_RECONCILIATION_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'PHARMACY_INCHARGE',
+  'NURSING_INCHARGE',
+  'IP_INCHARGE',
+]);
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -95,6 +103,14 @@ function requireMedicationAdministrationRole(req, res, next) {
   const role = String(req.user?.role || '').trim().toUpperCase();
   if (!MEDICATION_ADMINISTRATION_ROLES.has(role)) {
     return error(res, 'Only nursing roles can record inpatient medication administration', 403);
+  }
+  return next();
+}
+
+function requireMarSupplyReconciliationRole(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!MAR_SUPPLY_RECONCILIATION_ROLES.has(role)) {
+    return error(res, 'Only pharmacy, nursing, or administrative in-charge roles can reconcile MAR supply evidence', 403);
   }
   return next();
 }
@@ -274,12 +290,17 @@ router.post('/mar/schedule', ...marScheduleValidator, validate, guardClinicalPat
       return success(res, [], 'MAR ready (no medications scheduled yet)', 201);
     }
 
-    const records = await marService.scheduleMedications(patient_uid, prescription_id, meds, {
-      actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      tenantId: req.tenantId || null,
-    });
-    return success(res, records, 'Medications scheduled', 201);
+    return error(
+      res,
+      'Medication doses must be scheduled by the governed clinical-order workflow',
+      409,
+      {
+        code: 'MAR_SCHEDULE_REQUIRES_CLINICAL_ORDER_WORKFLOW',
+        order_endpoint: '/api/v1/emr/orders',
+        patient_uid,
+        prescription_id: prescription_id || null,
+      },
+    );
   } catch (err) {
     next(err);
   }
@@ -289,10 +310,16 @@ router.post('/mar/schedule', ...marScheduleValidator, validate, guardClinicalPat
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({ required: true, scope: 'mar_administer' }), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { notes, witness_uid, override_reason } = req.body;
+    const {
+      notes,
+      witness_uid,
+      override_reason,
+      supply_override_reason,
+      supply_quantity,
+    } = req.body;
 
     // B1 — scan-first policy: this non-scan path needs override_reason
     // (≥5 chars) while MAR_REQUIRE_BARCODE_SCAN is on; the service 409s
@@ -306,6 +333,12 @@ router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireM
         overrideReason: override_reason && override_reason.trim().length >= 5
           ? override_reason.trim()
           : null,
+        supplyOverrideReason: supply_override_reason?.trim() || null,
+        supplyQuantity: supply_quantity ?? null,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
         tenantId: req.tenantId,
       }
     );
@@ -334,6 +367,7 @@ router.post('/mar/verify',
         ma_id: parseInt(ma_id, 10),
         scanned_patient_uid,
         scanned_barcode,
+        tenantId: req.tenantId,
       });
       return success(res, result, result.allPassed ? 'All 5 rights passed' : '5-rights check failed');
     } catch (err) {
@@ -354,23 +388,89 @@ router.post('/mar/:id/administer-with-scan',
   requiredUUID('scanned_patient_uid'),
   requiredString('scanned_barcode', 100),
   optionalString('override_reason', 500),
+  optionalString('supply_override_reason', 500),
+  body('supply_quantity').optional({ nullable: true }).isFloat({ gt: 0 }).toFloat(),
+  body('administered_at')
+    .custom((value) => value == null || value === '')
+    .withMessage('administered_at is accepted only by the governed paper reconciliation workflow'),
   validate,
   requireMedicationAdministrationRole,
   guardMarResourceWrite,
+  requireIdempotencyKey({ required: true, scope: 'mar_administer_scan' }),
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { scanned_patient_uid, scanned_barcode, override_reason, administered_at } = req.body;
+      const {
+        scanned_patient_uid,
+        scanned_barcode,
+        override_reason,
+        supply_override_reason,
+        supply_quantity,
+      } = req.body;
       const record = await marFiveRightsService.administerWithScan({
         ma_id: parseInt(id, 10),
         scanned_patient_uid,
         scanned_barcode,
         administeredBy: req.user.uid,
         overrideReason: override_reason && override_reason.trim().length >= 5 ? override_reason.trim() : null,
+        supplyOverrideReason: supply_override_reason?.trim() || null,
+        supplyQuantity: supply_quantity ?? null,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
         tenantId: req.tenantId,
-        administeredAt: administered_at || null,
       });
       return success(res, record, 'Medication administration recorded');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/mar/:id/supply', paramId(), validate, guardMarResourceView, async (req, res, next) => {
+  try {
+    const state = await marSupplyService.getMarSupplyState(parseInt(req.params.id, 10), {
+      tenantId: req.tenantId,
+    });
+    return success(res, state, 'MAR supply state retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/mar/:id/supply-overrides/:consumptionId/reconcile',
+  paramId('id'),
+  param('consumptionId')
+    .matches(/^[1-9][0-9]*$/)
+    .withMessage('consumptionId must be a positive integer'),
+  body('allocations').isArray({ min: 1 }).withMessage('allocations must be a non-empty array'),
+  body('allocations.*.inventory_allocation_id')
+    .custom((value) => (
+      typeof value === 'number'
+        ? Number.isSafeInteger(value) && value > 0
+        : /^[1-9][0-9]*$/.test(String(value || ''))
+    ))
+    .withMessage('inventory_allocation_id must be a positive integer'),
+  body('allocations.*.quantity').isFloat({ gt: 0 }).toFloat(),
+  validate,
+  requireMarSupplyReconciliationRole,
+  guardMarResourceWrite,
+  requireIdempotencyKey({ required: true, scope: 'mar_supply_reconcile' }),
+  async (req, res, next) => {
+    try {
+      const result = await marSupplyService.reconcileMarSupplyOverride(
+        req.params.consumptionId,
+        req.body.allocations,
+        {
+          tenantId: req.tenantId,
+          reconciledBy: req.user.uid,
+          commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+          expectedMedicationAdministrationId: req.params.id,
+        },
+      );
+      return success(res, result, 'MAR supply reconciliation recorded');
     } catch (err) {
       next(err);
     }
@@ -381,7 +481,7 @@ router.post('/mar/:id/administer-with-scan',
  * POST /clinical/mar/:id/miss
  * Record a missed medication dose.
  */
-router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({ required: true, scope: 'mar_miss' }), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -390,7 +490,18 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
       return error(res, 'Reason is required for missed medication', 400);
     }
 
-    const record = await marService.recordMissed(parseInt(id, 10), reason, req.user?.uid);
+    const record = await marService.recordMissed(
+      parseInt(id, 10),
+      reason,
+      req.user.uid,
+      {
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
+        tenantId: req.tenantId,
+      },
+    );
     return success(res, record, 'Missed medication recorded');
   } catch (err) {
     next(err);
@@ -401,7 +512,7 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
  * POST /clinical/mar/:id/hold
  * Hold a medication with reason.
  */
-router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({ required: true, scope: 'mar_hold' }), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -410,7 +521,18 @@ router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate,
       return error(res, 'Reason is required to hold medication', 400);
     }
 
-    const record = await marService.holdMedication(parseInt(id, 10), reason, req.user.uid);
+    const record = await marService.holdMedication(
+      parseInt(id, 10),
+      reason,
+      req.user.uid,
+      {
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
+        tenantId: req.tenantId,
+      },
+    );
     return success(res, record, 'Medication held');
   } catch (err) {
     next(err);

@@ -509,6 +509,15 @@ class MedicalApiService {
     });
   }
 
+  /// GET /clinical/mar/:id/supply — exact ward-custody evidence for the
+  /// scheduled dose, including product, batch, quantity, and any open
+  /// reconciliation obligation.
+  static Future<Map<String, dynamic>> getMarSupplyState({
+    required int maId,
+  }) async {
+    return _get('/clinical/mar/$maId/supply');
+  }
+
   /// POST /clinical/mar/:id/administer-with-scan — commit administration with
   /// rights audit. Throws if the backend returns 409 and no [overrideReason]
   /// was supplied; caller should prompt for one and retry.
@@ -517,15 +526,41 @@ class MedicalApiService {
     required String scannedPatientUid,
     required String scannedBarcode,
     String? overrideReason,
-    DateTime? administeredAt,
+    String? supplyOverrideReason,
+    num? supplyQuantity,
+    String? idempotencyKey,
   }) async {
     return _post('/clinical/mar/$maId/administer-with-scan', {
       'scanned_patient_uid': scannedPatientUid,
       'scanned_barcode': scannedBarcode,
       'override_reason': ?overrideReason,
-      if (administeredAt != null)
-        'administered_at': administeredAt.toUtc().toIso8601String(),
-    });
+      'supply_override_reason': ?supplyOverrideReason,
+      'supply_quantity': ?supplyQuantity,
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /clinical/mar/:id/miss — record a scheduled dose as missed with a
+  /// durable idempotency receipt owned by the backend transaction.
+  static Future<Map<String, dynamic>> markMedicationMissed({
+    required int maId,
+    required String reason,
+    String? idempotencyKey,
+  }) async {
+    return _post('/clinical/mar/$maId/miss', {
+      'reason': reason.trim(),
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /clinical/mar/:id/hold — place a scheduled dose on clinical hold
+  /// without conflating the holding nurse with the administering nurse.
+  static Future<Map<String, dynamic>> holdMedication({
+    required int maId,
+    required String reason,
+    String? idempotencyKey,
+  }) async {
+    return _post('/clinical/mar/$maId/hold', {
+      'reason': reason.trim(),
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// GET /devices/registry — active clinical devices for bedside association.

@@ -62,6 +62,12 @@ router.use(sanitizeAllBodyStrings);
 
 router.get('/', requireRole(...READ_ROLES), wardIndentListGuard(), ctl.listIndents);
 router.get('/:id', requireRole(...READ_ROLES), guardIndentRow, ctl.getIndent);
+router.get(
+  '/:id/items/:itemId/inventory-candidates',
+  requireRole(...READ_ROLES),
+  guardIndentRow,
+  ctl.listInventoryCandidates,
+);
 router.post(
   '/',
   requireRole(...REQUEST_ROLES),

@@ -16,6 +16,14 @@ import '../../../core/widgets/ward_list_filter_bar.dart';
 const String _dueMedsAllWards = '';
 const String _dueMedsAllRoutes = 'all';
 
+enum MarDueTransition { miss, hold }
+
+List<MarDueTransition> availableMarDueTransitions(Map<String, dynamic> row) {
+  return _filterText(row['status']).toLowerCase() == 'scheduled'
+      ? const [MarDueTransition.miss, MarDueTransition.hold]
+      : const [];
+}
+
 List<WardListFilterOption> dueMedsWardFilterOptions(
   List<Map<String, dynamic>> rows, {
   required String allWardsLabel,
@@ -111,6 +119,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   List<WardListFilterOption> _wardOptions = const [
     WardListFilterOption(value: _dueMedsAllWards, label: ''),
   ];
+  int? _transitioningId;
 
   List<Map<String, dynamic>> get _filtered {
     return filterDueMedicationRows(
@@ -300,18 +309,151 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: rows.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) =>
-          _DueMedTile(row: rows[i], onTap: () => _openScanner(rows[i])),
+      itemBuilder: (context, i) {
+        final row = rows[i];
+        final id = _rowId(row);
+        return _DueMedTile(
+          row: row,
+          busy: id != null && id == _transitioningId,
+          onTap: () => _openScanner(row),
+          onTransition: (action) => _recordTransition(row, action),
+        );
+      },
     );
   }
 
   void _openScanner(Map<String, dynamic> row) {
-    final idRaw = row['id'];
-    final maId = idRaw is int ? idRaw : int.tryParse(idRaw?.toString() ?? '');
+    final maId = _rowId(row);
     if (maId == null) return;
     context.push('/mar/scan/$maId').then((_) {
       if (mounted) _load();
     });
+  }
+
+  int? _rowId(Map<String, dynamic> row) {
+    final raw = row['id'];
+    return raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+  }
+
+  Future<void> _recordTransition(
+    Map<String, dynamic> row,
+    MarDueTransition action,
+  ) async {
+    final maId = _rowId(row);
+    if (maId == null || _transitioningId != null) return;
+    final s = AppStrings.of(context);
+    final reason = await _promptForTransitionReason(action);
+    if (reason == null || !mounted) return;
+
+    setState(() => _transitioningId = maId);
+    try {
+      if (action == MarDueTransition.miss) {
+        await MedicalApiService.markMedicationMissed(
+          maId: maId,
+          reason: reason,
+        );
+      } else {
+        await MedicalApiService.holdMedication(maId: maId, reason: reason);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            s.lookup(
+              action == MarDueTransition.miss
+                  ? 'due_meds.actions.miss_success'
+                  : 'due_meds.actions.hold_success',
+            ),
+          ),
+        ),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(localizedApiErrorFromRaw(AppStrings.of(context), e)),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _transitioningId = null);
+    }
+  }
+
+  Future<String?> _promptForTransitionReason(MarDueTransition action) async {
+    final controller = TextEditingController();
+    var reason = '';
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final s = AppStrings.of(dialogContext);
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final valid = reason.trim().length >= 5;
+            return AlertDialog(
+              title: Text(
+                s.lookup(
+                  action == MarDueTransition.miss
+                      ? 'due_meds.actions.miss_title'
+                      : 'due_meds.actions.hold_title',
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.lookup(
+                      action == MarDueTransition.miss
+                          ? 'due_meds.actions.miss_body'
+                          : 'due_meds.actions.hold_body',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    maxLength: 500,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      labelText: s.lookup('due_meds.actions.reason_label'),
+                      hintText: s.lookup('due_meds.actions.reason_hint'),
+                      errorText: reason.isNotEmpty && !valid
+                          ? s.lookup('due_meds.actions.reason_required')
+                          : null,
+                    ),
+                    onChanged: (value) => setDialogState(() => reason = value),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(s.lookup('due_meds.actions.cancel')),
+                ),
+                FilledButton(
+                  onPressed: valid
+                      ? () => Navigator.of(dialogContext).pop(reason.trim())
+                      : null,
+                  child: Text(
+                    s.lookup(
+                      action == MarDueTransition.miss
+                          ? 'due_meds.actions.confirm_miss'
+                          : 'due_meds.actions.confirm_hold',
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+    return result;
   }
 
   Widget _errorView(String msg) {
@@ -326,10 +468,17 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
 }
 
 class _DueMedTile extends StatelessWidget {
-  const _DueMedTile({required this.row, required this.onTap});
+  const _DueMedTile({
+    required this.row,
+    required this.onTap,
+    required this.onTransition,
+    required this.busy,
+  });
 
   final Map<String, dynamic> row;
   final VoidCallback onTap;
+  final ValueChanged<MarDueTransition> onTransition;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -394,13 +543,42 @@ class _DueMedTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Text(
-        timeLabel,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            timeLabel,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          if (busy)
+            const Padding(
+              padding: EdgeInsets.only(left: 12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else if (availableMarDueTransitions(row).isNotEmpty)
+            PopupMenuButton<MarDueTransition>(
+              tooltip: s.lookup('due_meds.actions.label'),
+              onSelected: onTransition,
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: MarDueTransition.miss,
+                  child: Text(s.lookup('due_meds.actions.miss')),
+                ),
+                PopupMenuItem(
+                  value: MarDueTransition.hold,
+                  child: Text(s.lookup('due_meds.actions.hold')),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

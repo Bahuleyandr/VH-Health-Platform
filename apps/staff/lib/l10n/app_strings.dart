@@ -16,6 +16,11 @@ import 'package:flutter/material.dart';
 ///   need a Tamil-fluent clinician's review before production.
 /// - `te` (Telugu) - same as Tamil. Placeholder. ALL clinical-action
 ///   strings need a Telugu-fluent clinician's review.
+/// - `ml` (Malayalam) remains a declared-partial locale overall, but the
+///   bedside MAR and ward-indent safety paths are translated whenever those
+///   workflows change. Their MED-03 key set is checked explicitly in
+///   `test/features/nursing/mar_supply_i18n_test.dart`. The wording remains
+///   fail-closed for Malayalam-fluent clinical review before activation.
 ///
 /// hi/ta/te are held at structural key parity with `en` by a BLOCKING CI
 /// gate - `node scripts/i18n-verify.mjs --check`, wired into both halves
@@ -6350,6 +6355,22 @@ class AppStrings {
       'due_meds.filter.all_wards': 'All wards',
       'due_meds.filter.all_routes': 'All routes',
       'due_meds.filter.route_label': 'Route',
+      'due_meds.actions.label': 'Medication actions',
+      'due_meds.actions.miss': 'Mark dose missed',
+      'due_meds.actions.hold': 'Place dose on hold',
+      'due_meds.actions.miss_title': 'Mark this dose as missed?',
+      'due_meds.actions.hold_title': 'Place this dose on hold?',
+      'due_meds.actions.miss_body': 'Use only when the scheduled dose was not given. The clinical reason becomes part of the MAR.',
+      'due_meds.actions.hold_body': 'Use only to pause the scheduled dose pending clinical review. Holding does not record administration.',
+      'due_meds.actions.reason_label': 'Clinical reason',
+      'due_meds.actions.reason_hint': 'Enter at least 5 characters',
+      'due_meds.actions.reason_required':
+          'Enter a specific clinical reason (at least 5 characters).',
+      'due_meds.actions.cancel': 'Cancel',
+      'due_meds.actions.confirm_miss': 'Record missed dose',
+      'due_meds.actions.confirm_hold': 'Place on hold',
+      'due_meds.actions.miss_success': 'Missed dose recorded',
+      'due_meds.actions.hold_success': 'Dose placed on hold',
       's4.dynamic.due_meds.ward_fallback': 'Ward {value}',
       'due_meds.unscheduled': 'unscheduled',
       's4.dynamic.due_meds.due_late': '{value} late',
@@ -6505,6 +6526,34 @@ class AppStrings {
       'mar_scan.hardstop.body':
           'Patient- and drug-identity mismatches cannot be overridden. Confirm '
           'you have the correct patient and medication, then scan again.',
+      'mar_scan.supply.title': 'Ward supply evidence',
+      'mar_scan.supply.status.available': 'Exact ward custody available',
+      'mar_scan.supply.status.quantity_required':
+          'Structured dose quantity required',
+      'mar_scan.supply.status.custody_unavailable': 'Ward custody unavailable',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'Substitution receipt acknowledgement required',
+      'mar_scan.supply.status.order_link_required':
+          'Medication order link required',
+      'mar_scan.supply.status.ward_item_required': 'Ward indent link required',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'Ward indent link is ambiguous',
+      'mar_scan.supply.status.reconciliation_required':
+          'Supply reconciliation required',
+      'mar_scan.supply.status.unknown': 'Supply state unavailable',
+      'mar_scan.supply.available_quantity': 'Available quantity: {quantity}',
+      'mar_scan.supply.required_quantity': 'Required dose quantity: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · Batch {batch} · Available {quantity}',
+      'mar_scan.supply.blocked': 'Do not administer until pharmacy and ward supply evidence is corrected.',
+      'mar_scan.supply.quantity_label': 'Structured dose quantity',
+      'mar_scan.supply.override_reason_label':
+          'Supply override reason (required)',
+      'mar_scan.supply.override_warning': 'An override creates a named reconciliation task and immutable evidence.',
+      'mar_scan.supply.quantity_error':
+          'Enter a positive structured dose quantity.',
+      'mar_scan.supply.override_error': 'Document a meaningful supply override reason (at least 15 characters).',
+      'mar_scan.supply.hard_stop_error': 'Supply evidence is incomplete or ambiguous. Reconcile it before administration.',
       // Discharge Summary
       'discharge.title_prefix': 'Discharge —',
       'discharge.save_draft': 'Save Draft',
@@ -13209,6 +13258,23 @@ class AppStrings {
       'due_meds.filter.all_wards': 'सभी वार्ड',
       'due_meds.filter.all_routes': 'सभी मार्ग',
       'due_meds.filter.route_label': 'मार्ग',
+      // REVIEW: MED-03 hi AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'दवा की कार्रवाइयाँ',
+      'due_meds.actions.miss': 'खुराक छूटी दर्ज करें',
+      'due_meds.actions.hold': 'खुराक रोकें',
+      'due_meds.actions.miss_title': 'इस खुराक को छूटी हुई दर्ज करें?',
+      'due_meds.actions.hold_title': 'इस खुराक को रोकें?',
+      'due_meds.actions.miss_body': 'केवल तब उपयोग करें जब निर्धारित खुराक नहीं दी गई हो। नैदानिक कारण MAR का हिस्सा बनेगा।',
+      'due_meds.actions.hold_body': 'नैदानिक समीक्षा तक निर्धारित खुराक रोकने के लिए ही उपयोग करें। रोकना दवा दिए जाने का रिकॉर्ड नहीं है।',
+      'due_meds.actions.reason_label': 'नैदानिक कारण',
+      'due_meds.actions.reason_hint': 'कम से कम 5 अक्षर दर्ज करें',
+      'due_meds.actions.reason_required':
+          'विशिष्ट नैदानिक कारण दर्ज करें (कम से कम 5 अक्षर)।',
+      'due_meds.actions.cancel': 'रद्द करें',
+      'due_meds.actions.confirm_miss': 'छूटी खुराक दर्ज करें',
+      'due_meds.actions.confirm_hold': 'खुराक रोकें',
+      'due_meds.actions.miss_success': 'छूटी खुराक दर्ज हो गई',
+      'due_meds.actions.hold_success': 'खुराक रोक दी गई',
       // REVIEW: hi AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'वार्ड {value}',
       'due_meds.unscheduled': 'अनिर्धारित',
@@ -17137,6 +17203,38 @@ class AppStrings {
           'स्कैन किया गया बारकोड आदेशित दवा से मेल नहीं खाता (गलत दवा)।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'रोगी और दवा की पहचान के मेल न खाने को ओवरराइड नहीं किया जा सकता। पुष्टि करें कि रोगी और दवा सही हैं, फिर दोबारा स्कैन करें।',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Hindi-fluent clinician.
+      'mar_scan.supply.title': 'वार्ड आपूर्ति साक्ष्य',
+      'mar_scan.supply.status.available': 'सटीक वार्ड अभिरक्षा उपलब्ध है',
+      'mar_scan.supply.status.quantity_required':
+          'संरचित डोज़ मात्रा आवश्यक है',
+      'mar_scan.supply.status.custody_unavailable':
+          'वार्ड अभिरक्षा उपलब्ध नहीं है',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'प्रतिस्थापन प्राप्ति की पुष्टि आवश्यक है',
+      'mar_scan.supply.status.order_link_required': 'दवा ऑर्डर लिंक आवश्यक है',
+      'mar_scan.supply.status.ward_item_required':
+          'वार्ड इंडेंट लिंक आवश्यक है',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'वार्ड इंडेंट लिंक अस्पष्ट है',
+      'mar_scan.supply.status.reconciliation_required':
+          'आपूर्ति मिलान आवश्यक है',
+      'mar_scan.supply.status.unknown': 'आपूर्ति स्थिति उपलब्ध नहीं है',
+      'mar_scan.supply.available_quantity': 'उपलब्ध मात्रा: {quantity}',
+      'mar_scan.supply.required_quantity': 'आवश्यक डोज़ मात्रा: {quantity}',
+      'mar_scan.supply.batch_line': '{name} · बैच {batch} · उपलब्ध {quantity}',
+      'mar_scan.supply.blocked':
+          'फार्मेसी और वार्ड आपूर्ति साक्ष्य ठीक होने तक दवा न दें।',
+      'mar_scan.supply.quantity_label': 'संरचित डोज़ मात्रा',
+      'mar_scan.supply.override_reason_label':
+          'आपूर्ति ओवरराइड का कारण (आवश्यक)',
+      'mar_scan.supply.override_warning':
+          'ओवरराइड से नामित मिलान कार्य और अपरिवर्तनीय साक्ष्य बनता है।',
+      'mar_scan.supply.quantity_error': 'धनात्मक संरचित डोज़ मात्रा दर्ज करें।',
+      'mar_scan.supply.override_error':
+          'आपूर्ति ओवरराइड का सार्थक कारण लिखें (कम से कम 15 अक्षर)।',
+      'mar_scan.supply.hard_stop_error':
+          'आपूर्ति साक्ष्य अधूरा या अस्पष्ट है। दवा देने से पहले मिलान करें।',
       'biomed.work_orders.title': 'मेरे कार्य आदेश',
       'biomed.work_orders.started': 'कार्य आदेश शुरू हुआ',
       'biomed.work_orders.completed': 'कार्य आदेश पूरा हुआ',
@@ -21204,6 +21302,23 @@ class AppStrings {
       'due_meds.filter.all_routes': 'அனைத்து வழிகளும்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'வழி',
+      // REVIEW: MED-03 ta AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'மருந்து செயல்கள்',
+      'due_meds.actions.miss': 'தவறிய மருந்தளவாக பதிவு செய்',
+      'due_meds.actions.hold': 'மருந்தளவை நிறுத்தி வை',
+      'due_meds.actions.miss_title': 'இந்த மருந்தளவை தவறியதாக பதிவு செய்யவா?',
+      'due_meds.actions.hold_title': 'இந்த மருந்தளவை நிறுத்தி வைக்கவா?',
+      'due_meds.actions.miss_body': 'திட்டமிட்ட மருந்தளவு கொடுக்கப்படாதபோது மட்டும் பயன்படுத்தவும். மருத்துவ காரணம் MAR பதிவின் பகுதியாகும்.',
+      'due_meds.actions.hold_body': 'மருத்துவ மறுபரிசீலனை வரை திட்டமிட்ட மருந்தளவை இடைநிறுத்த மட்டும் பயன்படுத்தவும். இது மருந்து கொடுத்ததாக பதிவு செய்யாது.',
+      'due_meds.actions.reason_label': 'மருத்துவ காரணம்',
+      'due_meds.actions.reason_hint': 'குறைந்தது 5 எழுத்துகள் உள்ளிடவும்',
+      'due_meds.actions.reason_required':
+          'குறிப்பிட்ட மருத்துவ காரணத்தை உள்ளிடவும் (குறைந்தது 5 எழுத்துகள்).',
+      'due_meds.actions.cancel': 'ரத்து செய்',
+      'due_meds.actions.confirm_miss': 'தவறிய மருந்தளவை பதிவு செய்',
+      'due_meds.actions.confirm_hold': 'நிறுத்தி வை',
+      'due_meds.actions.miss_success': 'தவறிய மருந்தளவு பதிவு செய்யப்பட்டது',
+      'due_meds.actions.hold_success': 'மருந்தளவு நிறுத்தி வைக்கப்பட்டது',
       // REVIEW: ta AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'வார்டு {value}',
       'due_meds.unscheduled': 'அட்டவணையிடப்படாதது',
@@ -25014,6 +25129,33 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'ஸ்கேன் செய்யப்பட்ட பார்கோடு ஆணையிடப்பட்ட மருந்துடன் பொருந்தவில்லை (தவறான மருந்து).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'நோயாளர் மற்றும் மருந்து அடையாளப் பொருத்தமின்மையை மீற முடியாது. சரியான நோயாளியும் சரியான மருந்தும் உள்ளதா என உறுதிசெய்து, மீண்டும் ஸ்கேன் செய்யவும்.',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Tamil-fluent clinician.
+      'mar_scan.supply.title': 'வார்டு மருந்து வழங்கல் சான்று',
+      'mar_scan.supply.status.available': 'துல்லியமான வார்டு கையிருப்பு உள்ளது',
+      'mar_scan.supply.status.quantity_required':
+          'கட்டமைக்கப்பட்ட டோஸ் அளவு தேவை',
+      'mar_scan.supply.status.custody_unavailable': 'வார்டு கையிருப்பு இல்லை',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'மாற்று மருந்து பெறுதல் உறுதிப்படுத்தப்பட வேண்டும்',
+      'mar_scan.supply.status.order_link_required': 'மருந்து ஆணை இணைப்பு தேவை',
+      'mar_scan.supply.status.ward_item_required':
+          'வார்டு இண்டென்ட் இணைப்பு தேவை',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'வார்டு இண்டென்ட் இணைப்பு தெளிவற்றது',
+      'mar_scan.supply.status.reconciliation_required': 'வழங்கல் ஒப்புமை தேவை',
+      'mar_scan.supply.status.unknown': 'வழங்கல் நிலை கிடைக்கவில்லை',
+      'mar_scan.supply.available_quantity': 'கிடைக்கும் அளவு: {quantity}',
+      'mar_scan.supply.required_quantity': 'தேவையான டோஸ் அளவு: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · பேட்ச் {batch} · கிடைக்கும் {quantity}',
+      'mar_scan.supply.blocked': 'மருந்தகம் மற்றும் வார்டு வழங்கல் சான்று சரிசெய்யப்படும் வரை மருந்து வழங்க வேண்டாம்.',
+      'mar_scan.supply.quantity_label': 'கட்டமைக்கப்பட்ட டோஸ் அளவு',
+      'mar_scan.supply.override_reason_label': 'வழங்கல் மீறல் காரணம் (தேவை)',
+      'mar_scan.supply.override_warning': 'மீறல் ஒரு பெயரிடப்பட்ட ஒப்புமைப் பணியையும் மாற்ற முடியாத சான்றையும் உருவாக்கும்.',
+      'mar_scan.supply.quantity_error':
+          'பூஜ்ஜியத்தை விட அதிகமான டோஸ் அளவை உள்ளிடவும்.',
+      'mar_scan.supply.override_error': 'பொருள் உள்ள வழங்கல் மீறல் காரணத்தை எழுதவும் (குறைந்தது 15 எழுத்துகள்).',
+      'mar_scan.supply.hard_stop_error': 'வழங்கல் சான்று முழுமையற்றது அல்லது தெளிவற்றது. மருந்து வழங்கும் முன் ஒப்புமை செய்யவும்.',
       'biomed.work_orders.title': 'எனது பணி ஆணைகள்',
       'biomed.work_orders.started': 'பணி ஆணை தொடங்கியது',
       'biomed.work_orders.completed': 'பணி ஆணை நிறைவடைந்தது',
@@ -29073,6 +29215,23 @@ class AppStrings {
       'due_meds.filter.all_routes': 'అన్ని మార్గాలు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'మార్గం',
+      // REVIEW: MED-03 te AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'మందు చర్యలు',
+      'due_meds.actions.miss': 'డోస్ మిస్ అయినట్లు నమోదు చేయండి',
+      'due_meds.actions.hold': 'డోస్‌ను హోల్డ్‌లో ఉంచండి',
+      'due_meds.actions.miss_title': 'ఈ డోస్ మిస్ అయినట్లు నమోదు చేయాలా?',
+      'due_meds.actions.hold_title': 'ఈ డోస్‌ను హోల్డ్‌లో ఉంచాలా?',
+      'due_meds.actions.miss_body': 'షెడ్యూల్ చేసిన డోస్ ఇవ్వనప్పుడు మాత్రమే ఉపయోగించండి. వైద్య కారణం MAR రికార్డులో భాగమవుతుంది.',
+      'due_meds.actions.hold_body': 'వైద్య సమీక్ష వరకు షెడ్యూల్ చేసిన డోస్‌ను తాత్కాలికంగా ఆపడానికి మాత్రమే ఉపయోగించండి. ఇది మందు ఇచ్చినట్లు నమోదు చేయదు.',
+      'due_meds.actions.reason_label': 'వైద్య కారణం',
+      'due_meds.actions.reason_hint': 'కనీసం 5 అక్షరాలు నమోదు చేయండి',
+      'due_meds.actions.reason_required':
+          'నిర్దిష్ట వైద్య కారణాన్ని నమోదు చేయండి (కనీసం 5 అక్షరాలు).',
+      'due_meds.actions.cancel': 'రద్దు చేయండి',
+      'due_meds.actions.confirm_miss': 'మిస్ అయిన డోస్‌ను నమోదు చేయండి',
+      'due_meds.actions.confirm_hold': 'హోల్డ్‌లో ఉంచండి',
+      'due_meds.actions.miss_success': 'మిస్ అయిన డోస్ నమోదు చేయబడింది',
+      'due_meds.actions.hold_success': 'డోస్ హోల్డ్‌లో ఉంచబడింది',
       // REVIEW: te AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'వార్డు {value}',
       'due_meds.unscheduled': 'షెడ్యూల్ చేయబడలేదు',
@@ -32832,6 +32991,38 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'స్కాన్ చేసిన బార్‌కోడ్ ఆర్డర్ చేసిన మందుతో సరిపోలడం లేదు (తప్పు మందు).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'రోగి మరియు మందు గుర్తింపు సరిపోలకపోవడాన్ని ఓవర్‌రైడ్ చేయలేరు. సరైన రోగి మరియు సరైన మందు ఉన్నాయని నిర్ధారించుకుని, మళ్లీ స్కాన్ చేయండి.',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Telugu-fluent clinician.
+      'mar_scan.supply.title': 'వార్డు మందుల సరఫరా ఆధారం',
+      'mar_scan.supply.status.available':
+          'ఖచ్చితమైన వార్డు కస్టడీ అందుబాటులో ఉంది',
+      'mar_scan.supply.status.quantity_required':
+          'నిర్మిత మోతాదు పరిమాణం అవసరం',
+      'mar_scan.supply.status.custody_unavailable':
+          'వార్డు కస్టడీ అందుబాటులో లేదు',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'ప్రత్యామ్నాయ మందు స్వీకరణ ధృవీకరణ అవసరం',
+      'mar_scan.supply.status.order_link_required': 'మందు ఆర్డర్ లింక్ అవసరం',
+      'mar_scan.supply.status.ward_item_required': 'వార్డు ఇండెంట్ లింక్ అవసరం',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'వార్డు ఇండెంట్ లింక్ స్పష్టంగా లేదు',
+      'mar_scan.supply.status.reconciliation_required':
+          'సరఫరా సరిపోల్చడం అవసరం',
+      'mar_scan.supply.status.unknown': 'సరఫరా స్థితి అందుబాటులో లేదు',
+      'mar_scan.supply.available_quantity':
+          'అందుబాటులో ఉన్న పరిమాణం: {quantity}',
+      'mar_scan.supply.required_quantity': 'అవసరమైన మోతాదు పరిమాణం: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · బ్యాచ్ {batch} · అందుబాటులో {quantity}',
+      'mar_scan.supply.blocked':
+          'ఫార్మసీ మరియు వార్డు సరఫరా ఆధారం సరిచేసే వరకు మందు ఇవ్వవద్దు.',
+      'mar_scan.supply.quantity_label': 'నిర్మిత మోతాదు పరిమాణం',
+      'mar_scan.supply.override_reason_label': 'సరఫరా ఓవర్‌రైడ్ కారణం (అవసరం)',
+      'mar_scan.supply.override_warning': 'ఓవర్‌రైడ్ పేరుతో కూడిన సరిపోల్చే పనిని మరియు మార్చలేని ఆధారాన్ని సృష్టిస్తుంది.',
+      'mar_scan.supply.quantity_error':
+          'సున్నా కంటే ఎక్కువ నిర్మిత మోతాదు పరిమాణాన్ని నమోదు చేయండి.',
+      'mar_scan.supply.override_error':
+          'అర్థవంతమైన సరఫరా ఓవర్‌రైడ్ కారణాన్ని రాయండి (కనీసం 15 అక్షరాలు).',
+      'mar_scan.supply.hard_stop_error': 'సరఫరా ఆధారం అసంపూర్ణంగా లేదా అస్పష్టంగా ఉంది. మందు ఇచ్చే ముందు సరిపోల్చండి.',
       'biomed.work_orders.title': 'నా వర్క్ ఆర్డర్లు',
       'biomed.work_orders.started': 'వర్క్ ఆర్డర్ ప్రారంభమైంది',
       'biomed.work_orders.completed': 'వర్క్ ఆర్డర్ పూర్తయింది',
@@ -34917,6 +35108,30 @@ class AppStrings {
       'due_meds.held_badge': 'നിർത്തിവച്ചു',
       'due_meds.unknown_patient': 'അജ്ഞാത രോഗി',
       'due_meds.unnamed_medication': '(പേരില്ലാത്ത മരുന്ന്)',
+      // REVIEW: MED-03 ml AI first pass; Malayalam-fluent clinician-linguist approval is required before activation.
+      'due_meds.filter.all_wards': 'എല്ലാ വാർഡുകളും',
+      'due_meds.filter.all_routes': 'മരുന്ന് നൽകുന്ന എല്ലാ മാർഗങ്ങളും',
+      'due_meds.filter.route_label': 'മരുന്ന് നൽകുന്ന മാർഗം',
+      's4.dynamic.due_meds.ward_fallback': 'വാർഡ് {value}',
+      'due_meds.unscheduled': 'ഷെഡ്യൂൾ ചെയ്തിട്ടില്ല',
+      's4.dynamic.due_meds.due_late': '{value} വൈകി',
+      's4.dynamic.due_meds.due_in': '{value} കഴിഞ്ഞ്',
+      'due_meds.actions.label': 'മരുന്ന് നടപടികൾ',
+      'due_meds.actions.miss': 'ഡോസ് നൽകാതെ പോയതായി രേഖപ്പെടുത്തുക',
+      'due_meds.actions.hold': 'ഡോസ് നിർത്തിവയ്ക്കുക',
+      'due_meds.actions.miss_title': 'ഈ ഡോസ് നൽകാതെ പോയതായി രേഖപ്പെടുത്തണോ?',
+      'due_meds.actions.hold_title': 'ഈ ഡോസ് നിർത്തിവയ്ക്കണോ?',
+      'due_meds.actions.miss_body': 'ഷെഡ്യൂൾ ചെയ്ത ഡോസ് നൽകാതിരുന്നപ്പോൾ മാത്രം ഉപയോഗിക്കുക. ക്ലിനിക്കൽ കാരണം MAR രേഖയുടെ ഭാഗമാകും.',
+      'due_meds.actions.hold_body': 'ക്ലിനിക്കൽ പുനഃപരിശോധന വരെ ഷെഡ്യൂൾ ചെയ്ത ഡോസ് താൽക്കാലികമായി നിർത്താൻ മാത്രം ഉപയോഗിക്കുക. ഇത് മരുന്ന് നൽകിയതായി രേഖപ്പെടുത്തില്ല.',
+      'due_meds.actions.reason_label': 'ക്ലിനിക്കൽ കാരണം',
+      'due_meds.actions.reason_hint': 'കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ നൽകുക',
+      'due_meds.actions.reason_required':
+          'വ്യക്തമായ ക്ലിനിക്കൽ കാരണം നൽകുക (കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ).',
+      'due_meds.actions.cancel': 'റദ്ദാക്കുക',
+      'due_meds.actions.confirm_miss': 'നൽകാതെ പോയ ഡോസ് രേഖപ്പെടുത്തുക',
+      'due_meds.actions.confirm_hold': 'നിർത്തിവയ്ക്കുക',
+      'due_meds.actions.miss_success': 'നൽകാതെ പോയ ഡോസ് രേഖപ്പെടുത്തി',
+      'due_meds.actions.hold_success': 'ഡോസ് നിർത്തിവച്ചു',
       'mar_scan.title': 'മരുന്ന് നൽകൽ',
       'role.feature.patient_transport': 'രോഗി ഗതാഗതം',
       'role.feature.scheduling_workbench': 'ഷെഡ്യൂളിംഗ്',
@@ -35061,6 +35276,42 @@ class AppStrings {
       'mar_scan.scan_again': 'വീണ്ടും സ്കാൻ ചെയ്യുക',
       'mar_scan.try_again': 'വീണ്ടും ശ്രമിക്കുക',
       'mar_scan.unknown_medication': '(അജ്ഞാത മരുന്ന്)',
+      'mar_scan.hardstop.title': 'മരുന്ന് നൽകാനാകില്ല — വീണ്ടും സ്കാൻ ചെയ്യണം',
+      'mar_scan.hardstop.patient': 'സ്കാൻ ചെയ്ത റിസ്റ്റ്ബാൻഡ് ഈ ഓർഡറിലെ രോഗിയുമായി പൊരുത്തപ്പെടുന്നില്ല.',
+      'mar_scan.hardstop.drug':
+          'സ്കാൻ ചെയ്ത ബാർകോഡ് ഓർഡർ ചെയ്ത മരുന്നുമായി പൊരുത്തപ്പെടുന്നില്ല.',
+      'mar_scan.hardstop.body': 'രോഗിയുടെയോ മരുന്നിന്റെയോ തിരിച്ചറിയൽ പൊരുത്തക്കേട് ഓവർറൈഡ് ചെയ്യാനാകില്ല. ശരിയായ രോഗിയും മരുന്നുമാണെന്ന് ഉറപ്പാക്കി വീണ്ടും സ്കാൻ ചെയ്യുക.',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Malayalam-fluent clinician.
+      'mar_scan.supply.title': 'വാർഡ് മരുന്ന് വിതരണ തെളിവ്',
+      'mar_scan.supply.status.available': 'കൃത്യമായ വാർഡ് കസ്റ്റഡി ലഭ്യമാണ്',
+      'mar_scan.supply.status.quantity_required':
+          'ഘടനാബദ്ധമായ ഡോസ് അളവ് ആവശ്യമാണ്',
+      'mar_scan.supply.status.custody_unavailable': 'വാർഡ് കസ്റ്റഡി ലഭ്യമല്ല',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'പകരം മരുന്ന് സ്വീകരിച്ചതിന്റെ സ്ഥിരീകരണം ആവശ്യമാണ്',
+      'mar_scan.supply.status.order_link_required':
+          'മരുന്ന് ഓർഡർ ലിങ്ക് ആവശ്യമാണ്',
+      'mar_scan.supply.status.ward_item_required':
+          'വാർഡ് ഇൻഡന്റ് ലിങ്ക് ആവശ്യമാണ്',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'വാർഡ് ഇൻഡന്റ് ലിങ്ക് വ്യക്തമല്ല',
+      'mar_scan.supply.status.reconciliation_required':
+          'വിതരണ റീകൺസിലിയേഷൻ ആവശ്യമാണ്',
+      'mar_scan.supply.status.unknown': 'വിതരണ നില ലഭ്യമല്ല',
+      'mar_scan.supply.available_quantity': 'ലഭ്യമായ അളവ്: {quantity}',
+      'mar_scan.supply.required_quantity': 'ആവശ്യമായ ഡോസ് അളവ്: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · ബാച്ച് {batch} · ലഭ്യം {quantity}',
+      'mar_scan.supply.blocked':
+          'ഫാർമസി-വാർഡ് വിതരണ തെളിവ് ശരിയാക്കുന്നതുവരെ മരുന്ന് നൽകരുത്.',
+      'mar_scan.supply.quantity_label': 'ഘടനാബദ്ധമായ ഡോസ് അളവ്',
+      'mar_scan.supply.override_reason_label':
+          'വിതരണ ഓവർറൈഡിന്റെ കാരണം (നിർബന്ധം)',
+      'mar_scan.supply.override_warning': 'ഓവർറൈഡ് ഒരു പേരിട്ട റീകൺസിലിയേഷൻ ജോലിയും മാറ്റാനാകാത്ത തെളിവും സൃഷ്ടിക്കും.',
+      'mar_scan.supply.quantity_error':
+          'പൂജ്യത്തേക്കാൾ കൂടുതലുള്ള ഘടനാബദ്ധമായ ഡോസ് അളവ് നൽകുക.',
+      'mar_scan.supply.override_error': 'അർത്ഥവത്തായ വിതരണ ഓവർറൈഡ് കാരണം രേഖപ്പെടുത്തുക (കുറഞ്ഞത് 15 അക്ഷരങ്ങൾ).',
+      'mar_scan.supply.hard_stop_error': 'വിതരണ തെളിവ് അപൂർണ്ണമോ വ്യക്തമല്ലാത്തതോ ആണ്. മരുന്ന് നൽകുന്നതിന് മുമ്പ് റീകൺസൈൽ ചെയ്യുക.',
       'cds.blocker_title': 'കുറിപ്പടി തടഞ്ഞു',
       'cds.blocker_body':
           'ക്ലിനിക്കൽ ഡിസിഷൻ സപ്പോർട്ട് താഴെപ്പറയുന്ന പ്രശ്നങ്ങൾ കണ്ടെത്തി. ',

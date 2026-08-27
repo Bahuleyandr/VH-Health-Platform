@@ -166,6 +166,19 @@ const MANUAL_SEED_TABLES = new Set([
   // NL-7 P2 cold-chain units need a fridge-sensor device and an ordered
   // min/max temperature range before child readings/excursions can seed.
   'cold_chain_units',
+  // MED-03 medication closure is a single causal evidence graph. The generic
+  // FK walker cannot preserve exact order, batch, custody, MAR, invoice, and
+  // credit-note lineage across its append-only projections, so seed the
+  // complete synthetic lifecycle together below.
+  'ward_indent_inventory_allocations',
+  'ward_indent_inventory_movement_links',
+  'mar_administration_command_receipts',
+  'mar_transition_command_receipts',
+  'mar_supply_consumptions',
+  'mar_supply_reconciliation_links',
+  'ward_indent_financial_events',
+  'billing_credit_notes',
+  'billing_credit_note_events',
   // N6-12 mortuary slots enforce occupancy consistency: an available
   // slot cannot carry a current body reference.
   'mortuary_slots',
@@ -973,14 +986,110 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     signed_by: (ctx) => ctx.doctor.uid,
     signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
   },
+  // mig 744: MED-03 requires one coherent medication order to anchor the
+  // synthetic order -> ward-indent -> MAR -> inventory -> billing lineage.
+  // The generic CHECK literal picker can otherwise select a non-medication
+  // order and the database correctly rejects the MAR relationship.
+  clinical_orders: {
+    order_type: 'medication',
+    patient_uid: (ctx) => ctx.admissionPatientUid,
+    encounter_id: (ctx) => ctx.admissionEncounterId,
+    ordered_by: (ctx) => ctx.doctor.uid,
+  },
+  medication_administrations: {
+    tenant_id: (ctx) => ctx.tenantId,
+    patient_uid: (ctx) => ctx.admissionPatientUid,
+    clinical_order_id: async () => {
+      const row = await first(
+        'clinical_orders',
+        'id',
+        "tenant_id = $1::uuid AND order_type = 'medication'",
+        [DEFAULT_TENANT_ID],
+      );
+      return row?.id ?? null;
+    },
+    medication_name: 'Paracetamol 500 mg',
+    dosage: '500 mg',
+    route: 'oral',
+    scheduled_time: () => new Date('2026-05-04T09:00:00.000Z'),
+    administered_at: () => new Date('2026-05-04T09:01:00.000Z'),
+    administered_by: (ctx) => ctx.staff.uid,
+    status: 'administered',
+    notes: 'Synthetic MED-03 exact-batch matched administration.',
+    scanned_patient_uid: (ctx) => ctx.admissionPatientUid,
+    scanned_barcode: 'VH-SEED-MED03-PARA500',
+    rights_passed: JSON.stringify({ patient: true, medication: true, dose: true, route: true, time: true }),
+    all_rights_passed: true,
+    patient_scanned_at: () => new Date('2026-05-04T09:00:30.000Z'),
+    medication_scanned_at: () => new Date('2026-05-04T09:00:45.000Z'),
+    witness_uid: null,
+    hold_reason: null,
+    refusal_reason: null,
+    override_reason: null,
+    supply_quantity_per_dose: 1,
+  },
   ward_indents: {
     admission_id: (ctx) => ctx.admissionId,
     patient_uid: (ctx) => ctx.admissionPatientUid,
     encounter_id: (ctx) => ctx.admissionEncounterId,
     ward_id: (ctx) => ctx.wardId,
     requested_by: (ctx) => ctx.staff.uid,
+    status: 'reconciled',
+    state_version: 1,
+    approved_by: (ctx) => ctx.staff.uid,
+    approved_at: () => new Date('2026-05-04T08:30:00.000Z'),
+    issued_by: (ctx) => ctx.staff.uid,
+    issued_at: () => new Date('2026-05-04T08:40:00.000Z'),
+    received_by: (ctx) => ctx.staff.uid,
+    received_at: () => new Date('2026-05-04T08:50:00.000Z'),
+    return_requested_by: (ctx) => ctx.staff.uid,
+    return_requested_at: () => new Date('2026-05-04T11:00:00.000Z'),
+    reconciliation_reason: 'Two doses administered and one unused unit returned.',
+    reconciled_by: (ctx) => ctx.staff.uid,
+    reconciled_at: () => new Date('2026-05-04T11:15:00.000Z'),
+    rejection_reason: null,
+    short_supply_reason: null,
+    cancelled_by: null,
+    cancelled_at: null,
+    cancellation_reason: null,
+    closed_by: null,
+    closed_at: null,
+    closure_outcome: null,
+    closure_reason: null,
   },
   ward_indent_items: {
+    clinical_order_id: async () => {
+      const row = await first(
+        'clinical_orders',
+        'id',
+        "tenant_id = $1::uuid AND order_type = 'medication'",
+        [DEFAULT_TENANT_ID],
+      );
+      return row?.id ?? null;
+    },
+    quantity_requested: 3,
+    quantity_reserved: 3,
+    quantity_approved: 3,
+    quantity_issued: 3,
+    quantity_received: 3,
+    quantity_variance_resolved: 0,
+    quantity_return_requested: 1,
+    quantity_returned: 1,
+    fulfilment_status: 'reconciled',
+    unit_price: 1,
+    proposed_pharmacy_catalog_id: null,
+    proposed_item_name: null,
+    proposed_quantity: null,
+    substitution_status: null,
+    substitution_reason: null,
+    substitution_proposed_by: null,
+    substitution_proposed_at: null,
+    substitution_decided_by: null,
+    substitution_decided_at: null,
+    substitution_acknowledged_by: null,
+    substitution_acknowledged_at: null,
+    substitution_acknowledged_event_version: null,
+    controlled_reference_id: null,
     controlled_movement_id: null,
     controlled_register_id: null,
     controlled_return_movement_id: null,
@@ -989,6 +1098,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   ward_indent_events: {
     ward_indent_id: async () => firstTenantValue('ward_indents', 'id'),
     state_version: async () => firstTenantValue('ward_indents', 'state_version'),
+    action: 'synthetic_reconciled_snapshot',
     to_status: async () => firstTenantValue('ward_indents', 'status'),
     actor_uid: (ctx) => ctx.staff.uid,
     owner_role_codes: async () => firstTenantValue('ward_indents', 'owner_role_codes'),
@@ -4484,6 +4594,708 @@ async function seedInsuranceClaimCaps() {
   ]);
 }
 
+async function seedMedicationClosureEvidence() {
+  const evidenceTables = [
+    'ward_indent_inventory_allocations',
+    'ward_indent_inventory_movement_links',
+    'mar_administration_command_receipts',
+    'mar_transition_command_receipts',
+    'mar_supply_consumptions',
+    'mar_supply_reconciliation_links',
+    'ward_indent_financial_events',
+    'billing_credit_notes',
+    'billing_credit_note_events',
+  ];
+  const counts = [];
+  for (const table of evidenceTables) {
+    counts.push(await tableCount(table));
+  }
+  const marker = await first(
+    'ward_indent_financial_events',
+    'id',
+    'tenant_id = $1::uuid AND event_key = $2',
+    [DEFAULT_TENANT_ID, 'seed-med03-charge-v1'],
+  );
+  if (marker && counts.every((count) => count > 0)) return;
+  if (counts.some((count) => count > 0)) {
+    throw new Error(
+      'MED-03 synthetic evidence is partially populated; reset the synthetic database before reseeding',
+    );
+  }
+
+  const ctx = await getCoreRefs();
+  if (!ctx.staff?.uid) {
+    throw new Error('MED-03 synthetic evidence requires a staff actor');
+  }
+  const actorUid = ctx.staff.uid;
+  const lineageResult = await client.query(
+    `SELECT indent.id AS ward_indent_id,
+            indent.patient_uid,
+            indent.encounter_id,
+            indent.admission_id,
+            indent.state_version,
+            item.id AS ward_indent_item_id,
+            item.clinical_order_id,
+            item.pharmacy_catalog_id,
+            event.id AS ward_indent_event_id
+       FROM ward_indents indent
+       JOIN ward_indent_items item
+         ON item.tenant_id = indent.tenant_id
+        AND item.ward_indent_id = indent.id
+       JOIN ward_indent_events event
+         ON event.tenant_id = indent.tenant_id
+        AND event.ward_indent_id = indent.id
+        AND event.state_version = indent.state_version
+        AND event.to_status = indent.status
+      WHERE indent.tenant_id = $1::uuid
+        AND item.clinical_order_id IS NOT NULL
+      ORDER BY indent.id, item.id, event.id
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID],
+  );
+  const lineage = lineageResult.rows[0];
+  if (!lineage) {
+    throw new Error('MED-03 synthetic evidence requires an exact ward-indent medication order');
+  }
+
+  const patient = await first(
+    'users',
+    'uid, phone, name',
+    'tenant_id = $1::uuid AND uid = $2::uuid',
+    [DEFAULT_TENANT_ID, lineage.patient_uid],
+  );
+  let matchedAdministration = await first(
+    'medication_administrations',
+    'id',
+    `tenant_id = $1::uuid
+      AND patient_uid = $2::uuid
+      AND clinical_order_id = $3::int`,
+    [DEFAULT_TENANT_ID, lineage.patient_uid, lineage.clinical_order_id],
+  );
+  if (!patient) {
+    throw new Error('MED-03 synthetic evidence requires a matching patient fixture');
+  }
+  if (!matchedAdministration) {
+    const inserted = await client.query(
+      `INSERT INTO medication_administrations
+         (tenant_id, patient_uid, medication_name, dosage, route,
+          scheduled_time, administered_at, administered_by, status,
+          clinical_order_id, supply_quantity_per_dose, scanned_patient_uid,
+          scanned_barcode, patient_scanned_at, medication_scanned_at,
+          rights_passed, all_rights_passed, notes)
+       VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
+               '2026-05-04T09:00:00.000Z'::timestamptz,
+               '2026-05-04T09:01:00.000Z'::timestamptz,
+               $3::uuid, 'administered', $4::int, 1, $2::uuid,
+               'VH-SEED-MED03-PARA500',
+               '2026-05-04T09:00:30.000Z'::timestamptz,
+               '2026-05-04T09:00:45.000Z'::timestamptz,
+               '{"patient":true,"drug":true,"dose":true,"route":true,"time":true}'::jsonb,
+               TRUE, 'Synthetic MED-03 exact-custody administration.')
+       RETURNING id`,
+      [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
+    );
+    matchedAdministration = inserted.rows[0];
+  }
+
+  let inventoryItem = await first(
+    'pharmacy_inventory_items',
+    'id',
+    'tenant_id = $1::uuid AND sku_code = $2',
+    [DEFAULT_TENANT_ID, 'VH-SEED-MED03-PARA500'],
+  );
+  if (!inventoryItem) {
+    const inserted = await client.query(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, sku_code, display_name, generic_name, form, strength,
+          unit_label, status, catalog_id, metadata)
+       VALUES ($1::uuid, $2, 'Paracetamol 500 mg tablet', 'Paracetamol',
+               'tablet', '500 mg', 'tablet', 'active', $3::int,
+               '{"seed":true,"med_03":true}'::jsonb)
+       RETURNING id`,
+      [DEFAULT_TENANT_ID, 'VH-SEED-MED03-PARA500', lineage.pharmacy_catalog_id],
+    );
+    inventoryItem = inserted.rows[0];
+  }
+
+  let inventoryBatch = await first(
+    'pharmacy_inventory_batches',
+    'id',
+    'tenant_id = $1::uuid AND inventory_item_id = $2::int AND batch_number = $3',
+    [DEFAULT_TENANT_ID, inventoryItem.id, 'VH-SEED-MED03-BATCH-001'],
+  );
+  if (!inventoryBatch) {
+    const inserted = await client.query(
+      `INSERT INTO pharmacy_inventory_batches
+         (tenant_id, inventory_item_id, batch_number, lot_number, manufacture_date,
+          expiry_date, received_quantity, remaining_quantity, unit_cost_minor,
+          mrp_minor, status, metadata)
+       VALUES ($1::uuid, $2::int, $3, 'VH-SEED-MED03-LOT-001',
+               '2026-01-01'::date, '2027-12-31'::date, 10, 8, 100, 100,
+               'in_stock', '{"seed":true,"med_03":true}'::jsonb)
+       RETURNING id`,
+      [DEFAULT_TENANT_ID, inventoryItem.id, 'VH-SEED-MED03-BATCH-001'],
+    );
+    inventoryBatch = inserted.rows[0];
+  }
+
+  await client.query(
+    `INSERT INTO pharmacy_stock_movements
+       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes,
+        metadata, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, 'receive', 10,
+             'synthetic_opening_receipt', 'seed-med03-opening', $4::uuid,
+             'Synthetic MED-03 opening stock receipt.',
+             '{"seed":true,"med_03":true}'::jsonb,
+             '2026-05-04T08:00:00.000Z'::timestamptz)`,
+    [DEFAULT_TENANT_ID, inventoryItem.id, inventoryBatch.id, actorUid],
+  );
+
+  const allocationResult = await client.query(
+    `INSERT INTO ward_indent_inventory_allocations
+       (tenant_id, ward_indent_id, ward_indent_item_id, inventory_item_id,
+        inventory_batch_id, status, reserved_quantity, issued_quantity,
+        received_quantity, consumed_quantity, returned_quantity,
+        reservation_key, reserved_by, reserved_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::int, 'reserved',
+             3, 0, 0, 0, 0, 'seed-med03-reservation-v1', $6::uuid,
+             '2026-05-04T08:20:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.ward_indent_id,
+      lineage.ward_indent_item_id,
+      inventoryItem.id,
+      inventoryBatch.id,
+      actorUid,
+    ],
+  );
+  const allocationId = allocationResult.rows[0].id;
+
+  const issueMovement = await client.query(
+    `INSERT INTO pharmacy_stock_movements
+       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes,
+        metadata, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, 'issue', -3,
+             'ward_indent_item', $4::text, $5::uuid,
+             'Synthetic MED-03 exact-batch ward issue.',
+             '{"seed":true,"med_03":true}'::jsonb,
+             '2026-05-04T08:40:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      inventoryItem.id,
+      inventoryBatch.id,
+      String(lineage.ward_indent_item_id),
+      actorUid,
+    ],
+  );
+  await client.query(
+    `INSERT INTO ward_indent_inventory_movement_links
+       (tenant_id, allocation_id, stock_movement_id, movement_purpose,
+        quantity, ward_indent_state_version, command_key, linked_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, 'issue', 3, $4::int,
+             'seed-med03-issue-link-v1', $5::uuid,
+             '2026-05-04T08:40:00.000Z'::timestamptz)`,
+    [DEFAULT_TENANT_ID, allocationId, issueMovement.rows[0].id, lineage.state_version, actorUid],
+  );
+  await client.query(
+    `UPDATE ward_indent_inventory_allocations
+        SET received_quantity = 3,
+            updated_at = '2026-05-04T08:50:00.000Z'::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, allocationId],
+  );
+
+  await client.query(
+    `INSERT INTO mar_supply_consumptions
+       (tenant_id, medication_administration_id, clinical_order_id,
+        ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
+        quantity, evidence_status, administration_mode, command_key,
+        recorded_by, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
+             1, 'matched', 'online_scan', 'seed-med03-mar-matched-v1',
+             $7::uuid, '2026-05-04T09:01:00.000Z'::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      matchedAdministration.id,
+      lineage.clinical_order_id,
+      lineage.ward_indent_item_id,
+      allocationId,
+      inventoryBatch.id,
+      actorUid,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO mar_administration_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        command_key, request_body_sha256, administration_mode,
+        response_data, completed_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_administer_scan',
+             'seed-med03-mar-administer-scan-v1',
+             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+             'online_barcode_scan',
+             jsonb_build_object(
+               'id', $2::int,
+               'tenant_id', $1::text,
+               'status', 'administered',
+               'administered_by', $3::text,
+               'scanned_patient_uid', $4::text,
+               'scanned_barcode', 'VH-SEED-MED03-PARA500',
+               'supply_state', jsonb_build_object('status', 'matched', 'quantity', 1)
+             ),
+             '2026-05-04T09:01:00.000Z'::timestamptz)`,
+    [DEFAULT_TENANT_ID, matchedAdministration.id, actorUid, lineage.patient_uid],
+  );
+
+  const transitionAdministrations = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dosage, route, scheduled_time,
+        status, notes, hold_reason, held_by, held_at, missed_by, missed_at,
+        clinical_order_id, supply_quantity_per_dose)
+     VALUES
+       ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
+        '2026-05-04T11:00:00.000Z'::timestamptz, 'held',
+        'Synthetic MED-03 hold receipt.', 'Awaiting prescriber review.',
+        $3::uuid, '2026-05-04T10:55:00.000Z'::timestamptz,
+        NULL, NULL, $4::int, 1),
+       ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
+        '2026-05-04T12:00:00.000Z'::timestamptz, 'missed',
+        'Patient declined the synthetic dose.', NULL, NULL, NULL,
+        $3::uuid, '2026-05-04T12:30:00.000Z'::timestamptz,
+        $4::int, 1)
+     RETURNING id, status`,
+    [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
+  );
+  const heldAdministration = transitionAdministrations.rows.find((row) => row.status === 'held');
+  const missedAdministration = transitionAdministrations.rows.find((row) => row.status === 'missed');
+  await client.query(
+    `INSERT INTO mar_transition_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        transition_action, command_key, request_body_sha256, response_data,
+        completed_at)
+     VALUES
+       ($1::uuid, $2::int, $4::uuid, 'mar_hold', 'held',
+        'seed-med03-mar-hold-v1',
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        jsonb_build_object(
+          'id', $2::int, 'tenant_id', $1::text, 'status', 'held',
+          'held_by', $4::text, 'hold_reason', 'Awaiting prescriber review.'
+        ),
+        '2026-05-04T10:55:00.000Z'::timestamptz),
+       ($1::uuid, $3::int, $4::uuid, 'mar_miss', 'missed',
+        'seed-med03-mar-miss-v1',
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        jsonb_build_object(
+          'id', $3::int, 'tenant_id', $1::text, 'status', 'missed',
+          'missed_by', $4::text, 'notes', 'Patient declined the synthetic dose.'
+        ),
+        '2026-05-04T12:30:00.000Z'::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      heldAdministration.id,
+      missedAdministration.id,
+      actorUid,
+    ],
+  );
+
+  const overrideAdministration = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dosage, route, scheduled_time,
+        administered_at, administered_by, status, notes, clinical_order_id,
+        supply_quantity_per_dose, rights_passed, all_rights_passed)
+     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
+             '2026-05-04T10:00:00.000Z'::timestamptz,
+             '2026-05-04T10:05:00.000Z'::timestamptz, $3::uuid,
+             'administered',
+             'Synthetic downtime administration awaiting exact-batch reconciliation.',
+             $4::int, 1,
+             '{"patient":true,"medication":true,"dose":true,"route":true,"time":true}'::jsonb,
+             TRUE)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
+  );
+  const overrideAdministrationId = overrideAdministration.rows[0].id;
+
+  const marSlaId = randomUUID();
+  const marRule = await first(
+    'workflow_sla_rules',
+    'id',
+    `rule_code = 'ward_indent_mar_supply_reconciliation'
+      AND enabled = TRUE
+      AND (tenant_id IS NULL OR tenant_id = $1::uuid)
+      ORDER BY tenant_id NULLS LAST`,
+    [DEFAULT_TENANT_ID],
+  );
+  if (!marRule) {
+    throw new Error('MED-03 MAR reconciliation SLA rule is missing');
+  }
+  await client.query(
+    `INSERT INTO workflow_sla_instances
+       (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
+        source_table, source_id, status, priority, started_at, due_at,
+        assigned_role_codes, metadata)
+     VALUES ($1::uuid, $2::uuid, $3::uuid,
+             'ward_indent_mar_supply_reconciliation', $4::uuid, $5::uuid,
+             'medication_administrations', $6::text, 'active', 'critical',
+             '2026-05-04T10:05:00.000Z'::timestamptz,
+             '2026-05-04T10:35:00.000Z'::timestamptz,
+             ARRAY['PHARMACY_INCHARGE','NURSING_INCHARGE','IP_INCHARGE']::text[],
+             $7::jsonb)`,
+    [
+      marSlaId,
+      DEFAULT_TENANT_ID,
+      marRule.id,
+      lineage.patient_uid,
+      lineage.encounter_id,
+      String(overrideAdministrationId),
+      JSON.stringify({
+        med_03: true,
+        medication_administration_id: Number(overrideAdministrationId),
+        clinical_order_id: Number(lineage.clinical_order_id),
+        ward_indent_id: Number(lineage.ward_indent_id),
+        ward_indent_item_id: Number(lineage.ward_indent_item_id),
+      }),
+    ],
+  );
+  const marTask = await client.query(
+    `INSERT INTO tasks
+       (tenant_id, task_kind, title, description, patient_uid, encounter_id,
+        related_resource_type, related_resource_id, priority, status,
+        assigned_to_role, created_by, due_at, workflow_sla_instance_id,
+        sla_completion_semantics, stage_occurrence_key, metadata)
+     VALUES ($1::uuid, 'review', 'Reconcile MAR administration with ward custody',
+             'Match the synthetic downtime administration to exact received ward stock.',
+             $2::uuid, NULL, 'medication_administrations', $3::text,
+             'critical', 'open', 'PHARMACY_INCHARGE', $4::uuid,
+             '2026-05-04T10:35:00.000Z'::timestamptz, $5::uuid,
+             'domain_evidence', 'seed-med03-mar-supply-reconciliation-v1',
+             $6::jsonb)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.patient_uid,
+      String(overrideAdministrationId),
+      actorUid,
+      marSlaId,
+      JSON.stringify({
+        task_contract: 'ward_medication_obligation_v1',
+        med_03: true,
+        sla_key: 'ward_indent_mar_supply_reconciliation',
+        sla_instance_id: marSlaId,
+        canonical_encounter_id: lineage.encounter_id,
+        obligation_kind: 'mar_supply_reconciliation',
+        evidence_kind: 'mar_supply_reconciled',
+        medication_administration_id: Number(overrideAdministrationId),
+        clinical_order_id: Number(lineage.clinical_order_id),
+        ward_indent_id: Number(lineage.ward_indent_id),
+        ward_indent_item_id: Number(lineage.ward_indent_item_id),
+        override_reason: 'Synthetic downtime administration.',
+      }),
+    ],
+  );
+  const marTaskId = marTask.rows[0].id;
+  const unmatchedConsumption = await client.query(
+    `INSERT INTO mar_supply_consumptions
+       (tenant_id, medication_administration_id, clinical_order_id,
+        ward_indent_item_id, quantity, evidence_status, administration_mode,
+        command_key, recorded_by, override_reason, override_recorded_at,
+        reconciliation_task_id, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, 1,
+             'unmatched_override', 'downtime_reconciliation',
+             'seed-med03-mar-unmatched-v1', $5::uuid,
+             'Synthetic downtime administration required before batch evidence was available.',
+             '2026-05-04T10:05:00.000Z'::timestamptz, $6::int,
+             '2026-05-04T10:05:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      overrideAdministrationId,
+      lineage.clinical_order_id,
+      lineage.ward_indent_item_id,
+      actorUid,
+      marTaskId,
+    ],
+  );
+
+  const reconciliationAt = new Date('2026-05-04T10:06:00.000Z');
+  const reconciliation = await client.query(
+    `INSERT INTO mar_supply_reconciliation_links
+       (tenant_id, unmatched_consumption_id, clinical_order_id,
+        ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
+        quantity, command_key, reconciled_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, $4::int, $5::bigint, $6::int,
+             1, 'seed-med03-mar-reconciliation-v1', $7::uuid, $8::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      unmatchedConsumption.rows[0].id,
+      lineage.clinical_order_id,
+      lineage.ward_indent_item_id,
+      allocationId,
+      inventoryBatch.id,
+      actorUid,
+      reconciliationAt,
+    ],
+  );
+  const reconciliationEvidence = {
+    kind: 'mar_supply_reconciled',
+    resource_type: 'mar_supply_reconciliation_link',
+    resource_id: String(reconciliation.rows[0].id),
+    occurred_at: reconciliationAt.toISOString(),
+    recorded_at: reconciliationAt.toISOString(),
+  };
+  await client.query(
+    `UPDATE workflow_sla_instances
+        SET status = 'completed',
+            completed_at = $3::timestamptz,
+            metadata = metadata || $4::jsonb,
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::uuid`,
+    [
+      DEFAULT_TENANT_ID,
+      marSlaId,
+      reconciliationAt,
+      JSON.stringify({
+        completed_via: 'domain_evidence',
+        completed_by_task: String(marTaskId),
+        completed_by: actorUid,
+        completion_evidence: reconciliationEvidence,
+      }),
+    ],
+  );
+  await client.query(
+    `UPDATE tasks
+        SET status = 'completed',
+            assigned_to_uid = $3::uuid,
+            completed_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, marTaskId, actorUid, reconciliationAt],
+  );
+
+  const returnMovement = await client.query(
+    `INSERT INTO pharmacy_stock_movements
+       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes,
+        metadata, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, 'return', 1,
+             'ward_indent_item', $4::text, $5::uuid,
+             'Synthetic MED-03 unused ward unit return.',
+             '{"seed":true,"med_03":true}'::jsonb,
+             '2026-05-04T11:00:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      inventoryItem.id,
+      inventoryBatch.id,
+      String(lineage.ward_indent_item_id),
+      actorUid,
+    ],
+  );
+  await client.query(
+    `INSERT INTO ward_indent_inventory_movement_links
+       (tenant_id, allocation_id, stock_movement_id, movement_purpose,
+        quantity, ward_indent_state_version, command_key, linked_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, 'return', 1, $4::int,
+             'seed-med03-return-link-v1', $5::uuid,
+             '2026-05-04T11:00:00.000Z'::timestamptz)`,
+    [DEFAULT_TENANT_ID, allocationId, returnMovement.rows[0].id, lineage.state_version, actorUid],
+  );
+
+  const invoice = await client.query(
+    `INSERT INTO billing_invoices
+       (tenant_id, invoice_number, patient_uid, patient_phone, patient_name,
+        admission_id, invoice_type, subtotal, cgst_amount, sgst_amount,
+        igst_amount, discount_amount, total_amount, amount_paid, amount_due,
+        status, created_by, notes)
+     VALUES ($1::uuid, 'VH-SEED-MED03-INV-0001', $2::uuid, $3, $4,
+             $5::int, 'IP', 3, 0, 0, 0, 0, 3, 0, 3, 'DRAFT', $6::uuid,
+             'Synthetic MED-03 ward medication invoice.')
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.patient_uid,
+      patient.phone,
+      patient.name,
+      lineage.admission_id,
+      actorUid,
+    ],
+  );
+  const invoiceItem = await client.query(
+    `INSERT INTO billing_invoice_items
+       (tenant_id, invoice_id, service_code, description, category, quantity,
+        unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
+        igst_amount, line_total, source_ref_type, source_ref_id,
+        source_ref_active)
+     VALUES ($1::uuid, $2::int, 'MED03-PARA500',
+             'Paracetamol 500 mg ward supply', 'PHARMACY', 3, 1, 0, 3,
+             0, 0, 0, 3, 'ward_indent_item', $3::bigint, TRUE)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, invoice.rows[0].id, lineage.ward_indent_item_id],
+  );
+  const charge = await client.query(
+    `INSERT INTO ward_indent_financial_events
+       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+        ward_indent_event_id, ward_indent_state_version, event_kind,
+        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
+        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
+        occurred_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
+             'charge', 3, 100, 300, 'INR', $7::jsonb, NULL, $8::int,
+             $9::int, 'seed-med03-charge-v1', $10::uuid,
+             '2026-05-04T08:40:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.ward_indent_id,
+      lineage.ward_indent_item_id,
+      lineage.clinical_order_id,
+      lineage.ward_indent_event_id,
+      lineage.state_version,
+      JSON.stringify({ unit_price_minor: 100, currency: 'INR', seed: true, med_03: true }),
+      invoice.rows[0].id,
+      invoiceItem.rows[0].id,
+      actorUid,
+    ],
+  );
+  const credit = await client.query(
+    `INSERT INTO ward_indent_financial_events
+       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+        ward_indent_event_id, ward_indent_state_version, event_kind,
+        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
+        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
+        occurred_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
+             'credit', 1, 100, -100, 'INR', $7::jsonb, $8::bigint,
+             $9::int, $10::int, 'seed-med03-credit-v1', $11::uuid,
+             '2026-05-04T11:15:00.000Z'::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.ward_indent_id,
+      lineage.ward_indent_item_id,
+      lineage.clinical_order_id,
+      lineage.ward_indent_event_id,
+      lineage.state_version,
+      JSON.stringify({ unit_price_minor: 100, currency: 'INR', seed: true, med_03: true }),
+      charge.rows[0].id,
+      invoice.rows[0].id,
+      invoiceItem.rows[0].id,
+      actorUid,
+    ],
+  );
+  const creditNote = await client.query(
+    `INSERT INTO billing_credit_notes
+       (tenant_id, credit_note_number, invoice_id, patient_uid,
+        source_financial_event_id, amount_minor, currency, reason, status,
+        raised_by, raised_at)
+     VALUES ($1::uuid, 'VH-SEED-MED03-CN-0001', $2::int, $3::uuid,
+             $4::bigint, 100, 'INR', 'Unused exact-batch ward unit returned.',
+             'pending', $5::uuid, '2026-05-04T11:20:00.000Z'::timestamptz)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, invoice.rows[0].id, lineage.patient_uid, credit.rows[0].id, actorUid],
+  );
+  await client.query(
+    `INSERT INTO billing_credit_note_events
+       (tenant_id, credit_note_id, event_type, actor_uid, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::bigint, 'raised', $3::uuid,
+             'seed-med03-credit-note-raised-v1',
+             '{"seed":true,"med_03":true}'::jsonb,
+             '2026-05-04T11:20:00.000Z'::timestamptz)`,
+    [DEFAULT_TENANT_ID, creditNote.rows[0].id, actorUid],
+  );
+
+  const creditSlaId = randomUUID();
+  const creditRule = await first(
+    'workflow_sla_rules',
+    'id',
+    `rule_code = 'ward_indent_credit_note_review'
+      AND enabled = TRUE
+      AND (tenant_id IS NULL OR tenant_id = $1::uuid)
+      ORDER BY tenant_id NULLS LAST`,
+    [DEFAULT_TENANT_ID],
+  );
+  if (!creditRule) {
+    throw new Error('MED-03 credit-note review SLA rule is missing');
+  }
+  await client.query(
+    `INSERT INTO workflow_sla_instances
+       (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
+        source_table, source_id, status, priority, started_at, due_at,
+        assigned_role_codes, metadata)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, 'ward_indent_credit_note_review',
+             $4::uuid, $5::uuid, 'billing_credit_notes', $6::text,
+             'active', 'high', '2026-05-04T11:20:00.000Z'::timestamptz,
+             '2026-05-05T11:20:00.000Z'::timestamptz,
+             ARRAY['BILLING_INCHARGE','FINANCE_INCHARGE']::text[], $7::jsonb)`,
+    [
+      creditSlaId,
+      DEFAULT_TENANT_ID,
+      creditRule.id,
+      lineage.patient_uid,
+      lineage.encounter_id,
+      String(creditNote.rows[0].id),
+      JSON.stringify({
+        med_03: true,
+        credit_note_id: String(creditNote.rows[0].id),
+        ward_indent_id: Number(lineage.ward_indent_id),
+        invoice_id: Number(invoice.rows[0].id),
+      }),
+    ],
+  );
+  const creditTask = await client.query(
+    `INSERT INTO tasks
+       (tenant_id, task_kind, title, description, patient_uid, encounter_id,
+        related_resource_type, related_resource_id, priority, status,
+        assigned_to_role, created_by, due_at, workflow_sla_instance_id,
+        sla_completion_semantics, stage_occurrence_key, metadata)
+     VALUES ($1::uuid, 'review', 'Review ward medication credit note',
+             'Approve or reject the synthetic append-only original-price credit.',
+             $2::uuid, NULL, 'billing_credit_notes', $3::text,
+             'high', 'open', 'BILLING_INCHARGE', $4::uuid,
+             '2026-05-05T11:20:00.000Z'::timestamptz, $5::uuid,
+             'domain_evidence', 'seed-med03-credit-note-review-v1', $6::jsonb)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      lineage.patient_uid,
+      String(creditNote.rows[0].id),
+      actorUid,
+      creditSlaId,
+      JSON.stringify({
+        task_contract: 'ward_medication_obligation_v1',
+        med_03: true,
+        sla_key: 'ward_indent_credit_note_review',
+        sla_instance_id: creditSlaId,
+        canonical_encounter_id: lineage.encounter_id,
+        obligation_kind: 'credit_note_review',
+        evidence_kind: 'billing_credit_note_decision',
+        credit_note_id: String(creditNote.rows[0].id),
+        ward_indent_id: Number(lineage.ward_indent_id),
+        ward_indent_item_id: Number(lineage.ward_indent_item_id),
+        invoice_id: Number(invoice.rows[0].id),
+        source_financial_event_id: String(credit.rows[0].id),
+      }),
+    ],
+  );
+  await client.query(
+    `UPDATE billing_credit_notes
+        SET task_id = $3::int,
+            updated_at = '2026-05-04T11:20:00.000Z'::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, creditNote.rows[0].id, creditTask.rows[0].id],
+  );
+}
+
 // Explicit seed for the double-entry ledger (migrations 343/344). The
 // auto-seeder is excluded from ledger_entries/ledger_postings (see
 // MANUAL_SEED_TABLES) because it would insert a single unbalanced posting,
@@ -6386,6 +7198,7 @@ try {
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();
+  await seedMedicationClosureEvidence();
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();

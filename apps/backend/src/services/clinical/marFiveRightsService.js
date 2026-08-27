@@ -23,15 +23,24 @@
 //              (±60 minutes by default). If scheduled_time is null we treat
 //              `time` as a pass (SOS/STAT/unscheduled admins).
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import logger from '../../logging/logger.js';
 import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
 } from './canonicalClinicalPlatformService.js';
-import { duplicateAdministrationError } from './marService.js';
+import {
+  duplicateAdministrationError,
+  MAR_ADMINISTRATION_MODES,
+} from './marService.js';
+import { consumeMarSupplyTx } from './marSupplyService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  finaliseMarHttpIdempotencyTx,
+  findMarAdministrationCommandReplayTx,
+  fingerprintMarAdministrationRequest,
+  recordMarAdministrationCommandReceiptTx,
+} from './marAdministrationCommandService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
 
@@ -43,68 +52,83 @@ function _norm(s) {
  * Compute the 5-rights result for a medication_administrations row.
  * Does not write anything.
  */
-export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes = DEFAULT_WINDOW_MINUTES, at = null }) {
+export async function evaluate5Rights({
+  ma_id,
+  scanned_patient_uid,
+  scanned_barcode,
+  tenantId,
+  windowMinutes = DEFAULT_WINDOW_MINUTES,
+  at = null,
+}) {
   if (!ma_id) throw AppError.badRequest('ma_id is required');
   if (!scanned_patient_uid) throw AppError.badRequest('scanned_patient_uid is required');
   if (!scanned_barcode) throw AppError.badRequest('scanned_barcode is required');
+  const tid = requireTenantId(tenantId);
 
   // Offline-MAR: when a bedside administration time is supplied (a dose given
   // offline at T but drained later), the right-time must be evaluated against
   // that real bedside time T — NOT drain-time NOW() — so an offline dose isn't
   // spuriously time-rejected. Default (online) path is unchanged: CURRENT_TIMESTAMP.
   const atExpr = at ? '$2::timestamptz' : "(CURRENT_TIMESTAMP AT TIME ZONE current_setting('TimeZone'))";
-  const params = at ? [ma_id, at] : [ma_id];
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, medication_name, dose, dosage, route,
-            scheduled_time, status, tenant_id,
-            CASE
-              WHEN scheduled_time IS NULL THEN NULL
-              ELSE ROUND(
-                EXTRACT(EPOCH FROM (
-                  ${atExpr} - scheduled_time
-                )) / 60
-              )::int
-            END AS minutes_from_scheduled
-       FROM medication_administrations
-      WHERE id = $1`,
-    ...params,
-  );
-  if (rows.length === 0) throw AppError.notFound('Medication administration record not found');
-  const ma = rows[0];
+  const params = at ? [ma_id, at, tid] : [ma_id, tid];
+  return setTenantTx(tid, async (tx) => {
+    const tenantParam = at ? '$3::uuid' : '$2::uuid';
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+              scheduled_time, status, tenant_id::text, clinical_order_id,
+              supply_quantity_per_dose,
+              CASE
+                WHEN scheduled_time IS NULL THEN NULL
+                ELSE ROUND(
+                  EXTRACT(EPOCH FROM (
+                    ${atExpr} - scheduled_time
+                  )) / 60
+                )::int
+              END AS minutes_from_scheduled
+         FROM medication_administrations
+        WHERE id = $1
+          AND tenant_id = ${tenantParam}`,
+      ...params,
+    );
+    if (rows.length === 0) throw AppError.notFound('Medication administration record not found');
+    const ma = rows[0];
 
-  if (ma.status !== 'scheduled' && ma.status !== 'held') {
-    throw AppError.conflict(`Cannot verify — status is ${ma.status}`);
-  }
+    if (ma.status !== 'scheduled' && ma.status !== 'held') {
+      throw AppError.conflict(`Cannot verify — status is ${ma.status}`);
+    }
 
-  const rightPatient = _norm(ma.patient_uid) === _norm(scanned_patient_uid);
+    const rightPatient = _norm(ma.patient_uid) === _norm(scanned_patient_uid);
 
-  const medName = ma.medication_name || '';
-  let drugMatchMode = null;
-  let rightDrug =
-    _norm(medName).length > 0 &&
-    (_norm(medName).includes(_norm(scanned_barcode))
-      || _norm(scanned_barcode).includes(_norm(medName)));
-  if (rightDrug) drugMatchMode = 'name';
+    const medName = ma.medication_name || '';
+    let drugMatchMode = null;
+    let rightDrug =
+      _norm(medName).length > 0 &&
+      (_norm(medName).includes(_norm(scanned_barcode))
+        || _norm(scanned_barcode).includes(_norm(medName)));
+    if (rightDrug) drugMatchMode = 'name';
 
   // B1 — platform med-pack barcode (pharmacy_orders.pack_barcode, issued at
   // dispense). An exact pack match for the SAME patient whose item list
   // carries this medication beats substring name matching. Best-effort:
   // lookup failure falls back to the name verdict above.
-  if (!rightDrug && /^vhmp-/i.test(String(scanned_barcode || ''))) {
-    try {
-      const packRows = await prisma.$queryRawUnsafe(
+    if (!rightDrug && /^vhmp-/i.test(String(scanned_barcode || ''))) {
+      const packRows = await tx.$queryRawUnsafe(
         `SELECT po.id
            FROM pharmacy_orders po
-           JOIN users u ON u.id = po.patient_id
-          WHERE UPPER(po.pack_barcode) = UPPER($1)
-            AND u.uid = $2::uuid
+           JOIN users u
+             ON u.tenant_id = po.tenant_id
+            AND u.id = po.patient_id
+          WHERE po.tenant_id = $1::uuid
+            AND UPPER(po.pack_barcode) = UPPER($2)
+            AND u.uid = $3::uuid
             AND EXISTS (
                   SELECT 1
                     FROM jsonb_array_elements(COALESCE(po.items_list, '[]'::jsonb)) item
-                   WHERE lower(COALESCE(item->>'name', item->>'medication_name', '')) LIKE '%' || lower($3) || '%'
-                      OR lower($3) LIKE '%' || lower(COALESCE(item->>'name', item->>'medication_name', '~none~')) || '%'
+                   WHERE lower(COALESCE(item->>'name', item->>'medication_name', '')) LIKE '%' || lower($4) || '%'
+                      OR lower($4) LIKE '%' || lower(COALESCE(item->>'name', item->>'medication_name', '~none~')) || '%'
                 )
           LIMIT 1`,
+        tid,
         scanned_barcode,
         ma.patient_uid,
         medName,
@@ -113,51 +137,50 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
         rightDrug = true;
         drugMatchMode = 'pack_barcode';
       }
-    } catch (err) {
-      logger.warn('Pack-barcode drug-right lookup failed (falling back to name match)', {
-        error: err?.message || String(err),
-      });
     }
-  }
 
-  const rightDose = Boolean(ma.dose || ma.dosage);
-  const rightRoute = Boolean(ma.route);
+    const rightDose = Boolean(ma.dose || ma.dosage);
+    const rightRoute = Boolean(ma.route);
 
-  let rightTime = true;
-  let minutesFromScheduled = null;
-  if (ma.scheduled_time) {
-    minutesFromScheduled = Number(ma.minutes_from_scheduled ?? 0);
-    rightTime = Math.abs(minutesFromScheduled) <= windowMinutes;
-  }
+    let rightTime = true;
+    let minutesFromScheduled = null;
+    if (ma.scheduled_time) {
+      minutesFromScheduled = Number(ma.minutes_from_scheduled ?? 0);
+      rightTime = Math.abs(minutesFromScheduled) <= windowMinutes;
+    }
 
-  const rights = {
-    patient: rightPatient,
-    drug:    rightDrug,
-    dose:    rightDose,
-    route:   rightRoute,
-    time:    rightTime,
-  };
-  const allPassed = Object.values(rights).every(Boolean);
+    const rights = {
+      patient: rightPatient,
+      drug: rightDrug,
+      dose: rightDose,
+      route: rightRoute,
+      time: rightTime,
+    };
+    const allPassed = Object.values(rights).every(Boolean);
 
-  return {
-    ma: {
-      id: ma.id,
-      patient_uid: ma.patient_uid,
-      medication_name: ma.medication_name,
-      dose: ma.dose || ma.dosage || null,
-      route: ma.route,
-      scheduled_time: ma.scheduled_time,
-      status: ma.status,
-      tenant_id: ma.tenant_id,
-    },
-    rights,
-    allPassed,
-    context: {
-      minutesFromScheduled,
-      windowMinutes,
-      drugMatchMode,
-    },
-  };
+    return {
+      ma: {
+        id: ma.id,
+        patient_uid: ma.patient_uid,
+        medication_name: ma.medication_name,
+        dose: ma.dose || ma.dosage || null,
+        route: ma.route,
+        scheduled_time: ma.scheduled_time,
+        status: ma.status,
+        tenant_id: ma.tenant_id,
+        clinical_order_id: ma.clinical_order_id,
+        supply_quantity_per_dose: ma.supply_quantity_per_dose == null
+          ? null : Number(ma.supply_quantity_per_dose),
+      },
+      rights,
+      allPassed,
+      context: {
+        minutesFromScheduled,
+        windowMinutes,
+        drugMatchMode,
+      },
+    };
+  }, { readOnly: true });
 }
 
 /**
@@ -185,20 +208,70 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
  *   run inside setTenantTx(tenantId) so they are provably tenant-isolated.
  * @param {number} [params.windowMinutes] right-time tolerance
  */
-export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES, administeredAt = null }) {
-  // Offline-MAR: an optional bedside administration time (the real time a dose
-  // was given offline). When present it is bounded — a bad client clock must not
-  // corrupt the MAR. Absent → null → the online path falls through to NOW() below.
-  let admAt = null;
-  if (administeredAt) {
-    const t = new Date(administeredAt);
-    if (Number.isNaN(t.getTime())) throw AppError.badRequest('administered_at is not a valid time');
-    const skewMs = Date.now() - t.getTime();
-    // Not in the future (allow 60s clock skew); not older than 12h (a long offline window).
-    if (skewMs < -60_000 || skewMs > 12 * 3600_000) throw AppError.badRequest('administered_at is out of the accepted range');
-    admAt = t.toISOString();
+export async function administerWithScan({
+  ma_id,
+  scanned_patient_uid,
+  scanned_barcode,
+  administeredBy,
+  overrideReason = null,
+  supplyOverrideReason = null,
+  supplyQuantity = null,
+  commandKey = null,
+  requestFingerprint = null,
+  httpIdempotencyClaimId = null,
+  requestId = null,
+  tenantId = null,
+  windowMinutes = DEFAULT_WINDOW_MINUTES,
+  administeredAt = null,
+}) {
+  if (administeredAt != null && administeredAt !== '') {
+    throw AppError.badRequest(
+      'Online barcode administration cannot accept a retrospective administered_at; use the governed paper reconciliation workflow',
+      'MAR_RETROSPECTIVE_PATH_REQUIRED',
+    );
   }
-  const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes, at: admAt });
+  const tid = requireTenantId(tenantId);
+  const commandIdentity = commandKey ? {
+    tenantId: tid,
+    medicationAdministrationId: ma_id,
+    actorUid: administeredBy,
+    commandScope: 'mar_administer_scan',
+    commandKey,
+    requestBodySha256: requestFingerprint || fingerprintMarAdministrationRequest({
+      scanned_patient_uid,
+      scanned_barcode,
+      override_reason: overrideReason,
+      supply_override_reason: supplyOverrideReason,
+      supply_quantity: supplyQuantity,
+    }),
+    administrationMode: MAR_ADMINISTRATION_MODES.ONLINE_BARCODE_SCAN,
+  } : null;
+
+  const finaliseHttpTx = (tx, responseData) => finaliseMarHttpIdempotencyTx(tx, {
+    claimId: httpIdempotencyClaimId,
+    tenantId: tid,
+    actorUid: administeredBy,
+    commandKey,
+    requestBodySha256: commandIdentity?.requestBodySha256,
+    responseData,
+    requestId,
+  });
+
+  if (commandIdentity) {
+    const replay = await setTenantTx(tid, async (tx) => {
+      const existing = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+      if (existing) await finaliseHttpTx(tx, existing);
+      return existing;
+    });
+    if (replay) return replay;
+  }
+  const evaluation = await evaluate5Rights({
+    ma_id,
+    scanned_patient_uid,
+    scanned_barcode,
+    tenantId: tid,
+    windowMinutes,
+  });
 
   // Wrong-patient / wrong-drug HARD-STOP (audit 2026-06-22 F-H1). This endpoint
   // ALWAYS carries a scan (scanned_patient_uid + scanned_barcode are required),
@@ -254,12 +327,15 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
   // Prefer the threaded tenant (req.tenantId — the canonical source), fall back
   // to the MA row's tenant_id surfaced by evaluate5Rights, then the single-tenant
   // floor. The UPDATE + canonical audit run inside setTenantTx so the
-  // tenant_isolation policy (migrations 239/304, FORCE) applies to both — a bare
-  // prisma.$queryRawUnsafe leaves the GUC unset and falls through to the policy's
-  // permissive branch (i.e. not provably tenant-scoped).
-  const tid = requireTenantId(tenantId || evaluation.ma?.tenant_id);
-
+  // tenant_isolation policy (migrations 239/304, FORCE) applies to both.
   const record = await setTenantTx(tid, async (tx) => {
+    if (commandIdentity) {
+      const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+      if (replay) {
+        await finaliseHttpTx(tx, replay);
+        return replay;
+      }
+    }
     // Concurrency guard (mirrors marService.recordMedicationAdministrationTx).
     // evaluate5Rights read the row UNLOCKED and OUTSIDE this tx to compute the
     // rights verdict; that read is not a safe basis for the state flip. Lock the
@@ -268,7 +344,9 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     // first commits, then sees status='administered' and is rejected instead of
     // silently overwriting the first administration on the single physical row.
     const lockedRows = await tx.$queryRawUnsafe(
-      `SELECT id, status
+      `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+              scheduled_time, status, tenant_id::text, clinical_order_id,
+              supply_quantity_per_dose
          FROM medication_administrations
         WHERE id = $1 AND tenant_id = $2::uuid
         FOR UPDATE`,
@@ -278,30 +356,48 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     const locked = lockedRows[0];
     if (!locked) throw AppError.notFound('Medication administration record not found');
     if (!['scheduled', 'held'].includes(String(locked.status || '').toLowerCase())) {
+      if (commandIdentity) {
+        const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+        if (replay) {
+          await finaliseHttpTx(tx, replay);
+          return replay;
+        }
+      }
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
+
+    const supply = await consumeMarSupplyTx(tx, {
+      tenantId: tid,
+      administration: locked,
+      recordedBy: administeredBy,
+      administrationMode: MAR_ADMINISTRATION_MODES.ONLINE_BARCODE_SCAN,
+      commandKey,
+      supplyQuantity,
+      supplyOverrideReason,
+    });
 
     let rows;
     try {
       rows = await tx.$queryRawUnsafe(
         `UPDATE medication_administrations
            SET status                = 'administered',
-               administered_at       = COALESCE($9::timestamptz, NOW()),
+               administered_at       = NOW(),
                administered_by       = $2::uuid,
                scanned_patient_uid   = $3::uuid,
                scanned_barcode       = $4,
                rights_passed         = $5::jsonb,
                all_rights_passed     = $6,
                override_reason       = $7,
-               patient_scanned_at    = COALESCE($9::timestamptz, NOW()),
-               medication_scanned_at = COALESCE($9::timestamptz, NOW())
+               patient_scanned_at    = NOW(),
+               medication_scanned_at = NOW()
          WHERE id = $1 AND tenant_id = $8::uuid
            AND lower(status) IN ('scheduled', 'held')
          RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                    status, notes, tenant_id, created_at, updated_at,
                    administered_at, administered_by, rights_passed,
                    all_rights_passed, override_reason,
-                   patient_scanned_at, medication_scanned_at`,
+                   patient_scanned_at, medication_scanned_at,
+                   clinical_order_id, supply_quantity_per_dose`,
         ma_id,
         administeredBy,
         scanned_patient_uid,
@@ -310,7 +406,6 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
         evaluation.allPassed,
         overrideReason,
         tid,
-        admAt,
       );
     } catch (err) {
       // A sibling MAR row for the same dose already administered trips the
@@ -328,7 +423,7 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
 
-    const updated = rows[0];
+    const updated = { ...rows[0], supply_state: supply };
     if (updated?.id && overrideReason && !evaluation.allPassed) {
       // Canonical invariant item 5 (docs/CANONICAL_CLINICAL_TIMELINE.md): an
       // override of a failed medication-safety check must persist
@@ -405,6 +500,7 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
           patient_scanned_at: updated.patient_scanned_at || null,
           medication_scanned_at: updated.medication_scanned_at || null,
           scanner_used: true,
+          mar_supply: supply,
         },
         // The audit row's metadata column is sourced from `metadata` (the
         // timeline's payload is separate), so carry the override facts here too
@@ -427,7 +523,15 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
         auditIdempotencyKey: `medication_administrations:${updated.id}:audit:mar.administered:scan:${updated.administered_at?.toISOString?.() || Date.now()}`,
       }, { db: tx });
     }
-    return updated;
+    let committedResponse = updated;
+    if (commandIdentity) {
+      committedResponse = await recordMarAdministrationCommandReceiptTx(tx, {
+        ...commandIdentity,
+        responseData: updated,
+      });
+      await finaliseHttpTx(tx, committedResponse);
+    }
+    return committedResponse;
   });
 
   return record;

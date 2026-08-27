@@ -9,7 +9,22 @@ import {
   recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
-import { createTask } from '../workflow/taskService.js';
+import {
+  appendWardIndentChargeEventsTx,
+  appendWardIndentCreditEventsTx,
+  issueWardIndentInventoryTx,
+  linkControlledWardIndentMovementTx,
+  loadWardIndentMedicationClosureTx,
+  receiveWardIndentInventoryTx,
+  releaseWardIndentReservationsTx,
+  reserveWardIndentInventoryTx,
+  returnWardIndentInventoryTx,
+} from './wardIndentMedicationClosureService.js';
+import {
+  completeWardIndentStateObligationTx,
+  materializeWardIndentStateObligationTx,
+  reconcileWardIndentNotificationCoverageTx,
+} from './wardIndentObligationService.js';
 
 const PHARMACY_OWNERS = [
   ROLES.PHARMACY_STAFF,
@@ -88,13 +103,6 @@ export const WARD_INDENT_STATE_CONTRACT = Object.freeze({
   closed: { ownerRoles: [], slaRuleCode: null, terminal: true },
 });
 
-const RESERVATION_STATUSES = [
-  'reserved',
-  'short_supply',
-  'substitution_pending',
-  'controlled_handoff_required',
-  'approved',
-];
 const CONTROLLED_SCHEDULES = new Set(['H', 'H1', 'X']);
 const RECONCILIATION_DISPOSITIONS = new Set([
   'transit_shortage',
@@ -186,14 +194,19 @@ function itemEntryMap(entries, valueField, currentItems, {
 
 async function lockWardIndent(tx, indentId, tenantId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT id, tenant_id, indent_number, status, state_version,
-            patient_uid, encounter_id, admission_id, ward_id, ward_name,
-            indent_type, requested_by, approved_by, issued_by, received_by,
-            owner_role_codes
-       FROM ward_indents
-      WHERE id = $1::int
-        AND tenant_id = $2::uuid
-      FOR UPDATE`,
+    `SELECT indent.id, indent.tenant_id, indent.indent_number, indent.status,
+            indent.state_version, indent.patient_uid, indent.encounter_id,
+            indent.admission_id, indent.ward_id, indent.ward_name,
+            indent.indent_type, indent.requested_by, indent.approved_by,
+            indent.issued_by, indent.received_by, indent.owner_role_codes,
+            ward.facility_id
+       FROM ward_indents indent
+       LEFT JOIN wards ward
+         ON ward.tenant_id = indent.tenant_id
+        AND ward.id = indent.ward_id
+      WHERE indent.id = $1::int
+        AND indent.tenant_id = $2::uuid
+      FOR UPDATE OF indent`,
     positiveInt(indentId, 'indentId'),
     tenantId,
   );
@@ -205,6 +218,7 @@ async function lockWardIndent(tx, indentId, tenantId) {
   if (!indent || String(indent.tenant_id) !== String(tenantId)) {
     throw AppError.notFound('Ward indent not found');
   }
+  indent.facility_id = rows[0].facility_id == null ? null : Number(rows[0].facility_id);
   return indent;
 }
 
@@ -307,6 +321,20 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
     include: { items: { orderBy: { id: 'asc' } } },
   });
   if (!indent) return null;
+  const facilityRows = indent.ward_id == null
+    ? []
+    : await tx.$queryRawUnsafe(
+      `SELECT facility_id
+         FROM wards
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1`,
+      tenantId,
+      Number(indent.ward_id),
+    );
+  indent.facility_id = facilityRows[0]?.facility_id == null
+    ? null
+    : Number(facilityRows[0].facility_id);
   const events = await tx.ward_indent_events.findMany({
     where: { tenant_id: tenantId, ward_indent_id: Number(indentId) },
     orderBy: { state_version: 'desc' },
@@ -326,6 +354,7 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
     tx,
     indent,
   );
+  const medicationClosure = await loadWardIndentMedicationClosureTx(tx, tenantId, indentId);
   return {
     ...indent,
     workflow: {
@@ -339,6 +368,7 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
           reference_id: item.controlled_reference_id,
         })),
       pending_controlled_handoff_evidence: pendingControlledHandoffEvidence,
+      medication_closure: medicationClosure,
     },
   };
 }
@@ -479,7 +509,7 @@ async function appendTransitionEvidence(tx, {
   commandKey = null,
   details = {},
 }) {
-  await tx.ward_indent_events.create({
+  const event = await tx.ward_indent_events.create({
     data: {
       tenant_id: after.tenant_id,
       ward_indent_id: after.id,
@@ -495,7 +525,7 @@ async function appendTransitionEvidence(tx, {
     },
   });
 
-  if (!after.patient_uid) return;
+  if (!after.patient_uid) return event;
   await recordCanonicalClinicalEvent({
     tenantId: after.tenant_id,
     patientUid: String(after.patient_uid),
@@ -535,6 +565,7 @@ async function appendTransitionEvidence(tx, {
     timelineIdempotencyKey: `ward_indents:${after.id}:transition:${after.state_version}`,
     auditIdempotencyKey: `ward_indents:${after.id}:audit:transition:${after.state_version}`,
   }, { db: tx, strict: true });
+  return event;
 }
 
 async function applyTransition({
@@ -592,7 +623,7 @@ async function applyTransition({
       },
       include: { items: { orderBy: { id: 'asc' } } },
     });
-    await appendTransitionEvidence(tx, {
+    const event = await appendTransitionEvidence(tx, {
       before: current,
       after: updated,
       action,
@@ -601,96 +632,102 @@ async function applyTransition({
       commandKey,
       details: outcome.details || {},
     });
+    if (typeof outcome.afterEvidence === 'function') {
+      await outcome.afterEvidence({ tx, before: current, after: updated, event });
+    }
+    await completeWardIndentStateObligationTx(tx, {
+      before: current,
+      after: updated,
+      event,
+      actorUid: cleanActorUid,
+    });
     await rotateSla(tx, current, updated, action);
+    await reconcileWardIndentNotificationCoverageTx(tx, {
+      tenantId: tid,
+      indent: updated,
+      actorUid: cleanActorUid,
+    });
+    await materializeWardIndentStateObligationTx(tx, {
+      indent: updated,
+      event,
+      actorUid: cleanActorUid,
+    });
     return loadWardIndentWorkflow(tx, current.id, tid);
   });
 }
 
-async function classifyCatalogControl(tx, tenantId, catalogIds) {
+async function assertCatalogInventoryMappings(tx, tenantId, facilityId, catalogIds) {
   const ids = [...new Set(catalogIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
-  if (!ids.length) return new Map();
+  if (!ids.length) return;
   const rows = await tx.$queryRawUnsafe(
     `SELECT pc.id AS catalog_id,
-            COUNT(item.id)::int AS linked_item_count,
-            COALESCE(
-              BOOL_OR(item.schedule_class IN ('H', 'H1', 'X') OR item.is_narcotic = TRUE),
-              FALSE
-            ) AS is_controlled
+            COUNT(item.id)::int AS linked_item_count
        FROM pharmacy_catalog pc
        LEFT JOIN pharmacy_inventory_items item
          ON item.tenant_id = pc.tenant_id
-        AND item.catalog_id = pc.id
+         AND item.catalog_id = pc.id
+         AND item.status = 'active'
+         AND (
+           ($3::int IS NULL AND item.facility_id IS NULL)
+           OR
+           ($3::int IS NOT NULL AND (item.facility_id IS NULL OR item.facility_id = $3::int))
+         )
       WHERE pc.tenant_id = $1::uuid
         AND pc.id = ANY($2::int[])
       GROUP BY pc.id`,
     tenantId,
     ids,
+    facilityId == null ? null : Number(facilityId),
   );
-  const out = new Map(rows.map((row) => [Number(row.catalog_id), {
-    controlled: row.is_controlled === true,
-    linked: Number(row.linked_item_count) > 0,
-  }]));
+  const linked = new Map(rows.map((row) => [
+    Number(row.catalog_id),
+    Number(row.linked_item_count),
+  ]));
   for (const id of ids) {
-    if (!out.get(id)?.linked) {
+    if (!linked.get(id)) {
       throw AppError.conflict(
         `Catalog item ${id} has no same-facility inventory classification`,
-        'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
+        'WARD_INDENT_INVENTORY_MAPPING_REQUIRED',
         { catalog_id: id },
       );
     }
   }
-  return out;
 }
 
-/**
- * Resolve each catalog id to its linked pharmacy_inventory_items row (lowest
- * id when several link) so ward traffic can be written into the
- * pharmacy_stock_movements audit ledger. classifyCatalogControl has already
- * guaranteed every ward-indent catalog item carries at least one linked
- * inventory classification.
- */
-async function resolveLinkedInventoryItems(tx, tenantId, catalogIds) {
-  const ids = [...new Set(catalogIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
-  if (!ids.length) return new Map();
+async function loadAllocationControlByItem(tx, indent) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT catalog_id, MIN(id)::int AS inventory_item_id
-       FROM pharmacy_inventory_items
-      WHERE tenant_id = $1::uuid
-        AND catalog_id = ANY($2::int[])
-      GROUP BY catalog_id`,
-    tenantId,
-    ids,
+    `SELECT allocation.ward_indent_item_id,
+            BOOL_OR(
+              inventory.is_narcotic = TRUE
+              OR COALESCE(inventory.schedule_class IN ('H', 'H1', 'X'), FALSE)
+            ) AS is_controlled,
+            COUNT(DISTINCT (
+              inventory.is_narcotic = TRUE
+              OR COALESCE(inventory.schedule_class IN ('H', 'H1', 'X'), FALSE)
+            ))::int AS classification_count
+       FROM ward_indent_inventory_allocations allocation
+       JOIN pharmacy_inventory_items inventory
+         ON inventory.tenant_id = allocation.tenant_id
+        AND inventory.id = allocation.inventory_item_id
+      WHERE allocation.tenant_id = $1::uuid
+        AND allocation.ward_indent_id = $2::int
+        AND allocation.status <> 'released'
+      GROUP BY allocation.ward_indent_item_id
+      ORDER BY allocation.ward_indent_item_id`,
+    indent.tenant_id,
+    Number(indent.id),
   );
-  return new Map(rows.map((row) => [Number(row.catalog_id), Number(row.inventory_item_id)]));
-}
-
-/**
- * Ward issue/return traffic previously mutated only the pharmacy_catalog
- * counter, leaving the pharmacy_stock_movements audit ledger blind to ward
- * consumption (Sol-verification finding N4). Non-controlled ward movements now
- * append a ledger row per item in the same transaction. inventory_batch_id
- * stays NULL by design: ward stock is tracked on the catalog counter, not the
- * batch/FEFO plane — this restores the movement audit trail without changing
- * availability semantics. (Controlled lines never reach here; they carry
- * witnessed inventory-v2 movement + register evidence.)
- */
-async function appendWardMovementLedgerTx(tx, {
-  tenantId, indentId, inventoryItemId, movementKind, quantityDelta, performedBy, note,
-}) {
-  if (!inventoryItemId) return;
-  await tx.$queryRawUnsafe(
-    `INSERT INTO pharmacy_stock_movements
-       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-        quantity_delta, reference_type, reference_id, performed_by, notes)
-     VALUES ($1::uuid, $2::int, NULL, $3, $4::numeric, 'ward_indent', $5, $6::uuid, $7)`,
-    tenantId,
-    Number(inventoryItemId),
-    movementKind,
-    quantityDelta,
-    String(indentId),
-    performedBy ? String(performedBy) : null,
-    note || null,
-  );
+  const controlByItem = new Map();
+  for (const row of rows) {
+    if (Number(row.classification_count) !== 1) {
+      throw AppError.conflict(
+        `Ward indent item ${row.ward_indent_item_id} has mixed controlled classifications`,
+        'WARD_INDENT_CONTROLLED_CLASSIFICATION_AMBIGUOUS',
+      );
+    }
+    controlByItem.set(Number(row.ward_indent_item_id), row.is_controlled === true);
+  }
+  return controlByItem;
 }
 
 async function lockCatalogRows(tx, tenantId, catalogIds) {
@@ -714,63 +751,6 @@ async function lockCatalogRows(tx, tenantId, catalogIds) {
     }
   }
   return byId;
-}
-
-async function assertReservationAvailability(tx, {
-  tenantId,
-  indentId,
-  items,
-  catalogById,
-  controlByCatalog,
-}) {
-  const nonControlledIds = [...new Set(items
-    .filter((item) => !controlByCatalog.get(Number(item.catalogId))?.controlled)
-    .map((item) => Number(item.catalogId)))];
-  if (!nonControlledIds.length) return;
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT item.pharmacy_catalog_id AS catalog_id,
-            COALESCE(SUM(item.quantity_reserved), 0)::numeric AS reserved_quantity
-       FROM ward_indent_items item
-       JOIN ward_indents indent ON indent.id = item.ward_indent_id
-      WHERE indent.tenant_id = $1::uuid
-        AND indent.id <> $2::int
-        AND indent.status = ANY($3::text[])
-        AND item.pharmacy_catalog_id = ANY($4::int[])
-        AND item.controlled_reference_id IS NULL
-      GROUP BY item.pharmacy_catalog_id`,
-    tenantId,
-    indentId,
-    RESERVATION_STATUSES,
-    nonControlledIds,
-  );
-  const otherReservations = new Map(rows.map((row) => [
-    Number(row.catalog_id),
-    Number(row.reserved_quantity),
-  ]));
-  const requestedByCatalog = new Map();
-  for (const item of items) {
-    const catalogId = Number(item.catalogId);
-    if (controlByCatalog.get(catalogId)?.controlled) continue;
-    requestedByCatalog.set(
-      catalogId,
-      (requestedByCatalog.get(catalogId) || 0) + Number(item.quantity),
-    );
-  }
-  const shortfalls = [];
-  for (const [catalogId, requested] of requestedByCatalog) {
-    const row = catalogById.get(catalogId);
-    const available = Math.max(0, Number(row?.stock_quantity || 0) - (otherReservations.get(catalogId) || 0));
-    if (requested > available) {
-      shortfalls.push({ catalog_id: catalogId, requested, available });
-    }
-  }
-  if (shortfalls.length) {
-    throw AppError.conflict(
-      'Ward indent stock cannot be fully reserved',
-      'WARD_INDENT_INSUFFICIENT_RESERVABLE_STOCK',
-      { shortfalls },
-    );
-  }
 }
 
 export async function initializeWardIndentWorkflowTx(tx, {
@@ -805,7 +785,7 @@ export async function initializeWardIndentWorkflowTx(tx, {
     },
     include: { items: { orderBy: { id: 'asc' } } },
   });
-  await appendTransitionEvidence(tx, {
+  const event = await appendTransitionEvidence(tx, {
     before: null,
     after: initialized,
     action: 'requested',
@@ -814,6 +794,11 @@ export async function initializeWardIndentWorkflowTx(tx, {
     details: { source },
   });
   await requireSlaStart(tx, initialized, 'requested', { source });
+  await materializeWardIndentStateObligationTx(tx, {
+    indent: initialized,
+    event,
+    actorUid: cleanActorUid,
+  });
   return loadWardIndentWorkflow(tx, initialized.id, initialized.tenant_id);
 }
 
@@ -821,6 +806,7 @@ export async function reserveWardIndent({
   indentId,
   reservedBy,
   itemQuantitiesReserved = null,
+  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -839,7 +825,8 @@ export async function reserveWardIndent({
         'quantity_reserved',
         current.items,
       );
-      const reservations = current.items.map((item) => {
+      const targetQuantities = new Map();
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} must be linked to a catalog item before reservation`,
@@ -856,31 +843,25 @@ export async function reserveWardIndent({
             'WARD_INDENT_SHORT_SUPPLY_REQUIRED',
           );
         }
-        return {
-          item,
-          catalogId: Number(item.pharmacy_catalog_id),
-          quantity: desired,
-        };
+        targetQuantities.set(Number(item.id), desired);
+      }
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: current,
+        reservedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: false,
       });
-      const catalogIds = reservations.map((entry) => entry.catalogId);
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
-        tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
-      });
-      for (const entry of reservations) {
-        const controlled = controlByCatalog.get(entry.catalogId)?.controlled === true;
+      for (const item of current.items) {
+        const controlled = exact.controlledByItem.get(Number(item.id)) === true;
         await tx.ward_indent_items.update({
-          where: { id: entry.item.id },
+          where: { id: item.id },
           data: {
-            quantity_reserved: entry.quantity,
+            quantity_reserved: exact.actualByItem.get(Number(item.id)),
             fulfilment_status: 'reserved',
             controlled_reference_id: controlled
-              ? `ward-indent:${current.id}:item:${entry.item.id}`
+              ? `ward-indent:${current.id}:item:${item.id}`
               : null,
             updated_at: new Date(),
           },
@@ -889,7 +870,7 @@ export async function reserveWardIndent({
       return {
         toStatus: 'reserved',
         indentData: { short_supply_reason: null },
-        details: { reserved_item_count: reservations.length },
+        details: { reserved_item_count: current.items.length, exact_batch_reservation: true },
       };
     },
   });
@@ -900,6 +881,7 @@ export async function markWardIndentShortSupply({
   markedBy,
   reason,
   itemQuantitiesAvailable,
+  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -921,7 +903,8 @@ export async function markWardIndentShortSupply({
         current.items,
         { required: true, allowZero: true },
       );
-      const reservations = current.items.map((item) => {
+      const targetQuantities = new Map();
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} must be linked to a catalog item before short supply can be recorded`,
@@ -929,29 +912,24 @@ export async function markWardIndentShortSupply({
             { item_id: item.id },
           );
         }
-        return {
-          item,
-          catalogId: Number(item.pharmacy_catalog_id),
-          quantity: available.has(item.id)
+        targetQuantities.set(
+          Number(item.id),
+          available.has(item.id)
             ? available.get(item.id)
             : Number(item.quantity_reserved || 0),
-        };
-      });
-      const catalogIds = reservations.map((entry) => entry.catalogId);
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
-        tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
+        );
+      }
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: current,
+        reservedBy: markedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: true,
       });
       let hasShortfall = false;
       for (const item of current.items) {
-        const qty = available.has(item.id)
-          ? available.get(item.id)
-          : Number(item.quantity_reserved || 0);
+        const qty = exact.actualByItem.get(Number(item.id)) || 0;
         if (qty > Number(item.quantity_requested)) {
           throw AppError.badRequest(`Item ${item.id} available quantity exceeds requested quantity`);
         }
@@ -963,6 +941,9 @@ export async function markWardIndentShortSupply({
             fulfilment_status: qty < Number(item.quantity_requested)
               ? 'short_supply'
               : 'reserved',
+            controlled_reference_id: exact.controlledByItem.get(Number(item.id)) === true
+              ? `ward-indent:${current.id}:item:${item.id}`
+              : null,
             updated_at: new Date(),
           },
         });
@@ -973,7 +954,7 @@ export async function markWardIndentShortSupply({
       return {
         toStatus: 'short_supply',
         indentData: { short_supply_reason: cleanReason },
-        details: { short_supply_reason: cleanReason },
+        details: { short_supply_reason: cleanReason, shortfalls: exact.shortfalls },
       };
     },
   });
@@ -1034,9 +1015,10 @@ export async function proposeWardIndentSubstitution({
         current.tenant_id,
         proposals.map((entry) => entry.catalogId),
       );
-      await classifyCatalogControl(
+      await assertCatalogInventoryMappings(
         tx,
         current.tenant_id,
+        current.facility_id,
         proposals.map((entry) => entry.catalogId),
       );
       for (const proposal of proposals) {
@@ -1072,6 +1054,7 @@ export async function proposeWardIndentSubstitution({
 export async function approveWardIndentSubstitution({
   indentId,
   decidedBy,
+  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -1088,64 +1071,82 @@ export async function approveWardIndentSubstitution({
       const pending = current.items.filter((item) => item.substitution_status === 'pending');
       if (!pending.length) throw AppError.conflict('Ward indent has no pending substitutions');
       const pendingIds = new Set(pending.map((item) => Number(item.id)));
-      const reservations = current.items.map((item) => ({
-        item,
-        catalogId: pendingIds.has(Number(item.id))
+      const catalogIds = current.items.map((item) => (
+        pendingIds.has(Number(item.id))
           ? Number(item.proposed_pharmacy_catalog_id)
-          : Number(item.pharmacy_catalog_id),
-        quantity: pendingIds.has(Number(item.id))
-          ? Number(item.proposed_quantity)
-          : Number(item.quantity_reserved),
-      }));
-      const catalogIds = reservations.map((entry) => entry.catalogId);
+          : Number(item.pharmacy_catalog_id)
+      ));
       const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
-        tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
-      });
-      for (const entry of reservations.filter(({ item }) => pendingIds.has(Number(item.id)))) {
-        const catalog = catalogById.get(entry.catalogId);
-        const controlled = controlByCatalog.get(entry.catalogId)?.controlled === true;
+      await assertCatalogInventoryMappings(
+        tx,
+        current.tenant_id,
+        current.facility_id,
+        catalogIds,
+      );
+      for (const item of pending) {
+        const catalogId = Number(item.proposed_pharmacy_catalog_id);
+        const catalog = catalogById.get(catalogId);
         await tx.ward_indent_items.update({
-          where: { id: entry.item.id },
+          where: { id: item.id },
           data: {
-            original_pharmacy_catalog_id: entry.item.original_pharmacy_catalog_id
-              || entry.item.pharmacy_catalog_id,
-            original_item_name: entry.item.original_item_name || entry.item.item_name,
-            pharmacy_catalog_id: entry.catalogId,
+            original_pharmacy_catalog_id: item.original_pharmacy_catalog_id
+              || item.pharmacy_catalog_id,
+            original_item_name: item.original_item_name || item.item_name,
+            pharmacy_catalog_id: catalogId,
             item_name: catalog.name,
-            unit_price: catalog.unit_price ?? catalog.price ?? entry.item.unit_price,
-            quantity_reserved: entry.quantity,
+            unit_price: catalog.unit_price ?? catalog.price ?? item.unit_price,
             substitution_status: 'approved',
             substitution_decided_by: decidedBy,
             substitution_decided_at: new Date(),
-            fulfilment_status: entry.quantity < Number(entry.item.quantity_requested)
+            fulfilment_status: 'substitution_pending',
+            updated_at: new Date(),
+          },
+        });
+      }
+      const updatedItems = await tx.ward_indent_items.findMany({
+        where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
+        orderBy: { id: 'asc' },
+      });
+      const targetQuantities = new Map(updatedItems.map((item) => [
+        Number(item.id),
+        pendingIds.has(Number(item.id))
+          ? Number(item.proposed_quantity)
+          : Number(item.quantity_reserved),
+      ]));
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: { ...current, items: updatedItems },
+        reservedBy: decidedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: true,
+      });
+      for (const item of updatedItems) {
+        const reserved = exact.actualByItem.get(Number(item.id)) || 0;
+        await tx.ward_indent_items.update({
+          where: { id: item.id },
+          data: {
+            quantity_reserved: reserved,
+            fulfilment_status: reserved < Number(item.quantity_requested)
               ? 'short_supply'
               : 'reserved',
-            controlled_reference_id: controlled
-              ? `ward-indent:${current.id}:item:${entry.item.id}`
+            controlled_reference_id: exact.controlledByItem.get(Number(item.id)) === true
+              ? `ward-indent:${current.id}:item:${item.id}`
               : null,
             updated_at: new Date(),
           },
         });
       }
-      const rows = await tx.ward_indent_items.findMany({
-        where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
-        select: { quantity_requested: true, quantity_reserved: true },
-      });
-      const fullyReserved = rows.every(
-        (item) => Number(item.quantity_reserved) === Number(item.quantity_requested),
-      );
+      const fullyReserved = updatedItems.every((item) => (
+        Number(exact.actualByItem.get(Number(item.id)) || 0) === Number(item.quantity_requested)
+      ));
       return {
         toStatus: fullyReserved ? 'reserved' : 'short_supply',
         indentData: fullyReserved ? { short_supply_reason: null } : {},
         details: {
           substitution_item_ids: pending.map((item) => item.id),
           fully_reserved: fullyReserved,
+          shortfalls: exact.shortfalls,
         },
       };
     },
@@ -1212,7 +1213,7 @@ export async function approveWardIndent({
     action: 'approved',
     allowedStatuses: ['reserved'],
     mutate: async (tx, current) => {
-      const catalogIds = current.items.map((item) => {
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} has no catalog link`,
@@ -1225,12 +1226,17 @@ export async function approveWardIndent({
             'WARD_INDENT_NOT_FULLY_RESERVED',
           );
         }
-        return Number(item.pharmacy_catalog_id);
-      });
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
+      }
+      const controlByItem = await loadAllocationControlByItem(tx, current);
       let controlledCount = 0;
       for (const item of current.items) {
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
+        const controlled = controlByItem.get(Number(item.id)) === true;
+        if (!controlByItem.has(Number(item.id))) {
+          throw AppError.conflict(
+            `Ward indent item ${item.id} has no exact inventory allocation`,
+            'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+          );
+        }
         if (controlled) controlledCount += 1;
         await tx.ward_indent_items.update({
           where: { id: item.id },
@@ -1292,6 +1298,11 @@ export async function rejectWardIndent({
           'WARD_INDENT_REJECTION_REQUIRES_RECONCILIATION',
         );
       }
+      await releaseWardIndentReservationsTx(tx, {
+        indent: current,
+        releasedBy: rejectedBy,
+        reason: cleanReason,
+      });
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: {
@@ -1328,6 +1339,7 @@ async function validateControlledEvidence(tx, {
   const rows = await tx.$queryRawUnsafe(
     `SELECT movement.id AS movement_id,
             movement.inventory_item_id,
+            movement.inventory_batch_id,
             movement.movement_kind,
             movement.quantity_delta,
             movement.reference_type,
@@ -1359,6 +1371,7 @@ async function validateControlledEvidence(tx, {
     : Math.abs(Number(expectedQuantity));
   if (
     !row
+    || !row.inventory_batch_id
     || row.movement_kind !== movementKind
     || Number(row.quantity_delta) !== signedQuantity
     || row.register_movement_kind !== registerKind
@@ -1386,7 +1399,12 @@ async function validateControlledEvidence(tx, {
       'WARD_INDENT_CONTROLLED_RETURN_PATH_MISMATCH',
     );
   }
-  return { movementId, registerId };
+  return {
+    movementId,
+    registerId,
+    inventoryItemId: Number(row.inventory_item_id),
+    inventoryBatchId: Number(row.inventory_batch_id),
+  };
 }
 
 export async function recordWardIndentControlledHandoff({
@@ -1436,6 +1454,16 @@ export async function recordWardIndentControlledHandoff({
           expectedReference: item.controlled_reference_id,
           expectedQuantity: Number(item.quantity_approved),
         });
+        await linkControlledWardIndentMovementTx(tx, {
+          indent: current,
+          wardItem: item,
+          movementId: validated.movementId,
+          controlledRegisterId: validated.registerId,
+          purpose: 'issue',
+          actor: recordedBy,
+          commandKey,
+          stateVersion: Number(current.state_version) + 1,
+        });
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1483,18 +1511,6 @@ export async function issueWardIndent({
         'quantity_issued',
         current.items,
       );
-      const catalogIds = current.items.map((item) => Number(item.pharmacy_catalog_id));
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      const nonControlledCatalogIds = current.items
-        .filter((item) => !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled)
-        .map((item) => Number(item.pharmacy_catalog_id));
-      await lockCatalogRows(tx, current.tenant_id, nonControlledCatalogIds);
-      const inventoryItemByCatalog = await resolveLinkedInventoryItems(
-        tx,
-        current.tenant_id,
-        nonControlledCatalogIds,
-      );
-
       for (const item of current.items) {
         const approvedQuantity = Number(item.quantity_approved);
         const issuedQuantity = issuedMap.has(item.id)
@@ -1506,44 +1522,15 @@ export async function issueWardIndent({
             'WARD_INDENT_ISSUE_QUANTITY_MISMATCH',
           );
         }
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
-        if (controlled) {
-          if (!item.controlled_movement_id || !item.controlled_register_id) {
-            throw AppError.conflict(
-              `Controlled item ${item.id} has no witnessed handoff evidence`,
-              'WARD_INDENT_CONTROLLED_HANDOFF_REQUIRED',
-            );
-          }
-        } else {
-          const rows = await tx.$queryRawUnsafe(
-            `UPDATE pharmacy_catalog
-                SET stock_quantity = stock_quantity - $1::numeric,
-                    updated_at = NOW()
-              WHERE id = $2::int
-                AND tenant_id = $3::uuid
-                AND COALESCE(stock_quantity, 0) >= $1::numeric
-              RETURNING id, stock_quantity`,
-            issuedQuantity,
-            Number(item.pharmacy_catalog_id),
-            current.tenant_id,
-          );
-          if (!rows[0]) {
-            throw AppError.conflict(
-              `Stock changed before item ${item.id} could be issued`,
-              'WARD_INDENT_STOCK_CHANGED_BEFORE_ISSUE',
-              { item_id: item.id },
-            );
-          }
-          await appendWardMovementLedgerTx(tx, {
-            tenantId: current.tenant_id,
-            indentId: current.id,
-            inventoryItemId: inventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
-            movementKind: 'issue',
-            quantityDelta: -issuedQuantity,
-            performedBy: issuedBy,
-            note: `Ward indent ${current.indent_number || current.id} item ${item.id} issued to ${current.ward_name || 'ward'}`,
-          });
-        }
+      }
+      const inventoryClosure = await issueWardIndentInventoryTx(tx, {
+        indent: current,
+        issuedBy,
+        commandKey,
+        nextStateVersion: Number(current.state_version) + 1,
+      });
+      for (const item of current.items) {
+        const issuedQuantity = Number(item.quantity_approved);
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1577,7 +1564,20 @@ export async function issueWardIndent({
           issued_by: issuedBy,
           issued_at: new Date(),
         },
-        details: { verified_clinical_order_ids: clinicalOrderIds },
+        details: {
+          verified_clinical_order_ids: clinicalOrderIds,
+          inventory_movement_ids: inventoryClosure.movementIds,
+          billing_invoice_id: Number(inventoryClosure.invoice.id),
+        },
+        afterEvidence: async ({ event }) => {
+          await appendWardIndentChargeEventsTx(tx, {
+            indent: current,
+            wardEvent: event,
+            issuedBy,
+            commandKey,
+            chargePlans: inventoryClosure.chargePlans,
+          });
+        },
       };
     },
   });
@@ -1587,6 +1587,7 @@ export async function receiveWardIndent({
   indentId,
   receivedBy,
   itemQuantitiesReceived = null,
+  substitutionAcknowledgements = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -1615,6 +1616,7 @@ export async function receiveWardIndent({
       const receiveAll = receivedMap.size === 0;
       let progressed = false;
       let fullyReceived = true;
+      const desiredReceivedByItem = new Map();
       for (const item of current.items) {
         const issuedQuantity = Number(item.quantity_issued || 0);
         const currentReceived = Number(item.quantity_received || 0);
@@ -1628,6 +1630,19 @@ export async function receiveWardIndent({
         }
         if (desired > currentReceived) progressed = true;
         if (desired !== issuedQuantity) fullyReceived = false;
+        desiredReceivedByItem.set(Number(item.id), desired);
+      }
+      if (!progressed) throw AppError.conflict('Receipt command made no quantity progress');
+      await receiveWardIndentInventoryTx(tx, {
+        indent: current,
+        receivedBy,
+        desiredReceivedByItem,
+        substitutionAcknowledgements,
+        nextStateVersion: Number(current.state_version) + 1,
+      });
+      for (const item of current.items) {
+        const issuedQuantity = Number(item.quantity_issued || 0);
+        const desired = desiredReceivedByItem.get(Number(item.id));
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1639,7 +1654,6 @@ export async function receiveWardIndent({
           },
         });
       }
-      if (!progressed) throw AppError.conflict('Receipt command made no quantity progress');
       return {
         toStatus: fullyReceived ? 'received' : 'partially_received',
         indentData: fullyReceived ? {
@@ -1678,6 +1692,19 @@ export async function requestWardIndentReturn({
         current.items,
         { required: true, allowZero: true },
       );
+      const medicationClosure = await loadWardIndentMedicationClosureTx(
+        tx,
+        current.tenant_id,
+        current.id,
+      );
+      const consumedByItem = new Map();
+      for (const allocation of medicationClosure.allocations) {
+        const itemId = Number(allocation.ward_indent_item_id);
+        consumedByItem.set(
+          itemId,
+          (consumedByItem.get(itemId) || 0) + Number(allocation.consumed_quantity || 0),
+        );
+      }
       let requestedCount = 0;
       for (const item of current.items) {
         const desired = returnMap.has(item.id)
@@ -1685,9 +1712,10 @@ export async function requestWardIndentReturn({
           : Number(item.quantity_return_requested || 0);
         const receivedQuantity = Number(item.quantity_received || 0);
         const returnedQuantity = Number(item.quantity_returned || 0);
-        if (desired < returnedQuantity || desired > receivedQuantity) {
+        const returnCeiling = receivedQuantity - (consumedByItem.get(Number(item.id)) || 0);
+        if (desired < returnedQuantity || desired > returnCeiling) {
           throw AppError.badRequest(
-            `Item ${item.id} return quantity must be between ${returnedQuantity} and ${receivedQuantity}`,
+            `Item ${item.id} return quantity must be between ${returnedQuantity} and ${returnCeiling}`,
           );
         }
         if (desired > returnedQuantity) requestedCount += 1;
@@ -1753,6 +1781,7 @@ export async function reconcileWardIndent({
   reason,
   controlledReturnEvidence = null,
   itemReconciliations = null,
+  allocationReturns = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -1798,13 +1827,13 @@ export async function reconcileWardIndent({
       const catalogIds = current.items
         .filter((item) => Number(item.quantity_return_requested) > Number(item.quantity_returned))
         .map((item) => Number(item.pharmacy_catalog_id));
-      const controlByCatalog = catalogIds.length
-        ? await classifyCatalogControl(tx, current.tenant_id, catalogIds)
+      const controlByItem = catalogIds.length
+        ? await loadAllocationControlByItem(tx, current)
         : new Map();
       const controlledReturnItemIds = new Set(current.items
         .filter((item) => (
           Number(item.quantity_return_requested) > Number(item.quantity_returned)
-          && controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true
+          && controlByItem.get(Number(item.id)) === true
         ))
         .map((item) => Number(item.id)));
       for (const itemId of evidenceByItem.keys()) {
@@ -1812,21 +1841,43 @@ export async function reconcileWardIndent({
           throw AppError.badRequest(`Return evidence ${itemId} is not required for this indent`);
         }
       }
-      const returnCatalogIds = current.items
-        .filter((item) => (
-          Number(item.quantity_return_requested) > Number(item.quantity_returned)
-          && !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled
-        ))
-        .map((item) => Number(item.pharmacy_catalog_id));
-      await lockCatalogRows(tx, current.tenant_id, returnCatalogIds);
-      const returnInventoryItemByCatalog = await resolveLinkedInventoryItems(
-        tx,
-        current.tenant_id,
-        returnCatalogIds,
-      );
-      let returnedItemCount = 0;
-      let varianceItemCount = 0;
+      const validatedControlledEvidence = new Map();
       const controlledReturnReferences = [];
+      for (const item of current.items) {
+        const outstanding = Number(item.quantity_return_requested || 0)
+          - Number(item.quantity_returned || 0);
+        if (outstanding <= 0) continue;
+        const controlled = controlByItem.get(Number(item.id)) === true;
+        if (!controlled) continue;
+        const evidence = evidenceByItem.get(Number(item.id));
+        if (!evidence) throw AppError.badRequest(`Controlled return evidence is required for item ${item.id}`);
+        const validated = await validateControlledEvidence(tx, {
+          tenantId: current.tenant_id,
+          indent: current,
+          item,
+          evidence,
+          movementKind: 'return',
+          registerKind: 'return',
+          expectedReference: `ward-indent-return:${current.id}:item:${item.id}`,
+          expectedQuantity: outstanding,
+        });
+        validatedControlledEvidence.set(Number(item.id), validated);
+        controlledReturnReferences.push({
+          item_id: Number(item.id),
+          movement_id: validated.movementId,
+          register_id: validated.registerId,
+        });
+      }
+      const inventoryReturn = await returnWardIndentInventoryTx(tx, {
+        indent: current,
+        returnedBy: reconciledBy,
+        commandKey,
+        nextStateVersion: Number(current.state_version) + 1,
+        controlledEvidenceByItem: validatedControlledEvidence,
+        allocationReturns,
+      });
+      const returnedItemCount = inventoryReturn.returnPlans.length;
+      let varianceItemCount = 0;
       for (const item of current.items) {
         const issued = Number(item.quantity_issued || 0);
         const received = Number(item.quantity_received || 0);
@@ -1860,49 +1911,7 @@ export async function reconcileWardIndent({
         const alreadyReturned = Number(item.quantity_returned || 0);
         const outstanding = requested - alreadyReturned;
         if (outstanding <= 0) continue;
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
-        let controlledReturn = null;
-        if (controlled) {
-          const evidence = evidenceByItem.get(Number(item.id));
-          if (!evidence) throw AppError.badRequest(`Controlled return evidence is required for item ${item.id}`);
-          controlledReturn = await validateControlledEvidence(tx, {
-            tenantId: current.tenant_id,
-            indent: current,
-            item,
-            evidence,
-            movementKind: 'return',
-            registerKind: 'return',
-            expectedReference: `ward-indent-return:${current.id}:item:${item.id}`,
-            expectedQuantity: outstanding,
-          });
-          controlledReturnReferences.push({
-            item_id: Number(item.id),
-            movement_id: controlledReturn.movementId,
-            register_id: controlledReturn.registerId,
-          });
-        } else {
-          const rows = await tx.$queryRawUnsafe(
-            `UPDATE pharmacy_catalog
-                SET stock_quantity = COALESCE(stock_quantity, 0) + $1::numeric,
-                    updated_at = NOW()
-              WHERE id = $2::int
-                AND tenant_id = $3::uuid
-              RETURNING id, stock_quantity`,
-            outstanding,
-            Number(item.pharmacy_catalog_id),
-            current.tenant_id,
-          );
-          if (!rows[0]) throw AppError.notFound(`Catalog item ${item.pharmacy_catalog_id} not found`);
-          await appendWardMovementLedgerTx(tx, {
-            tenantId: current.tenant_id,
-            indentId: current.id,
-            inventoryItemId: returnInventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
-            movementKind: 'return',
-            quantityDelta: outstanding,
-            performedBy: reconciledBy,
-            note: `Ward indent ${current.indent_number || current.id} item ${item.id} returned from ${current.ward_name || 'ward'}`,
-          });
-        }
+        const controlledReturn = validatedControlledEvidence.get(Number(item.id)) || null;
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1915,95 +1924,11 @@ export async function reconcileWardIndent({
             updated_at: new Date(),
           },
         });
-        returnedItemCount += 1;
       }
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: { fulfilment_status: 'reconciled', updated_at: new Date() },
       });
-
-      // Post-issue billing truth (Sol-verification finding N2): the itemizer
-      // only re-synchronizes ward-indent charges while the admission invoice
-      // is still DRAFT — a return reconciled after the invoice was ISSUED
-      // leaves the patient charged for stock that came back, with nothing
-      // flagging it. Issued invoices are immutable here (billingV2 refuses
-      // post-issue line edits), so the delta is surfaced as an owned
-      // high-priority billing review task in the same transaction instead of
-      // being silently absorbed.
-      const billingAdjustments = [];
-      if (returnedItemCount > 0) {
-        const billedLines = await tx.$queryRawUnsafe(
-          `SELECT bii.id AS line_id, bii.line_total, bi.id AS invoice_id, bi.status
-             FROM billing_invoice_items bii
-             JOIN billing_invoices bi
-               ON bi.id = bii.invoice_id
-              AND bi.tenant_id = bii.tenant_id
-            WHERE bii.tenant_id = $1::uuid
-              AND bii.source_ref_type = 'ward_indent'
-              AND bii.source_ref_id::text = $2::text
-              AND bii.source_ref_active = TRUE`,
-          current.tenant_id,
-          String(current.id),
-        );
-        const staleBilledLines = billedLines.filter((line) => line.status !== 'DRAFT');
-        if (staleBilledLines.length) {
-          const expectedRows = await tx.$queryRawUnsafe(
-            `SELECT COALESCE(SUM(
-                      GREATEST(
-                        COALESCE(wii.quantity_issued, wii.quantity_requested, 0)
-                          - COALESCE(wii.quantity_returned, 0),
-                        0
-                      )
-                      * COALESCE(wii.unit_price, pc.unit_price, pc.price, 0)
-                    ), 0)::numeric AS expected_amount
-               FROM ward_indent_items wii
-               LEFT JOIN pharmacy_catalog pc
-                 ON pc.tenant_id = wii.tenant_id
-                AND pc.id = wii.pharmacy_catalog_id
-              WHERE wii.tenant_id = $1::uuid
-                AND wii.ward_indent_id = $2::int`,
-            current.tenant_id,
-            current.id,
-          );
-          const expectedAmount = Number(expectedRows[0]?.expected_amount || 0);
-          for (const line of staleBilledLines) {
-            const billedAmount = Number(line.line_total || 0);
-            const overcharge = Math.round((billedAmount - expectedAmount) * 100) / 100;
-            if (overcharge <= 0) continue;
-            await createTask({
-              tenantId: current.tenant_id,
-              taskKind: 'review',
-              title: `Ward indent ${current.indent_number || current.id}: post-issue return needs a billing credit`,
-              description: `Invoice ${line.invoice_id} (${line.status}) charges ${billedAmount.toFixed(2)} for ward indent ${current.indent_number || current.id}, but reconciled returns reduce the net charge to ${expectedAmount.toFixed(2)}. Raise the ${overcharge.toFixed(2)} credit/refund for the patient — the issued invoice cannot be edited in place.`,
-              patientUid: current.patient_uid || null,
-              relatedResourceType: 'ward_indent_billing_adjustment',
-              relatedResourceId: String(current.id),
-              priority: 'high',
-              assignedToRole: ROLES.BILLING_INCHARGE,
-              createdBy: reconciledBy,
-              metadata: {
-                ward_indent_id: Number(current.id),
-                invoice_id: Number(line.invoice_id),
-                invoice_status: line.status,
-                billing_line_id: Number(line.line_id),
-                billed_amount: billedAmount,
-                expected_amount: expectedAmount,
-                overcharge_amount: overcharge,
-              },
-              tx,
-              onConflictResourceDoNothing: true,
-            });
-            billingAdjustments.push({
-              invoice_id: Number(line.invoice_id),
-              invoice_status: line.status,
-              billed_amount: billedAmount,
-              expected_amount: expectedAmount,
-              overcharge_amount: overcharge,
-            });
-          }
-        }
-      }
-
       return {
         toStatus: 'reconciled',
         indentData: {
@@ -2015,7 +1940,17 @@ export async function reconcileWardIndent({
           returned_item_count: returnedItemCount,
           variance_item_count: varianceItemCount,
           controlled_return_references: controlledReturnReferences,
-          billing_adjustments_flagged: billingAdjustments,
+          inventory_movement_ids: inventoryReturn.movementIds,
+        },
+        afterEvidence: async ({ event }) => {
+          await appendWardIndentCreditEventsTx(tx, {
+            indent: current,
+            wardEvent: event,
+            returnedBy: reconciledBy,
+            commandKey,
+            returnPlans: inventoryReturn.returnPlans,
+            reason: cleanReason,
+          });
         },
       };
     },
@@ -2056,6 +1991,11 @@ export async function cancelWardIndent({
           'WARD_INDENT_CANCELLATION_REQUIRES_RECONCILIATION',
         );
       }
+      await releaseWardIndentReservationsTx(tx, {
+        indent: current,
+        releasedBy: cancelledBy,
+        reason: cleanReason,
+      });
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: {

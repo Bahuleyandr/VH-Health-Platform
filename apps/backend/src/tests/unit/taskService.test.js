@@ -55,6 +55,7 @@ const {
   createCoveringTransferReviewTaskTx,
   createLabThresholdExceptionReviewTaskTx,
   createTask,
+  createWardMedicationObligationTaskTx,
   createWorkflowDefinition,
   getTask,
   listApprovals,
@@ -533,6 +534,72 @@ describe('createCoveringTransferReviewTaskTx', () => {
       recipientUid: RECIPIENT_UID,
       senderUid: USER,
       requestFingerprint: REQUEST_FINGERPRINT,
+      tx: __prismaDefaultMock,
+    })).rejects.toThrow('encounter_id must be a UUID');
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('createWardMedicationObligationTaskTx', () => {
+  const ENCOUNTER_ID = '77777777-7777-4777-8777-777777777777';
+
+  it('keeps the legacy integer encounter column empty and preserves the canonical UUID', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: DEFAULT_SLA_ID,
+        rule_code: 'ward_indent_mar_supply_reconciliation',
+        source_table: 'medication_administrations',
+        source_id: '81',
+        due_at: new Date('2026-07-19T06:00:00.000Z'),
+      }])
+      .mockResolvedValueOnce([{ id: 81, status: 'open' }]);
+
+    await expect(createWardMedicationObligationTaskTx({
+      tenantId: TENANT,
+      title: 'Reconcile MAR administration with ward custody',
+      patientUid: USER,
+      encounterId: ENCOUNTER_ID,
+      relatedResourceType: 'medication_administrations',
+      relatedResourceId: '81',
+      assignedToRole: 'PHARMACY_INCHARGE',
+      createdBy: USER,
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      stageOccurrenceKey: 'ward-medication:test:mar-reconciliation',
+      metadata: {
+        sla_key: 'ward_indent_mar_supply_reconciliation',
+        obligation_kind: 'mar_supply_reconciliation',
+      },
+      tx: __prismaDefaultMock,
+    })).resolves.toMatchObject({ id: 81, status: 'open' });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/INSERT INTO tasks/);
+    expect(params[8]).toBeNull();
+    expect(JSON.parse(params[20])).toMatchObject({
+      task_contract: 'ward_medication_obligation_v1',
+      canonical_encounter_id: ENCOUNTER_ID,
+      sla_key: 'ward_indent_mar_supply_reconciliation',
+      obligation_kind: 'mar_supply_reconciliation',
+    });
+  });
+
+  it('fails closed on a non-UUID canonical encounter before reading its SLA', async () => {
+    await expect(createWardMedicationObligationTaskTx({
+      tenantId: TENANT,
+      title: 'Reconcile MAR administration with ward custody',
+      patientUid: USER,
+      encounterId: 17,
+      relatedResourceType: 'medication_administrations',
+      relatedResourceId: '81',
+      assignedToRole: 'PHARMACY_INCHARGE',
+      createdBy: USER,
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      stageOccurrenceKey: 'ward-medication:test:mar-reconciliation',
+      metadata: {
+        sla_key: 'ward_indent_mar_supply_reconciliation',
+        obligation_kind: 'mar_supply_reconciliation',
+      },
       tx: __prismaDefaultMock,
     })).rejects.toThrow('encounter_id must be a UUID');
 
