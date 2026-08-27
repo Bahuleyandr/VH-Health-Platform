@@ -34,11 +34,7 @@ import {
   type SubstitutionProposal,
   type WardIndent,
 } from "@/lib/api/wardIndents";
-import {
-  actionsForStatus,
-  num,
-  type WardIndentActionKey,
-} from "./helpers";
+import { actionsForStatus, num, type WardIndentActionKey } from "./helpers";
 
 interface QtyRowState {
   [itemId: number]: string;
@@ -63,10 +59,7 @@ const RECONCILIATION_DISPOSITIONS = [
   "documented_exception",
 ] as const;
 
-function qtyEntries(
-  state: QtyRowState,
-  field: string,
-): ItemQuantityEntry[] {
+function qtyEntries(state: QtyRowState, field: string): ItemQuantityEntry[] {
   return Object.entries(state)
     .filter(([, v]) => v !== "")
     .map(([itemId, v]) => ({
@@ -100,7 +93,10 @@ export function ActionPanel({
 
   const keyStore = useIdempotencyKey(`ward-indent-${indent.id}`);
 
-  const available = useMemo(() => actionsForStatus(indent.status), [indent.status]);
+  const available = useMemo(
+    () => actionsForStatus(indent.status),
+    [indent.status],
+  );
   const activeDef = available.find((a) => a.key === active) ?? null;
 
   const controlledItems = indent.items.filter(
@@ -117,8 +113,7 @@ export function ActionPanel({
       0,
   );
   const outstandingControlledReturns = controlledItems.filter(
-    (item) =>
-      num(item.quantity_return_requested) > num(item.quantity_returned),
+    (item) => num(item.quantity_return_requested) > num(item.quantity_returned),
   );
 
   const mutation = useMutation({
@@ -316,19 +311,20 @@ export function ActionPanel({
   const evidenceMissing =
     (active === "controlled_handoff" &&
       controlledItems.some(
-        (item) =>
-          !pairs[item.id]?.movement_id || !pairs[item.id]?.register_id,
+        (item) => !pairs[item.id]?.movement_id || !pairs[item.id]?.register_id,
       )) ||
     (active === "reconcile" &&
       outstandingControlledReturns.some(
-        (item) =>
-          !pairs[item.id]?.movement_id || !pairs[item.id]?.register_id,
+        (item) => !pairs[item.id]?.movement_id || !pairs[item.id]?.register_id,
       ));
   const substitutionMissing =
     active === "propose_substitution" &&
     !Object.values(subs).some((v) => v.catalog_id !== "" && v.reason.trim());
   const submitDisabled =
-    mutation.isPending || reasonMissing || evidenceMissing || substitutionMissing;
+    mutation.isPending ||
+    reasonMissing ||
+    evidenceMissing ||
+    substitutionMissing;
 
   const setPair = (
     itemId: number,
@@ -640,7 +636,9 @@ export function ActionPanel({
                   : "bg-primary text-primary-foreground"
               }`}
             >
-              {mutation.isPending ? "Submitting…" : `Confirm: ${activeDef.label}`}
+              {mutation.isPending
+                ? "Submitting…"
+                : `Confirm: ${activeDef.label}`}
             </button>
           </div>
         </div>
