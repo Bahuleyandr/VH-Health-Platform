@@ -38,11 +38,18 @@ router.post('/subscriptions', async (req, res) => {
     if (!canManage(req.user?.role)) {
       return error(res, 'Only integration admins can manage HL7 feeds', HTTP_STATUS.FORBIDDEN);
     }
+    const body = req.body || {};
     const subscription = await createSubscription({
-      name: req.body.name,
-      endpointUrl: req.body.endpoint_url,
-      authHeader: req.body.auth_header || null,
-      messageTypes: req.body.message_types || undefined,
+      name: body.name,
+      endpointUrl: body.endpoint_url,
+      // ABSENT and NULL are different instructions (roadmap credential-wipe
+      // fix): an omitted auth_header keeps the stored encrypted secret —
+      // GET /subscriptions never returns it, so the caller cannot round-trip
+      // it — while an explicit `auth_header: null` (or '') clears it.
+      authHeader: Object.prototype.hasOwnProperty.call(body, 'auth_header')
+        ? body.auth_header
+        : undefined,
+      messageTypes: body.message_types || undefined,
     }, { actorUid: req.user?.uid || null, tenantId: requestTenantId(req) });
     return success(res, { subscription }, 'Subscription saved', HTTP_STATUS.CREATED);
   } catch (err) {

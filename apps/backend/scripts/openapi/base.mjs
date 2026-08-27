@@ -61,7 +61,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'facility' },
   { slug: 'facility-asset' },
   { slug: 'facility-risk' },
-  { slug: 'feature-flag' },
   { slug: 'feedback' },
   { slug: 'fhir' },
   { slug: 'forecast' },

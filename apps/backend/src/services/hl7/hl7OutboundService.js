@@ -82,8 +82,12 @@ function extractControlId(hl7) {
 
 export async function listSubscriptions({ tenantId = null } = {}) {
   const tid = requireTenantId(tenantId);
+  // `auth_header_set` (never the header itself — it is an encrypted secret
+  // with no read-back path) tells an operator whether a credential exists, so
+  // an upsert that would clear it is a visible decision rather than a surprise.
   return setTenantTx(tid, tx => tx.$queryRawUnsafe(
-    `SELECT id, name, endpoint_url, message_types, is_active, last_delivery_at, created_at
+    `SELECT id, name, endpoint_url, message_types, is_active, last_delivery_at, created_at,
+            (auth_header IS NOT NULL) AS auth_header_set
        FROM hl7_feed_subscriptions
       WHERE tenant_id = $1::uuid
       ORDER BY id`,
@@ -91,8 +95,20 @@ export async function listSubscriptions({ tenantId = null } = {}) {
   ));
 }
 
+/**
+ * Create or update (upsert on `(tenant_id, name)`) an outbound feed
+ * subscription.
+ *
+ * `authHeader` is three-valued (roadmap fix for the credential-wiping upsert):
+ *   - undefined (field ABSENT from the request) — keep the stored encrypted
+ *     header. The header is write-only (listSubscriptions never returns it),
+ *     so "re-send what you got" cannot round-trip it; before this fix every
+ *     scope/endpoint update silently erased the credential.
+ *   - null or '' — explicitly clear the stored header.
+ *   - any other string — encrypt and store it.
+ */
 export async function createSubscription({
-  name, endpointUrl, authHeader = null, messageTypes = DEFAULT_FEED_MESSAGE_TYPES,
+  name, endpointUrl, authHeader = undefined, messageTypes = DEFAULT_FEED_MESSAGE_TYPES,
 } = {}, context = {}) {
   const tenantId = requireTenantId(context.tenantId);
   const cleanedName = (name || '').trim();
@@ -114,17 +130,26 @@ export async function createSubscription({
       'HL7_FEED_BAD_TYPES',
     );
   }
+  // $7 is the explicit-write flag: only when the caller actually sent the
+  // field does the upsert touch auth_header; otherwise the stored secret
+  // survives the update. (A bare COALESCE(EXCLUDED.auth_header, ...) could not
+  // express "explicitly clear", so absent-vs-null rides on the flag instead.)
+  const authHeaderProvided = authHeader !== undefined;
   const rows = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
     `INSERT INTO hl7_feed_subscriptions (tenant_id, name, endpoint_url, auth_header, message_types, created_by)
      VALUES ($1::uuid, $2, $3, $4, $5::text[], $6::uuid)
      ON CONFLICT (tenant_id, name) DO UPDATE SET
        endpoint_url = EXCLUDED.endpoint_url,
-       auth_header = EXCLUDED.auth_header,
+       auth_header = CASE WHEN $7::boolean THEN EXCLUDED.auth_header
+                          ELSE hl7_feed_subscriptions.auth_header END,
        message_types = EXCLUDED.message_types,
        is_active = true,
        updated_at = NOW()
-     RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at`,
-    tenantId, cleanedName, cleanedUrl, encryptOptionalSecret(authHeader), types, context.actorUid || null,
+     RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at,
+               (auth_header IS NOT NULL) AS auth_header_set`,
+    tenantId, cleanedName, cleanedUrl,
+    authHeaderProvided ? encryptOptionalSecret(authHeader) : null,
+    types, context.actorUid || null, authHeaderProvided,
   ));
   return rows[0];
 }

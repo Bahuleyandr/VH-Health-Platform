@@ -1,6 +1,6 @@
 // src/tests/unit/superAdminConsoleRoutesRbac.test.js
 //
-// Re-audit finding G (authz). The admin portal declares six consoles
+// Re-audit finding G (authz). The admin portal declared six consoles
 // SUPER_ADMIN-only (apps/admin/src/lib/routePolicy.ts + navConfig.ts — "GDPR
 // Erasure", "Encryption Keys", "Migration Toolkit", "SMART-on-FHIR Apps",
 // "Feature Flags", "Facility Context") but the backend accepted a plain tenant
@@ -10,25 +10,29 @@
 //     resolves to ['SUPER_ADMIN', 'ADMIN'] (config/routeRolePolicy.js);
 //   * requireSuperAdminStepUp passes non-supers straight through
 //     (middleware/rbacMiddleware.js:117), so it narrows nothing for an ADMIN;
-//   * encryptionKeyRoutes.js, migrationToolkitRoutes.js and featureFlagRoutes.js
-//     had ZERO internal role checks, gdprRoutes.js gated on ADMIN_ROUTE_ROLES
-//     in-route, smartFhirRoutes.js gated only production-app approval, and the
+//   * encryptionKeyRoutes.js and migrationToolkitRoutes.js had ZERO internal
+//     role checks, gdprRoutes.js gated on ADMIN_ROUTE_ROLES in-route,
+//     smartFhirRoutes.js gated only production-app approval, and the
 //     continuity facility-context routes inside deviceRegistryRoutes.js gated on
 //     `requireManage` → `canManage` → `isAdmin`, i.e. the ADMIN device-registry
 //     tier.
 //
 // Net effect before the fix: a plain tenant ADMIN could run an irreversible
 // GDPR erasure, commit a migration-toolkit import, rotate/retire/mark-
-// compromised the PHI encryption keys, register or revoke SMART apps, flip or
-// delete any platform-global feature flag, and enrol or revoke clinical-
-// continuity facility-context capture grants.
+// compromised the PHI encryption keys, register or revoke SMART apps, and
+// enrol or revoke clinical-continuity facility-context capture grants.
 //
-// This suite pins the in-route SUPER_ADMIN gate on all six, using the REAL
+// (The sixth console, feature flags, was retired outright — migration 742
+// dropped the inert `feature_flags` table and the CRUD routes with it, per the
+// docs/ROADMAP.md retirement entry — so this suite now pins the five that
+// remain.)
+//
+// This suite pins the in-route SUPER_ADMIN gate on all five, using the REAL
 // rbacMiddleware. Sensitive reads are pinned too — the erasure evidence ledger,
 // the key registry, the staged-import reports, the live PHI-scoped token list,
-// the platform flag table, and the capture-grant ledger are each sensitive in
-// their own right, so the gate is router-wide (route-wide over the whole
-// continuity prefix, for the device registry) rather than mutation-only.
+// and the capture-grant ledger are each sensitive in their own right, so the
+// gate is router-wide (route-wide over the whole continuity prefix, for the
+// device registry) rather than mutation-only.
 //
 // The device registry is the one console where the gate is a PREFIX rather than
 // the whole router, so it carries an anti-lockout obligation as well: the rest
@@ -129,16 +133,6 @@ jest.unstable_mockModule('../../services/smartFhir/smartOAuthService.js', () => 
   verifyAccessToken,
 }));
 
-const deleteFlag = jest.fn();
-const getFlags = jest.fn();
-const setFlag = jest.fn();
-jest.unstable_mockModule('../../services/featureFlags/featureFlagService.js', () => ({
-  deleteFlag,
-  getFlags,
-  isEnabled: jest.fn(async () => false),
-  setFlag,
-}));
-
 const createDevice = jest.fn();
 const getDeviceById = jest.fn();
 const listDevices = jest.fn();
@@ -219,7 +213,6 @@ const { default: gdprRoutes } = await import('../../routes/gdprRoutes.js');
 const { default: encryptionKeyRoutes } = await import('../../routes/admin/encryptionKeyRoutes.js');
 const { default: migrationToolkitRoutes } = await import('../../routes/admin/migrationToolkitRoutes.js');
 const { default: smartFhirRoutes } = await import('../../routes/admin/smartFhirRoutes.js');
-const { default: featureFlagRoutes } = await import('../../routes/admin/featureFlagRoutes.js');
 const { default: deviceRegistryRoutes } = await import('../../routes/admin/deviceRegistryRoutes.js');
 const { default: jwtMiddleware } = await import('../../middleware/jwtMiddleware.js');
 const { requireRole, requireSuperAdminStepUp } = await import('../../middleware/rbacMiddleware.js');
@@ -294,10 +287,6 @@ function app() {
   adminBarrel.use('/encryption-keys', encryptionKeyRoutes);
   adminBarrel.use('/migration-toolkit', migrationToolkitRoutes);
   adminBarrel.use('/smart-fhir', smartFhirRoutes);
-  // routes/admin/index.js:248 also puts `requireEntitlement(...adminFeatureFlags)`
-  // in front of this router; it is a per-tenant licence gate, orthogonal to role,
-  // and is omitted here for the same reason as adminIpAllowlist/adminRateLimiter.
-  adminBarrel.use('/feature-flags', featureFlagRoutes);
   // routes/admin/index.js:224 — mounted whole. Only its continuity-* prefixes
   // are SUPER_ADMIN; the device-registry routes around them stay ADMIN-tier.
   adminBarrel.use('/devices', deviceRegistryRoutes);
@@ -332,11 +321,6 @@ beforeEach(() => {
   listImportJobs.mockResolvedValue({ jobs: [] });
   revokeAccessToken.mockResolvedValue({ id: 9, status: 'revoked' });
   listAccessTokens.mockResolvedValue({ tokens: [] });
-  getFlags.mockResolvedValue([
-    { id: 1, name: 'new-portal', enabled: true, rollout_percentage: 100, allowed_roles: [] },
-  ]);
-  setFlag.mockResolvedValue({ id: 1, name: 'new-portal', enabled: false });
-  deleteFlag.mockResolvedValue(true);
   listDevices.mockResolvedValue([{ id: 'dev-1', device_code: 'ICU-MON-1', status: 'active' }]);
   createDevice.mockResolvedValue({ id: 'dev-2', device_code: 'ICU-MON-2' });
   updateDevice.mockResolvedValue({ id: 'dev-1', status: 'revoked' });
@@ -463,27 +447,6 @@ describe('a plain tenant ADMIN is refused on every SUPER_ADMIN console mutation'
     expect(registerSmartApp).not.toHaveBeenCalled();
   });
 
-  it('403s POST /api/v1/admin/feature-flags — platform-global flag upsert', async () => {
-    // feature_flags has no tenant column (featureFlagService.js upserts on
-    // `name` alone), so this was one tenant's ADMIN editing every tenant.
-    const res = await request(app())
-      .post('/api/v1/admin/feature-flags')
-      .set('Authorization', bearer(ADMIN_BEARER))
-      .send({ name: 'new-portal', enabled: true, rollout_percentage: 100, allowed_roles: [] });
-
-    expect(res.status).toBe(403);
-    expect(setFlag).not.toHaveBeenCalled();
-  });
-
-  it('403s DELETE /api/v1/admin/feature-flags/:name — flag deletion', async () => {
-    const res = await request(app())
-      .delete('/api/v1/admin/feature-flags/new-portal')
-      .set('Authorization', bearer(ADMIN_BEARER));
-
-    expect(res.status).toBe(403);
-    expect(deleteFlag).not.toHaveBeenCalled();
-  });
-
   it('403s POST /api/v1/admin/devices/continuity-facility-context/enroll', async () => {
     const res = await request(app())
       .post('/api/v1/admin/devices/continuity-facility-context/enroll')
@@ -567,15 +530,6 @@ describe('a plain tenant ADMIN is refused on the sensitive console reads', () =>
     expect(listAccessTokens).not.toHaveBeenCalled();
   });
 
-  it('403s GET /api/v1/admin/feature-flags — the platform rollout map', async () => {
-    const res = await request(app())
-      .get('/api/v1/admin/feature-flags')
-      .set('Authorization', bearer(ADMIN_BEARER));
-
-    expect(res.status).toBe(403);
-    expect(getFlags).not.toHaveBeenCalled();
-  });
-
   it('403s GET .../continuity-facility-context/grants — the capture-grant ledger', async () => {
     const res = await request(app())
       .get('/api/v1/admin/devices/continuity-facility-context/grants')
@@ -651,31 +605,6 @@ describe('a real SUPER_ADMIN bearer still reaches every console', () => {
     expect((await get('/api/v1/admin/encryption-keys')).status).toBe(200);
     expect((await get('/api/v1/admin/migration-toolkit/jobs')).status).toBe(200);
     expect((await get('/api/v1/admin/smart-fhir/tokens')).status).toBe(200);
-    expect((await get('/api/v1/admin/feature-flags')).status).toBe(200);
-    expect(getFlags).toHaveBeenCalled();
-  });
-
-  it('200s POST + DELETE on /api/v1/admin/feature-flags', async () => {
-    const instance = app();
-
-    const upsert = await request(instance)
-      .post('/api/v1/admin/feature-flags')
-      .set('Authorization', bearer(SUPER_ADMIN_BEARER))
-      .send({ name: 'new-portal', enabled: false, rollout_percentage: 25, allowed_roles: ['ADMIN'] });
-
-    expect(upsert.status).toBe(200);
-    expect(setFlag).toHaveBeenCalledWith('new-portal', expect.objectContaining({
-      enabled: false,
-      rollout_percentage: 25,
-      allowed_roles: ['ADMIN'],
-    }));
-
-    const removed = await request(instance)
-      .delete('/api/v1/admin/feature-flags/new-portal')
-      .set('Authorization', bearer(SUPER_ADMIN_BEARER));
-
-    expect(removed.status).toBe(200);
-    expect(deleteFlag).toHaveBeenCalledWith('new-portal');
   });
 
   it('reaches the continuity activation gate instead of a role refusal', async () => {

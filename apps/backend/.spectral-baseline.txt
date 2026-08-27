@@ -636,9 +636,6 @@ warning	operation-description	["paths","/api/v1/admin/facilities/rooms","put"]	O
 warning	operation-description	["paths","/api/v1/admin/facilities/seed-default","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/admin/facilities/services","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/admin/facilities/services","put"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/admin/feature-flags","get"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/admin/feature-flags","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/admin/feature-flags/{name}","delete"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/admin/follow-ups","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/admin/follow-ups","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/admin/follow-ups/{id}/transition","patch"]	Operation "description" must be present and non-empty string.

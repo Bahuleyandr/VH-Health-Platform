@@ -136,7 +136,7 @@ The 99-module governed AI substrate is built but **every module still ships `ena
 
 Not blockers for the core platform; build as customer demand surfaces.
 
-- **FHIR R4 write endpoints** — only read/export today; no `POST`/`PUT` for Patient/Observation/Encounter/MedicationRequest (+ conformance statement).
+- **FHIR R4 write endpoints** — partial (corrected 2026-08-27; this bullet previously said "only read/export today", which is stale). `POST /Condition`, `POST /Observation` (plus the I15 `POST /Observation/recovery` rail) and `POST /AllergyIntolerance` are live (`apps/backend/src/routes/fhir/fhirRoutes.js:1101-1270`), each routed through the corresponding clinical service so dedupe, terminology verdicts and canonical timeline/audit events apply, and the CapabilityStatement advertises `create` on those three resources. Still missing: writes for Patient/Encounter/MedicationRequest, and any `PUT`/update or delete interaction on every resource (the surface is create-only where it writes at all).
 - **Live HL7v2 interface engine** — parser/generator + interop replay store exist; standing up a Mirth-class surface emitting ADT/ORM/ORU to the hospital's existing systems is integration work.
 - **Provider credentialing & privileging module** — white-space (registration numbers, privilege/expiry alerts).
 - **NABH quality-indicator pack exporter** — indicators exist piecemeal; no consolidated exporter.
@@ -223,7 +223,9 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
 ## Explicitly parked (re-audit lane J, 2026-08-24 — admin surfaces that could not finish their own workflow)
 
 - **Feature-flag console + `feature_flags` table — decision: RETIRE, do not
-  wire.** `services/featureFlags/featureFlagService.js#isEnabled()` has zero
+  wire. Executed 2026-08-27 (migration 742) — see the RETIRED note at the end
+  of this entry; the paragraphs between describe the pre-retirement state and
+  are kept for provenance.** `services/featureFlags/featureFlagService.js#isEnabled()` has zero
   call sites, so the table (migration 148), the SUPER_ADMIN CRUD routes
   (`routes/admin/featureFlagRoutes.js`) and the `/dashboard/feature-flags` page
   together form a control that changes nothing: an operator reaching for it
@@ -266,23 +268,28 @@ The detailed planning docs this consolidates are in **[`archive/`](archive/)** (
   direction. Pinned by
   `apps/admin/src/__tests__/dashboard/feature-flags/page.test.tsx`.
 
-  **Still open**, and parked rather than queued because retirement spans the
-  admin portal and the packaging catalog and needs one owner call (delete the
-  console, or leave it read-only):
-  1. `apps/admin/src/app/(with-auth)/dashboard/feature-flags/page.tsx` — the
-     page now tells the truth, but it is still a CRUD console for a table
-     nothing reads. Deleting it, or dropping the write controls, is the owner
-     call.
-  2. `apps/admin/src/lib/navConfig.ts`, `routePolicy.ts`, `proxyPermissions.ts`
-     — drop the entries if the page goes.
-  3. `routes/admin/featureFlagRoutes.js` + `featureFlagValidator` in
-     `validators/sharedValidators.js` — remove with the page, then regenerate
-     the OpenAPI spec.
-  4. Entitlement key `admin.feature_flags` (`services/entitlements/
-     entitlementService.js`, catalog rows in migration 433) — retiring it is a
-     packaging change, so this is the piece that most needs the owner decision.
-  5. A forward-only migration dropping `feature_flags` — **last**, and only
-     after 1–4 ship.
+  **RETIRED 2026-08-27** (audit disposition executed — the owner call landed as
+  "remove console, route, service, table"). What shipped, in the order the old
+  "still open" list prescribed:
+  1. Backend: `services/featureFlags/` (the self-documented no-op service),
+     `routes/admin/featureFlagRoutes.js`, the `/api/v1/admin/feature-flags`
+     mount + its `requireEntitlement` wiring, and `featureFlagValidator` in
+     `validators/sharedValidators.js` are deleted; the OpenAPI spec loses
+     `GET`/`POST /api/v1/admin/feature-flags` and
+     `DELETE /api/v1/admin/feature-flags/{name}` (and the `feature-flag` tag).
+  2. Admin portal: the `/dashboard/feature-flags` console and its
+     `navConfig.ts` / `routePolicy.ts` / `proxyPermissions.ts` entries go in
+     the parallel admin-portal lane of the same change set.
+  3. Entitlement key `admin.feature_flags`: removed from
+     `services/entitlements/entitlementService.js` and
+     `packages/vhhealth_core` (`ProductEntitlementKeys`); migration 742
+     DELETEs the migration-433 catalog row (cascade into
+     `product_package_features`; the tenant ledger's FK is ON DELETE SET NULL,
+     so historical audit rows survive).
+  4. Migration `742_drop_feature_flags.sql` drops `feature_flags` (and its
+     owned `feature_flags_id_seq`); the `feature_flags` model is out of
+     `prisma/schema.prisma`. Recorded in `docs/DEAD_TABLES_LEDGER.md` under
+     "Dropped (migration 742)".
 
 - **Patient gamification / step-rewards loop — parked: the server halves exist,
   both ends have no UI.** `routes/gamification/adminGamificationRoutes.js`
@@ -465,13 +472,14 @@ First confirm with the receiving system's owner that it accepts ADT^A02 — see
 the paragraph above for what happens if it does not. Then either:
 
 1. Re-run the create/upsert API, `POST /api/v1/hl7-feeds/subscriptions`, with
-   the same `name` and the full desired `message_types`. **Sharp edge:** that
-   upsert overwrites `endpoint_url` and `auth_header` with whatever the request
-   carries, and `auth_header` is encrypted at rest and never returned by
-   `GET /subscriptions` — omitting it clears the credential with no way to read
-   the old value back. Use this only if you still hold the endpoint's auth
-   header. (There is no admin-console page for HL7 feeds; `/api/v1/hl7-feeds`
-   is on the un-adjudicated caller-less list above.)
+   the same `name` and the full desired `message_types`. **Sharp edge —
+   FIXED 2026-08-27:** the upsert still overwrites `endpoint_url` with whatever
+   the request carries, but `auth_header` now survives an update that omits the
+   field — only an explicit `auth_header: null` (or `''`) clears it, and
+   `GET /subscriptions` reports `auth_header_set: true|false` so you can see a
+   credential exists without reading it (the header itself remains encrypted at
+   rest and is never returned). (There is no admin-console page for HL7 feeds;
+   `/api/v1/hl7-feeds` is on the un-adjudicated caller-less list above.)
 2. Otherwise add the type in place, which leaves the credential alone:
 
    ```sql
@@ -483,14 +491,31 @@ the paragraph above for what happens if it does not. Then either:
       AND NOT ('ADT^A02' = ANY(message_types));
    ```
 
-**Follow-up worth a separate change (not this lane's):** the credential-wiping
-upsert in option 1 is a latent hazard independent of A02 — `createSubscription`
-is the only write path for `message_types`, it is an upsert on `(tenant_id,
-name)`, and it always writes `auth_header` from the request body. A dedicated
-scope-update path (or a `COALESCE` that keeps the stored header when the field
-is absent, with an explicit way to clear it) would remove the trap.
+**Follow-up — ✅ DONE 2026-08-27:** the credential-wiping upsert is fixed the
+way this note prescribed. `createSubscription` now treats `auth_header` as
+three-valued — field ABSENT from the request body keeps the stored encrypted
+header (the upsert's `DO UPDATE` takes a `CASE` on an explicit provided flag),
+explicit `null`/`''` clears it, a string sets it — and `listSubscriptions`
+returns `auth_header_set: boolean` so operators can see a secret exists without
+any read-back path for the secret itself. Pinned by
+`src/tests/unit/hl7OutboundTransferAdt.test.js` ("createSubscription
+auth_header semantics") and the route-mapping cases in
+`src/tests/unit/hl7FeedRoutesAppErrorPropagation.test.js`.
 
-### Pharmacy ward indents — the alert is FIXED, the surface is QUEUED
+### Pharmacy ward indents — the alert is FIXED, the admin surface is BUILT (2026-08-27), push re-promotion is the operator's move
+
+> **Update 2026-08-27:** the queued worklist below shipped as the admin-console
+> page `/dashboard/ward-indents` (`apps/admin/src/lib/api/wardIndents.ts` +
+> `app/(with-auth)/dashboard/ward-indents/`), calling every lifecycle endpoint
+> on the canonical `/api/v1/pharmacy-orders/ward-indents` prefix with required
+> idempotency keys and `expected_version` concurrency. What remains is exactly
+> the two calls the plan below assigns to the operator and a later release:
+> flipping `PHARMACY_WARD_INDENT_PUSH_ENABLED=true` (left OFF here — the staff
+> app still has no ward-indent screen and its notification tap-through still
+> lands on `/pharmacy`, so re-promoting the push before pharmacy staff work
+> from the admin console is a rollout-sequencing call, not a code change), and
+> the staff-app surface. The prose below predates the worklist and is kept for
+> its migration/notification analysis.
 
 What exists: live clinical writes auto-create `ward_indents` rows at status
 `'requested'` — `orderEntryService.js` on every inpatient CPOE medication

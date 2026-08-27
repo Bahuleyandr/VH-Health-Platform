@@ -47,9 +47,20 @@ jest.unstable_mockModule('../../utils/ssrfGuard.js', () => ({
   safeFetch: jest.fn(),
 }));
 
+// The auth header is encrypted at rest; the cipher itself needs
+// FIELD_ENCRYPTION_KEY + the KEK provider and is covered elsewhere. A
+// deterministic stand-in keeps the assertions below on WHAT is stored
+// (plaintext never, null vs kept) rather than on ciphertext bytes.
+jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
+  encryptField: jest.fn((value) => `enc:test:${value}`),
+  decryptField: jest.fn((value) => String(value).replace(/^enc:test:/, '')),
+  isEncrypted: jest.fn((value) => String(value).startsWith('enc:test:')),
+}));
+
 const {
   createSubscription,
   emitTransferAdt,
+  listSubscriptions,
   queueFeedMessage,
   DEFAULT_FEED_MESSAGE_TYPES,
 } = await import('../../services/hl7/hl7OutboundService.js');
@@ -250,7 +261,7 @@ describe('the default subscription scope reaches the transfer event', () => {
       (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
     );
     expect(call).toBeDefined();
-    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid)
+    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid, authHeaderProvided)
     expect(call[5]).toEqual(['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORU^R01']);
     expect(call[5]).toContain('ADT^A02');
   });
@@ -299,6 +310,75 @@ describe('the default subscription scope reaches the transfer event', () => {
     // created through the API or by direct SQL.
     expect([...columnDefault].sort()).toEqual([...DEFAULT_FEED_MESSAGE_TYPES].sort());
     expect(columnDefault).toContain('ADT^A02');
+  });
+});
+
+// GET /subscriptions never returns auth_header — it is an encrypted secret
+// with no read-back path — so a caller cannot re-send the stored value on an
+// upsert. Before the fix the upsert always wrote auth_header from the request
+// (`auth_header = EXCLUDED.auth_header`), so ANY scope/endpoint update that
+// omitted the field silently erased the endpoint's credential (the
+// "credential-wiping upsert" in docs/ROADMAP.md). The contract now:
+// undefined = keep stored, explicit null/'' = clear, string = set (encrypted).
+describe('createSubscription auth_header semantics', () => {
+  const subscriptionInsertCall = () => queryRawUnsafeMock.mock.calls.find(
+    (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
+  );
+  const base = { name: 'State HIE bridge', endpointUrl: 'https://hie.example.org/hl7' };
+
+  it('omitting authHeader preserves the stored credential on upsert', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: true }]);
+
+    await createSubscription({ ...base, messageTypes: ['ORU^R01'] }, { tenantId: TENANT });
+
+    const call = subscriptionInsertCall();
+    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid, authHeaderProvided)
+    expect(call[4]).toBeNull();
+    expect(call[7]).toBe(false);
+    // $7=false steers the DO UPDATE CASE onto the STORED header instead of
+    // overwriting it with EXCLUDED (which would be NULL here).
+    const sql = String(call[0]);
+    expect(sql).toMatch(/auth_header = CASE WHEN \$7::boolean THEN EXCLUDED\.auth_header/);
+    expect(sql).toMatch(/ELSE hl7_feed_subscriptions\.auth_header END/);
+  });
+
+  it('an explicit authHeader: null clears the stored credential', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: false }]);
+
+    await createSubscription({ ...base, authHeader: null }, { tenantId: TENANT });
+
+    const call = subscriptionInsertCall();
+    expect(call[4]).toBeNull();
+    // Provided → the CASE takes EXCLUDED.auth_header, i.e. NULL: a clear.
+    expect(call[7]).toBe(true);
+  });
+
+  it('a provided header is stored encrypted, never as plaintext', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: true }]);
+
+    await createSubscription({ ...base, authHeader: 'Bearer s3cret' }, { tenantId: TENANT });
+
+    const call = subscriptionInsertCall();
+    expect(call[4]).toBe('enc:test:Bearer s3cret');
+    expect(call[7]).toBe(true);
+  });
+
+  it('listSubscriptions exposes auth_header_set but never the header itself', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      { id: 5, name: 'State HIE bridge', auth_header_set: true },
+    ]);
+
+    const rows = await listSubscriptions({ tenantId: TENANT });
+    expect(rows).toEqual([{ id: 5, name: 'State HIE bridge', auth_header_set: true }]);
+
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    const selectList = String(sql).split(/\bFROM\b/i)[0];
+    expect(selectList).toMatch(/\(auth_header IS NOT NULL\) AS auth_header_set/);
+    // The ONLY mention of the column in the select list is inside the boolean
+    // projection — the encrypted value itself is never selected.
+    expect(
+      selectList.replace('(auth_header IS NOT NULL) AS auth_header_set', ''),
+    ).not.toContain('auth_header');
   });
 });
 

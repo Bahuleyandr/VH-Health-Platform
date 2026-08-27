@@ -30,13 +30,19 @@ Migration-shape unit tests (`clinicalGovernanceMigration.test.js`,
 `integrationWebhookMigration.test.js`, …) pin the ORIGINAL migration texts and
 are unaffected by a later DROP.
 
+## Dropped (migration 742) — recorded 2026-08-27
+
+| Table | Created | Evidence |
+|---|---|---|
+| `feature_flags` | 148 | The inert global feature-flag subsystem, retired whole per the `docs/ROADMAP.md` entry "Feature-flag console + `feature_flags` table — decision: RETIRE, do not wire". `featureFlagService.js#isEnabled()` had zero call sites, `WIRED_FEATURE_FLAGS` was frozen empty, and no migration ever seeded a row; migrations 351 and 429 each rejected the table by name when they needed a real per-tenant switch. Unlike the 673 stratum this was not merely an unused table — it had CRUD routes and an admin console, all deleted in the same change set: `services/featureFlags/`, `routes/admin/featureFlagRoutes.js`, `featureFlagValidator`, the `/api/v1/admin/feature-flags` mount, the `admin.feature_flags` entitlement key (code constant plus the migration-433 catalog row, DELETEd by 742), and the `/dashboard/feature-flags` admin page. No inbound FK, no view, no RLS policy (migration 336 lists it global-by-design/unscoped). The owned `feature_flags_id_seq` drops with the table. |
+
 ## Retained — do not drop without re-reading this
 
 | Table | Created | Why retained |
 |---|---|---|
 | `learning_assignments` | 472 | **Live FK dependent**: `learning_completions.assignment_id` references it, and `adoptionService.js` writes that column (`INSERT INTO learning_completions … assignment_id = COALESCE(EXCLUDED.assignment_id, …)`). Nothing yet creates assignment rows, but dropping the table means dropping a column a live write path touches. |
 | `icu_chart_policy_versions` | 495 | **Live FK dependent**: `icu_scoring_outputs.policy_version_id` references it and `icuChartingService.js` inserts that column (today always NULL — no INSERT into the policy table exists, so the value can only be NULL or fail the FK). The policy-versioning design slot is real; dropping requires first removing the column from a live clinical write path. |
-| `smart_fhir_write_resource_plan` | 463 | Designed write-plan ledger for SMART-on-FHIR write scopes (currently read-only surface is live). Future-facing by design. |
+| `smart_fhir_write_resource_plan` | 463 | Designed write-plan ledger for SMART-on-FHIR write scopes. Future-facing by design. (Note corrected 2026-08-27: this row used to say "currently read-only surface is live", which is stale — the FHIR surface now takes `POST /Condition`, `POST /Observation` (+`/recovery`) and `POST /AllergyIntolerance` (`fhirRoutes.js:1101-1270`); Patient/Encounter/MedicationRequest writes and all update/delete interactions remain unbuilt, and nothing writes this table yet.) |
 | `ed_injury_diagram_attachments` | 523 | The ED trauma/MLC flow stores only an `injury_diagram_marked` boolean (`edTraumaMlcService.js`); this table is the designed evidence store that boolean should eventually point at. Future-facing feature slot. |
 | `interop_worker_leases` | 477/611 | Real lease state lives on per-message columns (`interfaceEngineService.js` claim/lease logic). The table was deliberately retained and re-covered by migration 611's fail-closed RLS layer (`interop_explicit_context`), and the I05 recovery deep tests (`interfaceEngineHl7v2RecoveryMigration.deep.test.js`) assert its policies as part of the adapted-ledger contract. Treated as a reserved scale-out slot of the continuity substrate; dropping it would edit the C6.1 contract tests for zero operational gain. |
 
