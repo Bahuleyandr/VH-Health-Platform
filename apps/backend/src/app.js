@@ -89,6 +89,7 @@ import {
   EMR_TIMELINE_READ_ROUTE_ROLES,
   ENGAGEMENT_ROUTE_ROLES,
   FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES,
+  HL7_FEED_ROUTE_ROLES,
   HOUSEKEEPING_VISIBILITY_ROUTE_ROLES,
   ICU_ROUTE_ROLES,
   INVESTIGATION_ROUTE_ROLES,
@@ -1521,7 +1522,7 @@ app.use('/api/v1/pacs', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard
 app.use('/api/v1/integrity', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOCUMENT_SIGNATURE'), integrityRoutes);
 
 // Outbound HL7v2 feeds (roadmap C2) — subscriptions + delivery queue.
-app.use('/api/v1/hl7-feeds', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('HL7_FEED'), hl7FeedRoutes);
+app.use('/api/v1/hl7-feeds', requireRole(...HL7_FEED_ROUTE_ROLES), phiAccessLogger('HL7_FEED'), hl7FeedRoutes);
 
 // ICU monitor vitals ingestion + verification queue (roadmap C5).
 app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES, 'DEVICE_GATEWAY'), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);

@@ -23,9 +23,26 @@ import {
   isSmsDeliveryStatusEndpoint,
   redactSensitiveQueryParams,
 } from '../utils/urlRedaction.js';
+import {
+  isCredentialFieldName,
+  normalizeCredentialFieldName,
+} from '../utils/credentialFieldRedaction.js';
 
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
+
+/** Wait for detached universal audit writes to settle before graceful shutdown
+ *  or disposal of tenant-scoped test fixtures. Request handlers must never
+ *  await this: audit persistence remains fire-and-forget on the response path. */
+export async function waitForAuditLogDrain({ timeoutMs = 10000, pollMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (pendingAuditLogs > 0) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${pendingAuditLogs} universal audit write(s)`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
 
 // ─── Durable file fallback ────────────────────────────────────────────────────
 // The "audit never lost" guarantee: when the universal audit row cannot reach
@@ -283,11 +300,19 @@ export function deriveAction(method, path) {
 }
 
 // ─── Sensitive fields to redact ──────────────────────────────────────────────
-const REDACT_FIELDS = new Set([
-  'password', 'password_hash', 'token', 'access_token', 'refresh_token',
-  'secret', 'api_key', 'apikey', 'authorization', 'otp', 'pin',
-  'auth_key', 'auth_token', 'key_secret', 'webhook_secret', 'callback_token',
-  'ssn', 'aadhar', 'pan', 'bank_account',
+const SENSITIVE_IDENTITY_FIELDS = new Set([
+  'ssn',
+  'aadhar',
+  'aadhar_number',
+  'aadhaar',
+  'aadhaar_number',
+  'pan',
+  'pan_number',
+  'bank_account',
+  'bank_account_number',
+]);
+const URL_VALUE_FIELDS = new Set([
+  'url', 'endpoint_url', 'callback_url', 'webhook_url', 'redirect_url', 'return_url',
 ]);
 
 const CLINICAL_TEXT_FIELDS = new Set([
@@ -315,27 +340,44 @@ function requestDeviceType(req) {
   );
 }
 
+function sanitizeAuditObject(body) {
+  const cleaned = {};
+  for (const [k, v] of Object.entries(body)) {
+    const normalizedKey = normalizeCredentialFieldName(k);
+    if (isCredentialFieldName(k) || SENSITIVE_IDENTITY_FIELDS.has(normalizedKey)) {
+      cleaned[k] = '[REDACTED]';
+    } else if (CLINICAL_TEXT_FIELDS.has(normalizedKey)) {
+      cleaned[k] = '[REDACTED_CLINICAL_TEXT]';
+    } else if (typeof v === 'string' && URL_VALUE_FIELDS.has(normalizedKey)) {
+      cleaned[k] = redactSensitiveQueryParams(v);
+    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+      cleaned[k] = sanitizeAuditObject(v);
+    } else if (Array.isArray(v)) {
+      cleaned[k] = `[Array(${v.length})]`;
+    } else {
+      cleaned[k] = v;
+    }
+  }
+  return cleaned;
+}
+
 export function sanitizeBody(body) {
   if (!body || typeof body !== 'object') return null;
   try {
-    const cleaned = {};
-    for (const [k, v] of Object.entries(body)) {
-      if (REDACT_FIELDS.has(k.toLowerCase())) {
-        cleaned[k] = '[REDACTED]';
-      } else if (CLINICAL_TEXT_FIELDS.has(k.toLowerCase())) {
-        cleaned[k] = '[REDACTED_CLINICAL_TEXT]';
-      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-        cleaned[k] = sanitizeBody(v);
-      } else if (Array.isArray(v)) {
-        cleaned[k] = `[Array(${v.length})]`;
-      } else {
-        cleaned[k] = v;
-      }
-    }
+    const cleaned = sanitizeAuditObject(body);
     const summary = JSON.stringify(cleaned);
     return summary.length > 500 ? summary.substring(0, 500) + '…' : summary;
   } catch {
     return '[unserializable]';
+  }
+}
+
+export function sanitizeQueryParameters(query) {
+  if (!query || typeof query !== 'object') return null;
+  try {
+    return JSON.stringify(sanitizeAuditObject(query));
+  } catch {
+    return null;
   }
 }
 
@@ -614,7 +656,7 @@ export function auditLogMiddleware(req, res, next) {
           deviceType,
           userRole,
         });
-        const tenantId = authenticatedCallback?.tenantId || null;
+        const tenantId = authenticatedCallback?.tenantId || auditTenantId(req, cleanPath);
         const tenantColumn = tenantId ? ', tenant_id' : '';
         const tenantValue = tenantId ? ',$23::uuid' : '';
 
@@ -632,7 +674,7 @@ export function auditLogMiddleware(req, res, next) {
           auditContext.resourceId == null ? null : String(auditContext.resourceId),
           JSON.stringify(auditContext.metadata),
           !excludesAuditRequestBody(cleanPath) && Object.keys(query || {}).length
-            ? JSON.stringify(query)
+            ? sanitizeQueryParameters(query)
             : null,
           method !== 'GET' && !excludesAuditRequestBody(cleanPath) ? sanitizeBody(body) : null,
           statusCode,

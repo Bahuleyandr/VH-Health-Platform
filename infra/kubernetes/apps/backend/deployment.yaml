@@ -244,10 +244,12 @@ spec:
             # fallback file transports).
             - name: app-tmp
               mountPath: /app/tmp
-            # Prisma generates clients at startup if the readonly FS blocks
-            # them — give it a scratch dir. No-op when image bakes them in.
-            - name: prisma-cache
-              mountPath: /app/node_modules/.prisma
+            # Nothing mounts over /app/node_modules/** on purpose: the image
+            # bakes the generated Prisma client at node_modules/.prisma, and a
+            # mount REPLACES the image directory — the emptyDir that used to
+            # sit there erased the client, so boot died importing
+            # '@prisma/client'. Runtime never writes into .prisma. Pinned by
+            # scripts/backend-image-command-contract.test.mjs.
       volumes:
         - name: tmp
           emptyDir:
@@ -255,6 +257,3 @@ spec:
         - name: app-tmp
           emptyDir:
             sizeLimit: 512Mi
-        - name: prisma-cache
-          emptyDir:
-            sizeLimit: 64Mi

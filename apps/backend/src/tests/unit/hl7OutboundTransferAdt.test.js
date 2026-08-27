@@ -47,19 +47,11 @@ jest.unstable_mockModule('../../utils/ssrfGuard.js', () => ({
   safeFetch: jest.fn(),
 }));
 
-// The auth header is encrypted at rest; the cipher itself needs
-// FIELD_ENCRYPTION_KEY + the KEK provider and is covered elsewhere. A
-// deterministic stand-in keeps the assertions below on WHAT is stored
-// (plaintext never, null vs kept) rather than on ciphertext bytes.
-jest.unstable_mockModule('../../utils/fieldEncryption.js', () => ({
-  encryptField: jest.fn((value) => `enc:test:${value}`),
-  decryptField: jest.fn((value) => String(value).replace(/^enc:test:/, '')),
-  isEncrypted: jest.fn((value) => String(value).startsWith('enc:test:')),
-}));
-
 const {
   createSubscription,
+  deactivateSubscription,
   emitTransferAdt,
+  listFeedMessages,
   listSubscriptions,
   queueFeedMessage,
   DEFAULT_FEED_MESSAGE_TYPES,
@@ -261,9 +253,14 @@ describe('the default subscription scope reaches the transfer event', () => {
       (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
     );
     expect(call).toBeDefined();
-    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid, authHeaderProvided)
+    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid,
+    //  authHeaderProvided, messageTypesProvided)
     expect(call[5]).toEqual(['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORU^R01']);
     expect(call[5]).toContain('ADT^A02');
+    expect(call[7]).toBe(false);
+    expect(call[8]).toBe(false);
+    expect(call[0]).toContain('WHEN $7::boolean THEN EXCLUDED.auth_header');
+    expect(call[0]).toContain('WHEN $8::boolean THEN EXCLUDED.message_types');
   });
 
   it('still honours an explicit list — a receiver that cannot take A02 opts out', async () => {
@@ -282,6 +279,28 @@ describe('the default subscription scope reaches the transfer event', () => {
       (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
     );
     expect(call[5]).toEqual(['ORU^R01']);
+    expect(call[7]).toBe(false);
+    expect(call[8]).toBe(true);
+  });
+
+  it('distinguishes an explicit credential clear from an omitted credential', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 8 }]);
+
+    await createSubscription(
+      {
+        name: 'Credential clear receiver',
+        endpointUrl: 'https://receiver.example.org/hl7',
+        authHeader: null,
+      },
+      { tenantId: TENANT },
+    );
+
+    const call = queryRawUnsafeMock.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
+    );
+    expect(call[4]).toBeNull();
+    expect(call[7]).toBe(true);
+    expect(call[8]).toBe(false);
   });
 
   it('matches the column DEFAULT that migration 731 installed', () => {
@@ -313,72 +332,57 @@ describe('the default subscription scope reaches the transfer event', () => {
   });
 });
 
-// GET /subscriptions never returns auth_header — it is an encrypted secret
-// with no read-back path — so a caller cannot re-send the stored value on an
-// upsert. Before the fix the upsert always wrote auth_header from the request
-// (`auth_header = EXCLUDED.auth_header`), so ANY scope/endpoint update that
-// omitted the field silently erased the endpoint's credential (the
-// "credential-wiping upsert" in docs/ROADMAP.md). The contract now:
-// undefined = keep stored, explicit null/'' = clear, string = set (encrypted).
-describe('createSubscription auth_header semantics', () => {
-  const subscriptionInsertCall = () => queryRawUnsafeMock.mock.calls.find(
-    (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
-  );
-  const base = { name: 'State HIE bridge', endpointUrl: 'https://hie.example.org/hl7' };
-
-  it('omitting authHeader preserves the stored credential on upsert', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: true }]);
-
-    await createSubscription({ ...base, messageTypes: ['ORU^R01'] }, { tenantId: TENANT });
-
-    const call = subscriptionInsertCall();
-    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid, authHeaderProvided)
-    expect(call[4]).toBeNull();
-    expect(call[7]).toBe(false);
-    // $7=false steers the DO UPDATE CASE onto the STORED header instead of
-    // overwriting it with EXCLUDED (which would be NULL here).
-    const sql = String(call[0]);
-    expect(sql).toMatch(/auth_header = CASE WHEN \$7::boolean THEN EXCLUDED\.auth_header/);
-    expect(sql).toMatch(/ELSE hl7_feed_subscriptions\.auth_header END/);
+describe('subscription-management input hardening', () => {
+  it('rejects credential query parameters before storage', async () => {
+    await expect(createSubscription(
+      {
+        name: 'Unsafe query receiver',
+        endpointUrl: 'https://receiver.example.org/hl7?api_key=receiver-secret',
+      },
+      { tenantId: TENANT },
+    )).rejects.toMatchObject({ code: 'HL7_FEED_CREDENTIAL_QUERY_FORBIDDEN', statusCode: 400 });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
-  it('an explicit authHeader: null clears the stored credential', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: false }]);
-
-    await createSubscription({ ...base, authHeader: null }, { tenantId: TENANT });
-
-    const call = subscriptionInsertCall();
-    expect(call[4]).toBeNull();
-    // Provided → the CASE takes EXCLUDED.auth_header, i.e. NULL: a clear.
-    expect(call[7]).toBe(true);
-  });
-
-  it('a provided header is stored encrypted, never as plaintext', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 5, auth_header_set: true }]);
-
-    await createSubscription({ ...base, authHeader: 'Bearer s3cret' }, { tenantId: TENANT });
-
-    const call = subscriptionInsertCall();
-    expect(call[4]).toBe('enc:test:Bearer s3cret');
-    expect(call[7]).toBe(true);
-  });
-
-  it('listSubscriptions exposes auth_header_set but never the header itself', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([
-      { id: 5, name: 'State HIE bridge', auth_header_set: true },
-    ]);
+  it('redacts credential queries in historical subscription projections', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 4,
+      endpoint_url: 'https://receiver.example.org/hl7?api_key=legacy-secret&tenant=one',
+    }]);
 
     const rows = await listSubscriptions({ tenantId: TENANT });
-    expect(rows).toEqual([{ id: 5, name: 'State HIE bridge', auth_header_set: true }]);
 
-    const [sql] = queryRawUnsafeMock.mock.calls[0];
-    const selectList = String(sql).split(/\bFROM\b/i)[0];
-    expect(selectList).toMatch(/\(auth_header IS NOT NULL\) AS auth_header_set/);
-    // The ONLY mention of the column in the select list is inside the boolean
-    // projection — the encrypted value itself is never selected.
-    expect(
-      selectList.replace('(auth_header IS NOT NULL) AS auth_header_set', ''),
-    ).not.toContain('auth_header');
+    expect(rows[0].endpoint_url).toBe(
+      'https://receiver.example.org/hl7?api_key=%5BREDACTED%5D&tenant=one',
+    );
+    expect(JSON.stringify(rows)).not.toContain('legacy-secret');
+  });
+
+  it.each([0, -1, '1junk', '2147483648', null])(
+    'rejects invalid subscription id %p before issuing SQL',
+    async (id) => {
+      await expect(deactivateSubscription(id, { tenantId: TENANT }))
+        .rejects.toMatchObject({ code: 'HL7_FEED_BAD_SUBSCRIPTION_ID' });
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('clamps negative message-list limits to one', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listFeedMessages({ tenantId: TENANT, limit: -20 });
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call.at(-1)).toBe(1);
+  });
+
+  it('uses the safe default for malformed message-list limits', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listFeedMessages({ tenantId: TENANT, limit: '20junk' });
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call.at(-1)).toBe(50);
   });
 });
 

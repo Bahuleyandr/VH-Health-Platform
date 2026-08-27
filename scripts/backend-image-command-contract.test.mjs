@@ -13,21 +13,26 @@
 //     derive what the runtime image actually contains: the base-image binaries,
 //     what `apk add` put in, what `rm -rf` took back out, and which repo paths
 //     each COPY places under WORKDIR.
-//   * extractContainers() reads every manifest in infra/kubernetes/apps/backend
-//     and pulls out each container's image + command + args.
+//   * extractContainers() reads every manifest in the scanned directories
+//     and pulls out each container's image + command + args + volumeMounts.
 //   * For containers running the backend image, every command word the
 //     container invokes (including inside `sh -c` scripts and command
 //     substitutions) must resolve to a binary the image has, and every
 //     `node <script>` target must be a file the Dockerfile copies in AND that
 //     exists on disk.
+//   * volumeMountMaskings() closes the sibling hole: a volume mounted at a
+//     path the Dockerfile populates REPLACES that directory — it does not
+//     overlay it. The `prisma-cache` emptyDir at /app/node_modules/.prisma
+//     shipped in five workloads and erased the image's generated Prisma
+//     client, so anything importing @prisma/client died at module link
+//     ("does not provide an export named 'PrismaClient'").
 //
 // So if someone re-adds npm to the image, `npm run` stops being a violation on
 // its own; if someone deletes another binary, its call sites start failing.
 // The contract is the image, not a blocklist.
 //
-// SCOPE: infra/kubernetes/apps/backend/*.yaml (this lane's manifests) plus the
-// Dockerfile's own CMD/HEALTHCHECK. Backend-image workloads outside that
-// directory are NOT covered here.
+// SCOPE: every directory in BACKEND_MANIFEST_DIRS below, plus the Dockerfile's
+// own CMD/HEALTHCHECK. Backend-image workloads elsewhere are NOT covered here.
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -41,6 +46,15 @@ const readRepo = relative => readFileSync(path.join(repoRoot, relative), 'utf8')
 const BACKEND_DIR = 'apps/backend';
 const DOCKERFILE = `${BACKEND_DIR}/Dockerfile`;
 const BACKEND_MANIFEST_DIR = 'infra/kubernetes/apps/backend';
+// Every directory whose manifests run the backend image. The warehouse migrate
+// Job mirrors migration-job.yaml (same image, same steps) but sat outside the
+// original apps/backend scope — it shipped BOTH regression classes this suite
+// exists to catch (`npm run db:ensure-pgvector`, and the .prisma masking
+// mount) precisely because nothing scanned its directory.
+const BACKEND_MANIFEST_DIRS = [
+  BACKEND_MANIFEST_DIR,
+  'infra/kubernetes/optional/analytics-warehouse',
+];
 const BACKEND_IMAGE_REPO = 'ghcr.io/bahuleyandr/vh-health-platform-backend';
 
 // ---------------------------------------------------------------------------
@@ -297,6 +311,63 @@ export function resolveImagePath(model, containerPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Image content ↔ volume mounts
+// ---------------------------------------------------------------------------
+
+/**
+ * Container-absolute paths at which the runtime stage places image content.
+ * A COPY into the workdir root lands each source at workdir/<basename>; every
+ * other COPY owns its destination subtree.
+ */
+export function imageContentRoots(model) {
+  const workdir = model.workdir.replace(/\/+$/, '');
+  const absolute = relative => (relative.startsWith('/') ? relative : `${workdir}/${relative}`);
+  const roots = [];
+  for (const copy of model.copies) {
+    const destination = normaliseDestination(copy.destination);
+    if (destination === '' || destination === '.') {
+      for (const source of copy.sources) {
+        roots.push({ path: absolute(path.posix.basename(source.replace(/\*+$/, ''))), copy });
+      }
+      continue;
+    }
+    roots.push({ path: absolute(destination), copy });
+  }
+  return roots;
+}
+
+/**
+ * Violations for every volumeMount sitting over content the image ships.
+ * A Kubernetes mount REPLACES the image directory with the volume — an
+ * emptyDir mounted at a baked-in path is an empty directory where the content
+ * used to be, not a writable overlay on top of it. Flagged in every direction:
+ * a mount AT a copied path erases it, a mount ABOVE one buries it, and a
+ * mount INSIDE a copied tree replaces part of it.
+ */
+export function volumeMountMaskings(model, container, where) {
+  const violations = [];
+  const mounts = Array.isArray(container.volumeMounts) ? container.volumeMounts : [];
+  const roots = imageContentRoots(model);
+  for (const mount of mounts) {
+    if (!mount || typeof mount !== 'object' || typeof mount.mountPath !== 'string') continue;
+    const mountPath = mount.mountPath.replace(/\/+$/, '');
+    const masked = roots.filter(root =>
+      root.path === mountPath
+      || root.path.startsWith(`${mountPath}/`)
+      || mountPath.startsWith(`${root.path}/`));
+    if (masked.length > 0) {
+      const paths = [...new Set(masked.map(root => root.path))].join(', ');
+      violations.push(
+        `${where}: volume '${mount.name}' mounted at ${mount.mountPath} masks image content `
+          + `the ${DOCKERFILE} runtime stage ships (${paths}) — a mount replaces the image `
+          + 'directory rather than overlaying it, so the shipped files are gone at runtime',
+      );
+    }
+  }
+  return violations;
+}
+
+// ---------------------------------------------------------------------------
 // Manifest → containers
 // ---------------------------------------------------------------------------
 
@@ -337,9 +408,38 @@ function parseFlowSequence(text) {
   return items;
 }
 
+// Flow mapping — `{ name: tmp, mountPath: /tmp }`. The warehouse migrate Job
+// writes its volumeMounts in this style; without parsing it those mounts come
+// back as strings and the mount gate below would silently see nothing.
+function parseFlowMapping(text) {
+  const inner = text.trim().replace(/^\{/, '').replace(/\}$/, '');
+  const entries = [];
+  let token = '';
+  let quote = null;
+  for (const char of inner) {
+    if (quote) {
+      token += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; token += char; continue; }
+    if (char === ',') { entries.push(token); token = ''; continue; }
+    token += char;
+  }
+  if (token.trim() !== '') entries.push(token);
+
+  const result = {};
+  for (const entry of entries) {
+    const match = entry.match(/^\s*([A-Za-z0-9_.\-/]+):\s+([\s\S]*)$/);
+    if (match) result[match[1]] = parseScalar(match[2]);
+  }
+  return result;
+}
+
 function parseScalar(text) {
   const value = stripInlineComment(text).trim();
   if (value.startsWith('[')) return parseFlowSequence(value);
+  if (value.startsWith('{')) return parseFlowMapping(value);
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))
@@ -686,14 +786,16 @@ export function checkContainer(model, container, where) {
 
 const backendImageContainers = () => {
   const found = [];
-  for (const file of readdirSync(path.join(repoRoot, BACKEND_MANIFEST_DIR)).sort()) {
-    if (!file.endsWith('.yaml') || file.endsWith('.yaml.example')) continue;
-    const relative = `${BACKEND_MANIFEST_DIR}/${file}`;
-    for (const container of extractContainers(readRepo(relative))) {
-      if (typeof container.image !== 'string') continue;
-      if (!container.image.startsWith(`${BACKEND_IMAGE_REPO}:`)
-        && !container.image.startsWith(`${BACKEND_IMAGE_REPO}@`)) continue;
-      found.push({ ...container, file: relative });
+  for (const directory of BACKEND_MANIFEST_DIRS) {
+    for (const file of readdirSync(path.join(repoRoot, directory)).sort()) {
+      if (!file.endsWith('.yaml') || file.endsWith('.yaml.example')) continue;
+      const relative = `${directory}/${file}`;
+      for (const container of extractContainers(readRepo(relative))) {
+        if (typeof container.image !== 'string') continue;
+        if (!container.image.startsWith(`${BACKEND_IMAGE_REPO}:`)
+          && !container.image.startsWith(`${BACKEND_IMAGE_REPO}@`)) continue;
+        found.push({ ...container, file: relative });
+      }
     }
   }
   return found;
@@ -758,7 +860,7 @@ test('every migration Job command exists in the built runtime image', () => {
   assert.deepEqual(violations, []);
 });
 
-test('every backend-image container in this app directory honours the contract', () => {
+test('every backend-image container in the scanned directories honours the contract', () => {
   const model = buildImageModel(readRepo(DOCKERFILE));
   const containers = backendImageContainers();
 
@@ -769,6 +871,9 @@ test('every backend-image container in this app directory honours the contract',
     `${BACKEND_MANIFEST_DIR}/migration-job.yaml#wait-owner-bypassrls`,
     `${BACKEND_MANIFEST_DIR}/migration-job.yaml#migrate`,
     `${BACKEND_MANIFEST_DIR}/ward-downtime-packs-cronjob.yaml#ward-downtime-packs`,
+    `${BACKEND_MANIFEST_DIR}/deployment.yaml#backend`,
+    `${BACKEND_MANIFEST_DIR}/lab-threshold-reconciliation-cronjob.yaml#lab-threshold-exception-reconciliation`,
+    'infra/kubernetes/optional/analytics-warehouse/warehouse-migrate-job.yaml#migrate',
   ]) {
     assert.ok(seen.includes(expected), `expected to discover ${expected}; found ${seen.join(', ')}`);
   }
@@ -777,6 +882,93 @@ test('every backend-image container in this app directory honours the contract',
     checkContainer(model, container, `${container.file} [${container.name}]`));
 
   assert.deepEqual(violations, []);
+});
+
+test('no backend-image container mounts a volume over content the image ships', () => {
+  const model = buildImageModel(readRepo(DOCKERFILE));
+  const containers = backendImageContainers();
+
+  // Parse non-vacuity: these workloads all declare volume mounts (the
+  // Deployment in block style, the warehouse Job in flow style). If the
+  // parser stopped seeing them, the violations assertion below would pass
+  // while checking nothing.
+  for (const expected of [
+    `${BACKEND_MANIFEST_DIR}/deployment.yaml#backend`,
+    `${BACKEND_MANIFEST_DIR}/migration-job.yaml#migrate`,
+    'infra/kubernetes/optional/analytics-warehouse/warehouse-migrate-job.yaml#migrate',
+  ]) {
+    const container = containers.find(entry => `${entry.file}#${entry.name}` === expected);
+    assert.ok(container, `expected to discover ${expected}`);
+    const mountPaths = (Array.isArray(container.volumeMounts) ? container.volumeMounts : [])
+      .filter(mount => mount && typeof mount === 'object')
+      .map(mount => mount.mountPath);
+    assert.ok(
+      mountPaths.includes('/tmp'),
+      `${expected} volumeMounts did not parse — got ${JSON.stringify(mountPaths)}`,
+    );
+  }
+
+  const violations = containers.flatMap(container =>
+    volumeMountMaskings(model, container, `${container.file} [${container.name}]`));
+
+  assert.deepEqual(violations, []);
+});
+
+test('the mount gate catches the masking regression it was written for', () => {
+  const model = buildImageModel(readRepo(DOCKERFILE));
+
+  // The shipped defect: an emptyDir over the baked generated Prisma client.
+  const exact = volumeMountMaskings(model, {
+    volumeMounts: [{ name: 'prisma-cache', mountPath: '/app/node_modules/.prisma' }],
+  }, '[fixture]');
+  assert.equal(exact.length, 1, exact.join(' | '));
+  assert.match(exact[0], /masks image content/);
+  assert.match(exact[0], /node_modules\/\.prisma/);
+
+  // A mount ABOVE copied content buries it just the same.
+  const ancestor = volumeMountMaskings(model, {
+    volumeMounts: [{ name: 'modules', mountPath: '/app/node_modules' }],
+  }, '[fixture]');
+  assert.equal(ancestor.length, 1, ancestor.join(' | '));
+
+  // A mount INSIDE a copied tree replaces part of it.
+  const buried = volumeMountMaskings(model, {
+    volumeMounts: [{ name: 'scratch', mountPath: '/app/src/services' }],
+  }, '[fixture]');
+  assert.equal(buried.length, 1, buried.join(' | '));
+
+  // The scratch mounts every workload legitimately carries stay clean.
+  const benign = volumeMountMaskings(model, {
+    volumeMounts: [
+      { name: 'tmp', mountPath: '/tmp' },
+      { name: 'app-tmp', mountPath: '/app/tmp' },
+    ],
+  }, '[fixture]');
+  assert.deepEqual(benign, []);
+});
+
+test('flow-style volumeMounts parse into objects the mount gate can see', () => {
+  const manifest = [
+    'spec:',
+    '  containers:',
+    '    - name: migrate',
+    `      image: ${BACKEND_IMAGE_REPO}:0.0.0-placeholder`,
+    '      volumeMounts:',
+    '        - { name: tmp, mountPath: /tmp }',
+    '        - { name: prisma-cache, mountPath: /app/node_modules/.prisma }',
+  ].join('\n');
+
+  const [container] = extractContainers(manifest);
+  assert.ok(container, 'container did not parse');
+  assert.deepEqual(container.volumeMounts, [
+    { name: 'tmp', mountPath: '/tmp' },
+    { name: 'prisma-cache', mountPath: '/app/node_modules/.prisma' },
+  ]);
+
+  const model = buildImageModel(readRepo(DOCKERFILE));
+  const violations = volumeMountMaskings(model, container, '[fixture]');
+  assert.equal(violations.length, 1, violations.join(' | '));
+  assert.match(violations[0], /prisma-cache/);
 });
 
 test('the Dockerfile default command and healthcheck resolve inside the image', () => {

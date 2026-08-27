@@ -1,3 +1,5 @@
+import { envelope } from './_helpers.mjs';
+
 const ACK_MEDIA_TYPE = 'application/hl7-v2';
 const CANONICAL_POSITIVE_DECIMAL = '^[1-9][0-9]*$';
 const CANONICAL_NON_NEGATIVE_DECIMAL = '^(0|[1-9][0-9]*)$';
@@ -7,6 +9,23 @@ const EXPLICIT_OFFSET_TIMESTAMP =
   '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?' +
   '(?:Z|\\+(?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00)|' +
   '-(?:(?:0[1-9]|1[0-3]):[0-5][0-9]|00:(?:0[1-9]|[1-5][0-9])|14:00))$';
+const HL7_FEED_MESSAGE_TYPES = ['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
+
+const feedErrorResponse = description => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/Hl7FeedErrorResponse' },
+    },
+  },
+});
+
+const authenticatedFeedErrors = {
+  401: feedErrorResponse('The API key or bearer access token was missing, invalid, expired, or revoked.'),
+  403: feedErrorResponse('The caller is not an administrator or integration administrator.'),
+  429: feedErrorResponse('The authenticated caller exceeded the route rate limit.'),
+  500: feedErrorResponse('The feed-management operation failed without exposing internal details.'),
+};
 
 const recoveryHl7Message = {
   type: 'string',
@@ -66,6 +85,215 @@ const legacyJsonResponse = description => ({
 });
 
 export const schemas = {
+  Hl7FeedErrorResponse: {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: true,
+        required: ['success', 'message'],
+        properties: {
+          success: { type: 'boolean', enum: [false] },
+          message: { type: 'string' },
+          code: { type: 'string' },
+          requestId: { type: 'string' },
+          details: { type: 'object', additionalProperties: true },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: true,
+        required: ['success', 'error'],
+        properties: {
+          success: { type: 'boolean', enum: [false] },
+          error: { type: 'string' },
+          code: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: true,
+        required: ['error'],
+        not: { required: ['success'] },
+        properties: {
+          error: { type: 'string' },
+        },
+        description: 'Global API-key validation failure before route dispatch.',
+      },
+    ],
+  },
+  Hl7FeedSubscription: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'name',
+      'endpoint_url',
+      'message_types',
+      'is_active',
+      'auth_header_configured',
+      'created_at',
+    ],
+    properties: {
+      id: { type: 'integer', minimum: 1, maximum: 2_147_483_647 },
+      tenant_id: { type: 'string', format: 'uuid' },
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      endpoint_url: { type: 'string', format: 'uri' },
+      message_types: {
+        type: 'array',
+        minItems: 1,
+        uniqueItems: true,
+        items: { type: 'string', enum: HL7_FEED_MESSAGE_TYPES },
+      },
+      is_active: { type: 'boolean' },
+      auth_header_configured: { type: 'boolean' },
+      last_delivery_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+    description:
+      'Tenant-scoped receiver configuration. The credential value is never returned; only its configured state is visible.',
+  },
+  Hl7FeedSubscriptionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['name', 'endpoint_url'],
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      endpoint_url: {
+        type: 'string',
+        format: 'uri',
+        pattern: '^https?://',
+        description:
+          'Receiver URL. Credential-bearing query parameters are rejected; use auth_header for receiver authorization.',
+      },
+      auth_header: {
+        type: 'string',
+        nullable: true,
+        writeOnly: true,
+        description:
+          'Receiver Authorization header. Omit to preserve the stored credential on an existing subscription; send null or an empty string to clear it; send a non-empty value to rotate it.',
+      },
+      message_types: {
+        type: 'array',
+        minItems: 1,
+        uniqueItems: true,
+        items: { type: 'string', enum: HL7_FEED_MESSAGE_TYPES },
+        description:
+          'Complete receiver scope. Omit to preserve an existing subscription scope; a new subscription defaults to ADT A01/A02/A03 and ORU R01.',
+      },
+    },
+  },
+  Hl7FeedSubscriptionListResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['subscriptions', 'count'],
+    properties: {
+      subscriptions: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/Hl7FeedSubscription' },
+      },
+      count: { type: 'integer', minimum: 0 },
+    },
+  },
+  Hl7FeedSubscriptionListResponse: envelope('Hl7FeedSubscriptionListResult'),
+  Hl7FeedSubscriptionResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['subscription'],
+    properties: {
+      subscription: { $ref: '#/components/schemas/Hl7FeedSubscription' },
+    },
+  },
+  Hl7FeedSubscriptionResponse: envelope('Hl7FeedSubscriptionResult'),
+  Hl7FeedDeactivatedSubscription: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'name', 'is_active'],
+    properties: {
+      id: { type: 'integer', minimum: 1, maximum: 2_147_483_647 },
+      name: { type: 'string' },
+      is_active: { type: 'boolean', enum: [false] },
+    },
+  },
+  Hl7FeedDeactivationResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['subscription'],
+    properties: {
+      subscription: { $ref: '#/components/schemas/Hl7FeedDeactivatedSubscription' },
+    },
+  },
+  Hl7FeedDeactivationResponse: envelope('Hl7FeedDeactivationResult'),
+  Hl7FeedMessage: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'subscription_id',
+      'subscription_name',
+      'message_type',
+      'status',
+      'attempts',
+      'transport_state',
+      'acknowledgement_state',
+      'send_authority',
+      'created_at',
+    ],
+    properties: {
+      id: { type: 'integer', minimum: 1 },
+      subscription_id: { type: 'integer', minimum: 1 },
+      subscription_name: { type: 'string' },
+      message_type: { type: 'string', enum: HL7_FEED_MESSAGE_TYPES },
+      message_control_id: { type: 'string', nullable: true },
+      status: {
+        type: 'string',
+        enum: ['queued', 'claimed', 'sent', 'failed', 'dead', 'reconciliation_required'],
+      },
+      attempts: { type: 'integer', minimum: 0 },
+      last_error: { type: 'string', nullable: true },
+      next_attempt_at: { type: 'string', format: 'date-time' },
+      sent_at: { type: 'string', format: 'date-time', nullable: true },
+      source_table: { type: 'string', nullable: true },
+      source_id: { type: 'string', nullable: true },
+      source_event_key: { type: 'string' },
+      payload_sha256: { type: 'string', pattern: LOWERCASE_SHA256 },
+      transport_state: { type: 'string' },
+      acknowledgement_state: { type: 'string' },
+      send_authority: { type: 'string' },
+      recovery_inbox_id: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  Hl7FeedMessageListResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['messages', 'count'],
+    properties: {
+      messages: { type: 'array', items: { $ref: '#/components/schemas/Hl7FeedMessage' } },
+      count: { type: 'integer', minimum: 0 },
+    },
+  },
+  Hl7FeedMessageListResponse: envelope('Hl7FeedMessageListResult'),
+  Hl7FeedDeliveryRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 200, default: 25 },
+    },
+  },
+  Hl7FeedDeliveryResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['picked', 'acknowledged', 'rejected', 'uncertain', 'deferred', 'expired'],
+    properties: {
+      picked: { type: 'integer', minimum: 0 },
+      acknowledged: { type: 'integer', minimum: 0 },
+      rejected: { type: 'integer', minimum: 0 },
+      uncertain: { type: 'integer', minimum: 0 },
+      deferred: { type: 'integer', minimum: 0 },
+      expired: { type: 'integer', minimum: 0 },
+    },
+  },
+  Hl7FeedDeliveryResponse: envelope('Hl7FeedDeliveryResult'),
   Hl7LegacyJsonError: {
     type: 'object',
     additionalProperties: true,
@@ -245,6 +473,82 @@ export const schemas = {
 };
 
 export const operations = {
+  'GET /api/v1/hl7-feeds/subscriptions': {
+    summary: 'List outbound HL7 feed subscriptions',
+    description:
+      'Returns the authenticated tenant subscriptions to administrators and integration administrators. Stored Authorization headers are never returned.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    response: 'Hl7FeedSubscriptionListResponse',
+    responseDescription: 'Tenant-scoped subscriptions and credential-presence indicators.',
+    additionalResponses: authenticatedFeedErrors,
+  },
+  'POST /api/v1/hl7-feeds/subscriptions': {
+    summary: 'Create or update an outbound HL7 feed subscription',
+    description:
+      'Upserts by tenant and name. Omitted credential and message-type fields preserve the existing values atomically; explicit credential null or empty clears it, and an explicit non-empty message-type array replaces the complete receiver scope.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    request: 'Hl7FeedSubscriptionRequest',
+    response: 'Hl7FeedSubscriptionResponse',
+    responseStatus: 201,
+    responseDescription: 'The created or updated subscription without credential material.',
+    additionalResponses: {
+      400: feedErrorResponse('The name, endpoint URL, receiver target, or message-type scope was invalid.'),
+      ...authenticatedFeedErrors,
+    },
+  },
+  'DELETE /api/v1/hl7-feeds/subscriptions/{id}': {
+    summary: 'Deactivate an outbound HL7 feed subscription',
+    description:
+      'Soft-deactivates the exact positive subscription id within the authenticated tenant. It does not release held outbound messages.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1, maximum: 2_147_483_647 },
+    },
+    response: 'Hl7FeedDeactivationResponse',
+    responseDescription: 'The deactivated subscription identity.',
+    additionalResponses: {
+      400: feedErrorResponse('The subscription id was not a canonical positive PostgreSQL integer.'),
+      404: feedErrorResponse('No subscription with that id exists in the authenticated tenant.'),
+      ...authenticatedFeedErrors,
+    },
+  },
+  'GET /api/v1/hl7-feeds/messages': {
+    summary: 'List outbound HL7 delivery-ledger messages',
+    description:
+      'Returns tenant-scoped transport, acknowledgement, send-authority, and recovery state without returning HL7 payload bytes.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['queued', 'claimed', 'sent', 'failed', 'dead', 'reconciliation_required'],
+        },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+      },
+    ],
+    response: 'Hl7FeedMessageListResponse',
+    responseDescription: 'Tenant-scoped delivery-ledger messages and count.',
+    additionalResponses: authenticatedFeedErrors,
+  },
+  'POST /api/v1/hl7-feeds/deliver-now': {
+    summary: 'Run one bounded outbound HL7 delivery pass',
+    description:
+      'Claims only ledger-authorized due messages in order and records transport plus correlated MSA evidence. This operation cannot release an owner-held or reconciliation-required message.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    request: 'Hl7FeedDeliveryRequest',
+    requestRequired: false,
+    response: 'Hl7FeedDeliveryResponse',
+    responseDescription: 'Counts for the completed bounded delivery pass.',
+    additionalResponses: authenticatedFeedErrors,
+  },
   'POST /api/v1/hl7/receive': {
     summary: 'Receive a signed live or I03 recovery HL7v2 message',
     description:

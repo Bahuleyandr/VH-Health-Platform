@@ -14,6 +14,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
+import {
+  hasSensitiveQueryParameters,
+  redactCredentialQueryValues,
+} from '../../utils/urlRedaction.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   admissionToADT, dischargeToADT, resultToORU, transferToADT,
@@ -29,6 +33,7 @@ import {
 export const MAX_DELIVERY_ATTEMPTS = 7;
 const REQUEST_TIMEOUT_MS = 10000;
 const MAX_ACK_BODY_BYTES = 64 * 1024;
+const MAX_SUBSCRIPTION_ID = 2_147_483_647;
 const SUPPORTED_TYPES = ['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
 
 /**
@@ -67,6 +72,14 @@ function decryptOptionalSecret(value) {
   return value ? decryptField(value) : null;
 }
 
+function safeSubscriptionRecord(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    endpoint_url: redactCredentialQueryValues(row.endpoint_url, '%5BREDACTED%5D'),
+  };
+}
+
 /** Exponential backoff (minutes), capped at 60. Pure — unit-tested. */
 export function nextAttemptDelayMinutes(attempts) {
   return Math.min(2 ** Math.max(attempts, 0), 60);
@@ -82,40 +95,37 @@ function extractControlId(hl7) {
 
 export async function listSubscriptions({ tenantId = null } = {}) {
   const tid = requireTenantId(tenantId);
-  // `auth_header_set` (never the header itself — it is an encrypted secret
-  // with no read-back path) tells an operator whether a credential exists, so
-  // an upsert that would clear it is a visible decision rather than a surprise.
-  return setTenantTx(tid, tx => tx.$queryRawUnsafe(
-    `SELECT id, name, endpoint_url, message_types, is_active, last_delivery_at, created_at,
-            (auth_header IS NOT NULL) AS auth_header_set
+  const rows = await setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    `SELECT id, name, endpoint_url, message_types, is_active,
+            (auth_header IS NOT NULL) AS auth_header_configured,
+            last_delivery_at, created_at
        FROM hl7_feed_subscriptions
       WHERE tenant_id = $1::uuid
       ORDER BY id`,
     tid,
   ));
+  return rows.map(safeSubscriptionRecord);
 }
 
-/**
- * Create or update (upsert on `(tenant_id, name)`) an outbound feed
- * subscription.
- *
- * `authHeader` is three-valued (roadmap fix for the credential-wiping upsert):
- *   - undefined (field ABSENT from the request) — keep the stored encrypted
- *     header. The header is write-only (listSubscriptions never returns it),
- *     so "re-send what you got" cannot round-trip it; before this fix every
- *     scope/endpoint update silently erased the credential.
- *   - null or '' — explicitly clear the stored header.
- *   - any other string — encrypt and store it.
- */
-export async function createSubscription({
-  name, endpointUrl, authHeader = undefined, messageTypes = DEFAULT_FEED_MESSAGE_TYPES,
-} = {}, context = {}) {
+export async function createSubscription(input = {}, context = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const { name, endpointUrl } = source;
+  const authHeaderProvided = Object.hasOwn(source, 'authHeader') && source.authHeader !== undefined;
+  const messageTypesProvided = Object.hasOwn(source, 'messageTypes') && source.messageTypes !== undefined;
+  const authHeader = authHeaderProvided ? source.authHeader : null;
+  const messageTypes = messageTypesProvided ? source.messageTypes : DEFAULT_FEED_MESSAGE_TYPES;
   const tenantId = requireTenantId(context.tenantId);
   const cleanedName = (name || '').trim();
   const cleanedUrl = (endpointUrl || '').trim();
   if (!cleanedName) throw AppError.badRequest('name is required', 'HL7_FEED_NAME_REQUIRED');
   if (!/^https?:\/\//i.test(cleanedUrl)) {
     throw AppError.badRequest('endpoint_url must be an http(s) URL', 'HL7_FEED_BAD_URL');
+  }
+  if (hasSensitiveQueryParameters(cleanedUrl)) {
+    throw AppError.badRequest(
+      'endpoint_url must not contain credential query parameters; use auth_header instead',
+      'HL7_FEED_CREDENTIAL_QUERY_FORBIDDEN',
+    );
   }
   // SSRF guard (audit finding H4): scheme alone is not enough — the stored
   // URL is later fetched server-side with the subscription's auth header.
@@ -130,37 +140,46 @@ export async function createSubscription({
       'HL7_FEED_BAD_TYPES',
     );
   }
-  // $7 is the explicit-write flag: only when the caller actually sent the
-  // field does the upsert touch auth_header; otherwise the stored secret
-  // survives the update. (A bare COALESCE(EXCLUDED.auth_header, ...) could not
-  // express "explicitly clear", so absent-vs-null rides on the flag instead.)
-  const authHeaderProvided = authHeader !== undefined;
   const rows = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
     `INSERT INTO hl7_feed_subscriptions (tenant_id, name, endpoint_url, auth_header, message_types, created_by)
      VALUES ($1::uuid, $2, $3, $4, $5::text[], $6::uuid)
      ON CONFLICT (tenant_id, name) DO UPDATE SET
        endpoint_url = EXCLUDED.endpoint_url,
-       auth_header = CASE WHEN $7::boolean THEN EXCLUDED.auth_header
-                          ELSE hl7_feed_subscriptions.auth_header END,
-       message_types = EXCLUDED.message_types,
+       auth_header = CASE
+         WHEN $7::boolean THEN EXCLUDED.auth_header
+         ELSE hl7_feed_subscriptions.auth_header
+       END,
+       message_types = CASE
+         WHEN $8::boolean THEN EXCLUDED.message_types
+         ELSE hl7_feed_subscriptions.message_types
+       END,
        is_active = true,
        updated_at = NOW()
-     RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at,
-               (auth_header IS NOT NULL) AS auth_header_set`,
-    tenantId, cleanedName, cleanedUrl,
-    authHeaderProvided ? encryptOptionalSecret(authHeader) : null,
-    types, context.actorUid || null, authHeaderProvided,
+     RETURNING id, tenant_id, name, endpoint_url, message_types, is_active,
+               (auth_header IS NOT NULL) AS auth_header_configured, created_at`,
+    tenantId, cleanedName, cleanedUrl, encryptOptionalSecret(authHeader), types,
+    context.actorUid || null, authHeaderProvided, messageTypesProvided,
   ));
-  return rows[0];
+  return safeSubscriptionRecord(rows[0]);
 }
 
 export async function deactivateSubscription(id, { tenantId = null } = {}) {
   const tid = requireTenantId(tenantId);
+  const textId = typeof id === 'string' ? id.trim() : id;
+  const parsedId = typeof textId === 'number'
+    ? textId
+    : (/^[1-9][0-9]*$/.test(String(textId || '')) ? Number(textId) : Number.NaN);
+  if (!Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_SUBSCRIPTION_ID) {
+    throw AppError.badRequest(
+      'subscription id must be a positive integer',
+      'HL7_FEED_BAD_SUBSCRIPTION_ID',
+    );
+  }
   const rows = await setTenantTx(tid, tx => tx.$queryRawUnsafe(
     `UPDATE hl7_feed_subscriptions SET is_active = false, updated_at = NOW()
       WHERE id = $1 AND tenant_id = $2::uuid
       RETURNING id, name, is_active`,
-    id, tid,
+    parsedId, tid,
   ));
   if (!rows.length) throw AppError.notFound('Subscription not found');
   return rows[0];
@@ -568,7 +587,8 @@ export async function listFeedMessages({ status = null, limit = 50, tenantId = n
   let where = '1=1';
   if (status) { params.push(status); where += ` AND m.status = $${params.length}`; }
   params.push(tid); where += ` AND m.tenant_id = $${params.length}::uuid`;
-  params.push(Math.min(Number.parseInt(limit, 10) || 50, 200));
+  const parsedLimit = Number(String(limit).trim());
+  params.push(Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 50);
   return setTenantTx(tid, tx => tx.$queryRawUnsafe(
     `SELECT m.id, m.subscription_id, s.name AS subscription_name, m.message_type,
             m.message_control_id, m.status, m.attempts, m.last_error, m.next_attempt_at,

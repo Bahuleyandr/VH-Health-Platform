@@ -63,6 +63,23 @@
 # scripts (scripts/ensure-pgvector-extension.mjs, scripts/ci-setup-db.mjs) read
 # DATABASE_URL, so this `env:` override (which takes precedence over envFrom)
 # transparently points them at the owner DSN — no backend code change needed.
+#
+# ⚠ No volume may mount over /app/node_modules/** — the image bakes the
+# generated Prisma client at /app/node_modules/.prisma, and a Kubernetes mount
+# REPLACES that directory. The emptyDir that sat there until 2026-08 erased the
+# client, so step 3's import of '@prisma/client' died at module link while the
+# pg-direct steps 1-2 kept passing. Nothing at runtime writes into .prisma
+# (the client is generated at image build; the runtime image has no npm/npx or
+# prisma CLI to regenerate it). scripts/backend-image-command-contract.test.mjs
+# pins this for every backend-image workload.
+#
+# Step 3 fails closed when no runtime role is configured. A hand-run copy of
+# this Job on a single-DSN environment (dalekdefender rig, local QA — no
+# configmap, no vhhealth_runtime login role in the DB) may set
+# RUNTIME_ROLE_GRANTS_OPTIONAL=true to turn exactly that configuration-absent
+# skip into a loud exit-0 no-op. This canonical Job deliberately does NOT set
+# it — prod aborts the sync if the configmap ever loses
+# AUTH_TENANT_RLS_RUNTIME_ROLE (pinned by startupMigrationReadiness.test.js).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -273,8 +290,6 @@ spec:
               mountPath: /tmp
             - name: app-tmp
               mountPath: /app/tmp
-            - name: prisma-cache
-              mountPath: /app/node_modules/.prisma
       volumes:
         - name: tmp
           emptyDir:
@@ -282,6 +297,3 @@ spec:
         - name: app-tmp
           emptyDir:
             sizeLimit: 128Mi
-        - name: prisma-cache
-          emptyDir:
-            sizeLimit: 64Mi

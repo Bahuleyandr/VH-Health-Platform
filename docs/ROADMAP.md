@@ -411,13 +411,18 @@ missing from the list carries no disposition and no verdict.
   `/api/v1/research` and `/api/v1/rewards` below.
 - **Documented below for the first time (3).** `/api/v1/paediatric`,
   `/api/v1/integrity`, `/api/v1/bed-inspections`.
-- **Not adjudicated — the standing backlog for the next lane (25).**
+- **Adjudicated clientless operator surface (1).** `/api/v1/hl7-feeds` is the
+  tenant integration-administrator control plane for external receiver
+  subscriptions and delivery-ledger inspection. Its backend workflow and
+  authority boundary are documented below; a first-party UI remains a named
+  separate client release.
+- **Not adjudicated — the standing backlog for the next lane (24).**
   `/api/v1/abdm/enrolment`, `/api/v1/abdm/hiu`, `/api/v1/admin/uhi`,
   `/api/v1/adoption`, `/api/v1/billing/revenue-cycle`, `/api/v1/care-pathways`,
   `/api/v1/clinical-ai/control`,
   `/api/v1/clinical-continuity/activation-transitions`,
   `/api/v1/clinical/assessments`, `/api/v1/emr/mar`, `/api/v1/entitlements`,
-  `/api/v1/front-desk/abdm/share-intakes`, `/api/v1/hl7-feeds`, `/api/v1/ipd`,
+  `/api/v1/front-desk/abdm/share-intakes`, `/api/v1/ipd`,
   `/api/v1/lab/release`, `/api/v1/nursing/mar`, `/api/v1/otp`, `/api/v1/pacs`,
   `/api/v1/patient`, `/api/v1/patient-access/break-glass`,
   `/api/v1/patient/chatbot`, `/api/v1/patient/virtual-ward`, `/api/v1/search`,
@@ -469,38 +474,67 @@ migration's to make.
 
 **Operator action, per existing subscription that should receive transfers.**
 First confirm with the receiving system's owner that it accepts ADT^A02 — see
-the paragraph above for what happens if it does not. Then either:
+the paragraph above for what happens if it does not. Then re-run
+`POST /api/v1/hl7-feeds/subscriptions` with the same `name` and the receiver's
+complete approved `message_types` list. The upsert now distinguishes omission
+from an explicit change atomically: omitting `auth_header` preserves the exact
+stored ciphertext, `auth_header: null` or an empty string explicitly clears it,
+and a non-empty value rotates it; omitting `message_types` preserves the existing
+scope, while an explicit non-empty list replaces it. A newly named subscription
+still receives the platform defaults. Responses expose only
+`auth_header_configured`, never credential material. The old direct-SQL
+workaround is no longer required. Credential-bearing query parameters are not
+an alternate secret channel: a new `endpoint_url` containing a recognized
+credential key is rejected with `HL7_FEED_CREDENTIAL_QUERY_FORBIDDEN`; operators
+must use the write-only `auth_header`. Management responses redact recognized
+credential query values from any legacy stored URL while preserving ordinary
+receiver parameters.
 
-1. Re-run the create/upsert API, `POST /api/v1/hl7-feeds/subscriptions`, with
-   the same `name` and the full desired `message_types`. **Sharp edge —
-   FIXED 2026-08-27:** the upsert still overwrites `endpoint_url` with whatever
-   the request carries, but `auth_header` now survives an update that omits the
-   field — only an explicit `auth_header: null` (or `''`) clears it, and
-   `GET /subscriptions` reports `auth_header_set: true|false` so you can see a
-   credential exists without reading it (the header itself remains encrypted at
-   rest and is never returned). (There is no admin-console page for HL7 feeds;
-   `/api/v1/hl7-feeds` is on the un-adjudicated caller-less list above.)
-2. Otherwise add the type in place, which leaves the credential alone:
+The management surface is restricted end to end to `SUPER_ADMIN`, `ADMIN`, and
+`INTEGRATION_ADMIN`; clinical roles can no longer list receiver or delivery-ledger
+configuration, and the intended integration administrator can now reach every
+operation. There is still no in-repo admin or Staff client for this surface. A
+receiver-management UI remains a separate client release and cannot be treated
+as shipped merely because the backend workflow is closed and documented.
 
-   ```sql
-   UPDATE hl7_feed_subscriptions
-      SET message_types = array_append(message_types, 'ADT^A02'),
-          updated_at = NOW()
-    WHERE tenant_id = '<tenant-uuid>'::uuid
-      AND name = '<subscription name>'
-      AND NOT ('ADT^A02' = ANY(message_types));
-   ```
+**Historical audit-evidence gate.** Universal audit logging previously
+serialized `auth_header` because its exact-key redaction list did not recognize
+that field (or camelCase/separator aliases), and a credential embedded in
+`endpoint_url` could pass through as an ordinary string. New audit writes
+normalize concrete credential-key names in request bodies and stored query
+parameters, redact recognized credential values inside URL fields, and apply the
+same URL redaction to sibling security-event database and file sinks. The
+detached universal and permission-denial writers now persist the server-resolved
+authenticated tenant explicitly. Previously the universal writer supplied
+`tenant_id` only for provider callbacks, while the security writer supplied none;
+when no transaction-local tenant setting survived into either detached write,
+normal authenticated rows could fall through to the schema-default tenant. This
+source change does not establish whether production contains older credential
+material, credential-bearing stored receiver URLs, or tenant-misattributed rows,
+and it does not authorize altering immutable evidence. Before activating an
+existing receiver, a named platform operator and Data Protection Officer must:
 
-**Follow-up — ✅ DONE 2026-08-27:** the credential-wiping upsert is fixed the
-way this note prescribed. `createSubscription` now treats `auth_header` as
-three-valued — field ABSENT from the request body keeps the stored encrypted
-header (the upsert's `DO UPDATE` takes a `CASE` on an explicit provided flag),
-explicit `null`/`''` clears it, a string sets it — and `listSubscriptions`
-returns `auth_header_set: boolean` so operators can see a secret exists without
-any read-back path for the secret itself. Pinned by
-`src/tests/unit/hl7OutboundTransferAdt.test.js` ("createSubscription
-auth_header semantics") and the route-mapping cases in
-`src/tests/unit/hl7FeedRoutesAppErrorPropagation.test.js`.
+1. Count candidate historical POST rows for `/api/v1/hl7-feeds/subscriptions`
+   using a value-suppressing query or approved audit tooling; do not export or
+   display `request_summary` values while screening.
+2. If any candidate can contain credential material, have the receiving-system
+   owner rotate that credential and record the rotation evidence.
+3. Count stored receiver URLs whose query parameter names match the approved
+   credential-key set without selecting or displaying their values. If any are
+   found, the receiver owner must rotate the credential and replace the URL with
+   a credential-free URL plus the write-only `auth_header`; a redacted management
+   projection does not make the stored delivery target safe to retain.
+4. Decide retention, legal hold, restricted access, or authorized redaction of
+   historical evidence under the applicable legal/audit policy. Application code
+   and this roadmap confer no purge authority.
+5. Screen for legacy universal and security rows whose stored `tenant_id`
+   disagrees with trustworthy request metadata or independently retained
+   request/actor evidence. Never
+   reassign a historical row from body content, a user-supplied header, or path
+   alone; ambiguous rows stay quarantined for accountable review.
+
+Until those named checks are signed, historical exposure status is **unproven**;
+production data was not inspected by this code lane.
 
 ### Pharmacy ward indents — the alert is FIXED, the admin surface is BUILT (2026-08-27), push re-promotion is the operator's move
 
