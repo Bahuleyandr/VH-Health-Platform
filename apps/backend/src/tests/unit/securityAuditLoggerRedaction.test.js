@@ -16,7 +16,9 @@ jest.unstable_mockModule('../../observability/securityEventMetrics.js', () => ({
   recordSecurityEvent: recordSecurityEventMock,
 }));
 
-const { logSecurityEvent } = await import('../../utils/securityAuditLogger.js');
+const { logSecurityEvent, waitForSecurityAuditDrain } = await import(
+  '../../utils/securityAuditLogger.js'
+);
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -32,6 +34,10 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset().mockResolvedValue({});
   warnMock.mockReset();
   recordSecurityEventMock.mockReset();
+});
+
+afterEach(async () => {
+  await waitForSecurityAuditDrain();
 });
 
 describe('security audit credential boundary', () => {

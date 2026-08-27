@@ -16,6 +16,18 @@ import { redactSensitiveQueryParams } from './urlRedaction.js';
 let pendingSecurityLogs = 0;
 const MAX_PENDING_SECURITY_LOGS = 500;
 
+/** Wait for detached security-audit writes before graceful shutdown or
+ *  tenant-fixture disposal. This is never part of the request path. */
+export async function waitForSecurityAuditDrain({ timeoutMs = 10000, pollMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (pendingSecurityLogs > 0) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${pendingSecurityLogs} security audit write(s)`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 /**
  * Log a security event to the audit_log table.
  * @param {string} eventType - e.g. 'LOGIN_FAILED', 'ACCOUNT_LOCKED', 'PERMISSION_DENIED', 'TOKEN_REVOKED'

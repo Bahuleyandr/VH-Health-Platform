@@ -1,7 +1,9 @@
 // Roadmap D4 — NABH indicator pack deep round-trip + CSV shape.
 
 import prisma from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { authClient } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { packToCsv, packToPdfBuffer, INDICATOR_CODES } from '../services/quality/nabhIndicatorService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -42,16 +44,25 @@ async function cleanup() {
   // Children first: admissions/incidents/feedback/snapshots all carry an FK to
   // tenants, and admissions/incidents reference the patient row.
   const bothTenants = [TENANT, TENANT_DECOY];
+  await waitForAuditLogDrain();
+  await deleteWithAuditBypass(
+    prisma,
+    'DELETE FROM audit_log WHERE tenant_id IN ($1::uuid, $2::uuid)',
+    ...bothTenants,
+  ).catch(() => {});
   for (const sql of [
     'DELETE FROM nabh_indicator_snapshots WHERE tenant_id IN ($1::uuid, $2::uuid)',
     'DELETE FROM quality_incidents WHERE tenant_id IN ($1::uuid, $2::uuid)',
     'DELETE FROM feedback WHERE tenant_id IN ($1::uuid, $2::uuid)',
     'DELETE FROM admissions WHERE tenant_id IN ($1::uuid, $2::uuid)',
     'DELETE FROM users WHERE tenant_id IN ($1::uuid, $2::uuid)',
-    'DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)',
   ]) {
     await prisma.$executeRawUnsafe(sql, ...bothTenants).catch(() => {});
   }
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)',
+    ...bothTenants,
+  );
 }
 
 d('NABH indicators — deep round-trip (roadmap D4)', () => {

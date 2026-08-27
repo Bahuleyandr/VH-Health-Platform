@@ -29,7 +29,9 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { generateToken } from '../utils/jwtUtils.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -77,6 +79,17 @@ const adminTokenB = () => generateToken({
 // IMPORTANT: SQL strings passed with zero params must NOT receive params
 // (Postgres 08P01). SQL strings with placeholders must spread their params.
 async function cleanup() {
+  await waitForAuditLogDrain();
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_log WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    TENANT_A, TENANT_B,
+  ).catch(() => {});
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_logs WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    TENANT_A, TENANT_B,
+  ).catch(() => {});
   // Step 1: no-param sweeps (LIKE patterns + literal-interpolated UUID lists).
   // UUIDs are compile-time test constants — interpolation is safe here.
   const noParamSql = [
@@ -108,11 +121,14 @@ async function cleanup() {
       PHONE_A, PHONE_B],
     [`DELETE FROM appointments WHERE phone IN ($1, $2)`, PHONE_A, PHONE_B],
     [`DELETE FROM users WHERE phone IN ($1, $2)`, PHONE_A, PHONE_B],
-    [`DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B],
   ];
   for (const [sql, ...params] of paramSql) {
     await prisma.$executeRawUnsafe(sql, ...params).catch(() => {});
   }
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`,
+    TENANT_A, TENANT_B,
+  );
 }
 
 // ─── App-role setup ───────────────────────────────────────────────────────────

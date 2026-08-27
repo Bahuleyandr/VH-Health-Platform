@@ -26,6 +26,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const {
   auditLogMiddleware,
+  waitForAuditLogDrain,
   deriveAction,
   deriveModule,
   deriveAuditResourceContext,
@@ -54,6 +55,10 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset().mockResolvedValue({});
   warnMock.mockReset();
   errorMock.mockReset();
+});
+
+afterEach(async () => {
+  await waitForAuditLogDrain();
 });
 
 describe('auditLogMiddleware context enrichment', () => {

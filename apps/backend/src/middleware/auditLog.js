@@ -31,6 +31,19 @@ import {
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
 
+/** Wait for detached universal audit writes to settle before graceful shutdown
+ *  or disposal of tenant-scoped test fixtures. Request handlers must never
+ *  await this: audit persistence remains fire-and-forget on the response path. */
+export async function waitForAuditLogDrain({ timeoutMs = 10000, pollMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (pendingAuditLogs > 0) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${pendingAuditLogs} universal audit write(s)`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 // ─── Durable file fallback ────────────────────────────────────────────────────
 // The "audit never lost" guarantee: when the universal audit row cannot reach
 // the DB — whether because the bounded queue is full (backpressure drop) or the

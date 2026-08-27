@@ -21,6 +21,8 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { generateTestToken, API_KEY } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -114,6 +116,12 @@ const TENANT_SCOPED_FIXTURE_TABLES = [
 ];
 
 async function cleanup() {
+  await waitForAuditLogDrain();
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_log WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  ).catch(() => {});
   for (const table of TENANT_SCOPED_FIXTURE_TABLES) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM ${table} WHERE tenant_id = $1::uuid`, TENANT_ID,
@@ -128,7 +136,7 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     'DELETE FROM tenants WHERE id = $1::uuid', TENANT_ID,
-  ).catch(() => {});
+  );
 }
 
 d('Appointment + patient-record owner access (IDOR positive path)', () => {

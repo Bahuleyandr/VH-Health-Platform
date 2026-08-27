@@ -13,6 +13,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const PATIENT_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90901';
@@ -87,6 +88,7 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
     // Both tests hit the PHI-logged progress-notes route: the 201 logs CREATE
     // and the 404 logs ACCESS_DENIED (patient_uid resolved from the body).
     await waitForPhiAuditWrites(2);
+    await waitForAuditLogDrain();
     await setTenantTx(TENANT_ID, async (tx) => {
       await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
       await tx.$executeRawUnsafe(
@@ -123,6 +125,10 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
       );
       await tx.$executeRawUnsafe(
         `DELETE FROM hipaa_access_log WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM audit_log WHERE tenant_id = $1::uuid`,
         TENANT_ID,
       );
       await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID);
