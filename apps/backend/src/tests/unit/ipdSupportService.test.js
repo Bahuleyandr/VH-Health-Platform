@@ -77,6 +77,7 @@ jest.unstable_mockModule('../../services/ipd/wardIndentWorkflowService.js', () =
   reconcileWardIndent: workflowStub,
   cancelWardIndent: workflowStub,
   closeWardIndent: workflowStub,
+  listWardIndentPage: workflowStub,
   listWardIndents: workflowStub,
   getWardIndent: workflowStub,
   default: {},
@@ -319,12 +320,10 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     expect(sendStaffNotificationsMock).not.toHaveBeenCalled();
   });
 
-  // The ward-indent lifecycle (approve/reject/issue/receive) has no caller in
-  // any client — staff Flutter, patient Flutter and the admin console all lack
-  // one, and the only Dart bindings are dead generated chopper stubs. Until a
-  // working surface ships, the alert must not page: HIGH puts the row on the
-  // staff Safety Center's 15-minute escalation ladder that nobody can clear.
-  describe('pharmacy dispatch alert gate (no ward-indent surface yet)', () => {
+  // Source availability is not operator activation. Until the Staff workbench
+  // and matching backend are activated together, the alert must not page:
+  // HIGH puts the row on the Safety Center's escalation ladder.
+  describe('pharmacy dispatch alert activation gate', () => {
     const ORIGINAL_FLAG = process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
 
     afterEach(() => {
@@ -356,12 +355,15 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
         'PHARMACY_INCHARGE',
         'PHARMACIST',
       ]);
-      // ...but not as a page, and not instructing a screen that does not exist.
+      // ...but not as a page or as dispatch authority before activation.
       expect(payload.priority).toBe('LOW');
       expect(payload.title).toBe('Ward drug indent recorded');
-      expect(payload.body).toContain('no dispensing screen for ward indents yet');
+      expect(payload.body).toContain('not activated for this release');
+      expect(payload.body).toContain('do not treat this informational alert as dispatch authority');
       expect(payload.body).not.toContain('Please review the pharmacy ward indent for dispensing');
       expect(payload.data.dispatch_surface_available).toBe(false);
+      expect(payload.data).not.toHaveProperty('route');
+      expect(payload.data).not.toHaveProperty('action_label');
     });
 
     it('restores the HIGH dispatch alert when the operator flips the flag on', async () => {
@@ -380,6 +382,8 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       expect(payload.title).toBe('Ward drug indent requested');
       expect(payload.body).toContain('Please review the pharmacy ward indent for dispensing');
       expect(payload.data.dispatch_surface_available).toBe(true);
+      expect(payload.data.route).toBe('/pharmacy?tab=ward-indents&indent_id=9001');
+      expect(payload.data.action_label).toBe('Open ward indent');
     });
 
     it('reads the gate at call time and only accepts an explicit true', () => {

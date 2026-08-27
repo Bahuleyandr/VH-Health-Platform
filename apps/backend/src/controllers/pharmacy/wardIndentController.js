@@ -14,7 +14,7 @@ import {
   createWardIndent,
   getWardIndent,
   issueWardIndent,
-  listWardIndents,
+  listWardIndentPage,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   receiveWardIndent,
@@ -29,6 +29,7 @@ import {
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { relayAppError, success } from '../../utils/responseHelper.js';
+import { normalizeRole } from '../../utils/roles.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -54,6 +55,14 @@ function actorOf(req) {
   const actorUid = req.user?.uid;
   if (!actorUid) throw AppError.unauthorized('Authenticated uid required');
   return actorUid;
+}
+
+function actorRoleCodesOf(req) {
+  return [...new Set(
+    [req.user?.role, req.user?.rawRole]
+      .map(normalizeRole)
+      .filter(Boolean),
+  )];
 }
 
 function commandOf(req) {
@@ -91,16 +100,26 @@ function actionHandler({ operation, message, invoke }) {
 
 export async function listIndents(req, res) {
   try {
-    const indents = await listWardIndents({
+    const page = await listWardIndentPage({
       wardId: optionalPositiveInt(req.query.ward_id ?? req.query.wardId, 'ward_id'),
       status: req.query.status ? String(req.query.status).trim() : null,
       admissionId: optionalPositiveInt(req.query.admission_id, 'admission_id'),
       patientUid: req.query.patient_uid ? String(req.query.patient_uid).trim() : null,
       overdueOnly: ['1', 'true'].includes(String(req.query.overdue_only || '').toLowerCase()),
+      worklist: req.query.worklist ? String(req.query.worklist).trim() : null,
+      beforeRequestedAt: req.query.before_requested_at ?? null,
+      beforeId: optionalPositiveInt(req.query.before_id, 'before_id'),
+      actorRoleCodes: actorRoleCodesOf(req),
       limit: req.query.limit ? Number(req.query.limit) : 50,
       tenantId: tenantOf(req),
     });
-    return success(res, indents, 'Ward indents retrieved');
+    return success(
+      res,
+      page.items,
+      'Ward indents retrieved',
+      200,
+      { pagination: page.pagination },
+    );
   } catch (err) {
     logger.error('Ward indent list failed:', err);
     return relayAppError(res, err, 'Failed to list ward indents');

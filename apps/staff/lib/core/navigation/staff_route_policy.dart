@@ -1,5 +1,6 @@
 import '../config/role_config.dart';
 import '../config/staff_role_contract.g.dart';
+import '../config/ward_indent_role_contract.dart';
 
 enum StaffRouteGate {
   signedIn,
@@ -8,6 +9,7 @@ enum StaffRouteGate {
   maternity,
   clinicalCalculators,
   reportAdministration,
+  wardIndent,
 }
 
 class StaffRouteMetadata {
@@ -100,7 +102,9 @@ class StaffRoutePolicy {
     StaffRouteMetadata(
       '/pharmacy',
       anyFeatureIds: {'pharmacy_orders'},
+      anyGates: {StaffRouteGate.wardIndent},
       externalEntry: true,
+      externalQueryParameters: {'tab', 'indent_id'},
     ),
     // Walk-in counter point-of-sale: same holders as the pharmacy workspace
     // (selling is further gated server-side to dispensing roles).
@@ -469,6 +473,15 @@ class StaffRoutePolicy {
         return null;
       }
     }
+    if (uri.path == '/pharmacy' && uri.queryParameters.isNotEmpty) {
+      final tab = uri.queryParameters['tab'];
+      final rawIndentId = uri.queryParameters['indent_id'];
+      if (tab != 'ward-indents') return null;
+      if (rawIndentId != null) {
+        final indentId = int.tryParse(rawIndentId);
+        if (indentId == null || indentId <= 0) return null;
+      }
+    }
     return uri.toString();
   }
 
@@ -497,6 +510,10 @@ class StaffRoutePolicy {
         isCanonical
             ? canonicalPeopleOperationsRouteRoleCodes.contains(normalized)
             : role.isAdminTier || role == StaffRole.hr,
+      StaffRouteGate.wardIndent => WardIndentRoleContract.canRead(
+        rawRole: rawRole,
+        role: role,
+      ),
     };
   }
 

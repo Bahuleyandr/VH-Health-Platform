@@ -99,11 +99,26 @@ function tenantOf(req) {
 
 // ── Drug master / items ───────────────────────────────────────────────
 
-export async function listItems({ tenantId, search, schedule, status = 'active', limit = 100 }) {
+export async function listItems({
+  tenantId,
+  search,
+  schedule,
+  status = 'active',
+  catalogId,
+  limit = 100,
+}) {
   const params = [tenantId];
   const where = [`tenant_id = $1::uuid`];
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
   if (schedule) { params.push(schedule); where.push(`schedule_class = $${params.length}`); }
+  if (catalogId != null && String(catalogId).trim() !== '') {
+    const exactCatalogId = Number(catalogId);
+    if (!Number.isSafeInteger(exactCatalogId) || exactCatalogId <= 0) {
+      throw AppError.badRequest('catalog_id must be a positive integer');
+    }
+    params.push(exactCatalogId);
+    where.push(`catalog_id = $${params.length}::int`);
+  }
   if (search) {
     params.push(`%${search.toLowerCase()}%`);
     where.push(
@@ -115,7 +130,8 @@ export async function listItems({ tenantId, search, schedule, status = 'active',
   }
   params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
-    `SELECT id, sku_code, display_name, generic_name, brand_name, manufacturer,
+    `SELECT id, catalog_id, composition_id,
+            sku_code, display_name, generic_name, brand_name, manufacturer,
             form, strength, unit_label, schedule_class, is_narcotic,
             is_cold_chain, reorder_level, reorder_quantity, status
        FROM pharmacy_inventory_items

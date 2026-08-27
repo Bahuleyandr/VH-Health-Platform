@@ -141,6 +141,10 @@ class NotificationItem {
   ]);
 
   String? get actionRoute {
+    if (normalizedType == 'WARD_PHARMACY_INDENT' &&
+        data['dispatch_surface_available'] != true) {
+      return null;
+    }
     final explicit = data['route']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) {
       return StaffRoutePolicy.sanitizeExternalRoute(explicit);

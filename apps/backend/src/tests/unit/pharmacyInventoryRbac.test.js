@@ -32,4 +32,10 @@ describe('pharmacy inventory RBAC', () => {
     expect(PHARMACY_INVENTORY_ADMIN_ROLES).toContain('STORES_PURCHASE_INCHARGE');
     expect(PHARMACY_CONTROLLED_DISPENSE_ROLES).not.toContain('STORES_PURCHASE_INCHARGE');
   });
+
+  it('keeps the canonical pharmacist role wired through inventory and dispensing', () => {
+    expect(PHARMACY_INVENTORY_READ_ROLES).toContain('PHARMACIST');
+    expect(PHARMACY_INVENTORY_MAINTAIN_ROLES).toContain('PHARMACIST');
+    expect(PHARMACY_CONTROLLED_DISPENSE_ROLES).toContain('PHARMACIST');
+  });
 });

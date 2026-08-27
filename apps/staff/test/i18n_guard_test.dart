@@ -1691,6 +1691,55 @@ void main() {
       reason: 'Calculator keys must have en/hi/ta/te entries.',
     );
   });
+
+  test('ward-indent workflow copy has entries in all five staff locales', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    final wardIndentKeys = localeKeys['en']!
+        .where((key) => key.startsWith('ward_indent.'))
+        .toSet();
+
+    expect(wardIndentKeys.length, greaterThanOrEqualTo(80));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final missing = wardIndentKeys.difference(localeKeys[locale]!);
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'Ward-indent keys missing from $locale: ${missing.toList()..sort()}',
+      );
+    }
+
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      expect(
+        strings.format('ward_indent.action.completed', {
+          'number': '__NUMBER__',
+        }),
+        contains('__NUMBER__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('ward_indent.error.refreshed_after_failure', {
+          'error': '__ERROR__',
+          'version': '__VERSION__',
+        }),
+        allOf(contains('__ERROR__'), contains('__VERSION__')),
+        reason: locale.languageCode,
+      );
+      if (locale.languageCode != 'en') {
+        expect(
+          strings.lookup('ward_indent.tab'),
+          isNot(english.lookup('ward_indent.tab')),
+          reason: '${locale.languageCode} must not fall back to English',
+        );
+      }
+    }
+  });
 }
 
 class _Pattern {

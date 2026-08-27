@@ -35,6 +35,7 @@ import {
   PHARMACY_SUPPLY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
+import { normalizeRole } from '../../utils/roles.js';
 import {
   wardIndentAdmissionGuard,
   wardIndentCreateGuard,
@@ -81,6 +82,10 @@ const ATTENDANT_PASS_ROLES = [
 const WARD_INDENT_REQUEST_ROLES = [...new Set([
   ...IP_FLOW_ROUTE_ROLES,
   ...PHARMACY_ROUTE_ROLES,
+])];
+const WARD_INDENT_READ_ROLES = [...new Set([
+  ...WARD_INDENT_REQUEST_ROLES,
+  ...PHARMACY_SUPPLY_ROUTE_ROLES,
 ])];
 const WARD_INDENT_SUPPLY_ROLES = [...new Set([
   ...PHARMACY_ROUTE_ROLES,
@@ -129,6 +134,14 @@ function wardIndentMutationContext(req) {
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
+}
+
+function actorRoleCodesOf(req) {
+  return [...new Set(
+    [req.user?.role, req.user?.rawRole]
+      .map(normalizeRole)
+      .filter(Boolean),
+  )];
 }
 
 function requireIntParam(value, fieldName) {
@@ -271,44 +284,81 @@ router.post(
 
 router.get(
   '/ward-indents',
-  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  requireRole(...WARD_INDENT_READ_ROLES),
   wardIndentListGuard(),
   wrapAsync(async (req, res) => {
-    const { ward_id, status, admission_id, patient_uid, overdue_only, limit } = req.query ?? {};
-    const indents = await ipdSupportService.listWardIndents({
+    const {
+      ward_id,
+      status,
+      admission_id,
+      patient_uid,
+      overdue_only,
+      worklist,
+      before_requested_at,
+      before_id,
+      limit,
+    } = req.query ?? {};
+    const page = await ipdSupportService.listWardIndentPage({
       wardId: ward_id ? requireIntParam(ward_id, 'ward_id') : null,
       status: status ?? null,
       admissionId: admission_id ? requireIntParam(admission_id, 'admission_id') : null,
       patientUid: patient_uid ?? null,
       overdueOnly: ['1', 'true'].includes(String(overdue_only || '').toLowerCase()),
+      worklist: worklist ?? null,
+      beforeRequestedAt: before_requested_at ?? null,
+      beforeId: before_id == null ? null : requireIntParam(before_id, 'before_id'),
+      actorRoleCodes: actorRoleCodesOf(req),
       limit: limit ? Number.parseInt(limit, 10) : 50,
       tenantId: tenantOf(req),
     });
-    success(res, { indents }, 'Ward indents retrieved');
+    success(
+      res,
+      { indents: page.items },
+      'Ward indents retrieved',
+      HTTP_STATUS.OK,
+      { pagination: page.pagination },
+    );
   }),
 );
 
 router.get(
   '/admissions/:id/ward-indents',
-  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  requireRole(...WARD_INDENT_READ_ROLES),
   wardIndentAdmissionGuard((req) => req.params.id),
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
-    const { status, overdue_only, limit } = req.query ?? {};
-    const indents = await ipdSupportService.listWardIndents({
+    const {
+      status,
+      overdue_only,
+      worklist,
+      before_requested_at,
+      before_id,
+      limit,
+    } = req.query ?? {};
+    const page = await ipdSupportService.listWardIndentPage({
       admissionId,
       status: status ?? null,
       overdueOnly: ['1', 'true'].includes(String(overdue_only || '').toLowerCase()),
+      worklist: worklist ?? null,
+      beforeRequestedAt: before_requested_at ?? null,
+      beforeId: before_id == null ? null : requireIntParam(before_id, 'before_id'),
+      actorRoleCodes: actorRoleCodesOf(req),
       limit: limit ? Number.parseInt(limit, 10) : 50,
       tenantId: tenantOf(req),
     });
-    success(res, { indents }, 'Ward indents for admission retrieved');
+    success(
+      res,
+      { indents: page.items },
+      'Ward indents for admission retrieved',
+      HTTP_STATUS.OK,
+      { pagination: page.pagination },
+    );
   }),
 );
 
 router.get(
   '/ward-indents/:indentId',
-  requireRole(...WARD_INDENT_REQUEST_ROLES),
+  requireRole(...WARD_INDENT_READ_ROLES),
   guardWardIndentRow,
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');

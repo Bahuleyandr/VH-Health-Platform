@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
+import 'package:vhhealth_staff/core/config/ward_indent_role_contract.dart';
 import 'package:vhhealth_staff/core/navigation/staff_route_policy.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 
@@ -66,6 +67,22 @@ void main() {
       }
     });
 
+    test(
+      'ER and stores owners can enter the role-gated ward-indent workbench',
+      () {
+        for (final rawRole in const ['ER_STAFF', 'STORES_PURCHASE_INCHARGE']) {
+          expect(
+            StaffRoutePolicy.authorize(
+              Uri.parse('/pharmacy?tab=ward-indents&indent_id=73'),
+              rawRole: rawRole,
+            ).allowed,
+            isTrue,
+            reason: rawRole,
+          );
+        }
+      },
+    );
+
     test('every protected route preserves generated backend role parity', () {
       bool allowsGate(StaffRouteGate gate, String rawRole) => switch (gate) {
         StaffRouteGate.signedIn => true,
@@ -80,6 +97,8 @@ void main() {
           canonicalClinicalDocumentRouteRoleCodes.contains(rawRole),
         StaffRouteGate.reportAdministration =>
           canonicalPeopleOperationsRouteRoleCodes.contains(rawRole),
+        StaffRouteGate.wardIndent =>
+          WardIndentRoleContract.readRoleCodes.contains(rawRole),
       };
 
       for (final metadata in StaffRoutePolicy.routes) {
@@ -401,6 +420,10 @@ void main() {
 
     test('accepts only allowlisted local routes and legacy aliases', () {
       expect(item('/appointments?date=2026-08-13').actionRoute, isNotNull);
+      expect(
+        item('/pharmacy?tab=ward-indents&indent_id=73').actionRoute,
+        '/pharmacy?tab=ward-indents&indent_id=73',
+      );
       expect(item('/admissions').actionRoute, '/emr/admissions');
       expect(item('/housekeeping').actionRoute, '/housekeeping-tasks');
       expect(item('/audit-logs').actionRoute, isNull);
@@ -419,6 +442,17 @@ void main() {
           item('/appointments?date=2026-08-13&date=2026-08-14').actionRoute,
           isNull,
         );
+        expect(
+          item('/pharmacy?tab=ward-indents&indent_id=73&indent_id=74')
+              .actionRoute,
+          isNull,
+        );
+        expect(item('/pharmacy?tab=orders&indent_id=73').actionRoute, isNull);
+        expect(
+          item('/pharmacy?tab=ward-indents&indent_id=0').actionRoute,
+          isNull,
+        );
+        expect(item('/pharmacy?indent_id=73').actionRoute, isNull);
         expect(item('/not-a-staff-route').actionRoute, isNull);
       },
     );
@@ -431,6 +465,32 @@ void main() {
         type: 'APPOINTMENT_UPDATED',
       );
       expect(appointment.actionRoute, '/appointments');
+    });
+
+    test('ward indent alerts are actionable only after the dispatch gate', () {
+      final held = NotificationItem(
+        title: 'Ward drug indent recorded',
+        body: 'Use the current manual process',
+        timestamp: DateTime.utc(2026, 8, 27),
+        type: 'WARD_PHARMACY_INDENT',
+        data: const {'indent_id': 73, 'dispatch_surface_available': false},
+      );
+      final active = NotificationItem(
+        title: 'Ward drug indent requested',
+        body: 'Open the worklist',
+        timestamp: DateTime.utc(2026, 8, 27),
+        type: 'WARD_PHARMACY_INDENT',
+        data: const {
+          'indent_id': 73,
+          'dispatch_surface_available': true,
+          'route': '/pharmacy?tab=ward-indents&indent_id=73',
+          'action_label': 'Open ward indent',
+        },
+      );
+
+      expect(held.actionRoute, isNull);
+      expect(active.actionRoute, '/pharmacy?tab=ward-indents&indent_id=73');
+      expect(active.actionLabel, 'Open ward indent');
     });
   });
 }

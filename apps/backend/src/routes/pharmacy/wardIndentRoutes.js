@@ -23,8 +23,8 @@ import {
 
 const router = express.Router();
 const CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
-const READ_ROLES = [...new Set([...IP_FLOW_ROUTE_ROLES, ...PHARMACY_ROUTE_ROLES])];
-const REQUEST_ROLES = READ_ROLES;
+const REQUEST_ROLES = [...new Set([...IP_FLOW_ROUTE_ROLES, ...PHARMACY_ROUTE_ROLES])];
+const READ_ROLES = [...new Set([...REQUEST_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
 const SUPPLY_ROLES = [...new Set([...PHARMACY_ROUTE_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
 const SUBSTITUTION_DECISION_ROLES = [...DOCTOR_TIERS];
 const WARD_RECEIPT_ROLES = [

@@ -181,6 +181,19 @@ describe('pharmacy inventory route tenant boundary', () => {
     ]));
   });
 
+  test('canonical PHARMACIST can execute the inventory-backed dispense leg', async () => {
+    actorRole = 'PHARMACIST';
+    const response = await request(app)
+      .post('/api/v1/pharmacy/inventory/v2/controlled-dispense')
+      .send({ inventory_item_id: 17, inventory_batch_id: 29, quantity: 1 });
+
+    expect(response.statusCode).toBe(200);
+    expect(dispenseControlledMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      performed_by: ACTOR,
+    }));
+  });
+
   test('binds generic movement witness creation and decision to authenticated identities', async () => {
     expect(idempotencyScopes).toEqual(expect.arrayContaining([
       expect.objectContaining({

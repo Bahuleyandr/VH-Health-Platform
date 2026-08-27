@@ -176,6 +176,12 @@ describe('authoritative pharmacy ward-indent router', () => {
       'ICU_INCHARGE',
     ]);
   });
+
+  test('supply-chain staff can read worklists without gaining request authority', () => {
+    expect(metadata('/', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
+    expect(metadata('/:id', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
+    expect(metadata('/', 'post', '__roles')[0]).not.toContain('STORES_PURCHASE_INCHARGE');
+  });
 });
 
 describe('IPD compatibility alias', () => {

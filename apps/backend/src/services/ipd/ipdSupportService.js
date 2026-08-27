@@ -24,6 +24,7 @@ import {
   getWardIndent,
   initializeWardIndentWorkflowTx,
   issueWardIndent,
+  listWardIndentPage,
   listWardIndents,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
@@ -44,6 +45,7 @@ export {
   closeWardIndent,
   getWardIndent,
   issueWardIndent,
+  listWardIndentPage,
   listWardIndents,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
@@ -91,58 +93,19 @@ const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHAR
 
 // Ward-indent pharmacy dispatch alert — OPERATOR-GATED, DEFAULT OFF.
 //
-// Every inpatient CPOE medication order (orderEntryService) and every ER
-// order carried into an admission (admissionService) auto-creates a
-// ward_indents row at status 'requested'. The lifecycle that would move it
-// on — approve / reject / issue / receive — is exposed on three route
-// prefixes (/api/v1/pharmacy/ward-indents, /api/v1/pharmacy-orders/ward-indents,
-// /api/v1/ipd/ward-indents) and has NO caller in any client: not the staff
-// Flutter app, not the patient app, not the admin console. The only Dart
-// bindings are dead auto-generated chopper stubs.
+// Every inpatient CPOE medication order and every ER order carried into an
+// admission auto-creates a ward indent. The Staff workbench now supports the
+// authoritative lifecycle and exact notification deep link, but availability
+// in source is not release authority. Until the matching backend and Staff
+// bundle is operator-activated, the notification remains LOW, carries no
+// route, and directs staff to the approved manual process. This keeps an
+// unavailable workflow out of the Safety Center escalation ladder and the
+// server-side unread-critical escalation cron.
 //
-// So the alert used to be dispatched at priority HIGH with the body "Please
-// review the pharmacy ward indent for dispensing". In the staff app that
-// combination is actively harmful:
-//   * NotificationItem.isHighPriority is true for priority HIGH, which puts
-//     the row in the Safety Center feed next to SOS and critical labs, on the
-//     15-minute escalation ladder ("Escalates in N min if unread" →
-//     "Escalated until acknowledged") — an escalation nobody can clear by
-//     doing the work, because there is no screen that does the work.
-//     isHighPriority is priority HIGH/CRITICAL *or* a type containing
-//     CRITICAL / EMERGENCY / SOS, and WARD_PHARMACY_INDENT contains none of
-//     the three — so on this type the priority field alone decides it, and
-//     LOW really does drop the row out of that feed.
-//   * _defaultRouteForType() maps any type containing PHARMACY to /pharmacy,
-//     and PharmacyScreen shows the OPD order queue, catalog, inventory and
-//     expiry alerts — it has no ward-indent list. Tapping the red alert lands
-//     the pharmacist on a screen where the indent is not visible.
-//   * The ladder is not only a client label. On the server,
-//     notificationService.runUnreadCriticalEscalation — the */10 * * * *
-//     unread-critical-notification-escalation cron in src/utils/scheduler.js —
-//     selects unread rows older than
-//     CRITICAL_NOTIFICATION_ESCALATION_MINUTES (default 15) whose
-//     UPPER(priority) is HIGH/CRITICAL *or* whose type is LIKE one of
-//     '%CRITICAL%' / '%EMERGENCY%' / '%SOS%' / '%CODE_BLUE%' / '%LAB_ALERT%',
-//     writes a notification_events 'auto_escalated' row and pages
-//     ADMIN/SUPER_ADMIN with a HIGH CRITICAL_ALERT_ESCALATION notification.
-//     Its NOT EXISTS guard fires that at most once per notification, so each
-//     HIGH ward indent cost one admin page rather than a repeating one.
-//     WARD_PHARMACY_INDENT matches none of the five type patterns, so — as
-//     on the client — the priority field alone puts it in the candidate set,
-//     and LOW removes it.
-// A queue that pages staff but cannot be worked is worse than no queue: it
-// costs the credibility of every other HIGH alert on the same feed.
-//
-// The alert is NOT removed — it names the drug and the ward, and it is the
-// only system-generated signal pharmacy gets for an inpatient medication
-// order, so silencing it entirely would be a clinical information regression.
-// Instead, until a working surface ships it is demoted to LOW (out of the
-// Safety Center escalation ladder and the "critical" filter) and its body
-// states the manual fallback instead of instructing a screen that does not
-// exist. The operator flips PHARMACY_WARD_INDENT_PUSH_ENABLED=true in the
-// SAME release that ships the dispensing surface; that restores HIGH and the
-// dispatch wording without a code change. See docs/ROADMAP.md, "Pharmacy ward
-// indents".
+// The operator flips PHARMACY_WARD_INDENT_PUSH_ENABLED=true only in the SAME
+// release that activates the workbench. That restores the HIGH actionable
+// alert and exact deep link without another code change. See docs/ROADMAP.md,
+// "Pharmacy ward indents".
 //
 // This gate is FORWARD-ONLY: it decides the priority of rows created after it
 // deploys and cannot reach rows already in `notifications`. The pre-existing
@@ -1349,15 +1312,15 @@ async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, 
     body: dispatchSurface
       ? `${medicationName} requested from ${wardName} drug chart. Please review the pharmacy ward indent for dispensing.`
       : `${medicationName} recorded from ${wardName} drug chart as indent ${indentLabel}. `
-        + 'There is no dispensing screen for ward indents yet — supply by the ward\'s existing manual process; '
-        + 'the indent stays open in the system and does not need to be cleared here.',
+        + 'The ward-indent workbench is not activated for this release — continue the ward\'s approved manual supply process; '
+        + 'do not treat this informational alert as dispatch authority.',
     type: 'WARD_PHARMACY_INDENT',
     // HIGH is reserved for alerts a recipient can act on: it drives the staff
     // Safety Center escalation ladder AND the server-side
-    // unread-critical-notification-escalation cron. Until the lifecycle has a
-    // caller this stays LOW so it informs without escalating. Applies to rows
-    // written from here on; the pre-existing backlog is demoted by migration
-    // 730. See wardIndentDispatchSurfaceEnabled() above.
+    // unread-critical-notification-escalation cron. Until the workbench is
+    // operator-activated this stays LOW so it informs without escalating.
+    // Applies to rows written from here on; the pre-existing backlog is
+    // demoted by migration 730. See wardIndentDispatchSurfaceEnabled() above.
     priority: dispatchSurface ? 'HIGH' : 'LOW',
     relatedId: indent.id,
     dedupe: true,
@@ -1373,6 +1336,10 @@ async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, 
       clinical_order_id: order.id || null,
       order_number: order.order_number || null,
       medication_name: medicationName,
+      ...(dispatchSurface ? {
+        route: `/pharmacy?tab=ward-indents&indent_id=${indent.id}`,
+        action_label: 'Open ward indent',
+      } : {}),
       // Lets a client tell "act on this" from "for your information" without
       // re-deriving the gate, and makes the suppressed state visible in the
       // stored notification row rather than only in this file.
@@ -1412,6 +1379,7 @@ export default {
   reconcileWardIndent,
   cancelWardIndent,
   closeWardIndent,
+  listWardIndentPage,
   listWardIndents,
   getWardIndent,
 };
