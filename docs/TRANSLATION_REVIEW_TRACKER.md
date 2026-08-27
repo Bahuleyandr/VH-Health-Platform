@@ -66,13 +66,34 @@ are the forms the ABDM programme itself uses.
 key in the table above is left identical to its English value in hi/ta/te/ml,
 so the queue cannot silently gain an English fallback.
 
-**Still English-only, deliberately:** the rest of
-`apps/patient/lib/features/abdm/screens/abdm_screen.dart` — the existing-ABHA
-link form and the consent grant/deny/revoke dialogs. Those interpolate an
-English verb into an English sentence frame and are consent-bearing, so they
-were parked in `docs/ROADMAP.md` rather than machine-translated. A patient in
-Tamil/Telugu/Hindi/Malayalam can now *create* an ABHA in their language but
-still grants or revokes record-sharing consent in English.
+**Still English-only, deliberately:** the existing-ABHA link form in
+`apps/patient/lib/features/abdm/screens/abdm_screen.dart` (ABHA number/address
+fields, Link ABHA / Cancel buttons). The consent grant/deny/revoke dialogs were
+localized on 2026-08-27 — see the queue entry below.
+
+## Priority queue — added 2026-08-27 (ABDM consent actions + Ask a Doubt)
+
+The consent grant/deny/revoke flow in
+`apps/patient/lib/features/abdm/screens/abdm_screen.dart` no longer
+interpolates an English verb into an English sentence frame; each action now
+has its own ARB keys (`abdmConsentGrantAction`/`...DenyAction`/`...RevokeAction`,
+`abdmConsent*ConfirmTitle`, `abdmConsent*ConfirmBody`, `abdmConsent*Success`).
+The hi/ta/te/ml values are an **AI first pass** and are **pending
+clinician/legal review** — they are consent-bearing copy under §"Review Scope"
+(a patient grants, denies, or revokes record-sharing consent on these exact
+words), so they land at the top of this queue alongside the `abhaEnrol*` set.
+
+Also added 2026-08-27: `askDoubtIntro` and `askDoubtSuccess`
+(`apps/patient/lib/features/feedback/screens/ask_a_doubt_screen.dart`). These
+state the Ask-a-Doubt expectation contract — the care team reads every message
+and follows up by phone or at the next visit; there is **no in-app reply**.
+Reviewers must preserve that one-way promise exactly; a rendering that implies
+an in-app answer re-creates the defect the copy was rewritten to remove.
+
+Also on 2026-08-27, three machine-translation corruption fixes (mixed-script
+passages, no meaning change intended, still AI-quality pending review):
+`aboutUsContent` (ta — Telugu/Russian/Bengali fragments), `conditionsBody`
+(ta — one Telugu word), `labOrdersScheduled` (te — Tamil suffix).
 
 ## Verification After Review
 

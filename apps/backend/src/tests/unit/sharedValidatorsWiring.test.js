@@ -36,7 +36,6 @@ import {
   breachReportValidator,
   qualityIncidentValidator,
   systemSettingsValidator,
-  featureFlagValidator,
   doctorCreateValidator,
 } from '../../validators/sharedValidators.js';
 
@@ -143,10 +142,6 @@ const CASES = [
   ['systemSettingsValidator', systemSettingsValidator, false,
     [{ maintenance_mode: true }],
     [[1, 2, 3]]],
-  ['featureFlagValidator', featureFlagValidator, false,
-    [{ name: 'new-portal', enabled: true, rollout_percentage: 50, allowed_roles: ['ADMIN'] }],
-    [{ enabled: true }, { name: 'new-portal', rollout_percentage: 150 }, { name: 'new-portal', enabled: 'sometimes' },
-      { name: 'new-portal', allowed_roles: [{}] }]],
   ['doctorCreateValidator', doctorCreateValidator, false,
     [{ name: 'Dr. A', department: 'Cardiology', intro: 'Senior cardiologist' }],
     [{ name: 'Dr. A' }, { department: 'Cardiology' }]],
@@ -230,7 +225,6 @@ describe('sharedValidators route wiring pins', () => {
     ['routes/compliance/breachRoutes.js', ['breachReportValidator']],
     ['routes/quality/qualityRoutes.js', ['qualityIncidentValidator']],
     ['routes/system/index.js', ['systemSettingsValidator']],
-    ['routes/admin/featureFlagRoutes.js', ['featureFlagValidator']],
     ['routes/doctor/adminDoctorRoutes.js', ['doctorCreateValidator']],
   ];
 

@@ -64,7 +64,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       if (response.isSuccess) {
         messenger.showSnackBar(
           LiveRegionSnackBar.build(
-            message: loc.feedbackSuccess,
+            message: loc.askDoubtSuccess,
             backgroundColor: Theme.of(context).colorScheme.primary,
             behavior: SnackBarBehavior.floating,
           ),
@@ -124,6 +124,16 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
+            // Honest one-way copy: the care team reads every message but does
+            // not reply inside the app — follow-up happens by phone or at the
+            // next visit. Do not reintroduce an in-app reply promise here.
+            Text(
+              loc.askDoubtIntro,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
             if (_isGuest) ...[
               TextFormField(
                 controller: _phoneController,

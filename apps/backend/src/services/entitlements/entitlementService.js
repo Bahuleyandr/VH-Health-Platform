@@ -7,7 +7,6 @@ export const ENTITLEMENT_FEATURE_KEYS = Object.freeze({
   mobilePatientPortal: 'mobile.patient_portal',
   mobileStaffWorkbench: 'mobile.staff_workbench',
   adminOperations: 'admin.operations',
-  adminFeatureFlags: 'admin.feature_flags',
   developerApiClients: 'developer.api_clients',
   commercialBillingPackages: 'commercial.billing_packages'
 });

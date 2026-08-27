@@ -2654,6 +2654,90 @@ abstract class AppLocalizations {
   /// **'No consent requests'**
   String get abdmNoConsents;
 
+  /// ABDM consent action button (grant). hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant'**
+  String get abdmConsentGrantAction;
+
+  /// ABDM consent action button (deny). hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny'**
+  String get abdmConsentDenyAction;
+
+  /// ABDM consent action button (revoke). hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke'**
+  String get abdmConsentRevokeAction;
+
+  /// ABDM consent grant confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant Consent?'**
+  String get abdmConsentGrantConfirmTitle;
+
+  /// ABDM consent deny confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny Consent?'**
+  String get abdmConsentDenyConfirmTitle;
+
+  /// ABDM consent revoke confirmation dialog title. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke Consent?'**
+  String get abdmConsentRevokeConfirmTitle;
+
+  /// ABDM consent grant confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to grant this consent request?'**
+  String get abdmConsentGrantConfirmBody;
+
+  /// ABDM consent deny confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to deny this consent request?'**
+  String get abdmConsentDenyConfirmBody;
+
+  /// ABDM consent revoke confirmation dialog body. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to revoke this consent?'**
+  String get abdmConsentRevokeConfirmBody;
+
+  /// Snackbar after an ABDM consent is granted. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent granted successfully'**
+  String get abdmConsentGrantSuccess;
+
+  /// Snackbar after an ABDM consent request is denied. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent request denied'**
+  String get abdmConsentDenySuccess;
+
+  /// Snackbar after an ABDM consent is revoked. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent revoked successfully'**
+  String get abdmConsentRevokeSuccess;
+
+  /// Ask a Doubt intro: one-way message flow — the care team reads every message and follows up by phone or at the next visit; no in-app reply. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Send your question to our care team. Every message is read. We do not reply inside the app — if follow-up is needed, our team will contact you by phone or at your next visit.'**
+  String get askDoubtIntro;
+
+  /// Snackbar after an Ask a Doubt question is sent; must not promise an in-app reply. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Your question has been sent. Our care team reads every message and will contact you by phone or at your next visit if follow-up is needed.'**
+  String get askDoubtSuccess;
+
   /// No description provided for @medicationRemindersTitle.
   ///
   /// In en, this message translates to:

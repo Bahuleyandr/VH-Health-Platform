@@ -19,6 +19,14 @@ const catalogSql = readFileSync(
   resolve(backendRoot, 'src/migrations/433_entitlement_packaging_catalog.sql'),
   'utf8',
 );
+// Migration 742 retired the feature-flag console: it dropped `feature_flags`
+// and DELETEd the 'admin.feature_flags' row from product_features. 433 is an
+// applied migration and its text can never change, so retirement is read from
+// the later migration rather than by editing the seed.
+const retirementSql = readFileSync(
+  resolve(backendRoot, 'src/migrations/742_drop_feature_flags.sql'),
+  'utf8',
+);
 const adminIndexSource = readFileSync(
   resolve(backendRoot, 'src/routes/admin/index.js'),
   'utf8',
@@ -40,6 +48,18 @@ function hardBlockFeatureKeysFromCatalog() {
   return new Set(keys);
 }
 
+// Feature keys a later migration removed from the catalog with
+// DELETE FROM product_features WHERE feature_key = '...'.
+function retiredFeatureKeys() {
+  const retired = new Set();
+  const deleteRe = /DELETE FROM product_features WHERE feature_key = '([a-z_.]+)'/g;
+  let m;
+  while ((m = deleteRe.exec(retirementSql)) !== null) {
+    retired.add(m[1]);
+  }
+  return retired;
+}
+
 function gatedFeatureKeysFromRouter() {
   const gated = new Set();
   const gateRe = /requireEntitlement\(ENTITLEMENT_FEATURE_KEYS\.([A-Za-z0-9_]+)\)/g;
@@ -54,13 +74,22 @@ function gatedFeatureKeysFromRouter() {
 
 describe('entitlement catalog ↔ gate topology', () => {
   it('every hard_block admin/commercial/developer feature has a mounted gate', () => {
-    const hardBlock = hardBlockFeatureKeysFromCatalog();
+    const seeded = hardBlockFeatureKeysFromCatalog();
     // The catalog must actually parse — an empty set means the regex or the
     // migration moved, and this suite must be updated rather than pass vacuously.
-    expect(hardBlock.size).toBeGreaterThanOrEqual(4);
+    expect(seeded.size).toBeGreaterThanOrEqual(4);
+
+    // A retired key is out of the live catalog, so it promises no enforcement.
+    // The retirement file must parse too, for the same anti-vacuity reason:
+    // 742 retired admin.feature_flags, and if this set came back empty the
+    // filter below would silently re-demand a gate for a deleted console.
+    const retired = retiredFeatureKeys();
+    expect(retired.has('admin.feature_flags')).toBe(true);
+    const hardBlock = [...seeded].filter((key) => !retired.has(key));
+    expect(hardBlock.length).toBeGreaterThanOrEqual(3);
 
     const gated = gatedFeatureKeysFromRouter();
-    const ungated = [...hardBlock].filter((key) => !gated.has(key));
+    const ungated = hardBlock.filter((key) => !gated.has(key));
     expect(ungated).toEqual([]);
   });
 

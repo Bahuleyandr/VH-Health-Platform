@@ -111,7 +111,6 @@ describe("H6/M8 — admin route policy", () => {
     test("platform control planes are SUPER_ADMIN only", () => {
       for (const p of [
         "/dashboard/tenants",
-        "/dashboard/feature-flags",
         "/dashboard/database",
         "/dashboard/continuity-facility-context",
         // Tenant entitlement editing and admin-account lifecycle are

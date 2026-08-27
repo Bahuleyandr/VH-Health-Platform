@@ -162,6 +162,14 @@ data:
   CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED: "false"
   CLINICAL_AI_CODING_BATCH_ENABLED: "false"
   REVENUE_CYCLE_TRACKER_ENABLED: "false"
+  # #878-wave (G-slate) statutory/compliance dark gates — dark-shipped, "off"
+  # recorded as visible intent. Each register also requires its per-tenant
+  # tenants.settings.* flag (the SIEM scheduler requires an active
+  # siem_export_targets row), ANDed, fail closed. No credentials involved.
+  PUBLIC_HEALTH_REGISTERS_ENABLED: "false"
+  GST_EINVOICE_ENABLED: "false"
+  BIRTH_NOTIFICATION_ENABLED: "false"
+  SIEM_EXPORT_SCHEDULER_ENABLED: "false"
   # Security paging enable flag (utils/securityWebhook.js). Flip to "true"
   # AND seal SECURITY_WEBHOOK_URL (+ optional SECURITY_WEBHOOK_CRITICAL /
   # SECURITY_WEBHOOK_SECRET) in the vhhealth-backend-env Secret to page on

@@ -30,6 +30,8 @@ import { requireTenantId } from '../tenant/tenantService.js';
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const STATUS_TRANSITIONS = {
   draft:                 ['certified', 'cancelled'],
   certified:             ['notified_to_registrar'],
@@ -181,6 +183,16 @@ export async function createBirthNotification({ tenantId, ...body }) {
   await requireBirthNotificationEnabled(tenantId);
   const tid = tenantOr(tenantId);
 
+  // Manual-path mother identity must be a well-formed UUID before it reaches a
+  // ::uuid cast (a garbage value otherwise 500s at the cast).
+  const bodyMotherUid = cleanText(body.mother_patient_uid);
+  if (bodyMotherUid && !UUID_RE.test(bodyMotherUid)) {
+    throw AppError.badRequest(
+      'mother_patient_uid must be a UUID',
+      'BIRTH_NOTIFICATION_MOTHER_UID_INVALID',
+    );
+  }
+
   return setTenantTx(tid, async (tx) => {
     // Source columns default from the maternity records when a newborn_id is
     // supplied; the request body overrides any field the registrar needs to
@@ -196,11 +208,31 @@ export async function createBirthNotification({ tenantId, ...body }) {
       || (source?.birth_datetime ? new Date(source.birth_datetime).toISOString().slice(0, 10) : null);
     const tob = body.time_of_birth
       || (source?.birth_datetime ? new Date(source.birth_datetime).toISOString().slice(11, 19) : null);
-    const motherUid = cleanText(body.mother_patient_uid) || source?.mother_patient_uid || null;
+    const motherUid = bodyMotherUid || source?.mother_patient_uid || null;
 
     if (!dob) throw AppError.badRequest('date_of_birth required');
     if (!tob) throw AppError.badRequest('time_of_birth required');
     if (!motherUid) throw AppError.badRequest('mother_patient_uid required');
+
+    // A body-supplied mother UID must resolve to a patient of THIS tenant
+    // (inventoryV2Service precedent) — the maternity-source path is already
+    // tenant-scoped by loadMaternitySource's joins.
+    if (bodyMotherUid) {
+      const mothers = await tx.$queryRawUnsafe(
+        `SELECT uid
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid = $2::uuid
+            AND role = 'PATIENT'
+          LIMIT 1`,
+        tid, bodyMotherUid);
+      if (!mothers[0]) {
+        throw AppError.notFound(
+          'Mother patient was not found in this tenant',
+          'BIRTH_NOTIFICATION_MOTHER_NOT_FOUND',
+        );
+      }
+    }
 
     const sex = normalizeSex(body.sex || source?.newborn_sex);
     const place = normalizePlace(body.place_of_birth);
