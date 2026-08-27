@@ -124,7 +124,7 @@ export function stateCode(name) {
 // BuyerDtls/ItemList/ValDtls — enough for the IRP happy path and the mock
 // adapter. Live-payload edge cases (export/SEZ, e-way bill, reverse charge)
 // are a deferred depth per the PR body.
-export function buildEInvoicePayload({ invoice, items, seller }) {
+export function buildEInvoicePayload({ invoice, items, seller, generation = 1 }) {
   const isInterState = n2(invoice.igst_amount) > 0;
   const buyerState = invoice.patient_state || seller.state;
   const itemList = (items || []).map((it, idx) => {
@@ -185,7 +185,11 @@ export function buildEInvoicePayload({ invoice, items, seller }) {
       Discount: n2(invoice.discount_amount),
       TotInvVal: n2(invoice.total_amount),
     },
-    _meta: { inter_state: isInterState },
+    // generation = 1-based per-invoice attempt counter (prior rows + 1). A
+    // regeneration after cancelIrn is a DISTINCT document: without it the
+    // deterministic mock adapter re-mints the cancelled row's IRN and the
+    // global ux_gst_einvoice_irn unique index rejects the insert (23505).
+    _meta: { inter_state: isInterState, generation },
   };
 }
 
@@ -211,6 +215,15 @@ async function loadInvoiceItems(tx, invoiceId) {
       WHERE invoice_id = $1::int
       ORDER BY id ASC`,
     Number.parseInt(invoiceId, 10));
+}
+
+// Postgres unique-violations (23505) surface through Prisma raw calls either
+// as a PrismaClientKnownRequestError (P2010 with meta.code '23505') or with
+// the SQLSTATE embedded in the message — inspect both.
+function isUniqueViolation(err) {
+  const parts = [err?.code, err?.meta?.code, err?.message, err?.meta?.message]
+    .filter(Boolean).map(String).join(' ');
+  return parts.includes('23505') || /unique constraint/i.test(parts);
 }
 
 /* ─── IRN generation ─────────────────────────────────────────────────────── */
@@ -240,8 +253,19 @@ export async function generateIrn({ tenantId, invoiceId, actorUid = null, buyerG
     const existingRow = unwrap(existing);
     if (existingRow && existingRow.status === 'generated') return existingRow;
 
+    // 1-based generation attempt: prior rows for this invoice (cancelled ones
+    // included) + 1. Feeds the canonical payload so a regenerate-after-cancel
+    // mints a distinct mock IRN instead of colliding with the cancelled row's.
+    const countRows = await tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM gst_einvoice_documents
+        WHERE tenant_id = $1::uuid AND invoice_id = $2::int`,
+      tid, Number.parseInt(invoiceId, 10));
+    const generation = (unwrap(countRows)?.n || 0) + 1;
+
     const items = await loadInvoiceItems(tx, invoiceId);
-    const sellerGstin = settings.sellerGstin || invoice.hospital_state || 'URP000000000ZZ';
+    // Stored seller_gstin is the CONFIGURED GSTIN or NULL — never a fallback
+    // (the old invoice.hospital_state fallback stored a state NAME as a GSTIN).
+    const sellerGstin = settings.sellerGstin || null;
     const payload = buildEInvoicePayload({
       invoice: { ...invoice, buyer_gstin: buyerGstin },
       items,
@@ -250,6 +274,7 @@ export async function generateIrn({ tenantId, invoiceId, actorUid = null, buyerG
         legalName: settings.sellerLegalName,
         state: invoice.hospital_state,
       },
+      generation,
     });
 
     let result;
@@ -265,36 +290,50 @@ export async function generateIrn({ tenantId, invoiceId, actorUid = null, buyerG
       result = { response: { error: err.message } };
     }
 
-    const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO gst_einvoice_documents
-         (tenant_id, invoice_id, provider, seller_gstin, irn, ack_no, ack_date,
-          signed_invoice, signed_qr_code, status, request_payload, response_payload,
-          error_code, error_message, generated_at, created_by)
-       VALUES ($1::uuid, $2::int, $3, $4, $5, $6, $7::timestamptz,
-               $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14,
-               CASE WHEN $10 = 'generated' THEN NOW() ELSE NULL END, $15::uuid)
-       ON CONFLICT (tenant_id, invoice_id) WHERE status <> 'cancelled'
-       DO UPDATE SET
-         provider = EXCLUDED.provider,
-         seller_gstin = EXCLUDED.seller_gstin,
-         irn = EXCLUDED.irn,
-         ack_no = EXCLUDED.ack_no,
-         ack_date = EXCLUDED.ack_date,
-         signed_invoice = EXCLUDED.signed_invoice,
-         signed_qr_code = EXCLUDED.signed_qr_code,
-         status = EXCLUDED.status,
-         request_payload = EXCLUDED.request_payload,
-         response_payload = EXCLUDED.response_payload,
-         error_code = EXCLUDED.error_code,
-         error_message = EXCLUDED.error_message,
-         generated_at = EXCLUDED.generated_at,
-         updated_at = NOW()
-       RETURNING *`,
-      tid, Number.parseInt(invoiceId, 10), key, sellerGstin,
-      result.irn || null, result.ack_no || null, result.ack_date || null,
-      result.signed_invoice || null, result.signed_qr_code || null,
-      status, JSON.stringify(payload), JSON.stringify(result.response || {}),
-      errorCode, errorMessage, actorUid || null);
+    let rows;
+    try {
+      rows = await tx.$queryRawUnsafe(
+        `INSERT INTO gst_einvoice_documents
+           (tenant_id, invoice_id, provider, seller_gstin, irn, ack_no, ack_date,
+            signed_invoice, signed_qr_code, status, request_payload, response_payload,
+            error_code, error_message, generated_at, created_by)
+         VALUES ($1::uuid, $2::int, $3, $4, $5, $6, $7::timestamptz,
+                 $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14,
+                 CASE WHEN $10 = 'generated' THEN NOW() ELSE NULL END, $15::uuid)
+         ON CONFLICT (tenant_id, invoice_id) WHERE status <> 'cancelled'
+         DO UPDATE SET
+           provider = EXCLUDED.provider,
+           seller_gstin = EXCLUDED.seller_gstin,
+           irn = EXCLUDED.irn,
+           ack_no = EXCLUDED.ack_no,
+           ack_date = EXCLUDED.ack_date,
+           signed_invoice = EXCLUDED.signed_invoice,
+           signed_qr_code = EXCLUDED.signed_qr_code,
+           status = EXCLUDED.status,
+           request_payload = EXCLUDED.request_payload,
+           response_payload = EXCLUDED.response_payload,
+           error_code = EXCLUDED.error_code,
+           error_message = EXCLUDED.error_message,
+           generated_at = EXCLUDED.generated_at,
+           updated_at = NOW()
+         RETURNING *`,
+        tid, Number.parseInt(invoiceId, 10), key, sellerGstin,
+        result.irn || null, result.ack_no || null, result.ack_date || null,
+        result.signed_invoice || null, result.signed_qr_code || null,
+        status, JSON.stringify(payload), JSON.stringify(result.response || {}),
+        errorCode, errorMessage, actorUid || null);
+    } catch (err) {
+      // The global ux_gst_einvoice_irn index (738:73-75) — or a concurrent
+      // insert against ux_gst_einvoice_invoice_live — raises 23505. Surface a
+      // clean, retryable 409 instead of a generic 500.
+      if (isUniqueViolation(err)) {
+        throw AppError.conflict(
+          'An e-invoice document with this IRN already exists',
+          'GST_EINVOICE_IRN_CONFLICT',
+        );
+      }
+      throw err;
+    }
     const row = unwrap(rows);
     if (status === 'failed') {
       throw new AppError(errorMessage || 'IRN generation failed', 502, errorCode || 'GST_EINVOICE_FAILED');

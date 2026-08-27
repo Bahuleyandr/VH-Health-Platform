@@ -93,7 +93,9 @@ describe('createBirthNotification', () => {
   });
 
   test('inserts detail row + writes canonical timeline/audit in the tx', async () => {
-    txQueryMock.mockResolvedValueOnce([{ id: 42, newborn_id: null, mother_patient_uid: MOTHER, sex: 'female', outcome: 'live' }]);
+    txQueryMock
+      .mockResolvedValueOnce([{ uid: MOTHER }]) // tenant-scoped mother resolution
+      .mockResolvedValueOnce([{ id: 42, newborn_id: null, mother_patient_uid: MOTHER, sex: 'female', outcome: 'live' }]);
     const rec = await svc.createBirthNotification({
       tenantId: TENANT,
       mother_patient_uid: MOTHER,
@@ -103,8 +105,11 @@ describe('createBirthNotification', () => {
       created_by: '22222222-2222-4000-8000-000000000002',
     });
     expect(rec.id).toBe(42);
-    // The INSERT ran on the tx client (not plain prisma).
-    expect(txQueryMock).toHaveBeenCalledTimes(1);
+    // Resolution + INSERT both ran on the tx client (not plain prisma), the
+    // resolution tenant- and PATIENT-role-scoped.
+    expect(txQueryMock).toHaveBeenCalledTimes(2);
+    expect(txQueryMock.mock.calls[0][0]).toMatch(/tenant_id = \$1::uuid/);
+    expect(txQueryMock.mock.calls[0][0]).toMatch(/role = 'PATIENT'/);
     // Canonical clinical event was recorded strictly on the same tx.
     expect(canonicalMock).toHaveBeenCalledTimes(1);
     const [input, options] = canonicalMock.mock.calls[0];
@@ -117,5 +122,22 @@ describe('createBirthNotification', () => {
     await expect(svc.createBirthNotification({
       tenantId: TENANT, date_of_birth: '2026-08-01', time_of_birth: '09:30',
     })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('rejects a non-UUID manual mother_patient_uid with 400, before any SQL runs', async () => {
+    await expect(svc.createBirthNotification({
+      tenantId: TENANT, mother_patient_uid: 'not-a-uuid',
+      date_of_birth: '2026-08-01', time_of_birth: '09:30', sex: 'female',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'BIRTH_NOTIFICATION_MOTHER_UID_INVALID' });
+    expect(txQueryMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects a dangling / cross-tenant manual mother UUID with 404', async () => {
+    txQueryMock.mockResolvedValueOnce([]); // resolution finds no patient in tenant
+    await expect(svc.createBirthNotification({
+      tenantId: TENANT, mother_patient_uid: MOTHER,
+      date_of_birth: '2026-08-01', time_of_birth: '09:30', sex: 'female',
+    })).rejects.toMatchObject({ statusCode: 404, code: 'BIRTH_NOTIFICATION_MOTHER_NOT_FOUND' });
+    expect(canonicalMock).not.toHaveBeenCalled();
   });
 });
