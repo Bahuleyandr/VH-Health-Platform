@@ -47,7 +47,7 @@ spec:
             - |
               set -eu
               echo ">> warehouse db:ensure-pgvector"
-              npm run db:ensure-pgvector
+              node scripts/ensure-pgvector-extension.mjs
               echo ">> warehouse ci-setup-db.mjs (seeds skipped)"
               node scripts/ci-setup-db.mjs --skip-seeds
               echo ">> warehouse schema in lockstep"
@@ -72,11 +72,8 @@ spec:
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
             - { name: app-tmp, mountPath: /app/tmp }
-            - { name: prisma-cache, mountPath: /app/node_modules/.prisma }
       volumes:
         - name: tmp
           emptyDir: { sizeLimit: 128Mi }
         - name: app-tmp
           emptyDir: { sizeLimit: 128Mi }
-        - name: prisma-cache
-          emptyDir: { sizeLimit: 64Mi }

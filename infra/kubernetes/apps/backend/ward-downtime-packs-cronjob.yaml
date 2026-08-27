@@ -156,8 +156,6 @@ spec:
                   mountPath: /tmp
                 - name: app-tmp
                   mountPath: /app/tmp
-                - name: prisma-cache
-                  mountPath: /app/node_modules/.prisma
           volumes:
             - name: tmp
               emptyDir:
@@ -165,6 +163,3 @@ spec:
             - name: app-tmp
               emptyDir:
                 sizeLimit: 512Mi
-            - name: prisma-cache
-              emptyDir:
-                sizeLimit: 64Mi
