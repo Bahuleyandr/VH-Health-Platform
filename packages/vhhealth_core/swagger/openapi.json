@@ -25426,6 +25426,524 @@
           }
         }
       },
+      "Hl7FeedDeactivatedSubscription": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "is_active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "name": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        }
+      },
+      "Hl7FeedDeactivationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Hl7FeedDeactivationResult"
+          }
+        }
+      },
+      "Hl7FeedDeactivationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscription"
+        ],
+        "properties": {
+          "subscription": {
+            "$ref": "#/components/schemas/Hl7FeedDeactivatedSubscription"
+          }
+        }
+      },
+      "Hl7FeedDeliveryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 25
+          }
+        }
+      },
+      "Hl7FeedDeliveryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Hl7FeedDeliveryResult"
+          }
+        }
+      },
+      "Hl7FeedDeliveryResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "picked",
+          "acknowledged",
+          "rejected",
+          "uncertain",
+          "deferred",
+          "expired"
+        ],
+        "properties": {
+          "picked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "acknowledged": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uncertain": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deferred": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expired": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Hl7FeedErrorResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success",
+              "message"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "requestId": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success",
+              "error"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "error"
+            ],
+            "not": {
+              "required": [
+                "success"
+              ]
+            },
+            "properties": {
+              "error": {
+                "type": "string"
+              }
+            },
+            "description": "Global API-key validation failure before route dispatch."
+          }
+        ]
+      },
+      "Hl7FeedMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "subscription_id",
+          "subscription_name",
+          "message_type",
+          "status",
+          "attempts",
+          "transport_state",
+          "acknowledgement_state",
+          "send_authority",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subscription_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subscription_name": {
+            "type": "string"
+          },
+          "message_type": {
+            "type": "string",
+            "enum": [
+              "ADT^A01",
+              "ADT^A02",
+              "ADT^A03",
+              "ORM^O01",
+              "ORU^R01"
+            ]
+          },
+          "message_control_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "claimed",
+              "sent",
+              "failed",
+              "dead",
+              "reconciliation_required"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "next_attempt_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "source_table": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_event_key": {
+            "type": "string"
+          },
+          "payload_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "transport_state": {
+            "type": "string"
+          },
+          "acknowledgement_state": {
+            "type": "string"
+          },
+          "send_authority": {
+            "type": "string"
+          },
+          "recovery_inbox_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Hl7FeedMessageListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Hl7FeedMessageListResult"
+          }
+        }
+      },
+      "Hl7FeedMessageListResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "messages",
+          "count"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hl7FeedMessage"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Hl7FeedSubscription": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "endpoint_url",
+          "message_types",
+          "is_active",
+          "auth_header_configured",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "endpoint_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "message_types": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "ADT^A01",
+                "ADT^A02",
+                "ADT^A03",
+                "ORM^O01",
+                "ORU^R01"
+              ]
+            }
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "auth_header_configured": {
+            "type": "boolean"
+          },
+          "last_delivery_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Tenant-scoped receiver configuration. The credential value is never returned; only its configured state is visible."
+      },
+      "Hl7FeedSubscriptionListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Hl7FeedSubscriptionListResult"
+          }
+        }
+      },
+      "Hl7FeedSubscriptionListResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscriptions",
+          "count"
+        ],
+        "properties": {
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hl7FeedSubscription"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Hl7FeedSubscriptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "endpoint_url"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "endpoint_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://",
+            "description": "Receiver URL. Credential-bearing query parameters are rejected; use auth_header for receiver authorization."
+          },
+          "auth_header": {
+            "type": "string",
+            "nullable": true,
+            "writeOnly": true,
+            "description": "Receiver Authorization header. Omit to preserve the stored credential on an existing subscription; send null or an empty string to clear it; send a non-empty value to rotate it."
+          },
+          "message_types": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "ADT^A01",
+                "ADT^A02",
+                "ADT^A03",
+                "ORM^O01",
+                "ORU^R01"
+              ]
+            },
+            "description": "Complete receiver scope. Omit to preserve an existing subscription scope; a new subscription defaults to ADT A01/A02/A03 and ORU R01."
+          }
+        }
+      },
+      "Hl7FeedSubscriptionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Hl7FeedSubscriptionResult"
+          }
+        }
+      },
+      "Hl7FeedSubscriptionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscription"
+        ],
+        "properties": {
+          "subscription": {
+            "$ref": "#/components/schemas/Hl7FeedSubscription"
+          }
+        }
+      },
       "Hl7I03ClockEvidence": {
         "type": "object",
         "additionalProperties": false,
@@ -115353,12 +115871,70 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "Counts for the completed bounded delivery pass.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/Hl7FeedDeliveryResponse"
                 }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not an administrator or integration administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The feed-management operation failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Run one bounded outbound HL7 delivery pass",
+        "description": "Claims only ledger-authorized due messages in order and records transport plus correlated MSA evidence. This operation cannot release an owner-held or reconciliation-required message.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Hl7FeedDeliveryRequest"
               }
             }
           }
@@ -115373,16 +115949,93 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "Tenant-scoped delivery-ledger messages and count.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/Hl7FeedMessageListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not an administrator or integration administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The feed-management operation failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
                 }
               }
             }
           }
-        }
+        },
+        "summary": "List outbound HL7 delivery-ledger messages",
+        "description": "Returns tenant-scoped transport, acknowledgement, send-authority, and recovery state without returning HL7 payload bytes.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "claimed",
+                "sent",
+                "failed",
+                "dead",
+                "reconciliation_required"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ]
       }
     },
     "/api/v1/hl7-feeds/subscriptions": {
@@ -115393,16 +116046,64 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "Tenant-scoped subscriptions and credential-presence indicators.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/Hl7FeedSubscriptionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not an administrator or integration administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The feed-management operation failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
                 }
               }
             }
           }
-        }
+        },
+        "summary": "List outbound HL7 feed subscriptions",
+        "description": "Returns the authenticated tenant subscriptions to administrators and integration administrators. Stored Authorization headers are never returned.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "operationId": "post_api_v1_hl7_feeds_subscriptions",
@@ -115410,13 +116111,81 @@
           "hl7"
         ],
         "responses": {
-          "200": {
-            "description": "Successful response",
+          "201": {
+            "description": "The created or updated subscription without credential material.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/Hl7FeedSubscriptionResponse"
                 }
+              }
+            }
+          },
+          "400": {
+            "description": "The name, endpoint URL, receiver target, or message-type scope was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not an administrator or integration administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The feed-management operation failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create or update an outbound HL7 feed subscription",
+        "description": "Upserts by tenant and name. Omitted credential and message-type fields preserve the existing values atomically; explicit credential null or empty clears it, and an explicit non-empty message-type array replaces the complete receiver scope.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Hl7FeedSubscriptionRequest"
               }
             }
           }
@@ -115431,23 +116200,93 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
+            "description": "The deactivated subscription identity.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/Hl7FeedDeactivationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The subscription id was not a canonical positive PostgreSQL integer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not an administrator or integration administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No subscription with that id exists in the authenticated tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The feed-management operation failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hl7FeedErrorResponse"
                 }
               }
             }
           }
         },
+        "summary": "Deactivate an outbound HL7 feed subscription",
+        "description": "Soft-deactivates the exact positive subscription id within the authenticated tenant. It does not release held outbound messages.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ]

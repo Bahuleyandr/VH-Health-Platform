@@ -60,6 +60,12 @@ export default function rbacMiddleware(allowedRoles = []) {
           userId: req.user.uid || req.user.id,
           userName: req.user.email || req.user.phone,
           userRole,
+          tenantId: req.tenantId
+            || req.apiClientTenantId
+            || req.user.tenant_id
+            || req.user.tenantId
+            || req.tenant?.id
+            || null,
           ip: req.ip,
           userAgent: req.headers?.['user-agent'],
           path: req.originalUrl,

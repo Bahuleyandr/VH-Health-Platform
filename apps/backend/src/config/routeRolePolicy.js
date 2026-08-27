@@ -12,6 +12,11 @@ export const TECHNICAL_ADMIN_ROUTE_ROLES = getRolesForCapabilityGroups([
   'platform_admin',
   'technical_admin',
 ]);
+export const HL7_FEED_ROUTE_ROLES = rolesFrom([
+  'SUPER_ADMIN',
+  'ADMIN',
+  'INTEGRATION_ADMIN',
+]);
 export const PEOPLE_OPERATIONS_ROUTE_ROLES = getRolesForCapabilityGroups('people_operations');
 export const STAFF_GOVERNANCE_ROUTE_ROLES = getRolesForCapabilityGroups('staff_governance');
 

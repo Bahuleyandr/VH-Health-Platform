@@ -24,7 +24,14 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { auditLogMiddleware, deriveAction, deriveModule, deriveAuditResourceContext, sanitizeBody } = await import(
+const {
+  auditLogMiddleware,
+  deriveAction,
+  deriveModule,
+  deriveAuditResourceContext,
+  sanitizeBody,
+  sanitizeQueryParameters,
+} = await import(
   '../../middleware/auditLog.js'
 );
 const { setAuthenticatedCallbackAuditContext } = await import(
@@ -113,6 +120,105 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(gatewaySecrets).not.toContain('callback-bearer-secret');
   });
 
+  it('redacts concrete credential aliases without hiding ordinary workflow fields', () => {
+    const serialized = sanitizeBody({
+      auth_header: 'Bearer snake-secret',
+      authHeader: 'Bearer camel-secret',
+      'refresh-token': 'dash-secret',
+      currentPassword: 'current-secret',
+      new_password: 'new-secret',
+      nested: {
+        sender_bearer_token: 'device-secret',
+        encryptedSecret: 'mfa-secret',
+        aadhaarNumber: '1234 5678 9012',
+        bankAccount: '0000111122223333',
+        clinicalNotes: 'private clinical narrative',
+      },
+      token_number: 'OP-17',
+      code: 'SNOMED-44054006',
+      endpoint_url: 'https://receiver.example/hl7?api_key=url-secret&tenant=one',
+    });
+
+    for (const secret of [
+      'snake-secret',
+      'camel-secret',
+      'dash-secret',
+      'current-secret',
+      'new-secret',
+      'device-secret',
+      'mfa-secret',
+      '1234 5678 9012',
+      '0000111122223333',
+      'private clinical narrative',
+      'url-secret',
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).toContain('OP-17');
+    expect(serialized).toContain('SNOMED-44054006');
+    expect(serialized).toContain('https://receiver.example/hl7?api_key=[REDACTED]&tenant=one');
+  });
+
+  it('keeps stored query parameters valid JSON after redacting a long query', () => {
+    const serialized = sanitizeQueryParameters({
+      authHeader: 'Bearer long-query-secret',
+      filter: 'x'.repeat(700),
+      token_number: 'OP-17',
+    });
+
+    expect(() => JSON.parse(serialized)).not.toThrow();
+    expect(serialized).not.toContain('long-query-secret');
+    expect(JSON.parse(serialized)).toEqual({
+      authHeader: '[REDACTED]',
+      filter: 'x'.repeat(700),
+      token_number: 'OP-17',
+    });
+  });
+
+  it.each([201, 400, 403])(
+    'never persists HL7 feed credentials on a %i response',
+    async (statusCode) => {
+      const bodySecret = `Bearer audit-body-secret-${statusCode}`;
+      const nestedSecret = `nested-refresh-secret-${statusCode}`;
+      const querySecret = `query-auth-secret-${statusCode}`;
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        req.id = `req-hl7-audit-${statusCode}`;
+        req.tenantId = TENANT_ID;
+        req.user = { uid: ACTOR_UID, role: 'INTEGRATION_ADMIN' };
+        next();
+      });
+      app.use(auditLogMiddleware);
+      app.post('/api/v1/hl7-feeds/subscriptions', (_req, res) => {
+        res.status(statusCode).json({ success: statusCode < 400 });
+      });
+
+      await request(app)
+        .post('/api/v1/hl7-feeds/subscriptions')
+        .query({ authHeader: querySecret, token_number: 'OP-17' })
+        .send({
+          name: 'Audit proof receiver',
+          endpoint_url: 'https://receiver.example/hl7',
+          auth_header: bodySecret,
+          nested: { refreshToken: nestedSecret },
+          token_number: 'OP-17',
+        })
+        .expect(statusCode);
+      await waitForAuditWrite();
+
+      const call = queryRawUnsafeMock.mock.calls[0];
+      expect(call[13]).toContain('[REDACTED]');
+      expect(call[13]).toContain('OP-17');
+      expect(call[14]).toContain('[REDACTED]');
+      expect(call[14]).toContain('Audit proof receiver');
+      expect(call[23]).toBe(TENANT_ID);
+      expect(JSON.stringify(call)).not.toContain(bodySecret);
+      expect(JSON.stringify(call)).not.toContain(nestedSecret);
+      expect(JSON.stringify(call)).not.toContain(querySecret);
+    },
+  );
+
   it('writes universal audit_log rows with searchable resource metadata', async () => {
     const app = express();
     app.use(express.json());
@@ -173,6 +279,8 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(call[20]).toBe(ACTOR_UID);
     expect(call[21]).toBe(false);
     expect(call[22]).toBe('desktop');
+    expect(call[23]).toBe(TENANT_ID);
+    expect(call[0]).toContain('device_type, tenant_id');
   });
 
   it('stores SMS callback paths without their bearer token', async () => {
