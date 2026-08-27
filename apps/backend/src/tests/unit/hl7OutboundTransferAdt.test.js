@@ -49,7 +49,10 @@ jest.unstable_mockModule('../../utils/ssrfGuard.js', () => ({
 
 const {
   createSubscription,
+  deactivateSubscription,
   emitTransferAdt,
+  listFeedMessages,
+  listSubscriptions,
   queueFeedMessage,
   DEFAULT_FEED_MESSAGE_TYPES,
 } = await import('../../services/hl7/hl7OutboundService.js');
@@ -250,9 +253,14 @@ describe('the default subscription scope reaches the transfer event', () => {
       (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
     );
     expect(call).toBeDefined();
-    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid)
+    // (tid, name, endpointUrl, authHeader, messageTypes, actorUid,
+    //  authHeaderProvided, messageTypesProvided)
     expect(call[5]).toEqual(['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORU^R01']);
     expect(call[5]).toContain('ADT^A02');
+    expect(call[7]).toBe(false);
+    expect(call[8]).toBe(false);
+    expect(call[0]).toContain('WHEN $7::boolean THEN EXCLUDED.auth_header');
+    expect(call[0]).toContain('WHEN $8::boolean THEN EXCLUDED.message_types');
   });
 
   it('still honours an explicit list — a receiver that cannot take A02 opts out', async () => {
@@ -271,6 +279,28 @@ describe('the default subscription scope reaches the transfer event', () => {
       (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
     );
     expect(call[5]).toEqual(['ORU^R01']);
+    expect(call[7]).toBe(false);
+    expect(call[8]).toBe(true);
+  });
+
+  it('distinguishes an explicit credential clear from an omitted credential', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 8 }]);
+
+    await createSubscription(
+      {
+        name: 'Credential clear receiver',
+        endpointUrl: 'https://receiver.example.org/hl7',
+        authHeader: null,
+      },
+      { tenantId: TENANT },
+    );
+
+    const call = queryRawUnsafeMock.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO hl7_feed_subscriptions'),
+    );
+    expect(call[4]).toBeNull();
+    expect(call[7]).toBe(true);
+    expect(call[8]).toBe(false);
   });
 
   it('matches the column DEFAULT that migration 731 installed', () => {
@@ -299,6 +329,60 @@ describe('the default subscription scope reaches the transfer event', () => {
     // created through the API or by direct SQL.
     expect([...columnDefault].sort()).toEqual([...DEFAULT_FEED_MESSAGE_TYPES].sort());
     expect(columnDefault).toContain('ADT^A02');
+  });
+});
+
+describe('subscription-management input hardening', () => {
+  it('rejects credential query parameters before storage', async () => {
+    await expect(createSubscription(
+      {
+        name: 'Unsafe query receiver',
+        endpointUrl: 'https://receiver.example.org/hl7?api_key=receiver-secret',
+      },
+      { tenantId: TENANT },
+    )).rejects.toMatchObject({ code: 'HL7_FEED_CREDENTIAL_QUERY_FORBIDDEN', statusCode: 400 });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('redacts credential queries in historical subscription projections', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 4,
+      endpoint_url: 'https://receiver.example.org/hl7?api_key=legacy-secret&tenant=one',
+    }]);
+
+    const rows = await listSubscriptions({ tenantId: TENANT });
+
+    expect(rows[0].endpoint_url).toBe(
+      'https://receiver.example.org/hl7?api_key=%5BREDACTED%5D&tenant=one',
+    );
+    expect(JSON.stringify(rows)).not.toContain('legacy-secret');
+  });
+
+  it.each([0, -1, '1junk', '2147483648', null])(
+    'rejects invalid subscription id %p before issuing SQL',
+    async (id) => {
+      await expect(deactivateSubscription(id, { tenantId: TENANT }))
+        .rejects.toMatchObject({ code: 'HL7_FEED_BAD_SUBSCRIPTION_ID' });
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('clamps negative message-list limits to one', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listFeedMessages({ tenantId: TENANT, limit: -20 });
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call.at(-1)).toBe(1);
+  });
+
+  it('uses the safe default for malformed message-list limits', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listFeedMessages({ tenantId: TENANT, limit: '20junk' });
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call.at(-1)).toBe(50);
   });
 });
 

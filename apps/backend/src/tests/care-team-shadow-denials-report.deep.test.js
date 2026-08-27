@@ -2,6 +2,7 @@ import request from 'supertest';
 
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
@@ -25,6 +26,12 @@ function admin() {
 }
 
 async function cleanup() {
+  await waitForAuditLogDrain();
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_log WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  ).catch(() => {});
   await deleteWithAuditBypass(
     prisma,
     `DELETE FROM patient_access_audit_log
@@ -36,7 +43,7 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id = $1::uuid`,
     TENANT_ID,
-  ).catch(() => {});
+  );
 }
 
 async function insertAudit({

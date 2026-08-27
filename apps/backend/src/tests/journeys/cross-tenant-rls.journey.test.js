@@ -51,6 +51,8 @@ import {
 } from './_journeyHarness.js';
 import { setTenantTx } from '../../lib/prisma.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
+import { waitForAuditLogDrain } from '../../middleware/auditLog.js';
+import { deleteWithAuditBypass } from '../helpers/auditBypass.js';
 
 const RUN = runSuffix();
 // Two distinct, per-run tenants (never the DB default — the point is to prove
@@ -143,11 +145,22 @@ describeJourney('Journey: cross-tenant-rls', () => {
   async function cleanupTenants() {
     // The shared harness cleanup doesn't touch the tenants table; sweep our
     // three per-run tenant rows after their children are gone. The walk-in
-    // path writes a hipaa_access_log row (phiAccessLogger) and the admin
-    // x-tenant-id override path can write audit_logs rows, both FK->tenants —
+    // path writes hipaa_access_log and universal audit_log rows, while the admin
+    // x-tenant-id override path can write audit_logs rows; all FK->tenants —
     // clear them first so the tenant DELETE doesn't FK-fail and orphan the
     // per-run tenant rows. Best-effort; per-run namespacing keeps stale rows
     // from ever colliding with a future run regardless.
+    await waitForAuditLogDrain();
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM audit_log WHERE tenant_id IN ($1::uuid, $2::uuid, $3::uuid)`,
+      TENANT_A, TENANT_B, HEADER_TENANT,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM audit_logs WHERE tenant_id IN ($1::uuid, $2::uuid, $3::uuid)`,
+      TENANT_A, TENANT_B, HEADER_TENANT,
+    ).catch(() => {});
     await prisma
       .$executeRawUnsafe(
         `DELETE FROM hipaa_access_log WHERE tenant_id IN ($1::uuid, $2::uuid, $3::uuid)`,
@@ -158,8 +171,7 @@ describeJourney('Journey: cross-tenant-rls', () => {
       .$executeRawUnsafe(
         `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid, $3::uuid)`,
         TENANT_A, TENANT_B, HEADER_TENANT,
-      )
-      .catch(() => {});
+      );
   }
 
   beforeAll(async () => {
@@ -290,7 +302,7 @@ describeJourney('Journey: cross-tenant-rls', () => {
     });
     await cleanupTenants();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120000);
 
   describe('Step 1 — tenant-A receptionist registers a walk-in (rows bind to the authenticated tenant)', () => {
     it('binds the new patient + appointment to tenant A, not the DB default', async () => {

@@ -39,6 +39,7 @@ const { resolveStaffPushRecipients } = await import(
 );
 const request = (await import('supertest')).default;
 const app = (await import('../app.js')).default;
+const { waitForAuditLogDrain } = await import('../middleware/auditLog.js');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -94,6 +95,8 @@ const CHILD_TABLES = [
   'clinical_audit_events',
   // phiAccessLogger middleware writes one row per PHI request on this route.
   'hipaa_access_log',
+  // auditLogMiddleware now attributes its detached universal row to the tenant.
+  'audit_log',
 ];
 
 async function clean() {
@@ -173,6 +176,7 @@ d('Investigation lab-alert fan-out is tenant scoped', () => {
 
   afterAll(async () => {
     await waitForPhiAuditWrites(expectedPhiAuditWrites);
+    await waitForAuditLogDrain();
     await clean();
     await prisma.$disconnect().catch(() => {});
   }, 120000);

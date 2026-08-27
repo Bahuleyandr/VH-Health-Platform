@@ -3,6 +3,8 @@ import { jest } from '@jest/globals';
 
 import app from '../../app.js';
 import { generateToken } from '../../utils/jwtUtils.js';
+import { waitForAuditLogDrain } from '../../middleware/auditLog.js';
+import { deleteWithAuditBypass } from '../helpers/auditBypass.js';
 import {
   API_KEY,
   DEFAULT_TENANT,
@@ -287,6 +289,7 @@ async function ancCanonicalRevisions(patientUid) {
 }
 
 async function cleanupFixture() {
+  await waitForAuditLogDrain();
   // Resolve the Shape-3 minted infant identities BEFORE deleting the
   // maternity rows that link to them.
   const infantUids = await resolveMintedInfantUids();
@@ -476,7 +479,8 @@ async function cleanupFixture() {
     )
   );
   await swallow(
-    prisma.$executeRawUnsafe(
+    deleteWithAuditBypass(
+      prisma,
       `DELETE FROM audit_logs
       WHERE uid = ANY($1::uuid[])
          OR metadata->>'patient_uid' = ANY($2::text[])`,
@@ -484,6 +488,18 @@ async function cleanupFixture() {
       patientUids
     )
   );
+  await swallow(deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_log
+      WHERE tenant_id = $1::uuid
+         OR uid = ANY($2::uuid[])
+         OR actor_uid = ANY($2::uuid[])
+         OR subject_uid = ANY($2::uuid[])
+         OR metadata->>'patient_uid' = ANY($3::text[])`,
+    TENANT_B,
+    allUids,
+    patientUids,
+  ));
   // Shape-3 residue: minted guardian consents, then the self-FK guardian
   // link (users.guardian_user_id -> mother) before the users delete.
   await swallow(
@@ -502,7 +518,7 @@ async function cleanupFixture() {
     );
   }
   await swallow(prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, allUids));
-  await swallow(prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B));
+  await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B);
 }
 
 describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {

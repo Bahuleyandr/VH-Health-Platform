@@ -45,7 +45,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { auditLogMiddleware } = await import('../../middleware/auditLog.js');
+const { auditLogMiddleware, waitForAuditLogDrain } = await import('../../middleware/auditLog.js');
 
 const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
 
@@ -76,7 +76,10 @@ describe('auditLogMiddleware queue-full durability', () => {
   it('writes the dropped entry to the Winston file fallback when the queue is full (never silently lost)', async () => {
     // Hold every DB write pending so the bounded counter saturates and never
     // drains while we push requests through.
-    queryRawUnsafeMock.mockReturnValue(new Promise(() => {}));
+    let releaseWrites;
+    queryRawUnsafeMock.mockReturnValue(new Promise((resolve) => {
+      releaseWrites = resolve;
+    }));
 
     const next = jest.fn();
 
@@ -125,5 +128,10 @@ describe('auditLogMiddleware queue-full durability', () => {
 
     // Request flow is never blocked by audit backpressure.
     expect(next).toHaveBeenCalled();
+
+    // Restore module state so another suite sharing this Jest process does not
+    // inherit a permanently saturated audit queue.
+    releaseWrites({});
+    await waitForAuditLogDrain();
   });
 });

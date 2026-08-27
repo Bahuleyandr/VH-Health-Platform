@@ -200,6 +200,25 @@ describe('routeRolePolicy', () => {
     ]));
   });
 
+  it('keeps outbound HL7 feed management on the exact integration-admin population', () => {
+    expect(routePolicy.HL7_FEED_ROUTE_ROLES).toEqual([
+      'SUPER_ADMIN',
+      'ADMIN',
+      'INTEGRATION_ADMIN',
+    ]);
+    expect(routePolicy.HL7_FEED_ROUTE_ROLES).not.toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'NURSING_STAFF',
+      'IT_ADMIN',
+      'SYSTEM_ADMIN',
+    ]));
+
+    const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/app.js'), 'utf8');
+    expect(appSource).toMatch(
+      /app\.use\('\/api\/v1\/hl7-feeds', requireRole\(\.\.\.HL7_FEED_ROUTE_ROLES\)/,
+    );
+  });
+
   it('keeps stores/purchase authority on supply-chain routes, not dispensing-only route groups', () => {
     expect(routePolicy.PHARMACY_SUPPLY_ROUTE_ROLES).toEqual(expect.arrayContaining([
       'ADMIN',

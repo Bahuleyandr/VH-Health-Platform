@@ -8,7 +8,7 @@
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import prisma, { setTenantTx } from '../lib/prisma.js';
-import { authClient } from './testClient.js';
+import getClient, { authClient } from './testClient.js';
 import {
   emitAdmissionAdt,
   emitSignedResultsOru,
@@ -22,6 +22,8 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TEST_TENANT_ID = randomUUID();
 const SUFFIX = TEST_TENANT_ID.slice(0, 8);
+const DENIED_QUERY_SENTINEL = `C2TEST-DENIED-${SUFFIX}`;
+const ENDPOINT_QUERY_SENTINEL = `C2TEST-ENDPOINT-${SUFFIX}`;
 const PHONE = `+9199916${String(Date.now() % 10000).padStart(4, '0')}`;
 let patientUid;
 let server;
@@ -79,27 +81,240 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   });
 
   test('subscription management: integration-admin only; validation enforced', async () => {
+    const missingApiKey = await getClient().get('/api/v1/hl7-feeds/subscriptions');
+    expect(missingApiKey.status).toBe(401);
+    expect(missingApiKey.body).toEqual({ error: 'Missing API Key in request headers' });
+
     const nurse = await tenantAuthClient('NURSING_STAFF')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST nope', endpoint_url: `${baseUrl}/ok` });
     expect(nurse.status).toBe(403);
+    const nurseList = await tenantAuthClient('NURSING_STAFF')
+      .get('/api/v1/hl7-feeds/subscriptions')
+      .query({ authHeader: DENIED_QUERY_SENTINEL });
+    expect(nurseList.status).toBe(403);
 
     const badUrl = await tenantAuthClient('ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST bad', endpoint_url: 'mllp://1.2.3.4:2575' });
     expect(badUrl.status).toBe(400);
 
-    const ok = await tenantAuthClient('ADMIN')
+    const ok = await tenantAuthClient('INTEGRATION_ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST receiver', endpoint_url: `${baseUrl}/ok`, message_types: ['ADT^A01', 'ORU^R01'] });
     expect(ok.status).toBe(201);
     expect(ok.body.data.subscription.tenant_id).toBe(TEST_TENANT_ID);
+    expect(ok.body.data.subscription.auth_header_configured).toBe(false);
 
     const flaky = await tenantAuthClient('ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST flaky', endpoint_url: `${baseUrl}/fail`, message_types: ['ADT^A01'] });
     expect(flaky.status).toBe(201);
     expect(flaky.body.data.subscription.tenant_id).toBe(TEST_TENANT_ID);
+  });
+
+  test('credential-bearing receiver URLs fail closed without storage, audit, or response leakage', async () => {
+    const rejected = await tenantAuthClient('INTEGRATION_ADMIN')
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST unsafe query receiver',
+        endpoint_url: `${baseUrl}/ok?api_key=${ENDPOINT_QUERY_SENTINEL}`,
+      });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.code).toBe('HL7_FEED_CREDENTIAL_QUERY_FORBIDDEN');
+    expect(JSON.stringify(rejected.body)).not.toContain(ENDPOINT_QUERY_SENTINEL);
+
+    const [stored] = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM hl7_feed_subscriptions
+        WHERE tenant_id = $1::uuid AND name = 'C2TEST unsafe query receiver'`,
+      TEST_TENANT_ID,
+    ));
+    expect(stored.count).toBe(0);
+
+    let auditEvidence = { matching_rows: 0, leaked_rows: 0 };
+    for (let attempt = 0; attempt < 20 && auditEvidence.matching_rows < 1; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      [auditEvidence] = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+        `SELECT COUNT(*) FILTER (
+                  WHERE COALESCE(request_summary, '') LIKE '%C2TEST unsafe query receiver%'
+                )::int AS matching_rows,
+                COUNT(*) FILTER (
+                  WHERE COALESCE(request_summary, '') LIKE $2
+                )::int AS leaked_rows
+           FROM audit_log
+          WHERE tenant_id = $1::uuid
+            AND path = '/api/v1/hl7-feeds/subscriptions'
+            AND method = 'POST'`,
+        TEST_TENANT_ID,
+        `%${ENDPOINT_QUERY_SENTINEL}%`,
+      ));
+    }
+    expect(auditEvidence.matching_rows).toBeGreaterThanOrEqual(1);
+    expect(auditEvidence.leaked_rows).toBe(0);
+
+    await setTenantTx(TEST_TENANT_ID, tx => tx.$executeRawUnsafe(
+      `INSERT INTO hl7_feed_subscriptions
+         (tenant_id, name, endpoint_url, message_types, is_active)
+       VALUES ($1::uuid, 'C2TEST legacy query receiver', $2, ARRAY['ADT^A03']::text[], false)`,
+      TEST_TENANT_ID,
+      `${baseUrl}/ok?api_key=${ENDPOINT_QUERY_SENTINEL}&tenant=one`,
+    ));
+    const listed = await tenantAuthClient('ADMIN').get('/api/v1/hl7-feeds/subscriptions');
+    expect(listed.status).toBe(200);
+    const legacy = listed.body.data.subscriptions.find(
+      row => row.name === 'C2TEST legacy query receiver',
+    );
+    expect(legacy.endpoint_url).toContain('api_key=%5BREDACTED%5D&tenant=one');
+    expect(() => new URL(legacy.endpoint_url)).not.toThrow();
+    expect(JSON.stringify(listed.body)).not.toContain(ENDPOINT_QUERY_SENTINEL);
+  });
+
+  test('role-denial security evidence is tenant-attributed and query-redacted', async () => {
+    let evidence = { audit_rows: 0, leaked_rows: 0 };
+    for (let attempt = 0; attempt < 20 && evidence.audit_rows < 2; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      [evidence] = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS audit_rows,
+                COUNT(*) FILTER (WHERE path LIKE $2)::int AS leaked_rows
+           FROM audit_log
+          WHERE tenant_id = $1::uuid
+            AND module = 'security'
+            AND action = 'PERMISSION_DENIED'
+            AND path LIKE '/api/v1/hl7-feeds/subscriptions%'`,
+        TEST_TENANT_ID,
+        `%${DENIED_QUERY_SENTINEL}%`,
+      ));
+    }
+    expect(evidence.audit_rows).toBeGreaterThanOrEqual(2);
+    expect(evidence.leaked_rows).toBe(0);
+  });
+
+  test('upsert omission preserves encrypted credentials and scope; explicit values clear or rotate', async () => {
+    const firstSecret = `Bearer C2TEST-FIRST-${randomUUID()}`;
+    const secondSecret = `Bearer C2TEST-SECOND-${randomUUID()}`;
+    const client = tenantAuthClient('INTEGRATION_ADMIN');
+
+    const created = await client
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST credential presence',
+        endpoint_url: `${baseUrl}/ok`,
+        auth_header: firstSecret,
+        message_types: ['ADT^A03'],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.data.subscription.auth_header_configured).toBe(true);
+    expect(JSON.stringify(created.body)).not.toContain(firstSecret);
+
+    const storedAfterCreate = await setTenantTx(TEST_TENANT_ID, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT auth_header, message_types
+           FROM hl7_feed_subscriptions
+          WHERE tenant_id = $1::uuid AND name = 'C2TEST credential presence'`,
+        TEST_TENANT_ID,
+      );
+      return rows[0];
+    });
+    expect(storedAfterCreate.auth_header).toMatch(/^enc:v2:/);
+    expect(storedAfterCreate.auth_header).not.toContain(firstSecret);
+    expect(storedAfterCreate.message_types).toEqual(['ADT^A03']);
+
+    const omitted = await client
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST credential presence',
+        endpoint_url: `${baseUrl}/ok`,
+      });
+    expect(omitted.status).toBe(201);
+    expect(omitted.body.data.subscription.auth_header_configured).toBe(true);
+    expect(omitted.body.data.subscription.message_types).toEqual(['ADT^A03']);
+
+    const storedAfterOmission = await setTenantTx(TEST_TENANT_ID, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT auth_header, message_types
+           FROM hl7_feed_subscriptions
+          WHERE tenant_id = $1::uuid AND name = 'C2TEST credential presence'`,
+        TEST_TENANT_ID,
+      );
+      return rows[0];
+    });
+    expect(storedAfterOmission.auth_header).toBe(storedAfterCreate.auth_header);
+    expect(storedAfterOmission.message_types).toEqual(['ADT^A03']);
+
+    const cleared = await client
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST credential presence',
+        endpoint_url: `${baseUrl}/ok`,
+        auth_header: null,
+        message_types: ['ORM^O01'],
+      });
+    expect(cleared.status).toBe(201);
+    expect(cleared.body.data.subscription.auth_header_configured).toBe(false);
+    expect(cleared.body.data.subscription.message_types).toEqual(['ORM^O01']);
+
+    const rotated = await client
+      .post('/api/v1/hl7-feeds/subscriptions')
+      .send({
+        name: 'C2TEST credential presence',
+        endpoint_url: `${baseUrl}/ok`,
+        auth_header: secondSecret,
+      });
+    expect(rotated.status).toBe(201);
+    expect(rotated.body.data.subscription.auth_header_configured).toBe(true);
+    expect(rotated.body.data.subscription.message_types).toEqual(['ORM^O01']);
+    expect(JSON.stringify(rotated.body)).not.toContain(secondSecret);
+
+    const storedAfterRotation = await setTenantTx(TEST_TENANT_ID, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT auth_header, message_types
+           FROM hl7_feed_subscriptions
+          WHERE tenant_id = $1::uuid AND name = 'C2TEST credential presence'`,
+        TEST_TENANT_ID,
+      );
+      return rows[0];
+    });
+    expect(storedAfterRotation.auth_header).toMatch(/^enc:v2:/);
+    expect(storedAfterRotation.auth_header).not.toBe(storedAfterCreate.auth_header);
+    expect(storedAfterRotation.auth_header).not.toContain(secondSecret);
+    expect(storedAfterRotation.message_types).toEqual(['ORM^O01']);
+
+    const listed = await client.get('/api/v1/hl7-feeds/subscriptions');
+    expect(listed.status).toBe(200);
+    const listedSubscription = listed.body.data.subscriptions.find(
+      row => row.name === 'C2TEST credential presence',
+    );
+    expect(listedSubscription.auth_header_configured).toBe(true);
+    expect(Object.hasOwn(listedSubscription, 'auth_header')).toBe(false);
+    expect(JSON.stringify(listed.body)).not.toContain(firstSecret);
+    expect(JSON.stringify(listed.body)).not.toContain(secondSecret);
+
+    let auditEvidence = { audit_rows: 0, leaked_rows: 0 };
+    for (let attempt = 0; attempt < 20 && auditEvidence.audit_rows < 4; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      [auditEvidence] = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS audit_rows,
+                COUNT(*) FILTER (
+                  WHERE COALESCE(request_summary, '') LIKE $2
+                     OR COALESCE(request_summary, '') LIKE $3
+                )::int AS leaked_rows
+           FROM audit_log
+          WHERE tenant_id = $1::uuid
+            AND path = '/api/v1/hl7-feeds/subscriptions'
+            AND method = 'POST'`,
+        TEST_TENANT_ID,
+        `%${firstSecret}%`,
+        `%${secondSecret}%`,
+      ));
+    }
+    expect(auditEvidence.audit_rows).toBeGreaterThanOrEqual(4);
+    expect(auditEvidence.leaked_rows).toBe(0);
+
+    const deactivated = await client
+      .delete(`/api/v1/hl7-feeds/subscriptions/${listedSubscription.id}`);
+    expect(deactivated.status).toBe(200);
+    expect(deactivated.body.data.subscription.is_active).toBe(false);
   });
 
   test('admission emission fans out to matching subscriptions only', async () => {

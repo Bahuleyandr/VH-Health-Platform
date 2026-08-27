@@ -1,4 +1,8 @@
-import { redactSensitiveQueryParams } from '../../utils/urlRedaction.js';
+import {
+  hasSensitiveQueryParameters,
+  redactCredentialQueryValues,
+  redactSensitiveQueryParams,
+} from '../../utils/urlRedaction.js';
 
 describe('redactSensitiveQueryParams', () => {
   it('redacts a Firebase idToken value while keeping the path', () => {
@@ -52,6 +56,43 @@ describe('redactSensitiveQueryParams', () => {
   it('matches the param name case-insensitively', () => {
     expect(redactSensitiveQueryParams('/x?IdToken=abc')).toBe('/x?IdToken=[REDACTED]');
     expect(redactSensitiveQueryParams('/x?ACCESS_TOKEN=abc')).toBe('/x?ACCESS_TOKEN=[REDACTED]');
+  });
+
+  it('preserves redaction for legacy unseparated token parameter names', () => {
+    expect(redactSensitiveQueryParams(
+      '/x?idtoken=id-secret&accesstoken=access-secret&refreshtoken=refresh-secret',
+    )).toBe(
+      '/x?idtoken=[REDACTED]&accesstoken=[REDACTED]&refreshtoken=[REDACTED]',
+    );
+  });
+
+  it('normalizes camelCase, separators, and encoded separators before matching', () => {
+    expect(redactSensitiveQueryParams(
+      '/x?authHeader=bearer-a&refresh-token=bearer-b&auth%5Fheader=bearer-c&token_number=OP-17',
+    )).toBe(
+      '/x?authHeader=[REDACTED]&refresh-token=[REDACTED]&auth%5Fheader=[REDACTED]&token_number=OP-17',
+    );
+  });
+
+  it('detects credential-bearing receiver URL queries without flagging workflow tokens', () => {
+    expect(hasSensitiveQueryParameters(
+      'https://receiver.example/hl7?auth%5Fheader=secret&tenant=one',
+    )).toBe(true);
+    expect(hasSensitiveQueryParameters(
+      'https://receiver.example/hl7?auth%255Fheader=secret&tenant=one',
+    )).toBe(true);
+    expect(hasSensitiveQueryParameters(
+      'https://receiver.example/hl7?token_number=OP-17&tenant=one',
+    )).toBe(false);
+  });
+
+  it('redacts only credential values in stored receiver URL projections', () => {
+    expect(redactCredentialQueryValues(
+      'https://receiver.example/api/v1/hl7/receive?tenant=one&api_key=secret#status',
+      '%5BREDACTED%5D',
+    )).toBe(
+      'https://receiver.example/api/v1/hl7/receive?tenant=one&api_key=%5BREDACTED%5D#status',
+    );
   });
 
   it('handles a sensitive param with an empty value', () => {

@@ -1,6 +1,8 @@
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma.js';
 import { StaffAuthService } from '../services/auth/staffAuthService.js';
+import { waitForSecurityAuditDrain } from '../utils/securityAuditLogger.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const TENANT_A = '00000000-0000-4000-8000-0000a8770001';
 const TENANT_B = '00000000-0000-4000-8000-0000a8770002';
@@ -18,6 +20,12 @@ const REQUEST = {
 };
 
 async function cleanup() {
+  await waitForSecurityAuditDrain();
+  await deleteWithAuditBypass(
+    prisma,
+    'DELETE FROM audit_log WHERE tenant_id = ANY($1::uuid[])',
+    TENANT_IDS,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM auth_logs
       WHERE tenant_id = ANY($1::uuid[])
@@ -36,7 +44,7 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     'DELETE FROM tenants WHERE id = ANY($1::uuid[])',
     TENANT_IDS,
-  ).catch(() => {});
+  );
 }
 
 async function clearWitnessAuthLogs() {
