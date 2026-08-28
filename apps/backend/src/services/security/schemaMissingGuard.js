@@ -21,10 +21,10 @@ const SCHEMA_MISSING_SQLSTATES = new Set([
 /** Extracts the Postgres SQLSTATE from the places Prisma surfaces it. */
 export function extractSqlState(err) {
   const candidates = [
-    err?.code,
     err?.meta?.code,
     err?.meta?.driverAdapterError?.cause?.originalCode,
     err?.cause?.originalCode,
+    err?.code,
   ];
   for (const c of candidates) {
     if (typeof c === 'string' && /^[0-9A-Z]{5}$/.test(c)) return c;

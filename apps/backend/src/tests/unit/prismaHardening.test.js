@@ -363,6 +363,25 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
+    it('ignores a SQLSTATE carried by a Prisma P2010 raw-query wrapper', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const undefinedColumn = Object.assign(new Error('column "deleted_at" does not exist'), {
+        code: 'P2010',
+        meta: { code: '42703' },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(undefinedColumn));
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(prisma.$queryRawUnsafe('UPDATE missing_column')).rejects.toBe(undefinedColumn);
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+    });
+
     it('ignores direct DriverAdapterError SQLSTATE from deferred transaction commit', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);

@@ -1905,6 +1905,82 @@ BEGIN
       RAISE NOTICE 'default-privilege grants for ${role} skipped (insufficient privilege)';
     END;
     BEGIN
+      -- Migrations 601/604 keep continuity capture issuance inert while C-D14
+      -- is open. Rebuild their column ACLs after the broad startup grant so a
+      -- later role reconciliation cannot silently reactivate capture authority.
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_grants') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_access_grants
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_access_grants
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, location_type, location_identifier,
+          staff_uid, device_id, client_certificate_sha256,
+          valid_from, valid_until, policy_version_id, policy_version,
+          created_by
+        ) ON TABLE public.clinical_continuity_edge_access_grants TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_revocations') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_access_revocations
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_access_revocations
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, grant_id, revoked_by, reason
+        ) ON TABLE public.clinical_continuity_edge_access_revocations TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_log_receipts') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_log_receipts
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_log_receipts
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, device_id, grant_id,
+          client_certificate_sha256, policy_version_id, policy_version,
+          access_revision, batch_id, previous_batch_sha256, batch_sha256,
+          event_count, first_event_sequence, last_event_sequence,
+          first_event_at, last_event_at, signature_algorithm,
+          signature_sha256, imported_by
+        ) ON TABLE public.clinical_continuity_edge_log_receipts TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_edge_access_revision_seq
+          FROM ${role};
+        GRANT USAGE, SELECT
+          ON SEQUENCE public.clinical_continuity_edge_access_revision_seq
+          TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_capture_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_capture_revision_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_context_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_context_revision_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure('public.clinical_continuity_edge_block_mutation()') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_edge_block_mutation()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure('public.clinical_continuity_fixed_device_no_overlap()') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_fixed_device_no_overlap()
+          FROM ${role};
+      END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'continuity capture lock for ${role} skipped (insufficient privilege)';
+    END;
+    BEGIN
       IF pg_catalog.to_regprocedure(
         'public.hl7_i03_length_prefixed_sha256(text[])'
       ) IS NOT NULL THEN

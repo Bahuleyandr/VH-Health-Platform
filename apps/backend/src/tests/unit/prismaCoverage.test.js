@@ -1106,6 +1106,22 @@ describe('src/lib/prisma.js coverage completion', () => {
         'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_policy_versions\n          FROM vhhealth_app',
       );
       expect(grantSql).toContain(
+        'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_edge_access_grants\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'tenant_id, facility_id, location_type, location_identifier,\n          staff_uid, device_id, client_certificate_sha256,',
+      );
+      for (const sequence of [
+        'clinical_continuity_capture_revision_seq',
+        'clinical_continuity_context_revision_seq',
+      ]) {
+        const revoke = `REVOKE ALL PRIVILEGES\n          ON SEQUENCE public.${sequence}`;
+        expect(grantSql).toContain(revoke);
+        expect(grantSql.indexOf(revoke)).toBeGreaterThan(grantSql.indexOf(
+          'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public',
+        ));
+      }
+      expect(grantSql).toContain(
         "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts')",
       );
       expect(grantSql).toContain(
@@ -1126,7 +1142,7 @@ describe('src/lib/prisma.js coverage completion', () => {
         'retention_policy, retention_until\n        ) ON TABLE public.hl7_inbound_recovery_receipts TO vhhealth_app',
       );
       const i03InsertGrant = grantSql.match(
-        /GRANT INSERT \(\s*([\s\S]*?)\s*\) ON TABLE public\.hl7_inbound_recovery_receipts TO vhhealth_app/,
+        /GRANT INSERT \(\s*([a-z0-9_,\s]+?)\s*\) ON TABLE public\.hl7_inbound_recovery_receipts TO vhhealth_app/,
       );
       expect(i03InsertGrant).not.toBeNull();
       expect(i03InsertGrant[1].split(',').map(column => column.trim())).toEqual([
