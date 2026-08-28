@@ -924,9 +924,18 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     reconciled_by: null,
   },
   payment_gateway_refunds: {
+    // Generic coverage cannot invent billing approval or task/SLA authority.
+    // Active recovery is covered by its coherent deep-test graph; this row is
+    // an explicitly provider-only terminal snapshot.
     provider: 'dry_run',
     environment: 'sandbox',
-    status: 'initiated',
+    billing_refund_id: null,
+    provider_refund_id: 'rfnd_dry_seed_refund_processed',
+    status: 'processed',
+    initiated_at: () => new Date('2026-05-04T08:59:00.000Z'),
+    processed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    created_at: () => new Date('2026-05-04T08:59:00.000Z'),
+    updated_at: () => new Date('2026-05-04T09:00:00.000Z'),
     reconciled_at: null,
     reconciliation_note: null,
     reconciled_by: null,
@@ -934,6 +943,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     reconciliation_evidence: null,
     reconciliation_reviewed_by: null,
     reconciliation_reviewed_at: null,
+    recovery_state: 'succeeded',
+    recovery_attempt_count: 1,
+    recovery_next_attempt_at: null,
+    recovery_last_attempt_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    provider_status_checked_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    recovery_terminal_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    recovery_task_id: null,
+    recovery_sla_instance_id: null,
   },
   payment_gateway_webhook_events: {
     provider: 'dry_run',
