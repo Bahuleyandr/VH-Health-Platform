@@ -1656,7 +1656,7 @@ d('payment gateway refund execution leg (deep)', () => {
           SET recovery_next_attempt_at = NOW() + INTERVAL '1 day'
         WHERE tenant_id = $1::uuid
           AND recovery_state IN (
-            'queued', 'provider_pending', 'retry_wait', 'requires_reconciliation'
+            'queued', 'provider_pending', 'retry_wait'
           )
           AND id <> ALL($2::int[])`,
       TENANT,

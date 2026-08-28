@@ -595,7 +595,7 @@ export async function ensureGatewayRefundRecoveryObligationTx({
         ? 'requires_reconciliation'
         : 'opened',
       eventKey: parkFailure
-        ? `parked:${updated.failure_code || 'unknown'}:${updated.recovery_attempt_count}`
+        ? `${updated.recovery_state}:${updated.failure_code || 'unknown'}:${updated.recovery_attempt_count}`
         : (updated.recovery_state === 'requires_reconciliation'
           ? `requires_reconciliation:${updated.failure_code || 'unknown'}:${updated.recovery_attempt_count}`
           : null),
@@ -742,6 +742,17 @@ export async function resolveGatewayRefundRecoveryOperatorAction({
     );
     const current = currentRows[0];
     if (!current) throw AppError.notFound('Payment gateway refund not found');
+    const terminal = terminalRequested && isExactProviderIdentifier(
+      current.provider,
+      'refund',
+      current.provider_refund_id,
+    );
+    if (terminal && current.recovery_claim_live) {
+      throw AppError.conflict(
+        'Provider recovery is in progress; terminal reconciliation must wait for its lease',
+        'PAYMENT_GATEWAY_REFUND_RECOVERY_IN_PROGRESS',
+      );
+    }
     if (current.status !== 'requires_reconciliation') {
       throw AppError.conflict(
         'Gateway refund is not awaiting reconciliation',
@@ -750,21 +761,10 @@ export async function resolveGatewayRefundRecoveryOperatorAction({
     }
     const excludedActors = [current.raised_by, current.approved_by, current.initiated_by]
       .filter(Boolean).map((value) => String(value).toLowerCase());
-    const terminal = terminalRequested && isExactProviderIdentifier(
-      current.provider,
-      'refund',
-      current.provider_refund_id,
-    );
     if (terminalRequested && current.provider_refund_id && !terminal) {
       throw AppError.conflict(
         'The stored provider refund identifier is not exact enough for terminal failure',
         'PAYMENT_GATEWAY_REFUND_PROVIDER_ID_INVALID',
-      );
-    }
-    if (terminal && current.recovery_claim_live) {
-      throw AppError.conflict(
-        'Provider recovery is in progress; terminal reconciliation must wait for its lease',
-        'PAYMENT_GATEWAY_REFUND_RECOVERY_IN_PROGRESS',
       );
     }
     if (requiresIndependentReviewer && excludedActors.includes(actor.toLowerCase())) {
@@ -1228,12 +1228,12 @@ export async function projectGatewayRefundRecoveryTerminal({
     const already = current.recovery_state === outcome && current.recovery_terminal_at;
     const rows = await tx.$queryRawUnsafe(
       `UPDATE payment_gateway_refunds
-          SET recovery_state = $3,
+          SET recovery_state = $3::varchar(30),
               recovery_terminal_at = COALESCE(recovery_terminal_at, NOW()),
               recovery_next_attempt_at = NULL,
               provider_status_checked_at = NOW(),
-              recovery_last_error_code = CASE WHEN $3 = 'succeeded' THEN NULL ELSE recovery_last_error_code END,
-              recovery_last_error_reason = CASE WHEN $3 = 'succeeded' THEN NULL ELSE recovery_last_error_reason END,
+              recovery_last_error_code = CASE WHEN $3::varchar(30) = 'succeeded' THEN NULL ELSE recovery_last_error_code END,
+              recovery_last_error_reason = CASE WHEN $3::varchar(30) = 'succeeded' THEN NULL ELSE recovery_last_error_reason END,
               recovery_claim_token = NULL,
               recovery_claimed_at = NULL,
               recovery_lease_expires_at = NULL,
@@ -1253,9 +1253,9 @@ export async function projectGatewayRefundRecoveryTerminal({
     if (updated.recovery_task_id) {
       await tx.$executeRawUnsafe(
         `UPDATE tasks
-            SET status = CASE WHEN $3 = 'requires_reconciliation' THEN 'blocked' ELSE 'completed' END,
+            SET status = CASE WHEN $3::varchar(30) = 'requires_reconciliation' THEN 'blocked' ELSE 'completed' END,
                 completed_at = CASE
-                  WHEN $3 = 'requires_reconciliation' THEN NULL
+                  WHEN $3::varchar(30) = 'requires_reconciliation' THEN NULL
                   ELSE COALESCE(completed_at, NOW())
                 END,
                 metadata = metadata || $4::jsonb,
@@ -1263,7 +1263,7 @@ export async function projectGatewayRefundRecoveryTerminal({
           WHERE tenant_id = $1::uuid AND id = $2::int
             AND (
               status IN ('open', 'in_progress', 'blocked', 'overdue')
-              OR ($3::text <> 'requires_reconciliation' AND status = 'completed')
+              OR ($3::varchar(30) <> 'requires_reconciliation' AND status = 'completed')
             )`,
         tenant,
         Number(updated.recovery_task_id),
@@ -1285,13 +1285,12 @@ export async function projectGatewayRefundRecoveryTerminal({
                 END,
                 completed_at = COALESCE(completed_at, NOW()),
                 breached_at = CASE WHEN due_at < NOW() THEN COALESCE(breached_at, due_at) ELSE breached_at END,
-                metadata = metadata || $4::jsonb,
+                metadata = metadata || $3::jsonb,
                 updated_at = NOW()
           WHERE tenant_id = $1::uuid AND id = $2::uuid
             AND status <> 'cancelled'`,
         tenant,
         String(updated.recovery_sla_instance_id),
-        outcome,
         JSON.stringify({
           completed_via: 'domain_evidence',
           completed_by_task: String(updated.recovery_task_id),
