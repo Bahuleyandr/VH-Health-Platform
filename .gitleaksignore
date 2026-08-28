@@ -3,3 +3,9 @@ b06a55c402ecfe4609524fc473d92d9bedb1ee17:docs/DEPLOYMENT_GUIDE.md:generic-api-ke
 
 # C6.3-TG historical unit-test idempotency token; not an authentication secret.
 b735ece43ca18678314842fd0bb127bb405ec111:apps/backend/src/tests/unit/clinicalContinuityActivationTransitionService.test.js:generic-api-key:85
+
+# MED-03 historical idempotency fixture tokens; not authentication secrets.
+407a32392da79cba3128b168d9c69963ae19b6ce:apps/backend/src/tests/unit/billingRefundRaiseIdempotency.test.js:generic-api-key:104
+407a32392da79cba3128b168d9c69963ae19b6ce:apps/backend/src/tests/unit/billingRefundApprovalIdempotency.test.js:generic-api-key:110
+407a32392da79cba3128b168d9c69963ae19b6ce:apps/backend/src/tests/unit/billingRefundPayoutIdempotency.test.js:generic-api-key:182
+407a32392da79cba3128b168d9c69963ae19b6ce:apps/staff/test/features/cath_lab/cath_inventory_reconciliation_api_test.dart:generic-api-key:170
