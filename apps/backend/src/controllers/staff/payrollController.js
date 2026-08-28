@@ -1942,10 +1942,14 @@ export const approveBulkRevision = async (req, res) => {
                 : proposed_basic + parseFloat(j.increment_value);
             }
             const now = new Date();
+            const revisionNumbers = await prisma.$queryRawUnsafe(
+              `SELECT 'REV-' || TO_CHAR(NOW(), 'YYYY') || '-'
+                    || LPAD(nextval('revision_number_seq')::TEXT, 4, '0') AS revision_number`,
+            );
             await prisma.salary_revisions.create({
               data: {
                 staff_uid: s.uid,
-                revision_number: `BULK-${id}-${s.uid.toString().slice(0, 6)}`,
+                revision_number: revisionNumbers[0].revision_number,
                 revision_type: j.revision_type,
                 current_basic: s.basic_salary,
                 proposed_basic: j.revision_type === 'increment'

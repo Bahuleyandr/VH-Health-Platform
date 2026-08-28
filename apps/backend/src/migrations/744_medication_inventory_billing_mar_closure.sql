@@ -5144,7 +5144,11 @@ BEGIN
       AND sla_record.source_table IS NOT DISTINCT FROM 'workflow_steps'
       AND sla_record.source_id IS NOT DISTINCT FROM task_record.workflow_step_id::text;
   ELSIF FOUND
-        AND sla_record.rule_code IN ('critical_result_ack', 'cold_chain_excursion_ack')
+        AND sla_record.rule_code IN (
+          'critical_result_ack',
+          'cold_chain_excursion_ack',
+          'referral_response'
+        )
   THEN
     valid_binding := task_record.sla_completion_semantics = 'acknowledgement'
       AND NULLIF(BTRIM(task_record.related_resource_type), '') IS NOT NULL

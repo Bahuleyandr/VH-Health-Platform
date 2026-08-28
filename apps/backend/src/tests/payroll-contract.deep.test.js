@@ -122,13 +122,34 @@ function mkClient(role, uid, phone) {
 // wedges the channel, and every later claim in the database silently returns
 // zero rows. Claiming is also strictly contiguous per channel, so an older
 // undrained inapp row blocks ours; hence the loop.
-async function drainInappNotifications(maxRounds = 10) {
+async function pendingRunDeliveryCount(payrollRunId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::integer AS count
+       FROM payslip_documents AS document
+      WHERE document.tenant_id = $1::uuid
+        AND document.payroll_run_id = $2::integer
+        AND NOT EXISTS (
+          SELECT 1
+            FROM notification_provider_receipts AS receipt
+           WHERE receipt.tenant_id = document.tenant_id
+             AND receipt.notification_outbox_id = document.notification_outbox_id
+             AND receipt.channel = 'inapp'
+             AND receipt.outcome = 'acknowledged'
+        )`,
+    DEFAULT_TENANT_ID,
+    Number(payrollRunId),
+  );
+  return Number(rows[0]?.count || 0);
+}
+
+async function drainInappNotifications(payrollRunId, maxRounds = 250) {
   for (let round = 0; round < maxRounds; round += 1) {
+    if (await pendingRunDeliveryCount(payrollRunId) === 0) return;
     const claimed = await notificationOutbox.claimPendingBatch({
       tenantId: DEFAULT_TENANT_ID,
-      limit: 50,
+      limit: 250,
     });
-    if (claimed.length === 0) return;
+    if (claimed.length === 0) break;
     for (const row of claimed.filter((r) => r.channel === 'inapp')) {
       const [attempt] = await beginProviderAttempts({
         tenantId: DEFAULT_TENANT_ID,
@@ -155,6 +176,25 @@ async function drainInappNotifications(maxRounds = 10) {
       });
     }
   }
+  const remaining = await pendingRunDeliveryCount(payrollRunId);
+  if (remaining > 0) {
+    throw new Error(`Unable to acknowledge ${remaining} payroll delivery notification(s)`);
+  }
+}
+
+async function waitForBulkRevisionJob(id, maxAttempts = 100) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, staff_count, processed_count
+         FROM bulk_revision_jobs
+        WHERE id = $1::integer`,
+      Number(id),
+    );
+    const job = rows[0];
+    if (job && ['completed', 'failed'].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Bulk revision job ${id} did not reach a terminal state`);
 }
 
 async function cleanup() {
@@ -308,7 +348,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
       professional_tax: 200,
       tds_monthly: 1000,
       designation: 'Staff Nurse',
-      department: 'General Medicine',
+      department: 'PAYROLL_CONTRACT_DEEP_TEST',
       employee_id: 'PAYDEEP-001',
       date_of_joining: '2090-01-01',
     });
@@ -322,7 +362,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     // ISSUED payslip for the missing-summary contract by NOT issuing this run for
     // them. They are in the run, but the contract uses an FY with no payslips.
     const upsert2 = await admin.post(`${ADMIN_BASE}/payroll/salary/${STAFF2_UID}`).send({
-      basic_salary: 25000, employee_id: 'PAYDEEP-002', department: 'General Medicine',
+      basic_salary: 25000, employee_id: 'PAYDEEP-002', department: 'PAYROLL_CONTRACT_DEEP_TEST',
     });
     expect(upsert2.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/salary/{staffUid}`, upsert2.body);
@@ -476,7 +516,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     );
     expect(beforeIssueRow[0].status).toBe('draft');
 
-    await drainInappNotifications();
+    await drainInappNotifications(runId);
 
     // POST /payroll/issue → IssuePayslipsResponse ({ issued } integer). Requires
     // both signatures AND delivered documents (now satisfied). Flips the draft
@@ -618,7 +658,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
       description: 'PAYROLL_CONTRACT_DEEP_TEST bulk',
       revision_type: 'bonus',
       target_type: 'department',
-      target_value: 'General Medicine',
+      target_value: 'PAYROLL_CONTRACT_DEEP_TEST',
       bonus_amount: 1000,
       effective_from: '2099-10-01',
     });
@@ -636,6 +676,10 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     assertResponse('POST', `${ADMIN_BASE}/payroll/bulk-revisions/{id}/approve`, bulkApprove.body);
     expect(typeof bulkApprove.body.data.id).toBe('string'); // raw-param string trap
     expect(bulkApprove.body.data.status).toBe('processing'); // synthetic HTTP status
+    const bulkJob = await waitForBulkRevisionJob(bulkRevisionId);
+    expect(bulkJob.status).toBe('completed');
+    expect(Number(bulkJob.staff_count)).toBe(2);
+    expect(Number(bulkJob.processed_count)).toBe(2);
   });
 
   // ════════════════════════════════════════════════════════════════════════
