@@ -32,6 +32,8 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   listInvoices: listInvoicesMock,
 }));
 
+jest.unstable_mockModule('../../services/billing/billingCreditNoteService.js', () => ({}));
+
 jest.unstable_mockModule('../../services/billing/cashDrawerService.js', () => ({}));
 
 jest.unstable_mockModule('../../services/billing/paymentLinkService.js', () => ({}));

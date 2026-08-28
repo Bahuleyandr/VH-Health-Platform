@@ -270,6 +270,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent: jest.fn(async () => ({ id: IDS.audit })),
   recordMedicationSafetyReviews: jest.fn(),
+  startWorkflowSla: jest.fn(),
 }));
 
 const publishEvent = jest.fn(async () => {
@@ -288,6 +289,8 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   createApproval: jest.fn(),
   createMarMedicationExceptionTaskTx: jest.fn(),
   createTask,
+  createWardMedicationObligationTaskTx: jest.fn(),
+  postTaskComment: jest.fn(),
   recordApprovalDecision: jest.fn(),
   transitionTask: jest.fn(),
 }));
@@ -297,6 +300,14 @@ jest.unstable_mockModule('../../services/downtime/clinicalContinuityPolicyServic
   INCIDENT_PACKET_SIGNING_PURPOSE: 'vhhealth/continuity/incident-packet/v1',
   loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn(),
   requireClinicalContinuityIncidentPacketPolicy: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/clinical/marSupplyService.js', () => ({
+  consumeMarSupplyTx: jest.fn(async () => ({
+    id: 801,
+    evidence_status: 'matched',
+    quantity: 1,
+  })),
 }));
 
 const { applyClinicalContinuityPaperBackEntry } = await import(

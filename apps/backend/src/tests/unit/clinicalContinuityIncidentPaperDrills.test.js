@@ -191,6 +191,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: jest.fn(),
   recordClinicalAuditEvent,
   recordMedicationSafetyReviews: jest.fn(),
+  startWorkflowSla: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/events/eventOutboxService.js', () => ({
   publishEvent: jest.fn(),
@@ -202,6 +203,8 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   createApproval: jest.fn(),
   createMarMedicationExceptionTaskTx: jest.fn(),
   createTask,
+  createWardMedicationObligationTaskTx: jest.fn(),
+  postTaskComment: jest.fn(),
   recordApprovalDecision: jest.fn(),
   transitionTask: jest.fn(),
 }));

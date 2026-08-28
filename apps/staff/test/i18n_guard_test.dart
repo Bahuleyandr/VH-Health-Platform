@@ -1789,6 +1789,12 @@ void main() {
               key.startsWith('mar_supply.') ||
               key.startsWith('med03.credit_note.') ||
               key.startsWith('med03.cath_inventory.') ||
+              key.startsWith('med03.counter_sale_refund.') ||
+              key.startsWith('med03.gateway_refund_reconciliation.') ||
+              key.startsWith(
+                'med03.notification.gateway_refund_reconciliation.',
+              ) ||
+              key.startsWith('s4.lib.counter_sale.') ||
               key.startsWith('orders.mar_recovery.') ||
               key.startsWith('orders.icu_mar_review.') ||
               key.startsWith('due_meds.actions.') ||
@@ -1798,7 +1804,7 @@ void main() {
         )
         .toSet();
 
-    expect(med03Keys.length, greaterThanOrEqualTo(150));
+    expect(med03Keys.length, greaterThanOrEqualTo(460));
     final english = AppStrings.forLocale(const Locale('en'));
     for (final locale in const ['hi', 'ta', 'te', 'ml']) {
       final missing = med03Keys.difference(localeKeys[locale]!);
