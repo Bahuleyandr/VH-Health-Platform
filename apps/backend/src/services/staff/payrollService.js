@@ -1,6 +1,6 @@
 // src/services/staff/payrollService.js
 import crypto from 'node:crypto';
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, getKeyId } from '../../utils/fieldEncryption.js';
