@@ -109,14 +109,34 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   async function insertRefund(client, { gatewayOrderId, suffix }) {
     const providerPaymentId = `pay_runtime_${suffix}`;
     const providerRefundId = `rfnd_runtime_${suffix}`;
+    const approvedBy = randomUUID();
+    const billingRefund = await client.query(
+      `INSERT INTO billing_refunds
+         (tenant_id, patient_uid, amount, reason, mode, approval_status,
+          raised_by, raised_at, approved_by, approved_at)
+       VALUES ($1::uuid, $2::uuid, 150.00, $3::text, 'UPI', 'APPROVED',
+               $4::uuid, NOW() - INTERVAL '2 minutes',
+               $5::uuid, NOW() - INTERVAL '1 minute')
+       RETURNING id`,
+      [
+        tenantId,
+        randomUUID(),
+        `Runtime-role ${suffix}`,
+        randomUUID(),
+        approvedBy,
+      ],
+    );
+    const billingRefundId = Number(billingRefund.rows[0].id);
     const result = await client.query(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id,
           provider_payment_id, provider_refund_id, provider_idempotency_key,
-          amount, currency, status, webhook_credential_version)
+          amount, currency, status, webhook_credential_version,
+          billing_refund_id, initiated_by, initiated_at)
        VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int,
                $3::text, $4::text, $5::text,
-               150.00, 'INR', 'pending', 1)
+               150.00, 'INR', 'pending', 1,
+               $6::int, $7::uuid, NOW())
        RETURNING id`,
       [
         tenantId,
@@ -124,10 +144,21 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         providerPaymentId,
         providerRefundId,
         `pgr_runtime_${suffix}_${token().slice(0, 16)}`,
+        billingRefundId,
+        randomUUID(),
       ],
     );
+    const id = Number(result.rows[0].id);
+    await client.query(
+      `UPDATE billing_refunds
+          SET payout_rail = 'gateway', payout_rail_claimed_at = NOW(),
+              gateway_refund_id = $1::int, updated_at = NOW()
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      [id, tenantId, billingRefundId],
+    );
     return {
-      id: Number(result.rows[0].id),
+      id,
+      billingRefundId,
       providerPaymentId,
       providerRefundId,
     };
@@ -267,6 +298,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
       await asOwnerTenant(async (client) => {
         await client.query('DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid', [tenantId]);
+        await client.query('DELETE FROM billing_refunds WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_orders WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM billing_payment_links WHERE tenant_id = $1::uuid', [tenantId]);
@@ -368,7 +400,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         amount: 15_000,
         currency: 'INR',
         status: 'processed',
-        notes: { billing_refund_id: '0' },
+        notes: { billing_refund_id: String(processedRefund.billingRefundId) },
       } } },
     }, `evt-refund-processed-${token()}`);
 
@@ -389,7 +421,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         amount: 15_000,
         currency: 'INR',
         status: 'failed',
-        notes: { billing_refund_id: '0' },
+        notes: { billing_refund_id: String(failedRefund.billingRefundId) },
         error_code: 'BAD_REQUEST_ERROR',
         error_description: 'provider rejected refund',
       } } },

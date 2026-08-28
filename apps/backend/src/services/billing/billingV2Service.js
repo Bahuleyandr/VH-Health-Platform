@@ -3778,7 +3778,7 @@ export async function getRefund(refundId, { tenantId } = {}) {
     const allowedPayoutRails = [];
     let originalPayment = null;
     if (refund.approval_status === 'APPROVED') {
-      const mode = String(refund.mode || '').toUpperCase();
+      const mode = String(refund.mode || '').trim().toUpperCase();
       if (MANUAL_REFUND_MODES.includes(mode)) {
         allowedPayoutRails.push('manual');
       } else if (OFFLINE_ELECTRONIC_REFUND_MODES.includes(mode)) {

@@ -1197,6 +1197,121 @@ DECLARE
   med03_trigger_function TEXT;
   med03_runtime_wrapper_function TEXT;
   med03_column_list TEXT;
+  runtime_acl_relation TEXT;
+  runtime_acl_sequence TEXT;
+  runtime_acl_function TEXT;
+  runtime_read_only_relations CONSTANT TEXT[] := ARRAY[
+    'clinical_continuity_policy_versions',
+    'clinical_continuity_replay_receipts',
+    'external_recovery_operability_actions',
+    'external_recovery_critical_review_obligations',
+    'external_recovery_critical_review_acknowledgements',
+    'clinical_continuity_incident_packets',
+    'clinical_continuity_incident_contact_sheets',
+    'clinical_continuity_incident_contact_sheet_approvals',
+    'clinical_continuity_incident_packet_allocations',
+    'clinical_continuity_incident_packet_artifacts',
+    'clinical_continuity_incident_packet_custody_events'
+  ];
+  runtime_append_only_relations CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_checks',
+    'clinical_continuity_replay_effect_evidence',
+    'clinical_continuity_replay_attempts',
+    'clinical_continuity_incident_declarations',
+    'clinical_continuity_incident_aliases',
+    'clinical_continuity_paper_range_decisions',
+    'clinical_continuity_retrospective_facts',
+    'clinical_continuity_reconciliation_decisions',
+    'clinical_continuity_incident_attestations',
+    'clinical_continuity_patient_merge_decisions',
+    'notification_delivery_attempts',
+    'notification_provider_receipts',
+    'hl7_outbound_transport_attempts',
+    'hl7_outbound_transport_results',
+    'hl7_outbound_acknowledgements',
+    'interop_backend_delivery_receipts',
+    'interop_message_attempts',
+    'imaging_study_link_recovery_receipts',
+    'scim_provisioning_commands',
+    'hl7_inbound_clinical_receipts',
+    'fhir_allergy_intolerance_receipts'
+  ];
+  runtime_mutable_no_delete_relations CONSTANT TEXT[] := ARRAY[
+    'clinical_continuity_incidents',
+    'clinical_continuity_paper_ranges',
+    'clinical_continuity_temporary_identities',
+    'clinical_continuity_paper_items',
+    'clinical_continuity_reconciliation_items',
+    'clinical_continuity_reconciliation_config',
+    'clinical_continuity_device_journal_offsets',
+    'clinical_continuity_incident_interfaces',
+    'notification_delivery_cursors',
+    'hl7_feed_subscriptions',
+    'hl7_outbound_messages',
+    'hl7_outbound_delivery_cursors',
+    'scheduled_job_runs',
+    'scheduled_job_tenant_runs'
+  ];
+  runtime_nextval_sequences CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_checks_id_seq',
+    'clinical_continuity_replay_attempts_id_seq',
+    'hl7_feed_subscriptions_id_seq',
+    'hl7_outbound_messages_id_seq',
+    'interop_backend_delivery_receipts_id_seq',
+    'imaging_study_link_recovery_receipts_id_seq',
+    'scim_provisioning_commands_id_seq',
+    'hl7_inbound_clinical_receipts_id_seq',
+    'scheduled_job_runs_id_seq'
+  ];
+  runtime_guard_functions CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_block_mutation()',
+    'clinical_continuity_action_registry_guard_version()',
+    'clinical_continuity_action_registry_guard_update()',
+    'clinical_continuity_action_registry_approval_constraint()',
+    'assert_external_recovery_inbox_immutable()',
+    'assert_external_recovery_effect_allowed()',
+    'assert_cc_replay_receipt_mutation()',
+    'assert_cc_replay_append_only()',
+    'assert_cc_reconciliation_append_only()',
+    'assert_cc_reconciliation_projection_mutation()',
+    'assert_cc_incident_packet_mutation()',
+    'assert_cc_incident_alias_acyclic()',
+    'assert_cc_closure_actor_separation()',
+    'notification_outbox_prepare_intent()',
+    'validate_notification_delivery_attempt()',
+    'notification_delivery_evidence_append_only()',
+    'validate_notification_recovery_receipt()',
+    'validate_notification_delivery_cursor()',
+    'validate_notification_outbox_transition()',
+    'validate_hl7_outbound_transport_attempt()',
+    'hl7_outbound_evidence_append_only()',
+    'validate_hl7_outbound_acknowledgement()',
+    'validate_hl7_outbound_cursor()',
+    'validate_hl7_outbound_message_transition()',
+    'validate_hl7_outbound_recovery_provenance()',
+    'interop_delivery_evidence_append_only()',
+    'validate_interop_backend_receipt()',
+    'validate_interop_message_recovery_transition()',
+    'validate_interop_message_recovery_provenance()',
+    'validate_imaging_study_link_recovery_receipt()',
+    'imaging_study_link_receipt_append_only()',
+    'validate_scim_provisioning_command()',
+    'scim_provisioning_command_append_only()',
+    'external_recovery_evidence_owner_only()',
+    'external_recovery_evidence_append_only()',
+    'external_recovery_operability_bound_hash(text[])',
+    'external_recovery_operability_offset_guard()',
+    'external_recovery_critical_review_completion_guard()',
+    'cc_packet_assert_context(uuid,integer)',
+    'cc_packet_active_policy(uuid,integer)',
+    'cc_packet_assert_actor(uuid,uuid,text)',
+    'cc_packet_assert_contact_content(jsonb)',
+    'assert_cc_packet_evidence_append_only()',
+    'assert_cc_packet_allocation_mutation()',
+    'scheduled_job_run_transition_guard()',
+    'scheduled_job_run_finalization_guard()',
+    'scheduled_job_tenant_run_transition_guard()'
+  ];
   med03_mutable_relations CONSTANT TEXT[] := ARRAY[
     'ward_indent_inventory_allocations',
     'billing_credit_notes',
@@ -1294,8 +1409,120 @@ BEGIN
       EXECUTE format('GRANT CONNECT ON DATABASE %I TO ${role}', current_database());
       GRANT USAGE ON SCHEMA public TO ${role};
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
-      GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+      -- Broad grants are the late-provisioning fallback. Reconstruct every
+      -- migration-defined narrow ACL immediately afterwards so startup cannot
+      -- turn append-only evidence, owner-only mutation, or setval back on.
+      FOREACH runtime_acl_relation IN ARRAY runtime_read_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_relation IN ARRAY runtime_append_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_relation IN ARRAY runtime_mutable_no_delete_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_sequence IN ARRAY runtime_nextval_sequences
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_sequence)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %I',
+            runtime_acl_sequence,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT USAGE, SELECT ON SEQUENCE public.%I TO %I',
+            runtime_acl_sequence,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_function IN ARRAY runtime_guard_functions
+      LOOP
+        IF pg_catalog.to_regprocedure(
+          pg_catalog.format('public.%s', runtime_acl_function)
+        ) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION public.%s FROM %I',
+            runtime_acl_function,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      IF pg_catalog.to_regclass('public.event_consumer_offsets') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.event_consumer_offsets FROM ${role};
+        GRANT SELECT ON TABLE public.event_consumer_offsets TO ${role};
+        GRANT INSERT (
+          scope_kind, tenant_id, facility_scope, facility_id, interface_family,
+          direction, source_partition, consumer_key, generation, cursor_kind,
+          high_water_position, high_water_token, retained_from_position,
+          retained_from_token, resume_cutoff_position, resume_cutoff_token,
+          recovery_state, reconciliation_reason, policy_version,
+          policy_signature, retention_policy, retention_until,
+          historical_cutoff_event_id, backfill_cursor_event_id,
+          backfill_completed_at, intake_retired_at
+        ) ON TABLE public.event_consumer_offsets TO ${role};
+        GRANT UPDATE (
+          high_water_position, high_water_token, resume_cutoff_position,
+          resume_cutoff_token, recovery_state, reconciliation_reason,
+          intake_retired_at, updated_at
+        ) ON TABLE public.event_consumer_offsets TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.pathway_projector_inbox') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.pathway_projector_inbox FROM ${role};
+        GRANT SELECT ON TABLE public.pathway_projector_inbox TO ${role};
+        GRANT INSERT (
+          scope_kind, tenant_id, consumer_key, generation, event_id, offset_id,
+          facility_id, interface_family, direction, source_partition,
+          source_position, source_token, predecessor_token, duplicate_key,
+          command_fingerprint, occurred_at, received_at, recorded_at,
+          arrival_class, effect_disposition, next_attempt_at, policy_version,
+          policy_signature, retention_policy, retention_until
+        ) ON TABLE public.pathway_projector_inbox TO ${role};
+        GRANT UPDATE (
+          status, attempts, lease_owner, lease_expires_at, next_attempt_at,
+          last_error, outcome_at, outcome_code, pending_task_id
+        ) ON TABLE public.pathway_projector_inbox TO ${role};
+      END IF;
       -- MED-03 evidence tables are either lifecycle-controlled or immutable.
       -- Reapply their narrow ACLs after every broad startup grant so a role
       -- reconciled after migration 744 cannot regain DELETE/UPDATE/setval.
@@ -1898,7 +2125,7 @@ BEGIN
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role};
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
-        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${role};
+        GRANT USAGE, SELECT ON SEQUENCES TO ${role};
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${role};
     EXCEPTION WHEN insufficient_privilege THEN
