@@ -176,12 +176,12 @@ async function insertRecoveryAuditTx(tx, {
        (tenant_id, uid, actor_uid, role, action, resource, resource_id, metadata, created_at)
      SELECT $1::uuid, $2::uuid, $2::uuid,
             CASE WHEN $2::uuid IS NULL THEN 'system' ELSE 'operator' END,
-            $3, 'payment_gateway_refund', $4::text, $5::jsonb, NOW()
+            $3::varchar(100), 'payment_gateway_refund', $4::text, $5::jsonb, NOW()
       WHERE NOT EXISTS (
         SELECT 1
           FROM audit_logs
          WHERE tenant_id = $1::uuid
-           AND action = $3
+           AND action = $3::varchar(100)
            AND resource = 'payment_gateway_refund'
            AND resource_id = $4::text
            AND metadata->>'recovery_event_key' = $6::text
