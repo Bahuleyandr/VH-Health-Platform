@@ -109,24 +109,52 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   async function insertRefund(client, { gatewayOrderId, suffix }) {
     const providerPaymentId = `pay_runtime_${suffix}`;
     const providerRefundId = `rfnd_runtime_${suffix}`;
+    const patientUid = randomUUID();
+    const raisedBy = randomUUID();
     const approvedBy = randomUUID();
+    const initiatedBy = randomUUID();
+    await client.query(
+      `INSERT INTO users
+         (tenant_id, uid, name, role, is_active, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'Refund patient', 'PATIENT', true, NOW()),
+         ($1::uuid, $3::uuid, 'Refund requester', 'BILLING_STAFF', true, NOW()),
+         ($1::uuid, $4::uuid, 'Refund approver', 'BILLING_ADMIN', true, NOW()),
+         ($1::uuid, $5::uuid, 'Refund initiator', 'BILLING_STAFF', true, NOW())`,
+      [tenantId, patientUid, raisedBy, approvedBy, initiatedBy],
+    );
+    const invoice = await client.query(
+      `INSERT INTO billing_invoices
+         (patient_uid, invoice_type, status, subtotal, total_amount,
+          amount_paid, amount_due, tenant_id)
+       VALUES ($1::uuid, 'OP', 'PAID', 150.00, 150.00, 150.00, 0,
+               $2::uuid)
+       RETURNING id`,
+      [patientUid, tenantId],
+    );
+    const invoiceId = Number(invoice.rows[0].id);
     const billingRefund = await client.query(
       `INSERT INTO billing_refunds
-         (tenant_id, patient_uid, amount, reason, mode, approval_status,
-          raised_by, raised_at, approved_by, approved_at)
-       VALUES ($1::uuid, $2::uuid, 150.00, $3::text, 'UPI', 'APPROVED',
-               $4::uuid, NOW() - INTERVAL '2 minutes',
-               $5::uuid, NOW() - INTERVAL '1 minute')
+         (tenant_id, patient_uid, invoice_id, amount, reason, mode,
+          approval_status, raised_by)
+       VALUES ($1::uuid, $2::uuid, $3::int, 150.00, $4::text, 'UPI',
+               'PENDING', $5::uuid)
        RETURNING id`,
       [
         tenantId,
-        randomUUID(),
+        patientUid,
+        invoiceId,
         `Runtime-role ${suffix}`,
-        randomUUID(),
-        approvedBy,
+        raisedBy,
       ],
     );
     const billingRefundId = Number(billingRefund.rows[0].id);
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'APPROVED', approved_by = $1::uuid
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      [approvedBy, tenantId, billingRefundId],
+    );
     const result = await client.query(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id,
@@ -145,7 +173,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         providerRefundId,
         `pgr_runtime_${suffix}_${token().slice(0, 16)}`,
         billingRefundId,
-        randomUUID(),
+        initiatedBy,
       ],
     );
     const id = Number(result.rows[0].id);
@@ -296,12 +324,15 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   afterAll(async () => {
     if (owner && tenantId) {
       await asOwnerTenant(async (client) => {
+        await client.query("SELECT set_config('app.audit_bypass', 'on', true)");
         await client.query('DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM billing_refunds WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_orders WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid', [tenantId]);
         await client.query('DELETE FROM billing_payment_links WHERE tenant_id = $1::uuid', [tenantId]);
+        await client.query('DELETE FROM billing_invoices WHERE tenant_id = $1::uuid', [tenantId]);
+        await client.query('DELETE FROM users WHERE tenant_id = $1::uuid', [tenantId]);
       }).catch(() => {});
       await owner.query('DELETE FROM tenants WHERE id = $1::uuid', [tenantId]).catch(() => {});
     }
