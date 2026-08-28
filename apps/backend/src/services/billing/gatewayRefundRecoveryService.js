@@ -481,7 +481,12 @@ export async function ensureGatewayRefundRecoveryObligationTx({
               sla_completion_semantics = 'domain_evidence',
               status = 'open',
               completed_at = NULL,
-              due_at = $4::timestamptz,
+              due_at = (
+                SELECT linked_sla.due_at
+                  FROM workflow_sla_instances AS linked_sla
+                 WHERE linked_sla.tenant_id = $1::uuid
+                   AND linked_sla.id = $3::uuid
+              ),
               metadata = CASE
                 WHEN completed_at IS NULL THEN metadata
                 ELSE metadata || jsonb_build_object(
@@ -509,8 +514,7 @@ export async function ensureGatewayRefundRecoveryObligationTx({
         RETURNING id, workflow_sla_instance_id, sla_completion_semantics`,
       tenant,
       Number(task.id),
-       String(sla.id),
-      sla.due_at,
+      String(sla.id),
     );
     if (boundTaskRows.length !== 1) {
       throw new AppError(
