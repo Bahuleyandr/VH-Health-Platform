@@ -2897,7 +2897,7 @@ model care_handoff_instances {
   request_reason                String?
   request_fingerprint           String?   @db.Char(64)
   accepted_by_uid               String?   @db.Uuid
-  accepted_by                   users?    @relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_care_handoff_accepted_by_tenant")
+  accepted_by                   users?    @relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: Restrict, onUpdate: Restrict, map: "fk_care_handoff_accepted_by_tenant")
 
   @@unique([tenant_id, idempotency_key], map: "ux_care_handoff_idempotency")
   @@unique([tenant_id, sending_pathway_instance_id, source_resource_id], map: "ux_care_handoff_one_live_ed_destination", where: raw("(((handoff_type)::text = 'ed_destination_handoff'::text) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'accepted'::character varying])::text[])))"))

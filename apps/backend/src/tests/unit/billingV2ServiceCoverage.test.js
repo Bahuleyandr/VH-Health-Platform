@@ -73,7 +73,7 @@ function refundAuditContext(actorUid, overrides = {}) {
 
 function refundCommand(body, overrides = {}) {
   return {
-    commandKey: 'refund-coverage-key',
+    commandKey: 'refund',
     requestFingerprint: hashRequestBody(body),
     httpIdempotencyClaimId: 41,
     requestId: REQUEST_ID,
@@ -1772,7 +1772,7 @@ describe('refunds', () => {
     await expect(svc.approveRefund(1, {
       approved_by: APPROVER,
       tenantId: TENANT,
-      commandKey: 'approve-refund-1',
+      commandKey: 'refund',
       requestFingerprint: refundApprovalRequestFingerprint(1),
       httpIdempotencyClaimId: 42,
       requestId: REQUEST_ID,
@@ -1783,7 +1783,7 @@ describe('refunds', () => {
 
   it('approveRefund requires valid audit attribution for an idempotent command', async () => {
     const command = {
-      commandKey: 'approve-refund-1',
+      commandKey: 'refund',
       requestFingerprint: refundApprovalRequestFingerprint(1),
       httpIdempotencyClaimId: 42,
       requestId: REQUEST_ID,
@@ -1829,7 +1829,7 @@ describe('refunds', () => {
     const result = await svc.approveRefund(1, {
       approved_by: APPROVER,
       tenantId: TENANT,
-      commandKey: 'approve-refund-1',
+      commandKey: 'refund',
       requestFingerprint: refundApprovalRequestFingerprint(1),
       httpIdempotencyClaimId: 42,
       requestId: REQUEST_ID,
@@ -1859,7 +1859,7 @@ describe('refunds', () => {
     await expect(svc.approveRefund(1, {
       approved_by: APPROVER,
       tenantId: TENANT,
-      commandKey: 'approve-refund-1',
+      commandKey: 'refund',
       requestFingerprint: refundApprovalRequestFingerprint(1),
       httpIdempotencyClaimId: 42,
       requestId: REQUEST_ID,
@@ -1929,7 +1929,7 @@ describe('refunds', () => {
       rejected_by: PATIENT,
       tenantId: TENANT,
       ...refundCommand(body, {
-        commandKey: 'reject-refund-1',
+        commandKey: 'refund',
         httpIdempotencyClaimId: 43,
       }),
       auditContext: refundAuditContext(PATIENT),
@@ -2135,7 +2135,7 @@ describe('refunds', () => {
       reference: 'CASH-8',
       cash_drawer_session_id: '10',
       ...refundCommand(body, {
-        commandKey: 'pay-cash-refund-8',
+        commandKey: 'refund',
         httpIdempotencyClaimId: 44,
       }),
       auditContext: refundAuditContext(PATIENT),
@@ -2245,7 +2245,7 @@ describe('refunds', () => {
       paid_by: PATIENT,
       ...commandBody,
       ...refundCommand(body, {
-        commandKey: 'pay-offline-refund-8',
+        commandKey: 'refund',
         httpIdempotencyClaimId: 45,
       }),
       auditContext: refundAuditContext(PATIENT),
