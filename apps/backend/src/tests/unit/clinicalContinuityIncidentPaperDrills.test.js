@@ -197,7 +197,12 @@ jest.unstable_mockModule('../../services/events/eventOutboxService.js', () => ({
 }));
 const createTask = jest.fn(async () => ({ id: 601 }));
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  claimMarMedicationExceptionTaskTx: jest.fn(),
+  completeTaskFromDomainEvidence: jest.fn(),
+  createApproval: jest.fn(),
+  createMarMedicationExceptionTaskTx: jest.fn(),
   createTask,
+  recordApprovalDecision: jest.fn(),
   transitionTask: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/downtime/clinicalContinuityPolicyService.js', () => ({

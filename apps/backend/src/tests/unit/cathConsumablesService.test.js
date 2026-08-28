@@ -7,6 +7,9 @@ const recordMovementMock = jest.fn();
 const reserveStockMock = jest.fn();
 const addInvoiceItemMock = jest.fn();
 const createDraftInvoiceMock = jest.fn();
+const startWorkflowSlaMock = jest.fn();
+const createCathInventoryShortfallTaskTxMock = jest.fn();
+const queueNotificationMock = jest.fn();
 const loggerMock = {
   error: jest.fn(),
   info: jest.fn(),
@@ -23,6 +26,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: setTenantTxMock,
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(txMock),
   pickTenantClient: () => txMock,
+  isTenantTransactionClient: value => value === txMock,
   prismaReadOnly: txMock,
   circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
@@ -51,7 +55,18 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
-  recordMovement: recordMovementMock,
+  recordMovementTx: recordMovementMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  claimInboxTask: jest.fn(),
+  completeTaskFromDomainEvidence: jest.fn(),
+  createCathInventoryShortfallTaskTx: createCathInventoryShortfallTaskTxMock,
+  recoverCathInventoryShortfallTaskAssignmentTx: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
+  notificationOutbox: { queue: queueNotificationMock },
 }));
 
 jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({
@@ -62,7 +77,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   cancelWorkflowSla: jest.fn(),
   completeWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
-  startWorkflowSla: jest.fn(),
+  startWorkflowSla: startWorkflowSlaMock,
 }));
 
 // P1f's complication-registry seam joined cathLabService's import graph the
@@ -97,6 +112,8 @@ function usage(overrides = {}) {
     id: 73,
     tenant_id: TENANT,
     case_id: 19,
+    patient_uid: '22222222-2222-4222-8222-222222222222',
+    encounter_id: null,
     inventory_item_id: 17,
     inventory_batch_id: 29,
     quantity: 1,
@@ -119,6 +136,15 @@ beforeEach(() => {
   reserveStockMock.mockReset();
   addInvoiceItemMock.mockReset();
   createDraftInvoiceMock.mockReset();
+  startWorkflowSlaMock.mockReset();
+  startWorkflowSlaMock.mockResolvedValue({ id: 501 });
+  createCathInventoryShortfallTaskTxMock.mockReset();
+  createCathInventoryShortfallTaskTxMock.mockResolvedValue({
+    id: 601,
+    workflow_sla_instance_id: 501,
+  });
+  queueNotificationMock.mockReset();
+  queueNotificationMock.mockResolvedValue({ id: 701 });
   loggerMock.error.mockClear();
   loggerMock.info.mockClear();
   loggerMock.warn.mockClear();
@@ -286,6 +312,22 @@ describe('cath consumable inventory integration', () => {
     });
     recordMovementMock.mockResolvedValueOnce({ movement: { id: 91 } });
     queryRawUnsafeMock
+      .mockResolvedValueOnce([usage({
+        wasted: true,
+        waste_reason: 'Opened during setup',
+      })])
+      .mockResolvedValueOnce([{ schedule_class: null, is_narcotic: false }])
+      .mockResolvedValueOnce([{ decremented_quantity: '0', final_movement_id: null }])
+      .mockResolvedValueOnce([{
+        id: 29,
+        inventory_item_id: 17,
+        batch_number: 'BATCH-29',
+        lot_number: 'LOT-29',
+        expiry_date: '2028-12-31',
+        remaining_quantity: '5',
+        status: 'in_stock',
+        is_expired: false,
+      }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([persisted]);
 
@@ -294,7 +336,7 @@ describe('cath consumable inventory integration', () => {
       waste_reason: 'Opened during setup',
     }));
 
-    expect(recordMovementMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordMovementMock).toHaveBeenCalledWith(txMock, expect.objectContaining({
       tenantId: TENANT,
       inventory_item_id: 17,
       inventory_batch_id: 29,
@@ -308,8 +350,8 @@ describe('cath consumable inventory integration', () => {
       expected_lot_number: 'LOT-29',
       expected_expiry_date: '2028-12-31',
     }));
-    expect(recordMovementMock.mock.calls[0][0].notes).toContain('opened but not used');
-    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+    expect(recordMovementMock.mock.calls[0][1].notes).toContain('opened but not used');
+    expect(queryRawUnsafeMock.mock.calls[4].slice(1, 6)).toEqual([
       TENANT, 73, 'decremented', 91, null,
     ]);
     expect(result).toMatchObject({
@@ -318,13 +360,34 @@ describe('cath consumable inventory integration', () => {
     });
   });
 
-  test('turns insufficient stock into a persisted warning instead of throwing', async () => {
+  test('materializes owned recovery when exact-batch stock is insufficient', async () => {
+    const warning = 'Insufficient stock: documented 1, decremented 0';
     const persisted = usage({
       inventory_decrement_status: 'insufficient_stock',
-      inventory_warning: 'Insufficient stock; clinical usage was saved and inventory requires reconciliation',
+      inventory_warning: warning,
     });
-    recordMovementMock.mockRejectedValueOnce(new Error('Insufficient stock. Available: 0'));
     queryRawUnsafeMock
+      .mockResolvedValueOnce([usage()])
+      .mockResolvedValueOnce([{ schedule_class: null, is_narcotic: false }])
+      .mockResolvedValueOnce([{ decremented_quantity: '0', final_movement_id: null }])
+      .mockResolvedValueOnce([{
+        id: 29,
+        inventory_item_id: 17,
+        batch_number: 'BATCH-29',
+        lot_number: 'LOT-29',
+        expiry_date: '2028-12-31',
+        remaining_quantity: '0',
+        status: 'in_stock',
+        is_expired: false,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 10,
+        uid: '33333333-3333-4333-8333-333333333333',
+        phone: null,
+        preferred_language: 'en',
+        role: 'PHARMACIST',
+      }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([persisted]);
 
@@ -332,19 +395,28 @@ describe('cath consumable inventory integration', () => {
       __testing__.applyConsumableInventoryDecrement(usage()),
     ).resolves.toMatchObject({
       inventory_decrement_status: 'insufficient_stock',
-      inventory_warning: expect.stringContaining('clinical usage was saved'),
+      inventory_warning: warning,
     });
 
-    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
-      TENANT,
-      73,
-      'insufficient_stock',
-      null,
-      'Insufficient stock; clinical usage was saved and inventory requires reconciliation',
-    ]);
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Cath consumable inventory decrement failed',
-      expect.objectContaining({ usageId: 73, inventoryBatchId: 29 }),
+    expect(recordMovementMock).not.toHaveBeenCalled();
+    expect(startWorkflowSlaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        sourceTable: 'cath_case_consumable_usage',
+        sourceId: '73',
+      }),
+      { db: txMock, strict: true },
+    );
+    expect(createCathInventoryShortfallTaskTxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT, relatedResourceId: '73', tx: txMock }),
+    );
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        channel: 'inapp',
+        sourceEventKey: 'cath-inventory-shortfall:73',
+      }),
+      { tx: txMock, strict: true },
     );
   });
 
@@ -354,6 +426,9 @@ describe('cath consumable inventory integration', () => {
       inventory_decrement_status: 'error',
       inventory_warning: 'Documented batch was not found in inventory',
     });
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([unresolved])
+      .mockResolvedValueOnce([unresolved]);
 
     await expect(
       __testing__.applyConsumableInventoryDecrement(unresolved),
@@ -361,7 +436,7 @@ describe('cath consumable inventory integration', () => {
 
     expect(recordMovementMock).not.toHaveBeenCalled();
     expect(reserveStockMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
   test('never falls back to FEFO when an optional-tracking item documents unresolved lineage', async () => {
@@ -374,6 +449,9 @@ describe('cath consumable inventory integration', () => {
       inventory_decrement_status: 'error',
       inventory_warning: 'Documented batch was not found in inventory',
     });
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([unresolved])
+      .mockResolvedValueOnce([unresolved]);
 
     await expect(
       __testing__.applyConsumableInventoryDecrement(unresolved),
@@ -381,7 +459,7 @@ describe('cath consumable inventory integration', () => {
 
     expect(recordMovementMock).not.toHaveBeenCalled();
     expect(reserveStockMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
   test.each([

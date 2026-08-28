@@ -53,7 +53,7 @@ import {
 process.env.FIELD_ENCRYPTION_MASTER_KEK ||= 'payroll-contract-deep-test-only-master-kek-material';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const TENANT_ID = 'a0500000-0000-4d00-8d00-a05000000000';
 const ADMIN_BASE = '/api/v1/staff/admin';
 const HR_BASE = '/api/v1/staff/hr';
 
@@ -93,7 +93,12 @@ const ADMIN_PHONE = '9501000004';
 // uids. Both the JWT role and the users.role row must match, because the route
 // gate reads the token and the service gate reads the database.
 function mkClient(role, uid, phone) {
-  const token = generateTestToken(role, { uid, id: undefined, phone });
+  const token = generateTestToken(role, {
+    uid,
+    id: undefined,
+    phone,
+    tenant_id: TENANT_ID,
+  });
   return {
     uid,
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
@@ -140,24 +145,24 @@ async function pendingRunDeliveryCount(payrollRunId) {
              AND receipt.channel = 'inapp'
              AND receipt.outcome = 'acknowledged'
         )`,
-    DEFAULT_TENANT_ID,
+    TENANT_ID,
     Number(payrollRunId),
   );
   return Number(rows[0]?.count || 0);
 }
 
 async function drainInappNotifications(payrollRunId, maxRounds = 1000) {
-  await reconcileExpiredClaims({ tenantId: DEFAULT_TENANT_ID, limit: 250 });
+  await reconcileExpiredClaims({ tenantId: TENANT_ID, limit: 250 });
   for (let round = 0; round < maxRounds; round += 1) {
     if (await pendingRunDeliveryCount(payrollRunId) === 0) return;
     const claimed = await notificationOutbox.claimPendingBatch({
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: TENANT_ID,
       limit: 250,
     });
     if (claimed.length === 0) break;
     for (const row of claimed) {
       const claimFence = {
-        tenantId: DEFAULT_TENANT_ID,
+        tenantId: TENANT_ID,
         claimToken: row.claim_token,
         claimGeneration: row.claim_generation,
       };
@@ -212,13 +217,11 @@ async function waitForBulkRevisionJob(id, maxAttempts = 100) {
 async function cleanup() {
   const uids = [STAFF_UID, STAFF2_UID, HR_UID, ADMIN_UID];
   // The payslip set we must tear down = our staff's payslips PLUS every payslip in
-  // OUR run. runPayroll processes EVERY staff with an active salary_salary config,
-  // so a foreign staff row that happens to live in the shared QA cluster gets a
-  // payslip in our run too — and its child rows (arrears/encashments/queries/
-  // advance_deductions) are NOT covered by a staff_uid-scoped delete. So scope the
-  // four payslip-child FKs by payslip_id over (our staff OR our run) to avoid a
-  // dangling-FK 23503 when the payslips delete runs.
-  const PS_SET = `SELECT id FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`;
+  // OUR run. runPayroll processes every configured staff member in the tenant,
+  // and the payslip child rows are not all covered by a staff_uid-scoped delete.
+  // Scope the complete run-owned set to this fixture tenant so parallel suites
+  // using the same sentinel month cannot remove one another's data.
+  const PS_SET = `SELECT id FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`;
   // Child rows first (FK + tidy). Each guarded so a missing table never aborts.
   const stmts = [
     `DELETE FROM payslip_query_replies WHERE query_id IN (SELECT id FROM payslip_queries WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET}))`,
@@ -236,11 +239,11 @@ async function cleanup() {
     // they must go before the payslips delete — otherwise the whole teardown
     // 23503s, every statement after it is skipped by the per-statement catch,
     // and the NEXT run of this suite trips users_uid_key on a leftover row.
-    `DELETE FROM payroll_run_staff_results WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
-    `DELETE FROM payslip_documents WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
+    `DELETE FROM payroll_run_staff_results WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
+    `DELETE FROM payslip_documents WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     // payslips reference payroll_runs (payroll_run_id FK) AND staff_uid — clear
     // both our staff's rows and any row tied to our run before the run delete.
-    `DELETE FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
+    `DELETE FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
     // payroll_runs ⇄ payroll_run_attempts is a genuine FK CYCLE (migration 664):
     // the run points at its current attempt and the attempt points back at its
@@ -256,7 +259,7 @@ async function cleanup() {
     // subsequent users delete never trips payroll_runs_generated_by_fkey.
     `WITH doomed AS (
        SELECT id, tenant_id FROM payroll_runs
-        WHERE (month = ${RUN_MONTH} AND year = ${RUN_YEAR})
+        WHERE (tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})
            OR generated_by = ANY($1::uuid[])
            OR hr_approved_by = ANY($1::uuid[])
            OR admin_approved_by = ANY($1::uuid[])
@@ -270,7 +273,8 @@ async function cleanup() {
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
   ];
   for (const sql of stmts) {
-    await prisma.$executeRawUnsafe(sql, uids).catch(() => {});
+    const parameters = sql.includes('$2') ? [uids, TENANT_ID] : [uids];
+    await prisma.$executeRawUnsafe(sql, ...parameters).catch(() => {});
   }
   // bulk_revision_jobs created by this suite (no staff_uid FK) — clear by the
   // sentinel description so reruns stay clean.
@@ -301,17 +305,24 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
   let queryId; // raised via HR self-service → admin reply
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, settings)
+       VALUES ($1::uuid, 'payroll-contract-deep', 'Payroll Contract Deep Test', '{}'::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT_ID,
+    );
     await cleanup();
     resetTenantKekCacheForTesting();
-    await provisionTenantKek(DEFAULT_TENANT_ID);
-    // Seed users: 1 STAFF (owns payslip), 1 STAFF (fresh), 2 ADMINs (signers).
+    await provisionTenantKek(TENANT_ID);
+    // Seed users: 2 staff members plus the independent HR and admin signers.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
-         ($1::uuid, $2, 'Payroll Contract Staff',  'GENERAL_STAFF', true, NOW()),
-         ($3::uuid, $4, 'Payroll Contract Staff2', 'GENERAL_STAFF', true, NOW()),
-         ($5::uuid, $6, 'Payroll Contract HR',     'HR_STAFF', true, NOW()),
-         ($7::uuid, $8, 'Payroll Contract Admin',  'ADMIN', true, NOW())`,
-      STAFF_UID, STAFF_PHONE, STAFF2_UID, STAFF2_PHONE, HR_UID, HR_PHONE, ADMIN_UID, ADMIN_PHONE,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at) VALUES
+         ($1::uuid, $2::uuid, $3, 'Payroll Contract Staff',  'GENERAL_STAFF', true, NOW()),
+         ($4::uuid, $2::uuid, $5, 'Payroll Contract Staff2', 'GENERAL_STAFF', true, NOW()),
+         ($6::uuid, $2::uuid, $7, 'Payroll Contract HR',     'HR_STAFF', true, NOW()),
+         ($8::uuid, $2::uuid, $9, 'Payroll Contract Admin',  'ADMIN', true, NOW())`,
+      STAFF_UID, TENANT_ID, STAFF_PHONE, STAFF2_UID, STAFF2_PHONE,
+      HR_UID, HR_PHONE, ADMIN_UID, ADMIN_PHONE,
     );
 
     admin = mkClient('ADMIN', ADMIN_UID, ADMIN_PHONE);
@@ -439,7 +450,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     const runRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM payroll_runs
         WHERE tenant_id = $1::uuid AND month = $2::int AND year = $3::int`,
-      DEFAULT_TENANT_ID, RUN_MONTH, RUN_YEAR,
+      TENANT_ID, RUN_MONTH, RUN_YEAR,
     );
     expect(runRows).toHaveLength(1);
     expect(Number(runRows[0].id)).toBe(runId);
@@ -447,7 +458,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
       `SELECT staff_uid, COUNT(*)::int AS n FROM payslips
         WHERE tenant_id = $1::uuid AND payroll_run_id = $2::int
         GROUP BY staff_uid`,
-      DEFAULT_TENANT_ID, runId,
+      TENANT_ID, runId,
     );
     expect(payslipCount.length).toBeGreaterThanOrEqual(1);
     for (const row of payslipCount) expect(row.n).toBe(1);

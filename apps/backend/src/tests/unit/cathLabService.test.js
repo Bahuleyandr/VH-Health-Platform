@@ -36,7 +36,7 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
-  recordMovement: jest.fn()
+  recordMovementTx: jest.fn()
 }));
 
 jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({
