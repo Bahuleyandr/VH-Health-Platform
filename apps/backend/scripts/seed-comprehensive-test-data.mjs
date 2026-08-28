@@ -930,6 +930,10 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     reconciled_at: null,
     reconciliation_note: null,
     reconciled_by: null,
+    reconciliation_disposition: null,
+    reconciliation_evidence: null,
+    reconciliation_reviewed_by: null,
+    reconciliation_reviewed_at: null,
   },
   payment_gateway_webhook_events: {
     provider: 'dry_run',
