@@ -690,6 +690,24 @@ async function assertTaskSlaSourceBinding({
       );
       valid = Boolean(deathRecord[0]);
     }
+  } else if (sla?.rule_code === 'payment_gateway_refund_recovery') {
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && taskResourceType === 'payment_gateway_refunds'
+      && Boolean(taskResourceId)
+      && sourceTable === 'payment_gateway_refunds'
+      && sourceId === taskResourceId;
+    if (valid) {
+      const refund = await db.$queryRawUnsafe(
+        `SELECT 1
+           FROM payment_gateway_refunds
+          WHERE tenant_id = $1::uuid
+            AND id::text = $2::text
+          LIMIT 1`,
+        tenantId,
+        taskResourceId,
+      );
+      valid = Boolean(refund[0]);
+    }
   }
 
   if (!valid) {
@@ -2927,6 +2945,84 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       resource_id: String(rows[0].id),
       occurred_at: new Date(rows[0].event_at_epoch_ms).toISOString(),
       recorded_at: new Date(rows[0].created_at_epoch_ms).toISOString(),
+    };
+  },
+  payment_gateway_refund_provider_status: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    const refundId = String(evidenceResourceId || '').trim();
+    if (evidenceResourceType !== 'payment_gateway_refunds'
+        || taskRow.related_resource_type !== 'payment_gateway_refunds'
+        || String(taskRow.related_resource_id || '') !== refundId
+        || !/^[1-9]\d*$/.test(refundId)) return null;
+    const rows = await db.$queryRawUnsafe(
+      `SELECT status, provider_refund_id,
+              EXTRACT(EPOCH FROM COALESCE(
+                provider_status_checked_at, processed_at, failed_at, updated_at
+              )) * 1000 AS recorded_at_epoch_ms
+         FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND id::text = $2::text
+          AND status IN ('processed', 'failed')
+        LIMIT 1`,
+      tenantId,
+      refundId,
+    );
+    if (!rows[0]) return null;
+    return {
+      kind: 'payment_gateway_refund_provider_status',
+      resource_type: 'payment_gateway_refunds',
+      resource_id: refundId,
+      provider_status: rows[0].status,
+      provider_refund_id: rows[0].provider_refund_id,
+      recorded_at: new Date(Number(rows[0].recorded_at_epoch_ms)).toISOString(),
+    };
+  },
+  payment_gateway_refund_operator_reconciliation: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    const refundId = String(evidenceResourceId || '').trim();
+    if (evidenceResourceType !== 'payment_gateway_refunds'
+        || taskRow.related_resource_type !== 'payment_gateway_refunds'
+        || String(taskRow.related_resource_id || '') !== refundId
+        || !/^[1-9]\d*$/.test(refundId)) return null;
+    const rows = await db.$queryRawUnsafe(
+      `SELECT refund.reconciliation_disposition, refund.reconciliation_evidence,
+              refund.reconciled_by,
+              EXTRACT(EPOCH FROM refund.reconciled_at) * 1000 AS recorded_at_epoch_ms
+         FROM payment_gateway_refunds refund
+         LEFT JOIN billing_refunds billing
+           ON billing.tenant_id = refund.tenant_id
+          AND billing.id = refund.billing_refund_id
+        WHERE refund.tenant_id = $1::uuid AND refund.id::text = $2::text
+          AND refund.reconciled_at IS NOT NULL
+          AND refund.reconciliation_disposition = 'provider_failed'
+          AND refund.provider_refund_id IS NOT NULL
+          AND length(btrim(refund.provider_refund_id)) BETWEEN 1 AND 120
+          AND (
+            (refund.provider = 'razorpay'
+             AND refund.provider_refund_id ~ '^rfnd_[A-Za-z0-9]+$')
+            OR
+            (refund.provider <> 'razorpay'
+             AND refund.provider_refund_id !~* '(\*{2,}|masked|redacted)')
+          )
+          AND refund.reconciliation_reviewed_by = refund.reconciled_by
+          AND refund.status = 'failed'
+          AND refund.reconciled_by IS DISTINCT FROM refund.initiated_by
+          AND refund.reconciled_by IS DISTINCT FROM billing.raised_by
+          AND refund.reconciled_by IS DISTINCT FROM billing.approved_by
+        LIMIT 1`,
+      tenantId,
+      refundId,
+    );
+    if (!rows[0]) return null;
+    return {
+      kind: 'payment_gateway_refund_operator_reconciliation',
+      resource_type: 'payment_gateway_refunds',
+      resource_id: refundId,
+      disposition: rows[0].reconciliation_disposition,
+      evidence: rows[0].reconciliation_evidence,
+      reviewed_by: String(rows[0].reconciled_by),
+      recorded_at: new Date(Number(rows[0].recorded_at_epoch_ms)).toISOString(),
     };
   },
 });

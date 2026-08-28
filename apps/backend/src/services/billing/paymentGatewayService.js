@@ -45,6 +45,7 @@ export const PAYMENT_GATEWAY_DISABLED = 'PAYMENT_GATEWAY_DISABLED';
 
 const GATEWAY_ENVIRONMENTS = new Set(['sandbox', 'production']);
 const GATEWAY_METHODS = new Set(['upi', 'card', 'netbanking', 'wallet']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_ORDER_EXPIRY_HOURS = 24;
 
 // Provider "method" → billingV2 payment mode. VALID_PAYMENT_MODES carries no
@@ -126,7 +127,7 @@ const RAZORPAY_IDENTIFIER_PATTERNS = {
   refund: /^rfnd_[A-Za-z0-9]+$/,
 };
 
-function isExactProviderIdentifier(provider, kind, value) {
+export function isExactProviderIdentifier(provider, kind, value) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized || normalized.length > 120) return false;
   if (String(provider) !== 'razorpay') return !/(?:\*{2,}|masked|redacted)/i.test(normalized);
@@ -287,6 +288,10 @@ export async function upsertGatewayConfig({
   const keySecretCipher = key_secret ? encryptField(String(key_secret), { tenantId: tenant }) : null;
   let webhookSecretCipher = webhook_secret ? encryptField(String(webhook_secret), { tenantId: tenant }) : null;
   const webhookToken = generateWebhookToken();
+  const requeueAuthorityBlockedTx = enabled === true
+    ? (await import('./gatewayRefundRecoveryService.js'))
+      .requeueGatewayRefundAuthorityBlockedTx
+    : null;
 
   let rows;
   try {
@@ -338,7 +343,7 @@ export async function upsertGatewayConfig({
           : {}),
       };
       delete metadata.webhook_secret_history;
-      return tx.$queryRawUnsafe(
+      const configRows = await tx.$queryRawUnsafe(
       `INSERT INTO payment_gateway_provider_configs
          (tenant_id, provider, environment, enabled, display_name, key_id,
           key_secret_ciphertext, webhook_secret_ciphertext, accepted_methods,
@@ -365,6 +370,16 @@ export async function upsertGatewayConfig({
       created_by ? String(created_by) : null,
       rotatingWebhookSecret ? nextVersion : currentVersion,
       );
+      if (requeueAuthorityBlockedTx) {
+        await requeueAuthorityBlockedTx({
+          tx,
+          tenantId: tenant,
+          provider: providerValue,
+          environment: environmentValue,
+          actorUid: created_by,
+        });
+      }
+      return configRows;
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -713,8 +728,16 @@ export async function listReconciliationGatewayOrders({
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${ORDER_VIEW_COLUMNS}
        FROM payment_gateway_orders
-      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
-        AND ($2::boolean OR reconciled_at IS NULL)
+      WHERE tenant_id = $1::uuid
+        AND (
+          (status = 'requires_reconciliation' AND ($2::boolean OR reconciled_at IS NULL))
+          OR (
+            $2::boolean
+            AND status = 'failed'
+            AND reconciliation_disposition = 'provider_failed'
+            AND reconciled_at IS NOT NULL
+          )
+        )
       ORDER BY captured_at ASC NULLS LAST, id ASC
       LIMIT $3::int OFFSET $4::int`,
     tenant, include_resolved === true, safeLimit, safeOffset,
@@ -1308,7 +1331,14 @@ async function handlePaymentAuthorizedEvent({ tenantId, config, payload }) {
 // ───────────────────────────────────────────────────────────────────────
 
 function toGatewayRefundResult(row, replay) {
-  const { provider_idempotency_key: _providerIdempotencyKey, ...safeRow } = row;
+  const {
+    provider_idempotency_key: _providerIdempotencyKey,
+    provider_request_replay_authorized: _providerRequestReplayAuthorized,
+    recovery_claim_token: _recoveryClaimToken,
+    recovery_claimed_at: _recoveryClaimedAt,
+    recovery_lease_expires_at: _recoveryLeaseExpiresAt,
+    ...safeRow
+  } = row;
   return {
     ...safeRow,
     id: Number(row.id),
@@ -1322,7 +1352,31 @@ const REFUND_VIEW_COLUMNS = `
   provider_payment_id, provider_refund_id, amount, currency, status, reason,
   initiated_by, initiated_at, processed_at, failed_at, failure_code,
   failure_reason, reconciled_at, reconciliation_note, reconciled_by,
+  reconciliation_disposition, reconciliation_evidence,
+  reconciliation_reviewed_by, reconciliation_reviewed_at,
   created_at, updated_at`;
+
+async function ensureRefundRecoveryObligation(
+  tenantId, gatewayRefundId, parkFailure = null, claimToken = null,
+) {
+  const { ensureGatewayRefundRecoveryObligation } = await import(
+    './gatewayRefundRecoveryService.js'
+  );
+  return ensureGatewayRefundRecoveryObligation({
+    tenantId, gatewayRefundId, parkFailure, claimToken,
+  });
+}
+
+async function projectRefundRecoveryTerminal(
+  tenantId, gatewayRefundId, outcome, claimToken = null,
+) {
+  const { projectGatewayRefundRecoveryTerminal } = await import(
+    './gatewayRefundRecoveryService.js'
+  );
+  return projectGatewayRefundRecoveryTerminal({
+    tenantId, gatewayRefundId, outcome, claimToken,
+  });
+}
 
 export async function listReconciliationGatewayRefunds({
   tenantId, include_resolved = false, limit = 50, offset = 0,
@@ -1333,8 +1387,16 @@ export async function listReconciliationGatewayRefunds({
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${REFUND_VIEW_COLUMNS}
        FROM payment_gateway_refunds
-      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
-        AND ($2::boolean OR reconciled_at IS NULL)
+      WHERE tenant_id = $1::uuid
+        AND (
+          (status = 'requires_reconciliation' AND ($2::boolean OR reconciled_at IS NULL))
+          OR (
+            $2::boolean
+            AND status = 'failed'
+            AND reconciled_at IS NOT NULL
+            AND reconciliation_disposition = 'provider_failed'
+          )
+        )
       ORDER BY initiated_at ASC, id ASC
       LIMIT $3::int OFFSET $4::int`,
     tenant, include_resolved === true, safeLimit, safeOffset,
@@ -1347,50 +1409,24 @@ export async function listReconciliationGatewayRefunds({
 }
 
 export async function resolveGatewayRefundReconciliation({
-  tenantId, id, note, resolved_by,
+  tenantId, id, disposition, evidence, resolved_by,
 }) {
   const tenant = requireTenantId(tenantId);
-  const trimmedNote = String(note || '').trim();
-  if (trimmedNote.length < 10 || trimmedNote.length > 500) {
-    throw AppError.badRequest(
-      'A reconciliation note of 10-500 chars describing the manual resolution is required',
-      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_NOTE_REQUIRED',
-    );
-  }
-  if (typeof resolved_by !== 'string' || !resolved_by.trim()) {
-    throw AppError.forbidden(
-      'An authenticated operator is required to resolve gateway refund reconciliation',
-      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_ACTOR_REQUIRED',
-    );
-  }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET reconciled_at = NOW(), reconciliation_note = $1,
-            reconciled_by = $2::uuid, updated_at = NOW()
-      WHERE id = $3::int AND tenant_id = $4::uuid
-        AND status = 'requires_reconciliation' AND reconciled_at IS NULL
-      RETURNING ${REFUND_VIEW_COLUMNS}`,
-    trimmedNote, String(resolved_by), Number(id), tenant,
+  const { resolveGatewayRefundRecoveryOperatorAction } = await import(
+    './gatewayRefundRecoveryService.js'
   );
-  if (!rows.length) {
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status, reconciled_at FROM payment_gateway_refunds
-        WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
-      Number(id), tenant,
-    );
-    if (!existing.length) throw AppError.notFound('Payment gateway refund not found');
-    throw AppError.conflict(
-      existing[0].reconciled_at
-        ? 'This gateway refund was already reconciled'
-        : 'Gateway refund is not awaiting reconciliation',
-      'PAYMENT_GATEWAY_REFUND_NOT_RECONCILABLE',
-    );
-  }
+  const row = await resolveGatewayRefundRecoveryOperatorAction({
+    tenantId: tenant,
+    gatewayRefundId: id,
+    actorUid: resolved_by,
+    disposition,
+    evidence,
+  });
   logger.info('payment gateway refund manually reconciled', {
-    gateway_refund_id: Number(rows[0].id),
+    gateway_refund_id: Number(row.id),
     resolved_by: resolved_by ? String(resolved_by) : null,
   });
-  return toGatewayRefundResult(rows[0], false);
+  return toGatewayRefundResult(row, false);
 }
 
 const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
@@ -1424,43 +1460,6 @@ function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = 
     mismatches.push('billing_refund_id');
   }
   return mismatches;
-}
-
-async function reopenRefundReconciliationForExactProviderEvidence({
-  tenant, gatewayRefund, providerRefundId,
-}) {
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET metadata = jsonb_set(
-              COALESCE(metadata, '{}'::jsonb),
-              '{provider_evidence_superseded_reconciliations}',
-              (
-                CASE
-                  WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
-                    THEN metadata->'provider_evidence_superseded_reconciliations'
-                  ELSE '[]'::jsonb
-                END
-              ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
-                'reconciled_at', reconciled_at,
-                'reconciliation_note', reconciliation_note,
-                'reconciled_by', reconciled_by,
-                'provider_refund_id', $1::text,
-                'superseded_by', 'exact_provider_processed_evidence'
-              ))),
-              true
-            ),
-            reconciled_at = NULL, reconciliation_note = NULL,
-            reconciled_by = NULL, updated_at = NOW()
-      WHERE id = $2::int AND tenant_id = $3::uuid
-        AND status = 'requires_reconciliation' AND reconciled_at IS NOT NULL
-      RETURNING id`,
-    String(providerRefundId), Number(gatewayRefund.id), tenant,
-  );
-  if (rows.length) {
-    logger.info('payment gateway refund reconciliation superseded by exact provider evidence', {
-      gateway_refund_id: Number(gatewayRefund.id),
-    });
-  }
 }
 
 async function findGatewayRefundForWebhook({ tenant, config, entity }) {
@@ -1516,28 +1515,31 @@ async function findGatewayRefundForWebhook({ tenant, config, entity }) {
   };
 }
 
-async function parkRefundEvidenceMismatch({ tenant, gatewayRefund, evidence, mismatches }) {
+async function parkRefundEvidenceMismatch({
+  tenant, gatewayRefund, evidence, mismatches, claimToken = null,
+}) {
   const providerRefundId = String(evidence.providerRefundId || '').trim();
   const safeProviderRefundId = providerRefundId && providerRefundId.length <= 120
     ? providerRefundId
     : null;
-  await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET status = 'requires_reconciliation',
-            provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
-            failure_code = 'provider_evidence_mismatch',
-            failure_reason = $2::text,
-            updated_at = NOW()
-      WHERE id = $3::int AND tenant_id = $4::uuid
-        AND status IN ('initiated', 'pending', 'requires_reconciliation')
-      RETURNING id`,
-    safeProviderRefundId, refundEvidenceMismatchReason(mismatches),
-    Number(gatewayRefund.id), tenant,
+  const parked = await ensureRefundRecoveryObligation(
+    tenant,
+    gatewayRefund.id,
+    {
+      providerRefundId: safeProviderRefundId,
+      code: 'provider_evidence_mismatch',
+      reason: refundEvidenceMismatchReason(mismatches),
+    },
+    claimToken,
   );
+  if (parked.lost_fence) {
+    return { outcome: 'lost_fence', gatewayRefundId: Number(gatewayRefund.id) };
+  }
   return {
     outcome: 'requires_reconciliation',
     gatewayRefundId: Number(gatewayRefund.id),
     reason: refundEvidenceMismatchReason(mismatches),
+    recovery: parked,
   };
 }
 
@@ -1594,6 +1596,7 @@ export async function initiateGatewayRefund({
   tenantId, billing_refund_id, gateway_order_id, initiated_by,
 }) {
   const tenant = requireTenantId(tenantId);
+  const initiator = String(initiated_by || '').trim();
   if (!Number.isInteger(Number(billing_refund_id)) || Number(billing_refund_id) <= 0
       || !Number.isInteger(Number(gateway_order_id)) || Number(gateway_order_id) <= 0) {
     throw AppError.badRequest(
@@ -1601,7 +1604,16 @@ export async function initiateGatewayRefund({
       'PAYMENT_GATEWAY_BAD_REFUND',
     );
   }
+  if (!UUID_PATTERN.test(initiator)) {
+    throw AppError.forbidden(
+      'An authenticated same-tenant gateway refund initiator is required',
+      'PAYMENT_GATEWAY_REFUND_INITIATOR_REQUIRED',
+    );
+  }
   await requireGatewayContext(tenant);
+  const { ensureGatewayRefundRecoveryObligationTx } = await import(
+    './gatewayRefundRecoveryService.js'
+  );
   const newProviderIdempotencyKey = `pgr_${randomBytes(16).toString('hex')}`;
 
   // Phase 1 commits the exact approved refund, payment source, payer, mode,
@@ -1609,11 +1621,17 @@ export async function initiateGatewayRefund({
   const intent = await setTenantTx(tenant, async (tx) => {
     const refundRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, advance_id, patient_uid::text, amount, reason,
-              mode, approval_status, payout_rail, gateway_refund_id
+              mode, approval_status, raised_by, approved_by, approved_at,
+              payout_rail, gateway_refund_id,
+              EXISTS (
+                SELECT 1 FROM users actor
+                 WHERE actor.tenant_id = billing_refunds.tenant_id
+                   AND actor.uid = $3::uuid
+              ) AS initiator_tenant_valid
          FROM billing_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid
         FOR UPDATE`,
-      Number(billing_refund_id), tenant,
+      Number(billing_refund_id), tenant, initiator,
     );
     if (!refundRows.length) throw AppError.notFound('Billing refund not found');
     const refund = refundRows[0];
@@ -1621,6 +1639,24 @@ export async function initiateGatewayRefund({
       throw AppError.badRequest(
         `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
         'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+      );
+    }
+    if (!refund.approved_by || !refund.approved_at) {
+      throw AppError.conflict(
+        'Gateway refund execution requires attributable billing approval',
+        'PAYMENT_GATEWAY_REFUND_APPROVAL_AUTHORITY_REQUIRED',
+      );
+    }
+    if (String(refund.approved_by).toLowerCase() === initiator.toLowerCase()) {
+      throw AppError.conflict(
+        'Gateway refund initiator must differ from the approval actor',
+        'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
+      );
+    }
+    if (refund.initiator_tenant_valid !== true) {
+      throw AppError.forbidden(
+        'Gateway refund initiator is not a same-tenant user',
+        'PAYMENT_GATEWAY_REFUND_INITIATOR_TENANT_MISMATCH',
       );
     }
     if (refund.payout_rail === 'manual') {
@@ -1637,14 +1673,36 @@ export async function initiateGatewayRefund({
     }
 
     const existingRows = await tx.$queryRawUnsafe(
-      `SELECT * FROM payment_gateway_refunds
-        WHERE tenant_id = $1::uuid AND billing_refund_id = $2::int
+      `SELECT refund.*,
+              EXISTS (
+                SELECT 1 FROM users actor
+                 WHERE actor.tenant_id = refund.tenant_id
+                   AND actor.uid = refund.initiated_by
+              ) AS stored_initiator_tenant_valid
+         FROM payment_gateway_refunds refund
+        WHERE refund.tenant_id = $1::uuid AND refund.billing_refund_id = $2::int
           AND status IN ('initiated', 'pending', 'requires_reconciliation', 'processed')
         ORDER BY id DESC
         LIMIT 1`,
       tenant, Number(refund.id),
     );
     const existing = existingRows[0] || null;
+    if (existing) {
+      const existingInitiator = String(existing.initiated_by || '').trim();
+      const existingInitiatedAt = new Date(existing.initiated_at).getTime();
+      const approvedAt = new Date(refund.approved_at).getTime();
+      if (!UUID_PATTERN.test(existingInitiator)
+          || existing.stored_initiator_tenant_valid !== true
+          || existingInitiator.toLowerCase() === String(refund.approved_by).toLowerCase()
+          || !Number.isFinite(existingInitiatedAt)
+          || !Number.isFinite(approvedAt)
+          || existingInitiatedAt <= approvedAt) {
+        throw AppError.conflict(
+          'Stored gateway refund execution lacks independent post-approval authority',
+          'PAYMENT_GATEWAY_REFUND_INITIATOR_AUTHORITY_INVALID',
+        );
+      }
+    }
     if (existing && Number(existing.gateway_order_id) !== Number(gateway_order_id)) {
       throw AppError.conflict(
         'This approved refund is already bound to a different gateway payment',
@@ -1657,7 +1715,12 @@ export async function initiateGatewayRefund({
         billingRefundId: refund.id,
         gatewayRefundId: existing.id,
       });
-      return { row: existing, replay: true, callProvider: false };
+      const obligation = await ensureGatewayRefundRecoveryObligationTx({
+        tx,
+        tenantId: tenant,
+        gatewayRefundId: existing.id,
+      });
+      return { row: { ...existing, ...obligation.row }, replay: true, callProvider: false };
     }
 
     const orderRows = await tx.$queryRawUnsafe(
@@ -1707,8 +1770,13 @@ export async function initiateGatewayRefund({
         billingRefundId: refund.id,
         gatewayRefundId: existing.id,
       });
+      const obligation = await ensureGatewayRefundRecoveryObligationTx({
+        tx,
+        tenantId: tenant,
+        gatewayRefundId: existing.id,
+      });
       return {
-        row: existing,
+        row: { ...existing, ...obligation.row },
         replay: true,
         callProvider: true,
         order,
@@ -1738,14 +1806,15 @@ export async function initiateGatewayRefund({
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
           provider_payment_id, provider_idempotency_key, amount, currency, status,
-          reason, initiated_by, webhook_credential_version)
+          reason, initiated_by, webhook_credential_version,
+          provider_request_replay_authorized)
        VALUES ($1::uuid, $2, $3, $4::int, $5::int, $6, $7, $8::numeric, 'INR',
-               'initiated', $9, $10::uuid, $11::int)
+               'initiated', $9, $10::uuid, $11::int, TRUE)
        RETURNING *`,
       tenant, order.provider, order.environment, Number(order.id), Number(refund.id),
       String(order.provider_payment_id), newProviderIdempotencyKey, refundAmount,
       refund.reason ? String(refund.reason).slice(0, 500) : null,
-      initiated_by ? String(initiated_by) : null,
+      initiator,
       Number(order.webhook_credential_version || 1),
     );
     await claimGatewayPayoutRailTx(tx, {
@@ -1753,7 +1822,18 @@ export async function initiateGatewayRefund({
       billingRefundId: refund.id,
       gatewayRefundId: rows[0].id,
     });
-    return { row: rows[0], replay: false, callProvider: true, order, refund };
+    const obligation = await ensureGatewayRefundRecoveryObligationTx({
+      tx,
+      tenantId: tenant,
+      gatewayRefundId: rows[0].id,
+    });
+    return {
+      row: { ...rows[0], ...obligation.row },
+      replay: false,
+      callProvider: true,
+      order,
+      refund,
+    };
   }).catch((err) => {
     if (isUniqueViolation(err)) {
       throw AppError.conflict(
@@ -1789,42 +1869,31 @@ export async function initiateGatewayRefund({
     });
   } catch (err) {
     if (err?.code === 'PAYMENT_GATEWAY_REFUND_IN_PROGRESS') {
-      return toGatewayRefundResult(intent.row, true);
+      const recovery = await ensureRefundRecoveryObligation(tenant, intent.row.id);
+      return toGatewayRefundResult(recovery, true);
     }
+    if (err?.code === 'PAYMENT_GATEWAY_REFUND_IDEMPOTENCY_CONFLICT') {
+      const parked = await ensureRefundRecoveryObligation(tenant, intent.row.id, {
+        code: 'provider_idempotency_identity_conflict',
+        reason: 'Provider rejected the durable refund idempotency identity as a different request',
+      });
+      return toGatewayRefundResult(parked, intent.replay);
+    }
+    await ensureRefundRecoveryObligation(tenant, intent.row.id);
     throw err;
   }
 
   const responseMismatches = refundEvidenceMismatches(intent.row, providerRefund);
   if (responseMismatches.length) {
     const safeProviderRefundId = String(providerRefund?.providerRefundId || '').trim();
-    const completed = await setTenantTx(tenant, async (tx) => {
-      const rows = await tx.$queryRawUnsafe(
-        `UPDATE payment_gateway_refunds
-            SET provider_refund_id = COALESCE($1::varchar, provider_refund_id),
-                status = 'requires_reconciliation',
-                failure_code = 'provider_evidence_mismatch',
-                failure_reason = $2::text,
-                updated_at = NOW()
-          WHERE id = $3::int AND tenant_id = $4::uuid
-            AND status IN ('initiated', 'pending', 'requires_reconciliation')
-            AND provider_idempotency_key = $5::varchar
-          RETURNING *`,
-        safeProviderRefundId && safeProviderRefundId.length <= 120 ? safeProviderRefundId : null,
-        refundEvidenceMismatchReason(responseMismatches),
-        Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
-      );
-      if (rows.length) return rows[0];
-      const replayRows = await tx.$queryRawUnsafe(
-        `SELECT * FROM payment_gateway_refunds
-          WHERE id = $1::int AND tenant_id = $2::uuid
-            AND provider_idempotency_key = $3
-          LIMIT 1`,
-        Number(intent.row.id), tenant, intent.row.provider_idempotency_key,
-      );
-      if (!replayRows.length) throw AppError.notFound('Gateway refund intent not found');
-      return replayRows[0];
+    const parked = await ensureRefundRecoveryObligation(tenant, intent.row.id, {
+      providerRefundId: safeProviderRefundId && safeProviderRefundId.length <= 120
+        ? safeProviderRefundId
+        : null,
+      code: 'provider_evidence_mismatch',
+      reason: refundEvidenceMismatchReason(responseMismatches),
     });
-    return toGatewayRefundResult(completed, intent.replay);
+    return toGatewayRefundResult(parked, intent.replay);
   }
 
   if (providerRefund.status === 'processed') {
@@ -1859,21 +1928,13 @@ export async function initiateGatewayRefund({
         );
       }
     } catch (err) {
-      const parkedRows = await prisma.$queryRawUnsafe(
-        `UPDATE payment_gateway_refunds
-            SET provider_refund_id = COALESCE(provider_refund_id, $1),
-                status = 'requires_reconciliation',
-                failure_code = 'billing_refund_finalize_failed',
-                failure_reason = $2, updated_at = NOW()
-          WHERE id = $3::int AND tenant_id = $4::uuid
-            AND status IN ('initiated', 'pending', 'requires_reconciliation')
-          RETURNING *`,
-        String(providerRefund.providerRefundId),
-        `Provider refund processed but billing finalization failed: ${err?.code || 'internal_error'}`.slice(0, 500),
-        Number(intent.row.id), tenant,
-      );
-      if (parkedRows.length) return toGatewayRefundResult(parkedRows[0], intent.replay);
-      throw err;
+      const parked = await ensureRefundRecoveryObligation(tenant, intent.row.id, {
+        providerRefundId: String(providerRefund.providerRefundId),
+        code: 'billing_refund_finalize_failed',
+        reason: `Provider refund processed but billing finalization failed: ${err?.code || 'internal_error'}`,
+        preserveProviderStatus: true,
+      });
+      return toGatewayRefundResult(parked, intent.replay);
     }
     const processedRows = await prisma.$queryRawUnsafe(
       `SELECT * FROM payment_gateway_refunds
@@ -1881,6 +1942,11 @@ export async function initiateGatewayRefund({
       Number(intent.row.id), tenant,
     );
     if (!processedRows.length) throw AppError.notFound('Gateway refund intent not found');
+    if (processedRows[0].status === 'processed') {
+      await projectRefundRecoveryTerminal(tenant, processedRows[0].id, 'succeeded');
+    } else {
+      await ensureRefundRecoveryObligation(tenant, processedRows[0].id);
+    }
     return toGatewayRefundResult(processedRows[0], intent.replay);
   }
 
@@ -1909,6 +1975,11 @@ export async function initiateGatewayRefund({
     if (!replayRows.length) throw AppError.notFound('Gateway refund intent not found');
     return replayRows[0];
   });
+  if (completed.status === 'failed') {
+    await projectRefundRecoveryTerminal(tenant, completed.id, 'failed');
+  } else {
+    await ensureRefundRecoveryObligation(tenant, completed.id);
+  }
   return toGatewayRefundResult(completed, intent.replay);
 }
 
@@ -1931,7 +2002,9 @@ function gatewayRefundReceipt(row, order = {}) {
  * already-PAID billing refund is accepted as done, and an already-processed
  * execution row short-circuits to replay.
  */
-export async function handleRefundProcessedEvent({ tenantId, config, payload }) {
+export async function handleRefundProcessedEvent({
+  tenantId, config, payload, claimToken = null,
+}) {
   const tenant = requireTenantId(tenantId);
   const entity = payload?.payload?.refund?.entity || {};
   const providerRefundId = entity.id || null;
@@ -1943,22 +2016,29 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
   }
   if (gatewayRefund.status === 'processed') {
+    if (!claimToken) {
+      await projectRefundRecoveryTerminal(tenant, gatewayRefund.id, 'succeeded');
+    }
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
 
   const evidenceMismatches = refundEvidenceMismatches(
     gatewayRefund, evidence, { expectedStatus: 'processed' },
   );
-  if (evidenceMismatches.length) {
-    return parkRefundEvidenceMismatch({
-      tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
-    });
+  if (gatewayRefund.reconciled_at && evidenceMismatches.length) {
+    return {
+      outcome: 'replay',
+      gatewayRefundId: Number(gatewayRefund.id),
+      reason: 'operator reconciliation already resolved this mismatched evidence',
+    };
   }
-
-  if (gatewayRefund.reconciled_at) {
-    await reopenRefundReconciliationForExactProviderEvidence({
-      tenant, gatewayRefund, providerRefundId,
+  if (evidenceMismatches.length) {
+    const parked = await parkRefundEvidenceMismatch({
+      tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
+      claimToken,
     });
+    if (parked.outcome === 'lost_fence') return parked;
+    return parked;
   }
 
   // Authority first: flip the billing refund APPROVED → PAID (its own
@@ -1971,6 +2051,7 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
         tenantId: tenant,
         gateway_refund_id: Number(gatewayRefund.id),
         provider_refund_id: String(providerRefundId),
+        recovery_claim_token: claimToken,
       });
     } catch (err) {
       const billingRows = await prisma.$queryRawUnsafe(
@@ -1989,21 +2070,25 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
         if (billingRefund?.approval_status === 'PAID'
             || err?.code === 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT'
             || err?.code === 'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT') {
-          await prisma.$executeRawUnsafe(
-            `UPDATE payment_gateway_refunds
-                SET status = 'requires_reconciliation',
-                    failure_code = 'payout_rail_conflict',
-                    failure_reason = $1, updated_at = NOW()
-              WHERE id = $2::int AND tenant_id = $3::uuid
-                AND status IN ('initiated', 'pending', 'requires_reconciliation')`,
-            'Provider processed this refund but a different payout execution owns the billing refund',
-            Number(gatewayRefund.id), tenant,
+          const parked = await ensureRefundRecoveryObligation(
+            tenant,
+            gatewayRefund.id,
+            {
+              providerRefundId: String(providerRefundId),
+              code: 'payout_rail_conflict',
+              reason: 'Provider processed this refund but a different payout execution owns the billing refund',
+            },
+            claimToken,
           );
+          if (parked.lost_fence) {
+            return { outcome: 'lost_fence', gatewayRefundId: Number(gatewayRefund.id) };
+          }
           return {
             outcome: 'requires_reconciliation',
             gatewayRefundId: Number(gatewayRefund.id),
             billingRefundId: Number(gatewayRefund.billing_refund_id),
             reason: 'payout_rail_conflict',
+            recovery: parked,
           };
         }
         throw err;
@@ -2015,9 +2100,12 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
     `UPDATE payment_gateway_refunds
         SET status = 'processed',
             provider_refund_id = COALESCE(provider_refund_id, $1),
-            processed_at = NOW(), updated_at = NOW()
+            processed_at = COALESCE(processed_at, NOW()), updated_at = NOW()
       WHERE id = $2::int AND tenant_id = $3::uuid
-        AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        AND status IN ('initiated', 'pending', 'processed', 'failed', 'requires_reconciliation')
+        AND ($4::uuid IS NULL OR (
+          recovery_claim_token = $4::uuid AND recovery_state = 'claimed'
+        ))
         AND (
           billing_refund_id IS NULL
           OR EXISTS (
@@ -2030,8 +2118,11 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
           )
         )
       RETURNING id`,
-    String(providerRefundId), Number(gatewayRefund.id), tenant,
+    String(providerRefundId), Number(gatewayRefund.id), tenant, claimToken,
   );
+  if (!claimToken) {
+    await projectRefundRecoveryTerminal(tenant, gatewayRefund.id, 'succeeded');
+  }
   return {
     outcome: updated.length ? 'refund_processed' : 'replay',
     gatewayRefundId: Number(gatewayRefund.id),
@@ -2039,7 +2130,9 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
   };
 }
 
-async function handleRefundFailedEvent({ tenantId, config, payload }) {
+export async function handleRefundFailedEvent({
+  tenantId, config, payload, claimToken = null,
+}) {
   const tenant = requireTenantId(tenantId);
   const entity = payload?.payload?.refund?.entity || {};
   if (!entity.id) return { outcome: 'ignored', reason: 'missing refund entity id' };
@@ -2049,34 +2142,179 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
   }
-  if (gatewayRefund.reconciled_at) {
-    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
-  }
   if (gatewayRefund.status === 'failed') {
+    if (!claimToken) {
+      await projectRefundRecoveryTerminal(tenant, gatewayRefund.id, 'failed');
+    }
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
   const evidenceMismatches = refundEvidenceMismatches(
     gatewayRefund, evidence, { expectedStatus: 'failed' },
   );
+  if (gatewayRefund.reconciled_at && evidenceMismatches.length) {
+    return {
+      outcome: 'replay',
+      gatewayRefundId: Number(gatewayRefund.id),
+      reason: 'operator reconciliation already resolved this mismatched evidence',
+    };
+  }
   if (evidenceMismatches.length) {
-    return parkRefundEvidenceMismatch({
+    const parked = await parkRefundEvidenceMismatch({
       tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
+      claimToken,
     });
+    if (parked.outcome === 'lost_fence') return parked;
+    return parked;
   }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE payment_gateway_refunds
         SET status = 'failed', provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
-            failed_at = NOW(), failure_code = $2, failure_reason = $3, updated_at = NOW()
+            failed_at = NOW(), failure_code = $2, failure_reason = $3,
+            metadata = CASE
+              WHEN reconciliation_disposition IS NULL AND reconciled_at IS NULL
+                THEN metadata
+              ELSE jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{provider_evidence_superseded_reconciliations}',
+                (
+                  CASE
+                    WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
+                      THEN metadata->'provider_evidence_superseded_reconciliations'
+                    ELSE '[]'::jsonb
+                  END
+                ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                  'reconciled_at', reconciled_at,
+                  'reconciled_by', reconciled_by,
+                  'disposition', reconciliation_disposition,
+                  'evidence', reconciliation_evidence,
+                  'reviewed_by', reconciliation_reviewed_by,
+                  'reviewed_at', reconciliation_reviewed_at,
+                  'superseded_by', 'exact_provider_failed_evidence'
+                ))),
+                true
+              )
+            END,
+            reconciled_at = NULL,
+            reconciliation_note = NULL,
+            reconciled_by = NULL,
+            reconciliation_disposition = NULL,
+            reconciliation_evidence = NULL,
+            reconciliation_reviewed_by = NULL,
+            reconciliation_reviewed_at = NULL,
+            updated_at = NOW()
       WHERE id = $4::int AND tenant_id = $5::uuid
         AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        AND ($6::uuid IS NULL OR (
+          recovery_claim_token = $6::uuid AND recovery_state = 'claimed'
+        ))
       RETURNING id`,
     String(entity.id),
     entity.error_code ? String(entity.error_code).slice(0, 80) : null,
     entity.error_description ? String(entity.error_description).slice(0, 500) : 'provider reported refund failure',
-    Number(gatewayRefund.id), tenant,
+    Number(gatewayRefund.id), tenant, claimToken,
   );
+  if (!claimToken) {
+    await projectRefundRecoveryTerminal(tenant, gatewayRefund.id, 'failed');
+  }
   return rows.length
     ? { outcome: 'refund_failed_recorded', gatewayRefundId: Number(rows[0].id) }
+    : { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+}
+
+/**
+ * Apply an authoritative provider refund representation obtained either from
+ * the signed webhook or the provider GET /refunds/{id} recovery path. A local
+ * provider_refund_id is correlation only; this function requires the exact
+ * provider payment, amount, currency, status, config, and billing-refund note
+ * before it projects any state.
+ */
+export async function applyGatewayRefundProviderEvidence({
+  tenantId, config, evidence, claimToken = null,
+}) {
+  const tenant = requireTenantId(tenantId);
+  const status = String(evidence?.status || '').trim().toLowerCase();
+  const entity = {
+    id: evidence?.providerRefundId,
+    payment_id: evidence?.providerPaymentId,
+    amount: evidence?.amountPaise,
+    currency: evidence?.currency,
+    status,
+    notes: { billing_refund_id: String(evidence?.billingRefundId || '') },
+    ...(evidence?.errorCode ? { error_code: String(evidence.errorCode) } : {}),
+    ...(evidence?.errorReason ? { error_description: String(evidence.errorReason) } : {}),
+  };
+  const payload = { payload: { refund: { entity } } };
+  if (status === 'processed') {
+    return handleRefundProcessedEvent({ tenantId: tenant, config, payload, claimToken });
+  }
+  if (status === 'failed') {
+    return handleRefundFailedEvent({ tenantId: tenant, config, payload, claimToken });
+  }
+
+  const { gatewayRefund, evidence: normalized } = await findGatewayRefundForWebhook({
+    tenant,
+    config,
+    entity,
+  });
+  if (!gatewayRefund) {
+    return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
+  }
+  const mismatches = refundEvidenceMismatches(
+    gatewayRefund,
+    normalized,
+    { expectedStatus: 'pending' },
+  );
+  if (mismatches.length) {
+    return parkRefundEvidenceMismatch({
+      tenant,
+      gatewayRefund,
+      evidence: normalized,
+      mismatches,
+      claimToken,
+    });
+  }
+  if (gatewayRefund.status === 'requires_reconciliation'
+      && claimToken
+      && !gatewayRefund.reconciled_at
+      && ['provider_pending', 'provider_status_unknown']
+        .includes(gatewayRefund.reconciliation_disposition)) {
+    const checked = await prisma.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET provider_status_checked_at = NOW(), updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid
+          AND recovery_claim_token = $3::uuid
+          AND recovery_state = 'claimed'
+        RETURNING id`,
+      Number(gatewayRefund.id), tenant, claimToken,
+    );
+    return checked.length
+      ? { outcome: 'refund_pending', gatewayRefundId: Number(gatewayRefund.id) }
+      : { outcome: 'lost_fence', gatewayRefundId: Number(gatewayRefund.id) };
+  }
+  if (gatewayRefund.status === 'requires_reconciliation' || gatewayRefund.reconciled_at) {
+    return {
+      outcome: 'requires_reconciliation',
+      gatewayRefundId: Number(gatewayRefund.id),
+      reason: gatewayRefund.failure_code || 'operator_reconciliation_required',
+    };
+  }
+  if (gatewayRefund.status === 'processed' || gatewayRefund.status === 'failed') {
+    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE payment_gateway_refunds
+        SET status = 'pending', provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+            provider_status_checked_at = NOW(), updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND status IN ('initiated', 'pending')
+        AND ($4::uuid IS NULL OR (
+          recovery_claim_token = $4::uuid AND recovery_state = 'claimed'
+        ))
+      RETURNING id`,
+    String(normalized.providerRefundId), Number(gatewayRefund.id), tenant, claimToken,
+  );
+  return rows.length
+    ? { outcome: 'refund_pending', gatewayRefundId: Number(rows[0].id) }
     : { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
 }
 

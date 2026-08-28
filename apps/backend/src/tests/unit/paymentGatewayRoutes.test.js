@@ -22,6 +22,8 @@ const listReconciliationGatewayOrders = jest.fn();
 const resolveGatewayOrderReconciliation = jest.fn();
 const listReconciliationGatewayRefunds = jest.fn();
 const resolveGatewayRefundReconciliation = jest.fn();
+const listGatewayRefundRecovery = jest.fn();
+const recoverGatewayRefundNow = jest.fn();
 const logAudit = jest.fn(async () => {});
 
 const claimIdempotencyKey = jest.fn();
@@ -39,6 +41,10 @@ jest.unstable_mockModule('../../services/billing/paymentGatewayService.js', () =
   resolveGatewayOrderReconciliation,
   listReconciliationGatewayRefunds,
   resolveGatewayRefundReconciliation,
+}));
+jest.unstable_mockModule('../../services/billing/gatewayRefundRecoveryService.js', () => ({
+  listGatewayRefundRecovery,
+  recoverGatewayRefundNow,
 }));
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
   claimIdempotencyKey,
@@ -274,7 +280,7 @@ describe('role gates', () => {
     ]));
   });
 
-  it('refund reconciliation queue and resolution are admin-only and audited', async () => {
+  it('refund reconciliation queue and structured terminal resolution are admin-only and audited', async () => {
     const forbidden = await request(app('CASHIER'))
       .get('/api/v1/billing/gateway/refund-reconciliation');
     expect(forbidden.status).toBe(403);
@@ -282,32 +288,104 @@ describe('role gates', () => {
 
     listReconciliationGatewayRefunds.mockResolvedValue({ refunds: [], limit: 50, offset: 0 });
     const listed = await request(app('ADMIN'))
-      .get('/api/v1/billing/gateway/refund-reconciliation?include_resolved=true');
+      .get('/api/v1/billing/gateway/refund-reconciliation?include_resolved=true&limit=25&offset=5');
     expect(listed.status).toBe(200);
     expect(listReconciliationGatewayRefunds).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'trusted-tenant', include_resolved: true,
+      tenantId: 'trusted-tenant', include_resolved: true, limit: '25', offset: '5',
     }));
 
     resolveGatewayRefundReconciliation.mockResolvedValue({
       id: 7,
       status: 'requires_reconciliation',
       amount: 150,
-      reconciliation_note: 'Verified provider refund and billing payout manually',
+      reconciliation_disposition: 'provider_failed',
     });
+    const evidence = {
+      source: 'provider_dashboard',
+      reference: 'rfnd_provider_failed_7',
+      observed_at: '2026-08-16T10:00:00.000Z',
+      provider_status: 'failed',
+      notes: 'Provider dashboard confirms the terminal failure.',
+    };
     const resolved = await request(app('ADMIN'))
       .post('/api/v1/billing/gateway/refunds/7/reconcile')
-      .send({ note: 'Verified provider refund and billing payout manually' });
+      .send({ disposition: 'provider_failed', evidence });
     expect(resolved.status).toBe(200);
     expect(resolveGatewayRefundReconciliation).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'trusted-tenant', id: '7',
+      disposition: 'provider_failed', evidence,
       resolved_by: '11111111-1111-4111-8111-111111111111',
     }));
     expect(logAudit).toHaveBeenCalledWith(
       expect.anything(),
       'PAYMENT_GATEWAY_REFUND_RECONCILED',
-      expect.anything(),
+      expect.objectContaining({
+        disposition: 'provider_failed',
+        evidence_source: 'provider_dashboard',
+        evidence_provider_status: 'failed',
+      }),
       expect.objectContaining({ resource: 'payment_gateway_refund', resourceId: 7 }),
     );
+  });
+
+  it('validates the refund reconciliation evidence and disposition/status pairing before service dispatch', async () => {
+    const baseEvidence = {
+      source: 'provider_support',
+      reference: 'support-case-2026-0007',
+      observed_at: '2026-08-16T10:00:00.000Z',
+      provider_status: 'pending',
+    };
+
+    const missingEvidence = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({ disposition: 'provider_pending' });
+    expect(missingEvidence.status).toBe(400);
+
+    const legacyNote = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({ disposition: 'provider_pending', evidence: baseEvidence, note: 'legacy closure note' });
+    expect(legacyNote.status).toBe(400);
+
+    const mismatched = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({ disposition: 'provider_processed', evidence: baseEvidence });
+    expect(mismatched.status).toBe(400);
+
+    const futureDated = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({
+        disposition: 'provider_pending',
+        evidence: { ...baseEvidence, observed_at: '2999-01-01T00:00:00.000Z' },
+      });
+    expect(futureDated.status).toBe(400);
+    expect(resolveGatewayRefundReconciliation).not.toHaveBeenCalled();
+  });
+
+  it('forwards a pollable pending disposition without converting it to a terminal note stamp', async () => {
+    resolveGatewayRefundReconciliation.mockResolvedValue({
+      id: 7,
+      status: 'requires_reconciliation',
+      reconciliation_disposition: 'provider_pending',
+    });
+    const evidence = {
+      source: 'bank_statement',
+      reference: 'statement-line-0007',
+      observed_at: '2026-08-16T10:00:00.000Z',
+      provider_status: 'pending',
+    };
+
+    const response = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/7/reconcile')
+      .send({ disposition: 'provider_pending', evidence });
+
+    expect(response.status).toBe(200);
+    expect(resolveGatewayRefundReconciliation).toHaveBeenCalledWith({
+      tenantId: 'trusted-tenant',
+      id: '7',
+      disposition: 'provider_pending',
+      evidence,
+      resolved_by: '11111111-1111-4111-8111-111111111111',
+    });
   });
 
   it('refund execution requires a finance/cashier/admin tier', async () => {
@@ -334,6 +412,50 @@ describe('role gates', () => {
     expect(initiateGatewayRefund).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'trusted-tenant', billing_refund_id: 9, gateway_order_id: 21,
     }));
+  });
+
+  it('exposes the owned recovery queue and requires an idempotency key for provider polling', async () => {
+    const forbidden = await request(app('RECEPTIONIST'))
+      .get('/api/v1/billing/gateway/refund-recovery');
+    expect(forbidden.status).toBe(403);
+    expect(listGatewayRefundRecovery).not.toHaveBeenCalled();
+
+    listGatewayRefundRecovery.mockResolvedValue({ refunds: [], limit: 50, offset: 0 });
+    const listed = await request(app('FINANCE_INCHARGE'))
+      .get('/api/v1/billing/gateway/refund-recovery?include_terminal=true&limit=25&offset=5');
+    expect(listed.status).toBe(200);
+    expect(listGatewayRefundRecovery).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant', include_terminal: true, limit: '25', offset: '5',
+    }));
+
+    const missingKey = await request(app('FINANCE_INCHARGE'))
+      .post('/api/v1/billing/gateway/refunds/7/recover');
+    expect(missingKey.status).toBe(400);
+    expect(recoverGatewayRefundNow).not.toHaveBeenCalled();
+
+    recoverGatewayRefundNow.mockResolvedValue({
+      id: 7,
+      billing_refund_id: 9,
+      provider_refund_id: 'rfnd_R7',
+      recovery_state: 'provider_pending',
+      recovery_attempt_count: 2,
+    });
+    const recovered = await request(app('FINANCE_INCHARGE'))
+      .post('/api/v1/billing/gateway/refunds/7/recover')
+      .set('Idempotency-Key', 'refund-recovery-7');
+    expect(recovered.status).toBe(200);
+    expect(recovered.body.data.recovery_state).toBe('provider_pending');
+    expect(recoverGatewayRefundNow).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'trusted-tenant',
+      gatewayRefundId: '7',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+    }));
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      'PAYMENT_GATEWAY_REFUND_RECOVERY_REQUESTED',
+      expect.objectContaining({ recovery_state: 'provider_pending' }),
+      expect.objectContaining({ resource: 'payment_gateway_refund', resourceId: 7 }),
+    );
   });
 
   it('releases a refund 5xx claim so the same HTTP key reaches durable provider retry', async () => {

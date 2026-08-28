@@ -10405,6 +10405,7 @@ model tasks {
   lab_interface_messages                      lab_interface_messages?
   lab_oru_ingest_messages                     lab_oru_ingest_messages?
   lab_threshold_unmatched_exceptions          lab_threshold_unmatched_exceptions[]
+  payment_gateway_refunds                     payment_gateway_refunds[]
   pathway_projector_inbox                     pathway_projector_inbox[]
   task_comments                               task_comments[]
   parent_task_same_run                        tasks?                                              @relation("tasks_parent_same_run", fields: [tenant_id, parent_task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_parent_same_run")
@@ -11942,7 +11943,8 @@ model users {
   patient_flow_checkins                                                                                                            patient_flow_checkins[]
   patient_records                                                                                                                  patient_records[]
   payment_gateway_orders                                                                                                           payment_gateway_orders[]
-  payment_gateway_refunds                                                                                                          payment_gateway_refunds[]
+  payment_gateway_refunds_reconciled_by                                                                                            payment_gateway_refunds[]                              @relation("payment_gateway_refunds_reconciled_by")
+  payment_gateway_refunds_reconciliation_reviewed_by                                                                                payment_gateway_refunds[]                              @relation("payment_gateway_refunds_reconciliation_reviewed_by")
   payroll_run_staff_results                                                                                                        payroll_run_staff_results[]
   payroll_runs_payroll_runs_generated_byTousers                                                                                    payroll_runs[]                                         @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                                                                       payroll_runs[]                                         @relation("payroll_runs_locked_byTousers")
@@ -16901,6 +16903,7 @@ model workflow_sla_instances {
   diagnostic_result_generations               diagnostic_result_generations[]
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts[]
   porter_transport_tasks                      porter_transport_tasks[]
+  payment_gateway_refunds                     payment_gateway_refunds[]
   stemi_pathway_events                        stemi_pathway_events[]
   tasks                                       tasks[]
 
@@ -28482,8 +28485,30 @@ model payment_gateway_refunds {
   reconciliation_note                                                                     String?                @db.VarChar(500)
   reconciled_by                                                                           String?                @db.Uuid
   webhook_credential_version                                                              Int
+  provider_request_fingerprint                                                            String                 @db.Char(64)
+  provider_request_replay_authorized                                                       Boolean                @default(false)
+  recovery_state                                                                          String                 @default("queued") @db.VarChar(30)
+  recovery_attempt_count                                                                  Int                    @default(0)
+  recovery_next_attempt_at                                                                 DateTime?              @db.Timestamptz(6)
+  recovery_last_attempt_at                                                                 DateTime?              @db.Timestamptz(6)
+  provider_status_checked_at                                                               DateTime?              @db.Timestamptz(6)
+  recovery_claim_token                                                                     String?                @db.Uuid
+  recovery_claimed_at                                                                      DateTime?              @db.Timestamptz(6)
+  recovery_lease_expires_at                                                                DateTime?              @db.Timestamptz(6)
+  recovery_last_error_code                                                                 String?                @db.VarChar(100)
+  recovery_last_error_reason                                                               String?                @db.VarChar(500)
+  recovery_terminal_at                                                                     DateTime?              @db.Timestamptz(6)
+  recovery_task_id                                                                         Int?
+  recovery_sla_instance_id                                                                 String?                @db.Uuid
+  reconciliation_disposition                                                              String?                @db.VarChar(40)
+  reconciliation_evidence                                                                 Json?
+  reconciliation_reviewed_by                                                              String?                @db.Uuid
+  reconciliation_reviewed_at                                                              DateTime?              @db.Timestamptz(6)
   billing_refunds_billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds billing_refunds?       @relation("billing_refunds_tenant_id_id_gateway_refund_idTopayment_gateway_refunds")
-  users                                                                                   users?                 @relation(fields: [tenant_id, reconciled_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_pg_refund_reconciled_actor")
+  tasks                                                                                    tasks?                 @relation(fields: [tenant_id, recovery_task_id], references: [tenant_id, id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pg_refund_recovery_task")
+  workflow_sla_instances                                                                   workflow_sla_instances? @relation(fields: [tenant_id, recovery_sla_instance_id], references: [tenant_id, id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pg_refund_recovery_sla")
+  reconciled_by_user                                                                      users?                 @relation("payment_gateway_refunds_reconciled_by", fields: [tenant_id, reconciled_by], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_pg_refund_reconciled_actor")
+  reconciliation_reviewer                                                                users?                 @relation("payment_gateway_refunds_reconciliation_reviewed_by", fields: [tenant_id, reconciliation_reviewed_by], references: [tenant_id, uid], onDelete: Restrict, onUpdate: NoAction, map: "fk_pg_refund_reconciliation_reviewer")
   billing_refunds                                                                         billing_refunds?       @relation(fields: [billing_refund_id], references: [id], onUpdate: NoAction)
   payment_gateway_orders                                                                  payment_gateway_orders @relation(fields: [gateway_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                                                                                 tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -28492,7 +28517,13 @@ model payment_gateway_refunds {
   @@unique([tenant_id, provider, provider_refund_id], map: "ux_pg_refund_tenant_provider_refund", where: raw("(provider_refund_id IS NOT NULL)"))
   @@unique([tenant_id, provider, provider_idempotency_key], map: "ux_pg_refund_provider_idempotency")
   @@unique([tenant_id, billing_refund_id, id], map: "ux_pg_refund_tenant_billing_execution")
+  @@unique([tenant_id, id], map: "ux_pg_refund_tenant_id")
   @@index([gateway_order_id], map: "idx_pg_refund_order")
+  @@index([tenant_id, recovery_next_attempt_at, recovery_lease_expires_at, id], map: "idx_pg_refund_recovery_due", where: raw("(((status)::text = ANY ((ARRAY['initiated'::character varying, 'pending'::character varying])::text[])) AND ((recovery_state)::text = ANY ((ARRAY['queued'::character varying, 'provider_pending'::character varying, 'retry_wait'::character varying, 'claimed'::character varying])::text[])))"))
+  @@index([tenant_id, recovery_task_id], map: "idx_pg_refund_recovery_task", where: raw("(recovery_task_id IS NOT NULL)"))
+  @@index([tenant_id, recovery_sla_instance_id], map: "idx_pg_refund_recovery_sla", where: raw("(recovery_sla_instance_id IS NOT NULL)"))
+  @@index([tenant_id, reconciliation_reviewed_by], map: "idx_pg_refund_reconciliation_reviewer", where: raw("(reconciliation_reviewed_by IS NOT NULL)"))
+  @@index([tenant_id, id], map: "idx_pg_refund_recovery_projection_drift", where: raw("((((status)::text = 'processed'::text) AND ((recovery_state)::text <> 'succeeded'::text)) OR (((status)::text = 'failed'::text) AND ((recovery_state)::text <> 'failed'::text)))"))
   @@index([tenant_id, reconciled_by], map: "idx_pg_refund_reconciled_by", where: raw("(reconciled_by IS NOT NULL)"))
   @@index([tenant_id, initiated_at, id], map: "idx_pg_refund_reconciliation_queue", where: raw("(((status)::text = 'requires_reconciliation'::text) AND (reconciled_at IS NULL))"))
   @@index([tenant_id, status, initiated_at(sort: Desc)], map: "idx_pg_refund_tenant_status")

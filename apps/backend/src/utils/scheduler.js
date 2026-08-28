@@ -1246,6 +1246,21 @@ if (process.env.NODE_ENV !== 'test') {
     if (expired) logger.info(`Scheduled Task: expired ${expired} payment gateway orders`);
   }));
 
+  // Every 5 minutes — claim unresolved provider-backed refunds, fetch their
+  // authoritative provider state, and project only exact terminal evidence.
+  // The service is default-off behind an explicit operator activation gate;
+  // registering the inert sweep keeps activation to configuration + ArgoCD
+  // authority rather than requiring a second code change.
+  registerCron('*/5 * * * *', withJobLock('payment-gateway-refund-recovery', async () => {
+    const { runGatewayRefundRecoverySweep } = await import(
+      '../services/billing/gatewayRefundRecoveryService.js'
+    );
+    const result = await runForEachTenant('payment-gateway-refund-recovery', (tenantId) => (
+      runGatewayRefundRecoverySweep({ tenantId, limit: 25 })
+    ));
+    logger.info('payment-gateway-refund-recovery sweep complete', result);
+  }));
+
   // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).
   // Position fixes are operational telemetry, not chart content; delete rows
   // older than the tenant's ambulanceGpsTracking.retentionDays (default 7).

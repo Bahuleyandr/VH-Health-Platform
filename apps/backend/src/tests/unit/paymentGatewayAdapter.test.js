@@ -65,6 +65,24 @@ describe('dry_run adapter determinism', () => {
     expect(refund.status).toBe('pending');
   });
 
+  it('keeps dry-run recovery pending until simulated provider evidence arrives', async () => {
+    const refund = await dryRunAdapter.fetchRefund({
+      providerRefundId: 'rfnd_dry_pgr-42',
+      providerPaymentId: 'pay_dry_1',
+      amountPaise: 5000,
+      currency: 'INR',
+      billingRefundId: '42',
+    });
+    expect(refund).toMatchObject({
+      providerRefundId: 'rfnd_dry_pgr-42',
+      providerPaymentId: 'pay_dry_1',
+      amountPaise: 5000,
+      currency: 'INR',
+      billingRefundId: '42',
+      status: 'pending',
+    });
+  });
+
   it('rejects non-positive or non-integer paise amounts', async () => {
     await expect(dryRunAdapter.createOrder({ amountPaise: 0, receipt: 'r' })).rejects.toThrow();
     await expect(dryRunAdapter.createOrder({ amountPaise: 10.5, receipt: 'r' })).rejects.toThrow();
@@ -214,6 +232,24 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
       .toBe('pgr_test_0000000001');
   });
 
+  it('fetches authoritative refund status from the provider refund resource', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      id: 'rfnd_R1', payment_id: 'pay_R9', amount: 20000,
+      currency: 'INR', status: 'processed', notes: { billing_refund_id: '7' },
+    });
+    const refund = await razorpayAdapter.fetchRefund({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret', providerRefundId: 'rfnd_R1',
+    });
+    expect(refund).toMatchObject({
+      providerRefundId: 'rfnd_R1', providerPaymentId: 'pay_R9',
+      amountPaise: 20000, currency: 'INR', status: 'processed', billingRefundId: '7',
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.razorpay.com/v1/refunds/rfnd_R1');
+    expect(init.method).toBe('GET');
+    expect(init.body).toBeUndefined();
+  });
+
   it('treats a refund response without a provider id as unresolved', async () => {
     mockFetchOnce(200, { amount: 20000, status: 'pending' });
     await expect(razorpayAdapter.createRefund({
@@ -248,6 +284,22 @@ describe('razorpay adapter (provider HTTP mocked)', () => {
       keyId: 'k', keySecret: 's', providerPaymentId: 'pay_R9',
       amountPaise: 100, receipt: 'pgr-9', idempotencyKey: 'pgr_test_0000000001',
     })).rejects.toMatchObject({ code: 'PAYMENT_GATEWAY_REFUND_IN_PROGRESS', statusCode: 409 });
+  });
+
+  it('parks same-key different-parameters 409 as an identity conflict', async () => {
+    mockFetchOnce(409, {
+      error: {
+        code: 'BAD_REQUEST_ERROR',
+        description: 'This idempotency key has already been used with a different request',
+      },
+    });
+    await expect(razorpayAdapter.createRefund({
+      keyId: 'rzp_test_key', keySecret: 'rzp_test_secret', providerPaymentId: 'pay_R1',
+      amountPaise: 100, receipt: 'pgr-9', idempotencyKey: 'pgr_test_0000000001',
+    })).rejects.toMatchObject({
+      code: 'PAYMENT_GATEWAY_REFUND_IDEMPOTENCY_CONFLICT',
+      statusCode: 409,
+    });
   });
 
   it('refuses to call the provider without credentials', async () => {

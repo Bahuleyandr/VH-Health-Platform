@@ -2010,7 +2010,7 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 
 async function settleRefundPaid(refundId, {
   paid_by, reference, tenantId, payoutRail, gatewayRefundId = null,
-  providerRefundId = null,
+  providerRefundId = null, recoveryClaimToken = null,
 }) {
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
@@ -2019,13 +2019,16 @@ async function settleRefundPaid(refundId, {
         `SELECT id
            FROM payment_gateway_refunds
           WHERE id = $1::int
-            AND tenant_id = $2::uuid
-            AND billing_refund_id = $3::int
-            AND status IN ('initiated', 'pending', 'requires_reconciliation')
-            AND reconciled_at IS NULL
-            AND (provider_refund_id IS NULL OR provider_refund_id = $4)
+             AND tenant_id = $2::uuid
+             AND billing_refund_id = $3::int
+             AND status IN ('initiated', 'pending', 'failed', 'requires_reconciliation')
+             AND (provider_refund_id IS NULL OR provider_refund_id = $4)
+            AND ($5::uuid IS NULL OR (
+              recovery_claim_token = $5::uuid AND recovery_state = 'claimed'
+            ))
           FOR UPDATE`,
         gatewayRefundId, requireTenantId(tenantId), Number(refundId), providerRefundId,
+        recoveryClaimToken,
       );
       if (!evidenceRows.length) {
         throw AppError.conflict(
@@ -2035,10 +2038,51 @@ async function settleRefundPaid(refundId, {
       }
       await tx.$executeRawUnsafe(
         `UPDATE payment_gateway_refunds
-            SET provider_refund_id = COALESCE(provider_refund_id, $1),
+            SET status = 'processed',
+                provider_refund_id = COALESCE(provider_refund_id, $1),
+                processed_at = COALESCE(processed_at, NOW()),
+                failed_at = NULL,
+                failure_code = NULL,
+                failure_reason = NULL,
+                metadata = CASE
+                  WHEN reconciliation_disposition IS NULL AND reconciled_at IS NULL
+                    THEN metadata
+                  ELSE jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{provider_evidence_superseded_reconciliations}',
+                    (
+                      CASE
+                        WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
+                          THEN metadata->'provider_evidence_superseded_reconciliations'
+                        ELSE '[]'::jsonb
+                      END
+                    ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                      'reconciled_at', reconciled_at,
+                      'reconciled_by', reconciled_by,
+                      'disposition', reconciliation_disposition,
+                      'evidence', reconciliation_evidence,
+                      'reviewed_by', reconciliation_reviewed_by,
+                      'reviewed_at', reconciliation_reviewed_at,
+                      'superseded_by', 'exact_provider_processed_evidence'
+                    ))),
+                    true
+                  )
+                END,
+                reconciled_at = NULL,
+                reconciliation_note = NULL,
+                reconciled_by = NULL,
+                reconciliation_disposition = NULL,
+                reconciliation_evidence = NULL,
+                reconciliation_reviewed_by = NULL,
+                reconciliation_reviewed_at = NULL,
                 updated_at = NOW()
-          WHERE id = $2::int AND tenant_id = $3::uuid`,
+          WHERE id = $2::int AND tenant_id = $3::uuid
+            AND status IN ('initiated', 'pending', 'processed', 'failed', 'requires_reconciliation')
+            AND ($4::uuid IS NULL OR (
+              recovery_claim_token = $4::uuid AND recovery_state = 'claimed'
+            ))`,
         providerRefundId, gatewayRefundId, requireTenantId(tenantId),
+        recoveryClaimToken,
       );
     }
 
@@ -2051,6 +2095,7 @@ async function settleRefundPaid(refundId, {
       Number(refundId),
       payoutRail,
       gatewayRefundId,
+      recoveryClaimToken,
     ];
     const tenantSql = appendTenantPredicate(params, tenantId);
     const rows = await tx.$queryRawUnsafe(
@@ -2062,6 +2107,17 @@ async function settleRefundPaid(refundId, {
               gateway_refund_id = CASE WHEN $4 = 'gateway' THEN $5::int ELSE NULL END,
               updated_at = NOW()
         WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
+          AND (
+            $6::uuid IS NULL
+            OR EXISTS (
+              SELECT 1
+                FROM payment_gateway_refunds AS execution
+               WHERE execution.tenant_id = billing_refunds.tenant_id
+                 AND execution.id = $5::int
+                 AND execution.recovery_claim_token = $6::uuid
+                 AND execution.recovery_state = 'claimed'
+            )
+          )
           AND (
             (
               $4 = 'manual'
@@ -2182,7 +2238,7 @@ export async function markRefundPaid(refundId, {
 }
 
 export async function markGatewayRefundPaid(refundId, {
-  tenantId, gateway_refund_id, provider_refund_id,
+  tenantId, gateway_refund_id, provider_refund_id, recovery_claim_token = null,
 } = {}) {
   const gatewayRefundId = Number(gateway_refund_id);
   const providerRefundId = String(provider_refund_id || '').trim();
@@ -2200,6 +2256,7 @@ export async function markGatewayRefundPaid(refundId, {
     payoutRail: 'gateway',
     gatewayRefundId,
     providerRefundId,
+    recoveryClaimToken: recovery_claim_token,
   });
 }
 

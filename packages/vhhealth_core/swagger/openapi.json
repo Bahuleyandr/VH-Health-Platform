@@ -37369,6 +37369,150 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "reconciliation_disposition": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "provider_processed",
+              "provider_failed",
+              "provider_pending",
+              "provider_status_unknown"
+            ],
+            "description": "Latest structured manual review outcome. Processed, pending, unknown, and provider_failed without an exact validated provider refund id remain open until trusted provider evidence resolves the leg."
+          },
+          "reconciliation_evidence": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "reference",
+              "observed_at",
+              "provider_status"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "provider_dashboard",
+                  "provider_support",
+                  "bank_statement",
+                  "other_authoritative"
+                ]
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 6,
+                "maxLength": 255
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "provider_status": {
+                "type": "string",
+                "enum": [
+                  "processed",
+                  "failed",
+                  "pending",
+                  "unknown"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "nullable": true,
+                "maxLength": 500
+              }
+            },
+            "description": "Operator-supplied review evidence. It never represents trusted provider-adapter success evidence."
+          },
+          "reconciliation_reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Authenticated same-tenant administrator who recorded the latest structured review."
+          },
+          "reconciliation_reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "provider_request_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Database-derived identity of the exact provider retry authority. The provider idempotency key itself is never returned."
+          },
+          "recovery_state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "claimed",
+              "provider_pending",
+              "retry_wait",
+              "blocked_authority",
+              "succeeded",
+              "failed",
+              "requires_reconciliation"
+            ]
+          },
+          "recovery_attempt_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recovery_next_attempt_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "recovery_last_attempt_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "provider_status_checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "recovery_last_error_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "recovery_last_error_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "recovery_terminal_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "recovery_task_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "recovery_task_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "recovery_task_owner_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "recovery_sla_instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recovery_sla_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "recovery_sla_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -37393,15 +37537,69 @@
       },
       "PaymentGatewayRefundReconcileRequest": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
-          "note"
+          "disposition",
+          "evidence"
         ],
         "properties": {
-          "note": {
+          "disposition": {
             "type": "string",
-            "minLength": 10,
-            "maxLength": 500,
-            "description": "What the operator verified or completed at the provider and in billing for this parked refund."
+            "enum": [
+              "provider_processed",
+              "provider_failed",
+              "provider_pending",
+              "provider_status_unknown"
+            ],
+            "description": "Structured review outcome. provider_processed, provider_pending, and provider_status_unknown remain open and pollable. provider_failed is terminal only when an exact validated provider refund id is already bound; otherwise it remains open and replacement-blocking. Processed and failed observations require an independent reviewer."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "reference",
+              "observed_at",
+              "provider_status"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "provider_dashboard",
+                  "provider_support",
+                  "bank_statement",
+                  "other_authoritative"
+                ]
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 6,
+                "maxLength": 255,
+                "description": "Durable provider, support, or statement reference for the review evidence."
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the evidence was observed. It must not be later than server acceptance time; no future clock skew is accepted."
+              },
+              "provider_status": {
+                "type": "string",
+                "enum": [
+                  "processed",
+                  "failed",
+                  "pending",
+                  "unknown"
+                ],
+                "description": "Must match disposition: provider_processed=processed, provider_failed=failed, provider_pending=pending, provider_status_unknown=unknown."
+              },
+              "notes": {
+                "type": "string",
+                "nullable": true,
+                "maxLength": 500,
+                "description": "Optional context; never a substitute for the structured evidence fields."
+              }
+            }
           }
         }
       },
@@ -37428,6 +37626,25 @@
         }
       },
       "PaymentGatewayRefundReconciliationListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentGatewayRefundReconciliationList"
+          }
+        }
+      },
+      "PaymentGatewayRefundRecoveryListResponse": {
         "type": "object",
         "required": [
           "success",
@@ -82420,7 +82637,7 @@
             }
           }
         },
-        "description": "Admin upsert of the per-tenant provider config (one row per provider+environment; at most one enabled per tenant). key_secret / webhook_secret are write-only and stored as encryptField() ciphertext; enabling a non-dry_run provider without credentials is rejected. The webhook routing token is minted once and stays stable.",
+        "description": "Admin upsert of the per-tenant provider config (one row per provider+environment; at most one enabled per tenant). key_secret / webhook_secret are write-only and stored as encryptField() ciphertext; enabling a non-dry_run provider without credentials is rejected. Enabling the exact config atomically requeues matching authority-blocked refund recoveries with their audit/outbox transition; if that transition cannot persist, config enablement rolls back. The webhook routing token is minted once and stays stable.",
         "security": [
           {
             "ApiKeyAuth": [],
@@ -82932,6 +83149,129 @@
             "ApiKeyAuth": [],
             "BearerAuth": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "include_resolved",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Include terminal operator-reviewed provider_failed history."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/billing/gateway/refund-recovery": {
+      "get": {
+        "operationId": "get_api_v1_billing_gateway_refund_recovery",
+        "tags": [
+          "payment-gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayRefundRecoveryListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "API-key and bearer authentication are required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Finance, cashier, or administrator refund authority is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The refund recovery queue could not be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Finance/cashier/admin provider-confirmation queue for unresolved gateway refund executions. Each unresolved leg exposes its durable retry projection, operator task, and SLA state while keeping provider idempotency credentials write-only. include_terminal=true includes provider-confirmed history. A provider refund id is correlation only and never means success.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "include_terminal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Include provider-confirmed terminal recovery projections."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
         ]
       }
     },
@@ -83084,7 +83424,7 @@
             }
           },
           "400": {
-            "description": "The reconciliation note was missing or outside 10-500 characters.",
+            "description": "The disposition or structured evidence was missing, invalid, future-dated, or internally inconsistent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -83104,7 +83444,7 @@
             }
           },
           "403": {
-            "description": "Administrator authority or a same-tenant reconciliation actor was not verified.",
+            "description": "Administrator authority, same-tenant identity, or the independent-reviewer policy was not satisfied.",
             "content": {
               "application/json": {
                 "schema": {
@@ -83124,7 +83464,7 @@
             }
           },
           "409": {
-            "description": "The refund is not awaiting reconciliation or was already reconciled.",
+            "description": "The refund is not awaiting reconciliation, its exact terminal provider id is unavailable, a provider recovery lease is live, or it was already reconciled.",
             "content": {
               "application/json": {
                 "schema": {
@@ -83134,7 +83474,7 @@
             }
           },
           "500": {
-            "description": "The reconciliation stamp or its audit evidence could not be persisted.",
+            "description": "The structured reconciliation review or its audit evidence could not be persisted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -83144,7 +83484,7 @@
             }
           }
         },
-        "description": "Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing. If exact processed provider evidence arrives later, the stamp is preserved in metadata before the trusted billing settlement path supersedes it.",
+        "description": "Admin structured review for a requires_reconciliation provider refund. provider_processed, provider_pending, and provider_status_unknown record attributed evidence while keeping the recovery task/SLA open and the refund pollable. A processed observation requires an independent reviewer but cannot settle billing or close the obligation. provider_failed becomes a terminal manual closure only when the execution is already bound to an exact validated provider_refund_id; without that identifier it remains open and replacement-blocking so late processed evidence can still correlate. Terminal failure requires a reviewer independent of the refund raiser, approver, and provider initiator. Only exact evidence obtained through the trusted provider adapter may project financial success.",
         "security": [
           {
             "ApiKeyAuth": [],
@@ -83157,7 +83497,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1
             }
           }
         ],
@@ -83171,6 +83512,136 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/billing/gateway/refunds/{id}/recover": {
+      "post": {
+        "operationId": "post_api_v1_billing_gateway_refunds_by_id_recover",
+        "tags": [
+          "payment-gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayRefundResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The refund id or Idempotency-Key was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "API-key and bearer authentication are required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Recovery is not activated, provider authority is unavailable, or the caller lacks refund authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The refund is already leased or its durable request identity/status conflicts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different recovery request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The recovery attempt could not be persisted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The provider status endpoint did not return usable evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The recovery task/SLA authority is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentGatewayErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests one fenced recovery attempt for the exact durable gateway refund. Default OFF behind PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED=true and still requires the existing deployment, tenant, exact provider-config, and credential gates. A missing provider id replays only the original provider request identity; otherwise recovery polls the authoritative provider GET refund endpoint. Only exact status=processed evidence may settle billing; exact status=failed evidence projects terminal failure. Both terminal provider outcomes close the task/SLA, while pending, mismatched, missing-authority, and exhausted outcomes remain explicit and unresolved. Idempotency-Key required (scope payment_gateway_refund_recovery).",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            },
+            "description": "Required durable request identity. Reuse is valid only for the exact same actor, scope, path, and body."
+          }
+        ]
       }
     },
     "/api/v1/billing/gst/einvoices": {
