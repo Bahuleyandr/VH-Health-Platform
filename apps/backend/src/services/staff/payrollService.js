@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, getKeyId } from '../../utils/fieldEncryption.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { generatePayslipPDF } from '../../utils/payslipPDF.js';
@@ -2948,251 +2949,285 @@ export async function editPayslipAndRegenerate({
  * FEATURE 1: Generate annual tax summary for a staff member for a financial year.
  * Financial year in India: April to March. E.g., FY 2025-26 = Apr 2025 to Mar 2026.
  */
-export async function generateAnnualTaxSummary(staffUid, financialYear) {
+export async function generateAnnualTaxSummary(staffUid, financialYear, tenantId) {
+  const tid = requireTenantId(tenantId);
   const [startYearStr] = financialYear.split('-');
   const startYear = parseInt(startYearStr);
   const endYear = startYear + 1;
 
-  const payslips = await prisma.$queryRawUnsafe(`
-    SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, bonus_this_month, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
-    WHERE staff_uid = $1::uuid
+  return setTenantTx(tid, async (tx) => {
+    const payslips = await tx.$queryRawUnsafe(`
+    SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned,
+           da_earned, special_allowance_earned, transport_allowance_earned,
+           medical_allowance_earned, overtime_pay, bonus_this_month,
+           arrears_amount, gross_salary, pf_employee, esi_employee,
+           professional_tax, tds, advance_deduction, total_deductions,
+           net_salary, status, created_at
+    FROM payslips
+    WHERE tenant_id = $1::uuid
+      AND staff_uid = $2::uuid
       AND status IN ('issued','viewed','downloaded')
       AND (
-        (year = $2 AND month >= 4) OR
-        (year = $3 AND month <= 3)
+        (year = $3 AND month >= 4) OR
+        (year = $4 AND month <= 3)
       )
     ORDER BY year, month
-  `, staffUid, startYear, endYear);
+  `, tid, staffUid, startYear, endYear);
 
-  if (payslips.length === 0) {
-    throw new Error('No payslips found for this financial year');
-  }
-
-  const totals = payslips.reduce((acc, p) => {
-    acc.basic       += parseFloat(p.basic_earned || 0);
-    acc.hra         += parseFloat(p.hra_earned || 0);
-    acc.da          += parseFloat(p.da_earned || 0);
-    acc.special     += parseFloat(p.special_allowance_earned || 0);
-    acc.transport   += parseFloat(p.transport_allowance_earned || 0);
-    acc.medical     += parseFloat(p.medical_allowance_earned || 0);
-    acc.overtime    += parseFloat(p.overtime_pay || 0);
-    acc.bonus       += parseFloat(p.bonus_this_month || 0);
-    acc.arrears     += parseFloat(p.arrears_amount || 0);
-    acc.gross       += parseFloat(p.gross_salary || 0);
-    acc.pf          += parseFloat(p.pf_employee || 0);
-    acc.esi         += parseFloat(p.esi_employee || 0);
-    acc.pt          += parseFloat(p.professional_tax || 0);
-    acc.tds         += parseFloat(p.tds || 0);
-    acc.advances    += parseFloat(p.advance_deduction || 0);
-    acc.deductions  += parseFloat(p.total_deductions || 0);
-    acc.net         += parseFloat(p.net_salary || 0);
-    return acc;
-  }, {
-    basic:0, hra:0, da:0, special:0, transport:0, medical:0,
-    overtime:0, bonus:0, arrears:0, gross:0,
-    pf:0, esi:0, pt:0, tds:0, advances:0, deductions:0, net:0
-  });
-
-  // Taxable income = Gross - PF - PT - Standard deduction (₹50,000)
-  const standardDeduction = 50000;
-  const taxableIncome = Math.max(0, totals.gross - totals.pf - totals.pt - standardDeduction);
-
-  // New regime tax calculation (FY 2025-26 slabs)
-  let taxPayable = 0;
-  if (taxableIncome > 300000) {
-    const slabs = [
-      [300000, 700000, 0.05],
-      [700000, 1000000, 0.10],
-      [1000000, 1200000, 0.15],
-      [1200000, 1500000, 0.20],
-      [1500000, Infinity, 0.30],
-    ];
-    for (const [low, high, rate] of slabs) {
-      if (taxableIncome > low) {
-        taxPayable += (Math.min(taxableIncome, high) - low) * rate;
-      }
+    if (payslips.length === 0) {
+      throw new Error('No payslips found for this financial year');
     }
-    // 4% health and education cess
-    taxPayable *= 1.04;
-  }
 
-  const summary = {
-    staff_uid: staffUid,
-    financial_year: financialYear,
-    total_basic: Math.round(totals.basic * 100) / 100,
-    total_hra: Math.round(totals.hra * 100) / 100,
-    total_da: Math.round(totals.da * 100) / 100,
-    total_special_allowance: Math.round(totals.special * 100) / 100,
-    total_transport_allowance: Math.round(totals.transport * 100) / 100,
-    total_medical_allowance: Math.round(totals.medical * 100) / 100,
-    total_overtime: Math.round(totals.overtime * 100) / 100,
-    total_bonus: Math.round(totals.bonus * 100) / 100,
-    total_arrears: Math.round(totals.arrears * 100) / 100,
-    total_gross: Math.round(totals.gross * 100) / 100,
-    total_pf: Math.round(totals.pf * 100) / 100,
-    total_esi: Math.round(totals.esi * 100) / 100,
-    total_professional_tax: Math.round(totals.pt * 100) / 100,
-    total_tds: Math.round(totals.tds * 100) / 100,
-    total_advance_deductions: Math.round(totals.advances * 100) / 100,
-    total_deductions: Math.round(totals.deductions * 100) / 100,
-    total_net: Math.round(totals.net * 100) / 100,
-    taxable_income: Math.round(taxableIncome * 100) / 100,
-    tax_payable: Math.round(taxPayable * 100) / 100,
-    months_included: payslips.length,
-  };
+    const totals = payslips.reduce((acc, p) => {
+      acc.basic       += parseFloat(p.basic_earned || 0);
+      acc.hra         += parseFloat(p.hra_earned || 0);
+      acc.da          += parseFloat(p.da_earned || 0);
+      acc.special     += parseFloat(p.special_allowance_earned || 0);
+      acc.transport   += parseFloat(p.transport_allowance_earned || 0);
+      acc.medical     += parseFloat(p.medical_allowance_earned || 0);
+      acc.overtime    += parseFloat(p.overtime_pay || 0);
+      acc.bonus       += parseFloat(p.bonus_this_month || 0);
+      acc.arrears     += parseFloat(p.arrears_amount || 0);
+      acc.gross       += parseFloat(p.gross_salary || 0);
+      acc.pf          += parseFloat(p.pf_employee || 0);
+      acc.esi         += parseFloat(p.esi_employee || 0);
+      acc.pt          += parseFloat(p.professional_tax || 0);
+      acc.tds         += parseFloat(p.tds || 0);
+      acc.advances    += parseFloat(p.advance_deduction || 0);
+      acc.deductions  += parseFloat(p.total_deductions || 0);
+      acc.net         += parseFloat(p.net_salary || 0);
+      return acc;
+    }, {
+      basic:0, hra:0, da:0, special:0, transport:0, medical:0,
+      overtime:0, bonus:0, arrears:0, gross:0,
+      pf:0, esi:0, pt:0, tds:0, advances:0, deductions:0, net:0
+    });
 
-  const now = new Date();
-  const payload = {
-    total_basic: summary.total_basic,
-    total_hra: summary.total_hra,
-    total_da: summary.total_da,
-    total_special_allowance: summary.total_special_allowance,
-    total_transport_allowance: summary.total_transport_allowance,
-    total_medical_allowance: summary.total_medical_allowance,
-    total_overtime: summary.total_overtime,
-    total_bonus: summary.total_bonus,
-    total_arrears: summary.total_arrears,
-    total_gross: summary.total_gross,
-    total_pf: summary.total_pf,
-    total_esi: summary.total_esi,
-    total_professional_tax: summary.total_professional_tax,
-    total_tds: summary.total_tds,
-    total_advance_deductions: summary.total_advance_deductions,
-    total_deductions: summary.total_deductions,
-    total_net: summary.total_net,
-    taxable_income: summary.taxable_income,
-    tax_payable: summary.tax_payable,
-    months_included: summary.months_included,
-    generated_at: now,
-  };
+    // Taxable income = Gross - PF - PT - Standard deduction (₹50,000)
+    const standardDeduction = 50000;
+    const taxableIncome = Math.max(0, totals.gross - totals.pf - totals.pt - standardDeduction);
 
-  return prisma.annual_tax_summaries.upsert({
-    where: {
-      staff_uid_financial_year: {
-        staff_uid: summary.staff_uid,
-        financial_year: summary.financial_year,
-      },
-    },
-    create: {
-      staff_uid: summary.staff_uid,
-      financial_year: summary.financial_year,
-      ...payload,
-    },
-    update: {
-      ...payload,
-      updated_at: now,
-    },
-    select: {
-      id: true,
-      staff_uid: true,
-      financial_year: true,
-      total_basic: true,
-      total_hra: true,
-      total_da: true,
-      total_special_allowance: true,
-      total_transport_allowance: true,
-      total_medical_allowance: true,
-      total_overtime: true,
-      total_bonus: true,
-      total_arrears: true,
-      total_gross: true,
-      total_pf: true,
-      total_esi: true,
-      total_professional_tax: true,
-      total_tds: true,
-      total_advance_deductions: true,
-      total_deductions: true,
-      total_net: true,
-      taxable_income: true,
-      tax_payable: true,
-      months_included: true,
-      generated_at: true,
-      created_at: true,
-      updated_at: true,
-    },
+    // New regime tax calculation (FY 2025-26 slabs)
+    let taxPayable = 0;
+    if (taxableIncome > 300000) {
+      const slabs = [
+        [300000, 700000, 0.05],
+        [700000, 1000000, 0.10],
+        [1000000, 1200000, 0.15],
+        [1200000, 1500000, 0.20],
+        [1500000, Infinity, 0.30],
+      ];
+      for (const [low, high, rate] of slabs) {
+        if (taxableIncome > low) {
+          taxPayable += (Math.min(taxableIncome, high) - low) * rate;
+        }
+      }
+      // 4% health and education cess
+      taxPayable *= 1.04;
+    }
+
+    const summary = {
+      staff_uid: staffUid,
+      financial_year: financialYear,
+      total_basic: Math.round(totals.basic * 100) / 100,
+      total_hra: Math.round(totals.hra * 100) / 100,
+      total_da: Math.round(totals.da * 100) / 100,
+      total_special_allowance: Math.round(totals.special * 100) / 100,
+      total_transport_allowance: Math.round(totals.transport * 100) / 100,
+      total_medical_allowance: Math.round(totals.medical * 100) / 100,
+      total_overtime: Math.round(totals.overtime * 100) / 100,
+      total_bonus: Math.round(totals.bonus * 100) / 100,
+      total_arrears: Math.round(totals.arrears * 100) / 100,
+      total_gross: Math.round(totals.gross * 100) / 100,
+      total_pf: Math.round(totals.pf * 100) / 100,
+      total_esi: Math.round(totals.esi * 100) / 100,
+      total_professional_tax: Math.round(totals.pt * 100) / 100,
+      total_tds: Math.round(totals.tds * 100) / 100,
+      total_advance_deductions: Math.round(totals.advances * 100) / 100,
+      total_deductions: Math.round(totals.deductions * 100) / 100,
+      total_net: Math.round(totals.net * 100) / 100,
+      taxable_income: Math.round(taxableIncome * 100) / 100,
+      tax_payable: Math.round(taxPayable * 100) / 100,
+      months_included: payslips.length,
+    };
+
+    const rows = await tx.$queryRawUnsafe(`
+      INSERT INTO annual_tax_summaries (
+        tenant_id, staff_uid, financial_year, total_basic, total_hra, total_da,
+        total_special_allowance, total_transport_allowance,
+        total_medical_allowance, total_overtime, total_bonus, total_arrears,
+        total_gross, total_pf, total_esi, total_professional_tax, total_tds,
+        total_advance_deductions, total_deductions, total_net, taxable_income,
+        tax_payable, months_included, generated_at
+      ) VALUES (
+        $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+        clock_timestamp()
+      )
+      ON CONFLICT (staff_uid, financial_year) DO UPDATE SET
+        total_basic = EXCLUDED.total_basic,
+        total_hra = EXCLUDED.total_hra,
+        total_da = EXCLUDED.total_da,
+        total_special_allowance = EXCLUDED.total_special_allowance,
+        total_transport_allowance = EXCLUDED.total_transport_allowance,
+        total_medical_allowance = EXCLUDED.total_medical_allowance,
+        total_overtime = EXCLUDED.total_overtime,
+        total_bonus = EXCLUDED.total_bonus,
+        total_arrears = EXCLUDED.total_arrears,
+        total_gross = EXCLUDED.total_gross,
+        total_pf = EXCLUDED.total_pf,
+        total_esi = EXCLUDED.total_esi,
+        total_professional_tax = EXCLUDED.total_professional_tax,
+        total_tds = EXCLUDED.total_tds,
+        total_advance_deductions = EXCLUDED.total_advance_deductions,
+        total_deductions = EXCLUDED.total_deductions,
+        total_net = EXCLUDED.total_net,
+        taxable_income = EXCLUDED.taxable_income,
+        tax_payable = EXCLUDED.tax_payable,
+        months_included = EXCLUDED.months_included,
+        generated_at = EXCLUDED.generated_at,
+        updated_at = clock_timestamp()
+      WHERE annual_tax_summaries.tenant_id = EXCLUDED.tenant_id
+      RETURNING id, staff_uid, financial_year, total_basic, total_hra, total_da,
+                total_special_allowance, total_transport_allowance,
+                total_medical_allowance, total_overtime, total_bonus,
+                total_arrears, total_gross, total_pf, total_esi,
+                total_professional_tax, total_tds, total_advance_deductions,
+                total_deductions, total_net, taxable_income, tax_payable,
+                months_included, generated_at, created_at, updated_at
+    `,
+    tid, summary.staff_uid, summary.financial_year, summary.total_basic,
+    summary.total_hra, summary.total_da, summary.total_special_allowance,
+    summary.total_transport_allowance, summary.total_medical_allowance,
+    summary.total_overtime, summary.total_bonus, summary.total_arrears,
+    summary.total_gross, summary.total_pf, summary.total_esi,
+    summary.total_professional_tax, summary.total_tds,
+    summary.total_advance_deductions, summary.total_deductions,
+    summary.total_net, summary.taxable_income, summary.tax_payable,
+    summary.months_included);
+    if (rows.length !== 1) {
+      throw AppError.conflict(
+        'Annual tax summary could not be stored for this tenant',
+        'ANNUAL_TAX_SUMMARY_TENANT_CONFLICT',
+      );
+    }
+    return rows[0];
+  }, {
+    maxWait: 10000,
+    timeout: 30000,
   });
 }
 
 /**
  * FEATURE 4: Calculate arrears when a salary revision is backdated.
  */
-export async function calculateArrears(revisionId) {
-  const revision = await prisma.$queryRawUnsafe(
-    "SELECT id, staff_uid, revision_type, current_basic, proposed_basic, current_gross, proposed_gross, effective_from, applied_at, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
-    revisionId
-  );
-  if (revision.length === 0) throw new Error('Revision not found or not applied');
-
-  const r = revision[0];
-  if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
-
-  const effectiveDate = new Date(r.effective_from);
-  const now = new Date();
-
-  // Check if revision was applied after effective_from (backdated)
-  if (effectiveDate >= new Date(r.applied_at || now)) {
-    return { arrears_amount: 0, message: 'No backdated arrears — revision applied before or on effective date' };
+export async function calculateArrears(revisionId, tenantId) {
+  const tid = requireTenantId(tenantId);
+  const revisionIdentity = Number(revisionId);
+  if (!Number.isInteger(revisionIdentity) || revisionIdentity <= 0) {
+    throw new Error('revisionId must be a positive integer');
   }
 
-  // Months where old salary was paid but new salary should have applied
-  const arrearMonths = [];
-  const d = new Date(effectiveDate);
-  d.setDate(1);
-  const appliedMonth = new Date(r.applied_at || now);
-  appliedMonth.setDate(1);
-
-  while (d < appliedMonth) {
-    arrearMonths.push({ month: d.getMonth() + 1, year: d.getFullYear() });
-    d.setMonth(d.getMonth() + 1);
-  }
-
-  if (arrearMonths.length === 0) return { arrears_amount: 0, message: 'No arrear months found' };
-
-  const diffBasic = parseFloat(r.proposed_basic) - parseFloat(r.current_basic);
-  let totalArrears = 0;
-
-  for (const { month, year } of arrearMonths) {
-    const payslip = await prisma.$queryRawUnsafe(
-      'SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, days_present, total_working_days, created_at FROM payslips WHERE staff_uid=$1::uuid AND month=$2 AND year=$3',
-      r.staff_uid, month, year
+  return setTenantTx(tid, async (tx) => {
+    const revision = await tx.$queryRawUnsafe(
+      `SELECT id, staff_uid, revision_type, current_basic, proposed_basic,
+              current_gross, proposed_gross, effective_from, applied_at,
+              status, created_at
+         FROM salary_revisions
+        WHERE tenant_id = $1::uuid AND id = $2 AND status = 'applied'`,
+      tid,
+      revisionIdentity
     );
-    if (payslip.length > 0) {
-      const p = payslip[0];
-      const attendanceFactor = p.days_present / (p.total_working_days || 26);
-      totalArrears += diffBasic * attendanceFactor;
-    } else {
-      totalArrears += diffBasic;
+    if (revision.length === 0) {
+      throw AppError.notFound(
+        'Revision not found or not applied',
+        'SALARY_REVISION_NOT_FOUND',
+      );
     }
-  }
 
-  const fromDate = arrearMonths[0];
-  const toDate = arrearMonths[arrearMonths.length - 1];
+    const r = revision[0];
+    if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
 
-  // salary_arrears has no unique constraint — the old `ON CONFLICT DO NOTHING`
-  // was a defensive no-op that never fired (autoincrement PK). Plain create.
-  const created = await prisma.salary_arrears.create({
-    data: {
-      staff_uid: r.staff_uid,
-      revision_id: revisionId,
-      from_month: fromDate.month,
-      from_year: fromDate.year,
-      to_month: toDate.month,
-      to_year: toDate.year,
-      arrears_amount: Math.round(totalArrears * 100) / 100,
-    },
-    select: {
-      id: true,
-      staff_uid: true,
-      revision_id: true,
-      from_month: true,
-      from_year: true,
-      to_month: true,
-      to_year: true,
-      arrears_amount: true,
-      status: true,
-      calculated_at: true,
-    },
+    const effectiveDate = new Date(r.effective_from);
+    const now = new Date();
+
+    // Check if revision was applied after effective_from (backdated)
+    if (effectiveDate >= new Date(r.applied_at || now)) {
+      return { arrears_amount: 0, message: 'No backdated arrears — revision applied before or on effective date' };
+    }
+
+    // Months where old salary was paid but new salary should have applied
+    const arrearMonths = [];
+    const d = new Date(effectiveDate);
+    d.setDate(1);
+    const appliedMonth = new Date(r.applied_at || now);
+    appliedMonth.setDate(1);
+
+    while (d < appliedMonth) {
+      arrearMonths.push({ month: d.getMonth() + 1, year: d.getFullYear() });
+      d.setMonth(d.getMonth() + 1);
+    }
+
+    if (arrearMonths.length === 0) return { arrears_amount: 0, message: 'No arrear months found' };
+
+    const diffBasic = parseFloat(r.proposed_basic) - parseFloat(r.current_basic);
+    let totalArrears = 0;
+
+    for (const { month, year } of arrearMonths) {
+      const payslip = await tx.$queryRawUnsafe(
+        `SELECT id, staff_uid, month, year, payroll_run_id, basic_earned,
+                hra_earned, da_earned, special_allowance_earned,
+                transport_allowance_earned, medical_allowance_earned,
+                overtime_pay, gross_salary, pf_employee, esi_employee,
+                professional_tax, tds, total_deductions, net_salary, status,
+                days_present, total_working_days, created_at
+           FROM payslips
+          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
+            AND month = $3 AND year = $4`,
+        tid, r.staff_uid, month, year
+      );
+      if (payslip.length > 0) {
+        const p = payslip[0];
+        const attendanceFactor = p.days_present / (p.total_working_days || 26);
+        totalArrears += diffBasic * attendanceFactor;
+      } else {
+        totalArrears += diffBasic;
+      }
+    }
+
+    const fromDate = arrearMonths[0];
+    const toDate = arrearMonths[arrearMonths.length - 1];
+
+    // salary_arrears has no unique constraint — the old `ON CONFLICT DO NOTHING`
+    // was a defensive no-op that never fired (autoincrement PK). Plain create.
+    const created = await tx.salary_arrears.create({
+      data: {
+        tenant_id: tid,
+        staff_uid: r.staff_uid,
+        revision_id: revisionIdentity,
+        from_month: fromDate.month,
+        from_year: fromDate.year,
+        to_month: toDate.month,
+        to_year: toDate.year,
+        arrears_amount: Math.round(totalArrears * 100) / 100,
+      },
+      select: {
+        id: true,
+        staff_uid: true,
+        revision_id: true,
+        from_month: true,
+        from_year: true,
+        to_month: true,
+        to_year: true,
+        arrears_amount: true,
+        status: true,
+        calculated_at: true,
+      },
+    });
+
+    return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: created };
+  }, {
+    maxWait: 10000,
+    timeout: 30000,
   });
-
-  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: created };
 }

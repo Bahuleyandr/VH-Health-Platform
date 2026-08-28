@@ -204,8 +204,9 @@ describe('staff operational endpoint drift guards', () => {
     await getMyAdvances(req, res);
 
     expect(queryRawUnsafe).toHaveBeenCalledWith(
-      expect.stringContaining('WHERE sa.staff_uid = $1::uuid'),
-      staffUid
+      expect.stringContaining('WHERE sa.tenant_id = $2::uuid AND sa.staff_uid = $1::uuid'),
+      staffUid,
+      DEFAULT_TENANT_ID
     );
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -236,6 +237,7 @@ describe('staff operational endpoint drift guards', () => {
 
     expect(queryRawUnsafe).toHaveBeenCalledWith(
       expect.any(String),
+      DEFAULT_TENANT_ID,
       'approved'
     );
     expect(res.status).toHaveBeenCalledWith(200);
@@ -265,7 +267,17 @@ describe('staff operational endpoint drift guards', () => {
 
     await getMyTaxSummary(req, res);
 
-    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(staffUid, '2025-26');
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('tenant_id = $3::uuid'),
+      staffUid,
+      '2025-26',
+      DEFAULT_TENANT_ID
+    );
+    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(
+      staffUid,
+      '2025-26',
+      DEFAULT_TENANT_ID
+    );
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json.mock.calls[0][0]).toMatchObject({
       success: false,
