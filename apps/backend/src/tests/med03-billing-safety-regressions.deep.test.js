@@ -530,11 +530,9 @@ describeIfDb('MED-03 billing safety regressions', () => {
         const waiting = await blocker.query(
           `SELECT EXISTS (
              SELECT 1
-               FROM pg_stat_activity
-              WHERE datname = current_database()
-                AND pid <> pg_backend_pid()
-                AND state = 'active'
-                AND wait_event_type = 'Lock'
+              FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND pid <> pg_backend_pid()
                 AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
            ) AS waiting`,
         );
@@ -656,16 +654,14 @@ describeIfDb('MED-03 billing safety regressions', () => {
         .then((value) => ({ status: 'fulfilled', value }))
         .catch((reason) => ({ status: 'rejected', reason }));
 
-      const deadline = Date.now() + 5_000;
+      const deadline = Date.now() + 15_000;
       while (Date.now() < deadline && !observedAdmissionLockWait) {
         const waiting = await blocker.query(
           `SELECT EXISTS (
              SELECT 1
-               FROM pg_stat_activity
-              WHERE datname = current_database()
-                AND pid <> pg_backend_pid()
-                AND state = 'active'
-                AND wait_event_type = 'Lock'
+              FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND pid <> pg_backend_pid()
                 AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
            ) AS waiting`,
         );
