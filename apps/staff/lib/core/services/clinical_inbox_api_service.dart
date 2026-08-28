@@ -23,6 +23,16 @@ abstract class ClinicalInboxApi {
     required String idempotencyKey,
   });
 
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required String caseId,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+    required String idempotencyKey,
+  }) {
+    throw UnsupportedError('Medication exception handoff is not implemented');
+  }
+
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   );
@@ -116,6 +126,62 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
   }
 
   @override
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required String caseId,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    if (!_isCanonicalPositiveBigInt(caseId)) {
+      throw ArgumentError.value(
+        caseId,
+        'caseId',
+        'must be a positive signed-64 decimal',
+      );
+    }
+    if (!_uuidPattern.hasMatch(expectedPrescriberUid)) {
+      throw ArgumentError.value(
+        expectedPrescriberUid,
+        'expectedPrescriberUid',
+        'must be a UUID',
+      );
+    }
+    if (!_uuidPattern.hasMatch(targetPrescriberUid)) {
+      throw ArgumentError.value(
+        targetPrescriberUid,
+        'targetPrescriberUid',
+        'must be a UUID',
+      );
+    }
+    final normalizedReason = reason.trim();
+    if (normalizedReason.length < 5 || normalizedReason.length > 500) {
+      throw ArgumentError.value(
+        reason,
+        'reason',
+        'must be between 5 and 500 characters',
+      );
+    }
+    final resp = await ApiClient.post(
+      '/clinical/mar/exceptions/$caseId/handoff',
+      body: {
+        'expected_prescriber_uid': expectedPrescriberUid,
+        'target_prescriber_uid': targetPrescriberUid,
+        'reason': normalizedReason,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+    if (!resp.isSuccess) {
+      throw MarMedicationExceptionHandoffException(
+        message: resp.failureMessage('Could not reassign medication exception'),
+        statusCode: resp.statusCode,
+        code: resp.code,
+      );
+    }
+    return MarMedicationExceptionHandoffReceipt.fromJson(resp.dataAsMap());
+  }
+
+  @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) async {
@@ -170,6 +236,57 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
     }
     return DiagnosticActionReceipt.fromJson(resp.dataAsMap());
   }
+}
+
+class MarMedicationExceptionHandoffReceipt {
+  const MarMedicationExceptionHandoffReceipt({
+    required this.exceptionCaseId,
+    required this.taskId,
+    required this.assignmentHandoffEventId,
+    required this.fromPrescriberUid,
+    required this.assignedPrescriberUid,
+    required this.handedOffAt,
+    required this.replayed,
+  });
+
+  final String exceptionCaseId;
+  final String taskId;
+  final String assignmentHandoffEventId;
+  final String fromPrescriberUid;
+  final String assignedPrescriberUid;
+  final DateTime? handedOffAt;
+  final bool replayed;
+
+  factory MarMedicationExceptionHandoffReceipt.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return MarMedicationExceptionHandoffReceipt(
+      exceptionCaseId: _text(json['exception_case_id']),
+      taskId: _text(json['task_id']),
+      assignmentHandoffEventId: _text(json['assignment_handoff_event_id']),
+      fromPrescriberUid: _text(json['from_prescriber_uid']),
+      assignedPrescriberUid: _text(json['assigned_prescriber_uid']),
+      handedOffAt: _parseDate(json['handed_off_at']),
+      replayed: json['replayed'] == true,
+    );
+  }
+}
+
+class MarMedicationExceptionHandoffException implements Exception {
+  const MarMedicationExceptionHandoffException({
+    required this.message,
+    required this.statusCode,
+    this.code,
+  });
+
+  final String message;
+  final int statusCode;
+  final String? code;
+
+  bool get requiresRefresh => statusCode == 409;
+
+  @override
+  String toString() => message;
 }
 
 class DiagnosticActionCommand {

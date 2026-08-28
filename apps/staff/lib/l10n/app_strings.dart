@@ -4423,6 +4423,36 @@ class AppStrings {
       'clinical_inbox.transfer_accepted_recipient': 'Accepted recipient',
       'clinical_inbox.accepting_transfer': 'Accepting transfer...',
       'clinical_inbox.accept_inpatient_transfer': 'Accept inpatient transfer',
+      'clinical_inbox.mar_handoff.action': 'Reassign prescriber',
+      'clinical_inbox.mar_handoff.title': 'Reassign medication exception',
+      'clinical_inbox.mar_handoff.body': 'Choose an active prescriber who will own this open held or missed-dose review. The current owner must still match when you submit.',
+      'clinical_inbox.mar_handoff.case_id': 'Exception case ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'Current prescriber',
+      'clinical_inbox.mar_handoff.target_prescriber': 'New prescriber',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'Select an active prescriber',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'Active prescribers could not be loaded.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'No other active prescriber is available.',
+      'clinical_inbox.mar_handoff.reason': 'Clinical handoff reason',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'Explain why named ownership must change',
+      'clinical_inbox.mar_handoff.reason_required':
+          'Enter at least 5 characters',
+      'clinical_inbox.mar_handoff.confirmation': 'I confirm that the selected prescriber is active and has accepted or is authorized to receive this clinical review obligation.',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'Confirm the named-owner handoff before submitting.',
+      'clinical_inbox.mar_handoff.submit': 'Confirm reassignment',
+      'clinical_inbox.mar_handoff.submitting': 'Reassigning...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'Medication exception reassigned to the selected prescriber.',
+      'clinical_inbox.mar_handoff.failed':
+          'Could not reassign medication exception: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'Ownership changed while you were reviewing this task. The latest owner is shown; review and confirm again.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'This medication exception is no longer available for reassignment. The latest inbox state has been loaded.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'A connection is required to reassign this medication exception.',
       'clinical_inbox.tier_line': 'Tier {tier}: {action}',
       'clinical_inbox.group.overdue': 'Overdue',
       'clinical_inbox.group.critical': 'Critical',
@@ -11796,6 +11826,36 @@ class AppStrings {
           'स्थानांतरण स्वीकार किया जा रहा है...',
       'clinical_inbox.accept_inpatient_transfer':
           'इनपेशेंट स्थानांतरण स्वीकार करें',
+      'clinical_inbox.mar_handoff.action': 'प्रिस्क्राइबर पुनः सौंपें',
+      'clinical_inbox.mar_handoff.title': 'दवा अपवाद पुनः सौंपें',
+      'clinical_inbox.mar_handoff.body': 'उस सक्रिय प्रिस्क्राइबर को चुनें जो रोकी गई या छूटी खुराक की इस खुली समीक्षा की जिम्मेदारी लेगा। सबमिट करते समय वर्तमान जिम्मेदार का मिलान होना आवश्यक है।',
+      'clinical_inbox.mar_handoff.case_id': 'अपवाद केस ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'वर्तमान प्रिस्क्राइबर',
+      'clinical_inbox.mar_handoff.target_prescriber': 'नया प्रिस्क्राइबर',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'एक सक्रिय प्रिस्क्राइबर चुनें',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'सक्रिय प्रिस्क्राइबर लोड नहीं किए जा सके।',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'कोई अन्य सक्रिय प्रिस्क्राइबर उपलब्ध नहीं है।',
+      'clinical_inbox.mar_handoff.reason': 'क्लिनिकल हैंडऑफ का कारण',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'बताएं कि नामित जिम्मेदारी क्यों बदलनी है',
+      'clinical_inbox.mar_handoff.reason_required':
+          'कम से कम 5 अक्षर दर्ज करें',
+      'clinical_inbox.mar_handoff.confirmation': 'मैं पुष्टि करता/करती हूँ कि चुना गया प्रिस्क्राइबर सक्रिय है और उसने इस क्लिनिकल समीक्षा की जिम्मेदारी स्वीकार की है या इसे प्राप्त करने के लिए अधिकृत है।',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'सबमिट करने से पहले नामित जिम्मेदारी का हैंडऑफ पुष्टि करें।',
+      'clinical_inbox.mar_handoff.submit': 'पुनः सौंपना पुष्टि करें',
+      'clinical_inbox.mar_handoff.submitting': 'पुनः सौंपा जा रहा है...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'दवा अपवाद चुने गए प्रिस्क्राइबर को पुनः सौंप दिया गया।',
+      'clinical_inbox.mar_handoff.failed':
+          'दवा अपवाद पुनः नहीं सौंप सके: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'आपकी समीक्षा के दौरान जिम्मेदारी बदल गई। नवीनतम जिम्मेदार दिखाया गया है; फिर से समीक्षा और पुष्टि करें।',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'यह दवा अपवाद अब पुनः सौंपने के लिए उपलब्ध नहीं है। नवीनतम इनबॉक्स स्थिति लोड की गई है।',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'इस दवा अपवाद को पुनः सौंपने के लिए इंटरनेट कनेक्शन आवश्यक है।',
       'clinical_inbox.cross_sign.review': 'डिस्चार्ज परिणाम की समीक्षा करें',
       'clinical_inbox.cross_sign.title':
           'डिस्चार्ज के बाद के परिणाम पर सह-हस्ताक्षर',
@@ -19686,6 +19746,35 @@ class AppStrings {
       'clinical_inbox.accepting_transfer': 'மாற்றம் ஏற்கப்படுகிறது...',
       'clinical_inbox.accept_inpatient_transfer':
           'உள்நோயாளர் மாற்றத்தை ஏற்கவும்',
+      'clinical_inbox.mar_handoff.action': 'பரிந்துரைப்பவரை மறுஒதுக்கவும்',
+      'clinical_inbox.mar_handoff.title': 'மருந்து விதிவிலக்கை மறுஒதுக்கவும்',
+      'clinical_inbox.mar_handoff.body': 'நிறுத்தப்பட்ட அல்லது தவறிய டோஸ் மதிப்பாய்வை ஏற்கும் செயலில் உள்ள பரிந்துரைப்பவரைத் தேர்ந்தெடுக்கவும். சமர்ப்பிக்கும் போது தற்போதைய பொறுப்பாளர் பொருந்த வேண்டும்.',
+      'clinical_inbox.mar_handoff.case_id': 'விதிவிலக்கு வழக்கு ID',
+      'clinical_inbox.mar_handoff.current_prescriber':
+          'தற்போதைய பரிந்துரைப்பவர்',
+      'clinical_inbox.mar_handoff.target_prescriber': 'புதிய பரிந்துரைப்பவர்',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'செயலில் உள்ள பரிந்துரைப்பவரைத் தேர்ந்தெடுக்கவும்',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'செயலில் உள்ள பரிந்துரைப்பவர்களை ஏற்ற முடியவில்லை.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'வேறு செயலில் உள்ள பரிந்துரைப்பவர் இல்லை.',
+      'clinical_inbox.mar_handoff.reason': 'மருத்துவ ஒப்படைப்பு காரணம்',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'பெயரிடப்பட்ட பொறுப்பு ஏன் மாற வேண்டும் என்பதை விளக்கவும்',
+      'clinical_inbox.mar_handoff.reason_required':
+          'குறைந்தது 5 எழுத்துகளை உள்ளிடவும்',
+      'clinical_inbox.mar_handoff.confirmation': 'தேர்ந்தெடுக்கப்பட்ட பரிந்துரைப்பவர் செயலில் உள்ளார் என்றும் இந்த மருத்துவ மதிப்பாய்வுப் பொறுப்பை ஏற்றுள்ளார் அல்லது பெற அதிகாரம் உள்ளவர் என்றும் உறுதிப்படுத்துகிறேன்.',
+      'clinical_inbox.mar_handoff.confirmation_required': 'சமர்ப்பிக்கும் முன் பெயரிடப்பட்ட பொறுப்பு ஒப்படைப்பை உறுதிப்படுத்தவும்.',
+      'clinical_inbox.mar_handoff.submit': 'மறுஒதுக்கீட்டை உறுதிப்படுத்தவும்',
+      'clinical_inbox.mar_handoff.submitting': 'மறுஒதுக்கப்படுகிறது...',
+      'clinical_inbox.mar_handoff.succeeded': 'மருந்து விதிவிலக்கு தேர்ந்தெடுக்கப்பட்ட பரிந்துரைப்பவருக்கு மறுஒதுக்கப்பட்டது.',
+      'clinical_inbox.mar_handoff.failed':
+          'மருந்து விதிவிலக்கை மறுஒதுக்க முடியவில்லை: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'நீங்கள் மதிப்பாய்வு செய்தபோது பொறுப்பு மாறியது. சமீபத்திய பொறுப்பாளர் காட்டப்படுகிறார்; மீண்டும் மதிப்பாய்வு செய்து உறுதிப்படுத்தவும்.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'இந்த மருந்து விதிவிலக்கு இனி மறுஒதுக்க கிடைக்கவில்லை. சமீபத்திய இன்பாக்ஸ் நிலை ஏற்றப்பட்டது.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'இந்த மருந்து விதிவிலக்கை மறுஒதுக்க இணைய இணைப்பு தேவை.',
       'clinical_inbox.cross_sign.review': 'டிஸ்சார்ஜ் முடிவை மதிப்பாய்வு செய்',
       'clinical_inbox.cross_sign.title':
           'டிஸ்சார்ஜுக்குப் பிந்தைய முடிவில் இணைக் கையொப்பம்',
@@ -28199,6 +28288,37 @@ class AppStrings {
       'clinical_inbox.accepting_transfer': 'బదిలీని అంగీకరిస్తోంది...',
       'clinical_inbox.accept_inpatient_transfer':
           'ఇన్‌పేషెంట్ బదిలీని అంగీకరించండి',
+      'clinical_inbox.mar_handoff.action': 'ప్రిస్క్రైబర్‌ను మళ్లీ కేటాయించండి',
+      'clinical_inbox.mar_handoff.title':
+          'మందుల మినహాయింపును మళ్లీ కేటాయించండి',
+      'clinical_inbox.mar_handoff.body': 'నిలిపిన లేదా మిస్ అయిన డోస్ సమీక్ష బాధ్యత తీసుకునే క్రియాశీల ప్రిస్క్రైబర్‌ను ఎంచుకోండి. సమర్పించేటప్పుడు ప్రస్తుత బాధ్యుడు సరిపోలాలి.',
+      'clinical_inbox.mar_handoff.case_id': 'మినహాయింపు కేసు ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'ప్రస్తుత ప్రిస్క్రైబర్',
+      'clinical_inbox.mar_handoff.target_prescriber': 'కొత్త ప్రిస్క్రైబర్',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'క్రియాశీల ప్రిస్క్రైబర్‌ను ఎంచుకోండి',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'క్రియాశీల ప్రిస్క్రైబర్‌లను లోడ్ చేయలేకపోయాము.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'మరొక క్రియాశీల ప్రిస్క్రైబర్ అందుబాటులో లేరు.',
+      'clinical_inbox.mar_handoff.reason': 'క్లినికల్ హ్యాండాఫ్ కారణం',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'పేరు పెట్టిన బాధ్యత ఎందుకు మారాలో వివరించండి',
+      'clinical_inbox.mar_handoff.reason_required':
+          'కనీసం 5 అక్షరాలు నమోదు చేయండి',
+      'clinical_inbox.mar_handoff.confirmation': 'ఎంచుకున్న ప్రిస్క్రైబర్ క్రియాశీలంగా ఉన్నారని మరియు ఈ క్లినికల్ సమీక్ష బాధ్యతను అంగీకరించారని లేదా స్వీకరించడానికి అధికారం ఉందని నేను నిర్ధారిస్తున్నాను.',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'సమర్పించే ముందు పేరు పెట్టిన బాధ్యత హ్యాండాఫ్‌ను నిర్ధారించండి.',
+      'clinical_inbox.mar_handoff.submit': 'మళ్లీ కేటాయింపును నిర్ధారించండి',
+      'clinical_inbox.mar_handoff.submitting': 'మళ్లీ కేటాయిస్తోంది...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'మందుల మినహాయింపు ఎంచుకున్న ప్రిస్క్రైబర్‌కు మళ్లీ కేటాయించబడింది.',
+      'clinical_inbox.mar_handoff.failed':
+          'మందుల మినహాయింపును మళ్లీ కేటాయించలేకపోయాము: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'మీ సమీక్షలో ఉన్నప్పుడు బాధ్యత మారింది. తాజా బాధ్యుడు చూపబడ్డారు; మళ్లీ సమీక్షించి నిర్ధారించండి.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'ఈ మందుల మినహాయింపు ఇక మళ్లీ కేటాయించడానికి అందుబాటులో లేదు. తాజా ఇన్‌బాక్స్ స్థితి లోడ్ చేయబడింది.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'ఈ మందుల మినహాయింపును మళ్లీ కేటాయించడానికి కనెక్షన్ అవసరం.',
       'clinical_inbox.cross_sign.review': 'డిశ్చార్జ్ ఫలితాన్ని సమీక్షించండి',
       'clinical_inbox.cross_sign.title': 'డిశ్చార్జ్ అనంతర ఫలితంపై సహ సంతకం',
       'clinical_inbox.cross_sign.generation_id': 'ఖచ్చితమైన జనరేషన్ ID',
@@ -35989,6 +36109,35 @@ class AppStrings {
       'clinical_inbox.open_workflow': 'വർക്ക്‌ഫ്ലോ തുറക്കുക',
       'clinical_inbox.workflow_link_unavailable':
           'ഈ ടാസ്കിൽ സുരക്ഷിതവും പ്രവർത്തനക്ഷമവുമായ വർക്ക്‌ഫ്ലോ ലിങ്ക് ഇല്ല.',
+      'clinical_inbox.mar_handoff.action': 'പ്രിസ്ക്രൈബറെ പുനഃനിയോഗിക്കുക',
+      'clinical_inbox.mar_handoff.title': 'മരുന്ന് അപവാദം പുനഃനിയോഗിക്കുക',
+      'clinical_inbox.mar_handoff.body': 'ഹോൾഡ് ചെയ്തതോ നഷ്ടമായതോ ആയ ഡോസ് അവലോകനത്തിന്റെ ഉത്തരവാദിത്വം ഏറ്റെടുക്കുന്ന സജീവ പ്രിസ്ക്രൈബറെ തിരഞ്ഞെടുക്കുക. സമർപ്പിക്കുമ്പോൾ നിലവിലെ ഉടമ പൊരുത്തപ്പെടണം.',
+      'clinical_inbox.mar_handoff.case_id': 'അപവാദ കേസ് ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'നിലവിലെ പ്രിസ്ക്രൈബർ',
+      'clinical_inbox.mar_handoff.target_prescriber': 'പുതിയ പ്രിസ്ക്രൈബർ',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'സജീവ പ്രിസ്ക്രൈബറെ തിരഞ്ഞെടുക്കുക',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'സജീവ പ്രിസ്ക്രൈബർമാരെ ലോഡ് ചെയ്യാനായില്ല.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'മറ്റൊരു സജീവ പ്രിസ്ക്രൈബർ ലഭ്യമല്ല.',
+      'clinical_inbox.mar_handoff.reason': 'ക്ലിനിക്കൽ കൈമാറ്റ കാരണം',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'പേരിട്ട ഉത്തരവാദിത്വം മാറ്റേണ്ടതിന്റെ കാരണം വിശദീകരിക്കുക',
+      'clinical_inbox.mar_handoff.reason_required':
+          'കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ നൽകുക',
+      'clinical_inbox.mar_handoff.confirmation': 'തിരഞ്ഞെടുത്ത പ്രിസ്ക്രൈബർ സജീവമാണെന്നും ഈ ക്ലിനിക്കൽ അവലോകന ഉത്തരവാദിത്വം സ്വീകരിച്ചിട്ടുണ്ടെന്നും അല്ലെങ്കിൽ സ്വീകരിക്കാൻ അധികാരമുള്ളയാളാണെന്നും ഞാൻ സ്ഥിരീകരിക്കുന്നു.',
+      'clinical_inbox.mar_handoff.confirmation_required': 'സമർപ്പിക്കുന്നതിന് മുമ്പ് പേരിട്ട ഉത്തരവാദിത്വ കൈമാറ്റം സ്ഥിരീകരിക്കുക.',
+      'clinical_inbox.mar_handoff.submit': 'പുനഃനിയോഗം സ്ഥിരീകരിക്കുക',
+      'clinical_inbox.mar_handoff.submitting': 'പുനഃനിയോഗിക്കുന്നു...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'മരുന്ന് അപവാദം തിരഞ്ഞെടുത്ത പ്രിസ്ക്രൈബർക്ക് പുനഃനിയോഗിച്ചു.',
+      'clinical_inbox.mar_handoff.failed':
+          'മരുന്ന് അപവാദം പുനഃനിയോഗിക്കാനായില്ല: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'നിങ്ങൾ അവലോകനം ചെയ്യുന്നതിനിടെ ഉത്തരവാദിത്വം മാറി. ഏറ്റവും പുതിയ ഉടമയെ കാണിച്ചിരിക്കുന്നു; വീണ്ടും പരിശോധിച്ച് സ്ഥിരീകരിക്കുക.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'ഈ മരുന്ന് അപവാദം ഇനി പുനഃനിയോഗിക്കാൻ ലഭ്യമല്ല. ഏറ്റവും പുതിയ ഇൻബോക്സ് നില ലോഡ് ചെയ്തു.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'ഈ മരുന്ന് അപവാദം പുനഃനിയോഗിക്കാൻ കണക്ഷൻ ആവശ്യമാണ്.',
       'ward_indent.controlled.ambiguous_recovery': 'നിയന്ത്രിത മരുന്ന് തെളിവിന് ഒന്നിലധികം സാധ്യതാ രേഖകളുണ്ട്. സൂപ്പർവൈസർ റീകൺസിലിയേഷൻ വരെ കൈമാറ്റം തടഞ്ഞിരിക്കുന്നു.',
       'ward_indent.controlled.label': 'നിയന്ത്രിതം',
       'ward_indent.controlled.no_inventory_link': '{item} എന്നതിനോട് ഇൻവെന്ററി ഇനം ബന്ധിപ്പിച്ചിട്ടില്ല. വിതരണം ചെയ്യുന്നതിന് മുമ്പ് കാറ്റലോഗ്-ഇൻവെന്ററി രേഖകൾ ബന്ധിപ്പിക്കുക.',

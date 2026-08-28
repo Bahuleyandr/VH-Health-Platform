@@ -339,6 +339,65 @@ void main() {
     },
   );
 
+  test(
+    'hands off a MAR exception with exact ownership and caller command key',
+    () async {
+      late http.Request captured;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'exception_case_id': '73',
+                'task_id': 83,
+                'assignment_handoff_event_id': '91',
+                'from_prescriber_uid': '11111111-1111-4111-8111-111111111111',
+                'assigned_prescriber_uid':
+                    '22222222-2222-4222-8222-222222222222',
+                'handed_off_at': '2026-08-28T10:00:00.000Z',
+                'replayed': false,
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final receipt = await ClinicalInboxApiService.instance
+          .handoffMarMedicationException(
+            caseId: '73',
+            expectedPrescriberUid: '11111111-1111-4111-8111-111111111111',
+            targetPrescriberUid: '22222222-2222-4222-8222-222222222222',
+            reason: '  On-call ownership changed.  ',
+            idempotencyKey: 'mar-exception-handoff:73:test',
+          );
+
+      expect(captured.method, 'POST');
+      expect(
+        captured.url.path,
+        endsWith('/clinical/mar/exceptions/73/handoff'),
+      );
+      expect(
+        captured.headers['idempotency-key'],
+        'mar-exception-handoff:73:test',
+      );
+      expect(jsonDecode(captured.body), {
+        'expected_prescriber_uid': '11111111-1111-4111-8111-111111111111',
+        'target_prescriber_uid': '22222222-2222-4222-8222-222222222222',
+        'reason': 'On-call ownership changed.',
+      });
+      expect(receipt.exceptionCaseId, '73');
+      expect(receipt.taskId, '83');
+      expect(
+        receipt.assignedPrescriberUid,
+        '22222222-2222-4222-8222-222222222222',
+      );
+    },
+  );
+
   test('records an explicitly attested diagnostic action', () async {
     final snapshotHash = List.filled(64, 'a').join();
     VHHttpClient.setClientForTesting(
