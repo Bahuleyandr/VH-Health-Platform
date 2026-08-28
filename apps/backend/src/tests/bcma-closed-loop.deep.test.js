@@ -110,6 +110,68 @@ async function cleanup() {
       DOCTOR_UID,
       PHARMACIST_UID,
     ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND payload->>'exception_case_id' IN (
+            SELECT exception_case.id::text
+              FROM mar_medication_exception_cases exception_case
+              JOIN medication_administrations administration
+                ON administration.tenant_id = exception_case.tenant_id
+               AND administration.id = exception_case.medication_administration_id
+             WHERE exception_case.tenant_id = $1::uuid
+               AND administration.medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM mar_medication_exception_events
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id IN (
+            SELECT id FROM medication_administrations
+             WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'mar_medication_exception_cases'
+          AND source_id IN (
+            SELECT exception_case.id::text
+              FROM mar_medication_exception_cases exception_case
+              JOIN medication_administrations administration
+                ON administration.tenant_id = exception_case.tenant_id
+               AND administration.id = exception_case.medication_administration_id
+             WHERE exception_case.tenant_id = $1::uuid
+               AND administration.medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'mar_medication_exception_cases'
+          AND related_resource_id IN (
+            SELECT exception_case.id::text
+              FROM mar_medication_exception_cases exception_case
+              JOIN medication_administrations administration
+                ON administration.tenant_id = exception_case.tenant_id
+               AND administration.id = exception_case.medication_administration_id
+             WHERE exception_case.tenant_id = $1::uuid
+               AND administration.medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM mar_medication_exception_cases
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id IN (
+            SELECT id FROM medication_administrations
+             WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
     for (const table of [
       'mar_administration_command_receipts',
       'mar_transition_command_receipts',
@@ -136,7 +198,11 @@ async function cleanup() {
     await tx.$executeRawUnsafe(
       `DELETE FROM notification_outbox
         WHERE tenant_id = $1::uuid
-          AND source_event_key LIKE 'mar-supply:%'`,
+          AND source_event_key LIKE 'mar-supply:%'
+          AND payload->>'medication_administration_id' IN (
+            SELECT id::text FROM medication_administrations
+             WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+          )`,
       DEFAULT_TENANT_ID,
     ).catch(() => {});
     await tx.$executeRawUnsafe(
@@ -506,7 +572,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       DEFAULT_TENANT_ID,
       `B1-MAR-ORDER-${RUN}`,
       patientUid,
-      NURSE_UID,
+      DOCTOR_UID,
       Number(catalog.id),
     ))[0];
     clinicalOrderId = Number(order.id);

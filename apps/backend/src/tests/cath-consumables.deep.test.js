@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
 import {
   __testing__ as cathLabTesting,
   getCathConsumableInventoryReconciliation,
@@ -50,6 +50,7 @@ let wasteCatalog;
 let unmappedCatalog;
 let shortfallUsageId;
 let pharmacyOperatorSnapshots = [];
+let previousRuntimeRole;
 
 async function asRlsRole(tenantId, sql, ...params) {
   return prisma.$transaction(async (tx) => {
@@ -308,6 +309,11 @@ async function createCathInventoryReconciliationClaim(
 
 describeIfDb('NL-13 P1d cath consumables deep integration', () => {
   beforeAll(async () => {
+    previousRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    for (const role of CATH_RUNTIME_ROLES) {
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = role;
+      await ensureTenantRlsRuntimeRoleGrants();
+    }
     await cleanup();
     pharmacyOperatorSnapshots = await prisma.$queryRawUnsafe(
       `SELECT uid, is_active, status, updated_at
@@ -464,6 +470,11 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
   });
 
   afterAll(async () => {
+    if (previousRuntimeRole === undefined) {
+      delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    } else {
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
+    }
     await cleanup();
     for (const snapshot of pharmacyOperatorSnapshots) {
       await prisma.$executeRawUnsafe(

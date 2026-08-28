@@ -154,9 +154,7 @@ void main() {
     expect(captured.method, 'POST');
     expect(
       captured.url.path,
-      endsWith(
-        '/clinical/mar/42/supply-overrides/9007199254740993/reconcile',
-      ),
+      endsWith('/clinical/mar/42/supply-overrides/9007199254740993/reconcile'),
     );
     expect(captured.headers['idempotency-key'], 'mar-supply-reconcile:test');
     expect(jsonDecode(captured.body), {
@@ -167,40 +165,40 @@ void main() {
     });
   });
 
-  test('supply reconciliation rejects IDs outside database wire ranges', () async {
-    await expectLater(
-      MedicalApiService.getMarSupplyState(maId: 2147483648),
-      throwsArgumentError,
-    );
-    for (final invoke in <void Function()>[
-      () => MedicalApiService.reconcileMarSupplyOverride(
-        maId: 42,
-        consumptionId: '9223372036854775808',
-        allocations: const [
-          {'inventory_allocation_id': '7', 'quantity': 1},
-        ],
-      ),
-      () => MedicalApiService.reconcileMarSupplyOverride(
-        maId: 42,
-        consumptionId: '7',
-        allocations: const [
-          {'inventory_allocation_id': 7, 'quantity': 1},
-        ],
-      ),
-      () => MedicalApiService.reconcileMarSupplyOverride(
-        maId: 42,
-        consumptionId: '7',
-        allocations: const [
-          {
-            'inventory_allocation_id': '9223372036854775808',
-            'quantity': 1,
-          },
-        ],
-      ),
-    ]) {
-      expect(invoke, throwsArgumentError);
-    }
-  });
+  test(
+    'supply reconciliation rejects IDs outside database wire ranges',
+    () async {
+      await expectLater(
+        MedicalApiService.getMarSupplyState(maId: 2147483648),
+        throwsArgumentError,
+      );
+      for (final invoke in <void Function()>[
+        () => MedicalApiService.reconcileMarSupplyOverride(
+          maId: 42,
+          consumptionId: '9223372036854775808',
+          allocations: const [
+            {'inventory_allocation_id': '7', 'quantity': 1},
+          ],
+        ),
+        () => MedicalApiService.reconcileMarSupplyOverride(
+          maId: 42,
+          consumptionId: '7',
+          allocations: const [
+            {'inventory_allocation_id': 7, 'quantity': 1},
+          ],
+        ),
+        () => MedicalApiService.reconcileMarSupplyOverride(
+          maId: 42,
+          consumptionId: '7',
+          allocations: const [
+            {'inventory_allocation_id': '9223372036854775808', 'quantity': 1},
+          ],
+        ),
+      ]) {
+        expect(invoke, throwsArgumentError);
+      }
+    },
+  );
 
   test(
     'clinical-order MAR recovery uses the governed replay-safe endpoint',

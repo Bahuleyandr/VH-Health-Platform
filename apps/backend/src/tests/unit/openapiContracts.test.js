@@ -228,7 +228,7 @@ describe('OpenAPI contract overlays (static gate)', () => {
       'inventory_item_id', 'inventory_batch_id', 'movement_kind', 'quantity',
     ]);
     expect(movementApprovalRequest.properties.movement_kind.enum).toEqual([
-      'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
+      'transfer_out', 'adjust_decrease', 'dispose', 'expire',
     ]);
     expect(movementApprovalRequest.properties.witness_uid).toBeUndefined();
     expect(movementApprovalRequest.properties.witness_name).toBeUndefined();
@@ -252,7 +252,13 @@ describe('OpenAPI contract overlays (static gate)', () => {
           name: 'id',
           in: 'path',
           required: true,
-          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+          schema: expect.objectContaining({
+            type: 'string',
+            pattern: '^[1-9][0-9]{0,18}$',
+            minLength: 1,
+            maxLength: 19,
+            'x-maximum': '9223372036854775807',
+          }),
         }),
       ]));
       expect(finalDispense?.security).toEqual(bearerSecurity);
@@ -285,7 +291,13 @@ describe('OpenAPI contract overlays (static gate)', () => {
           name: 'id',
           in: 'path',
           required: true,
-          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+          schema: expect.objectContaining({
+            type: 'string',
+            pattern: '^[1-9][0-9]{0,18}$',
+            minLength: 1,
+            maxLength: 19,
+            'x-maximum': '9223372036854775807',
+          }),
         }),
       ]));
       expect(finalMovement?.requestBody?.content?.['application/json']?.schema).toEqual({
@@ -302,7 +314,13 @@ describe('OpenAPI contract overlays (static gate)', () => {
           name: 'id',
           in: 'path',
           required: true,
-          schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+          schema: expect.objectContaining({
+            type: 'string',
+            pattern: '^[1-9][0-9]{0,18}$',
+            minLength: 1,
+            maxLength: 19,
+            'x-maximum': '9223372036854775807',
+          }),
         }),
       ]));
       for (const operation of [

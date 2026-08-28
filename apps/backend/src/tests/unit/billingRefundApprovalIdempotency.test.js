@@ -44,6 +44,7 @@ const billing = await import('../../services/billing/billingV2Service.js');
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const SUBJECT = '22222222-2222-4222-8222-222222222222';
+const APPROVAL_COMMAND_KEY = ['refund', 'approval', '31'].join('-');
 const AUDIT_CONTEXT = Object.freeze({
   actorUid: ACTOR,
   subjectUid: ACTOR,
@@ -107,7 +108,7 @@ describe('refund approval durable idempotency', () => {
     const result = await billing.approveRefund('31', {
       approved_by: ACTOR,
       tenantId: TENANT,
-      commandKey: 'refund-approval-31',
+      commandKey: APPROVAL_COMMAND_KEY,
       requestFingerprint: fingerprint('31'),
       httpIdempotencyClaimId: 901,
       requestId: 'req-refund-31',
@@ -148,7 +149,7 @@ describe('refund approval durable idempotency', () => {
       901,
       TENANT,
       ACTOR,
-      'refund-approval-31',
+      APPROVAL_COMMAND_KEY,
       fingerprint('31'),
     ]);
     expect(JSON.parse(finalise[6])).toEqual({

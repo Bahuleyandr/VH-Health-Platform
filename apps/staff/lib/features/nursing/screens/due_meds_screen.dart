@@ -69,8 +69,9 @@ List<MarDueTransition> availableMarDueTransitions(
   bool canReleaseHold = false,
   bool canReviewException = false,
 }) {
-  final hasExceptionCase =
-      _isCanonicalPositiveBigInt(_filterText(row['exception_case_id']));
+  final hasExceptionCase = _isCanonicalPositiveBigInt(
+    _filterText(row['exception_case_id']),
+  );
   final orderIsActive = const {
     'ordered',
     'verified',

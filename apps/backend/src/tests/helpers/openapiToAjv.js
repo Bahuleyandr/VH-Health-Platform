@@ -10,6 +10,7 @@ export function toAjv(node) {
   const mapped = {};
   for (const [k, v] of Object.entries(node)) {
     if (k === 'nullable') continue;
+    if (k === 'exclusiveMinimum' && typeof v === 'boolean') continue;
     if (k === 'properties' && v && typeof v === 'object') {
       mapped.properties = Object.fromEntries(Object.entries(v).map(([pk, pv]) => [pk, toAjv(pv)]));
     } else if (k === 'items') {
@@ -19,6 +20,10 @@ export function toAjv(node) {
     } else {
       mapped[k] = v;
     }
+  }
+  if (node.exclusiveMinimum === true && typeof node.minimum === 'number') {
+    mapped.exclusiveMinimum = node.minimum;
+    delete mapped.minimum;
   }
   if (node.nullable === true) {
     // ajv treats `enum` as an INDEPENDENT constraint from `type`, so a nullable

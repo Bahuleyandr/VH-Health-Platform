@@ -580,18 +580,20 @@ class MedicalApiService {
         'must be a canonical positive signed-64 decimal string',
       );
     }
-    final normalizedAllocations = allocations.map((entry) {
-      final allocationId = entry['inventory_allocation_id'];
-      if (allocationId is! String ||
-          !_isCanonicalPositiveBigInt(allocationId)) {
-        throw ArgumentError.value(
-          allocationId,
-          'inventory_allocation_id',
-          'must be a canonical positive signed-64 decimal string',
-        );
-      }
-      return Map<String, dynamic>.from(entry);
-    }).toList(growable: false);
+    final normalizedAllocations = allocations
+        .map((entry) {
+          final allocationId = entry['inventory_allocation_id'];
+          if (allocationId is! String ||
+              !_isCanonicalPositiveBigInt(allocationId)) {
+            throw ArgumentError.value(
+              allocationId,
+              'inventory_allocation_id',
+              'must be a canonical positive signed-64 decimal string',
+            );
+          }
+          return Map<String, dynamic>.from(entry);
+        })
+        .toList(growable: false);
     return _post(
       '/clinical/mar/$maId/supply-overrides/$consumptionId/reconcile',
       {'allocations': normalizedAllocations},

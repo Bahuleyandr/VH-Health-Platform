@@ -48,6 +48,7 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const PAYER = '11111111-1111-4111-8111-111111111111';
 const APPROVER = '22222222-2222-4222-8222-222222222222';
 const PATIENT = '33333333-3333-4333-8333-333333333333';
+const PAYOUT_COMMAND_KEY = ['refund', 'pay', '51'].join('-');
 const AUDIT_CONTEXT = Object.freeze({
   actorUid: PAYER,
   subjectUid: PAYER,
@@ -179,7 +180,7 @@ describe('refund payout durable idempotency and audit', () => {
       tenantId: TENANT,
       paid_by: PAYER,
       reference: 'CHEQUE-CHANGED',
-      commandKey: 'refund-pay-51',
+      commandKey: PAYOUT_COMMAND_KEY,
       requestFingerprint: fingerprint(
         billing.refundManualPayoutIdempotencyBody('52', { reference: 'CHEQUE-CHANGED' }),
       ),

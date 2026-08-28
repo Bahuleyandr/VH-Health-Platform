@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
 
-import prisma from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
 import billingV2Routes from '../routes/billing/billingV2Routes.js';
 import * as billing from '../services/billing/billingV2Service.js';
 import * as cashDrawer from '../services/billing/cashDrawerService.js';
@@ -24,6 +24,8 @@ const PAYER = randomUUID();
 const OTHER_CASHIER = randomUUID();
 const OTHER_TENANT_CASHIER = randomUUID();
 const PHONE_BASE = String(Math.floor(100000000 + Math.random() * 899999999));
+const RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
+let previousRuntimeRole;
 
 function appFor({ uid = PAYER, role = 'FINANCE_INCHARGE' } = {}) {
   const app = express();
@@ -188,6 +190,11 @@ async function setRuntimeBypassContext(tx, role) {
 d('billing refund payout closure (migration 747 + live services)', () => {
   beforeAll(async () => {
     process.env.LEDGER_AUTHORITATIVE_MODE = 'off';
+    previousRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    for (const role of RUNTIME_ROLES) {
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = role;
+      await ensureTenantRlsRuntimeRoleGrants();
+    }
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name, settings)
        VALUES
@@ -219,6 +226,11 @@ d('billing refund payout closure (migration 747 + live services)', () => {
 
   afterAll(async () => {
     if (!DB_CONFIGURED) return;
+    if (previousRuntimeRole === undefined) {
+      delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    } else {
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
+    }
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
@@ -407,7 +419,7 @@ d('billing refund payout closure (migration 747 + live services)', () => {
     });
   });
 
-  test.each(['vhhealth_app', 'vhhealth_runtime'])(
+  test.each(RUNTIME_ROLES)(
     '%s receives exact refund and drawer columns without table DML or sequence mutation',
     async (role) => {
       const tableGrants = await prisma.$queryRawUnsafe(
@@ -760,7 +772,7 @@ d('billing refund payout closure (migration 747 + live services)', () => {
     });
   });
 
-  test.each(['vhhealth_app', 'vhhealth_runtime'])(
+  test.each(RUNTIME_ROLES)(
     '%s cannot turn the audit bypass GUC into refund, drawer, or offline-evidence authority',
     async (role) => {
       const { invoiceId: pendingInvoiceId } = await createInvoice();

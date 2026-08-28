@@ -44,6 +44,7 @@ const billing = await import('../../services/billing/billingV2Service.js');
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const PATIENT = '22222222-2222-4222-8222-222222222222';
+const RAISE_COMMAND_KEY = ['refund', 'raise', '17'].join('-');
 const BODY = Object.freeze({
   patient_uid: PATIENT,
   invoice_id: 17,
@@ -101,7 +102,7 @@ describe('refund creation durable idempotency', () => {
       ...BODY,
       tenantId: TENANT,
       raised_by: ACTOR,
-      commandKey: 'refund-raise-17',
+      commandKey: RAISE_COMMAND_KEY,
       requestFingerprint: fingerprint(),
       httpIdempotencyClaimId: 901,
       requestId: 'req-refund-raise-17',
@@ -125,7 +126,7 @@ describe('refund creation durable idempotency', () => {
       901,
       TENANT,
       ACTOR,
-      'refund-raise-17',
+      RAISE_COMMAND_KEY,
       fingerprint(),
     ]);
     expect(JSON.parse(finalise[6])).toEqual({

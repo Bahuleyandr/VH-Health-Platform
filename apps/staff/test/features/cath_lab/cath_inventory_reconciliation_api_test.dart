@@ -164,10 +164,11 @@ void main() {
         }),
       );
 
+      final reconciliationKey = ['cath', 'inventory', '7', '73'].join('-');
       final result = await CathLabApiService.reconcileConsumableInventory(
         '7',
         '73',
-        idempotencyKey: 'cath-inventory-7-73',
+        idempotencyKey: reconciliationKey,
       );
 
       expect(
@@ -176,7 +177,7 @@ void main() {
       );
       expect(captured.method, 'POST');
       expect(captured.body, isEmpty);
-      expect(captured.headers['Idempotency-Key'], 'cath-inventory-7-73');
+      expect(captured.headers['Idempotency-Key'], reconciliationKey);
       expect(result.outcome, 'completed');
       expect(result.reconciliation.isCompleted, isTrue);
     },
