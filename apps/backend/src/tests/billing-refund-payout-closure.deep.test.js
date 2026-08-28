@@ -967,7 +967,12 @@ d('billing refund payout closure (migration 747 + live services)', () => {
     const refundId = await createApprovedRefund({ invoiceId, mode: 'UPI', amount: 125 });
     const providerReference = `UPI-REFUND-${randomUUID()}`;
     const [providerClock] = await prisma.$queryRawUnsafe(
-      `SELECT clock_timestamp() AS provider_refunded_at`,
+      `SELECT date_trunc('milliseconds', approved_at) + INTERVAL '1 millisecond'
+                AS provider_refunded_at
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      refundId,
     );
     const paid = await billing.markOfflineElectronicRefundPaid(refundId, {
       tenantId: TENANT,
