@@ -40,10 +40,11 @@ import {
 } from '../services/security/tenantKekProvider.js';
 import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
 import {
-  applyProviderReceiptToCursor,
-  beginProviderAttempts,
-  recordProviderReceipt,
+  reconcileExpiredClaims,
 } from '../services/notification/notificationDeliveryLedgerService.js';
+import {
+  deliverNotificationOutboxRow,
+} from '../utils/notifications/notificationOutboxDelivery.js';
 
 // executePayrollRun loads the tenant KEK before it writes a payslip, so the
 // suite must provision one. A fresh database has none — without this the run
@@ -110,18 +111,21 @@ function mkClient(role, uid, phone) {
 // delivered — which is the point of the gate, and something a contract test
 // must satisfy the same way production does rather than route around.
 //
-// This drives the real drain seam end to end: claim → begin attempt → record an
-// acknowledged provider receipt → advance the channel cursor. Nothing is forged
-// with raw SQL; the outbox's own transition guard still refuses SENT without an
-// acknowledged receipt.
+// This drives the real drain seam end to end: recover expired claims → claim →
+// dispatch to the local in-app provider → record its acknowledged receipt →
+// advance the channel cursor → mark SENT. Nothing is forged with raw SQL; the
+// outbox's own transition guard still refuses SENT without an acknowledged
+// receipt and the provider must actually persist the staff notification.
 //
-// All four steps are load-bearing. `beginProviderAttempts` moves the per-channel
+// Every transition is load-bearing. `beginProviderAttempts` moves the per-channel
 // cursor to `delivering`, and `claimPendingBatch` refuses to claim anything while
 // a cursor sits in `delivering`/`paused_*`. Omitting the final
-// `applyProviderReceiptToCursor` therefore does not merely skip bookkeeping — it
-// wedges the channel, and every later claim in the database silently returns
-// zero rows. Claiming is also strictly contiguous per channel, so an older
-// undrained inapp row blocks ours; hence the loop.
+// the receipt application therefore does not merely skip bookkeeping — it wedges
+// the channel, and every later claim in the database silently returns zero rows.
+// Claiming is also strictly contiguous per channel, so older undrained in-app
+// rows must pass through the same production delivery path before ours; hence
+// the bounded loop. Claims for unrelated channels are released immediately so
+// this focused test never strands work it does not own.
 async function pendingRunDeliveryCount(payrollRunId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::integer AS count
@@ -142,7 +146,8 @@ async function pendingRunDeliveryCount(payrollRunId) {
   return Number(rows[0]?.count || 0);
 }
 
-async function drainInappNotifications(payrollRunId, maxRounds = 250) {
+async function drainInappNotifications(payrollRunId, maxRounds = 1000) {
+  await reconcileExpiredClaims({ tenantId: DEFAULT_TENANT_ID, limit: 250 });
   for (let round = 0; round < maxRounds; round += 1) {
     if (await pendingRunDeliveryCount(payrollRunId) === 0) return;
     const claimed = await notificationOutbox.claimPendingBatch({
@@ -150,30 +155,37 @@ async function drainInappNotifications(payrollRunId, maxRounds = 250) {
       limit: 250,
     });
     if (claimed.length === 0) break;
-    for (const row of claimed.filter((r) => r.channel === 'inapp')) {
-      const [attempt] = await beginProviderAttempts({
+    for (const row of claimed) {
+      const claimFence = {
         tenantId: DEFAULT_TENANT_ID,
-        outboxId: row.id,
         claimToken: row.claim_token,
         claimGeneration: row.claim_generation,
-        renderedIntentHash: row.rendered_intent_hash,
-        channels: ['inapp'],
-      });
-      const receipt = await recordProviderReceipt({
-        tenantId: DEFAULT_TENANT_ID,
-        attemptId: attempt.attempt_id,
-        outboxId: row.id,
-        channel: 'inapp',
-        outcome: 'acknowledged',
-        receiptSource: 'provider_response',
-        providerReference: `payroll-contract-deep:${row.id}`,
-        providerCode: 'accepted',
-        evidence: { delivered: true },
-      });
-      await applyProviderReceiptToCursor({
-        tenantId: DEFAULT_TENANT_ID,
-        receiptId: receipt.receipt_id,
-      });
+      };
+      if (row.channel !== 'inapp') {
+        await notificationOutbox.releaseClaim(row.id, 'payroll_test_inapp_only', claimFence);
+        continue;
+      }
+      const result = await deliverNotificationOutboxRow(row);
+      if (result.outcome === 'acknowledged') {
+        await notificationOutbox.markSent(row.id, claimFence);
+      } else if (result.outcome === 'rejected') {
+        const finalize = result.terminal
+          ? notificationOutbox.markTerminalFailed.bind(notificationOutbox)
+          : notificationOutbox.markFailed.bind(notificationOutbox);
+        await finalize(
+          row.id,
+          result.terminal ? 'provider_terminal_rejection' : 'provider_rejected_notification',
+          claimFence,
+        );
+      } else if (result.outcome === 'uncertain') {
+        await notificationOutbox.markReconciliationRequired(
+          row.id,
+          'provider_delivery_outcome_uncertain',
+          claimFence,
+        );
+      } else {
+        await notificationOutbox.releaseClaim(row.id, 'tenant_channel_cursor_blocked', claimFence);
+      }
     }
   }
   const remaining = await pendingRunDeliveryCount(payrollRunId);
