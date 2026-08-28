@@ -345,7 +345,8 @@ CREATE TABLE mar_medication_exception_cases (
   CONSTRAINT fk_mar_medication_exception_patient
     FOREIGN KEY (tenant_id, patient_uid)
     REFERENCES users (tenant_id, uid)
-    ON DELETE NO ACTION,
+    ON DELETE NO ACTION
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_mar_medication_exception_raised_by
     FOREIGN KEY (tenant_id, raised_by)
     REFERENCES users (tenant_id, uid)

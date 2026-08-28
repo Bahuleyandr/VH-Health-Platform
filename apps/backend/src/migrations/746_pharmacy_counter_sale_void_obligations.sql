@@ -154,7 +154,8 @@ ALTER TABLE pharmacy_counter_sale_void_requests
   ADD CONSTRAINT fk_counter_sale_void_patient_tenant
     FOREIGN KEY (tenant_id, patient_uid)
     REFERENCES users (tenant_id, uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE,
   ADD CONSTRAINT fk_counter_sale_void_requester_tenant
     FOREIGN KEY (tenant_id, requested_by)
     REFERENCES users (tenant_id, uid)

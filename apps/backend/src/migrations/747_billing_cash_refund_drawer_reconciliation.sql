@@ -119,6 +119,7 @@ ALTER TABLE billing_refunds
     FOREIGN KEY (tenant_id, patient_uid)
     REFERENCES users (tenant_id, uid)
     ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE
     NOT VALID,
   ADD CONSTRAINT fk_billing_refund_invoice_tenant_747
     FOREIGN KEY (tenant_id, invoice_id)
